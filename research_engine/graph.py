@@ -14,6 +14,7 @@ from research_engine.agents.planner import Planner
 from research_engine.agents.researcher import Researcher
 from research_engine.agents.validator import Validator
 from research_engine.agents.writer import Writer
+from research_engine.context.manager import ContextManager
 from research_engine.state import ResearchState
 
 
@@ -25,6 +26,7 @@ class DeepResearchGraph:
         self.researcher = Researcher()
         self.writer = Writer()
         self.validator = Validator()
+        self.context = ContextManager()
         self.graph = self._build()
 
     def _build(self):
@@ -63,10 +65,15 @@ class DeepResearchGraph:
     def _write(self, state: ResearchState) -> Dict[str, Any]:
         state.status = "writing"
         state.progress.append({"stage": "write", "msg": "正在生成研究报告..."})
-        report = self.writer.write(state.topic, state.subquestions, state.findings)
+        # 先压缩再写作，且压缩结果写回 state（ADR-0004）：
+        # Writer 给压缩后列表编号，Validator 用 state.findings 还原编号，
+        # 两者必须是同一份数据，否则引用校验错位。
+        compressed = self.context.compress(state.findings, state.topic)
+        report = self.writer.write(state.topic, state.subquestions, compressed)
         state.report = report
+        state.findings = compressed
         state.progress.append({"stage": "write", "msg": "报告生成完成"})
-        return {"report": report, "status": "writing", "progress": state.progress}
+        return {"report": report, "findings": compressed, "status": "writing", "progress": state.progress}
 
     def _validate(self, state: ResearchState) -> Dict[str, Any]:
         state.status = "validating"

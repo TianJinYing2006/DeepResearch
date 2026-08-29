@@ -24,15 +24,18 @@ WRITER_SYSTEM = """你是一位专业的研究报告撰写者。基于给定的�
 
 
 class Writer:
-    """报告撰写器。"""
+    """报告撰写器。
+
+    注意：Writer 不再自行压缩研究发现。压缩由 graph 的 write 节点完成并写回
+    state，确保 Writer（生成引用编号）与 Validator（还原编号）消费同一份列表。
+    见 ADR-0004。
+    """
 
     def __init__(self):
         self.router = get_router()
         self.context = ContextManager()
 
     def write(self, topic: str, subquestions: List, findings: List[ResearchFinding]) -> str:
-        # 压缩研究发现，控制上下文
-        findings = self.context.compress(findings, topic)
         context_text = self.context.format_for_writer(findings)
 
         subq_text = "\n".join(f"- {s.question}" for s in subquestions)

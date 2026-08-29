@@ -51,15 +51,36 @@ class Validator:
         return {str(i): f.source for i, f in enumerate(findings, 1)}
 
     def _extract_citations(self, report: str) -> List[dict]:
-        """从报告中提取 [来源: N] 形式的引用。"""
+        """从报告中提取 [来源: N] 形式的引用。
+
+        支持多编号引用：[来源: 5, 72, 77] 会被拆分为 3 条独立引用，
+        每条单独校验（见 ADR-0005）。仅当引用内容全部为数字 token 时
+        才拆分；含非数字内容时视为单一来源字符串原样保留，保持对
+        [来源: <真实URL>] 协议的兼容。
+        """
         citations = []
         pattern = r"\[来源:\s*([^\]]+)\]"
         for m in re.finditer(pattern, report):
             # 取论断（引用前的一段文本）
             start = max(0, m.start() - 80)
             claim = report[start:m.start()].strip().replace("\n", " ")
-            citations.append({"claim": claim, "source": m.group(1).strip()})
+            for ref in self._split_ref(m.group(1)):
+                citations.append({"claim": claim, "source": ref})
         return citations
+
+    @staticmethod
+    def _split_ref(ref: str) -> List[str]:
+        """拆分多编号引用：'5, 72, 77' -> ['5', '72', '77']。
+
+        LLM 实际输出中常见 [来源: 5, 72, 77]、[来源: 5、8]、[来源: 3和7]
+        等变体，统一按分隔符拆分。分隔符覆盖中英文逗号、顿号、分号、
+        斜杠、空格及"和"字。只有当拆出的所有 token 都是纯数字时才视为
+        多编号引用，否则整体作为单一来源字符串返回（兼容 URL 协议）。
+        """
+        tokens = [t for t in re.split(r"[,，、;；/和\s]+", ref.strip()) if t]
+        if len(tokens) > 1 and all(re.fullmatch(r"\d+", t) for t in tokens):
+            return tokens
+        return [ref.strip()]
 
     def validate(self, report: str, findings: List[ResearchFinding]) -> List[Citation]:
         """校验报告引用。"""
