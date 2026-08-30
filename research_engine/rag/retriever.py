@@ -13,6 +13,7 @@ from rank_bm25 import BM25Okapi
 
 from config import config
 from research_engine.rag.store import VectorStore
+from research_engine.rag.tokenizer import tokenize
 
 
 class HybridRetriever:
@@ -43,7 +44,7 @@ class HybridRetriever:
         payloads = self.store.scroll_all()
         self._all_texts = [p.get("text", "") for p in payloads if p.get("text")]
         if self._all_texts:
-            self._bm25 = BM25Okapi([t.split() for t in self._all_texts])
+            self._bm25 = BM25Okapi([tokenize(t) for t in self._all_texts])
         return self._all_texts
 
     def embed_query(self, query: str) -> List[float]:
@@ -64,7 +65,7 @@ class HybridRetriever:
         texts = self._load_all_texts()
         bm25_hits = []
         if self._bm25 and texts:
-            scores = self._bm25.get_scores(query.split())
+            scores = self._bm25.get_scores(tokenize(query))
             ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
             for idx in ranked[:top_k]:
                 if scores[idx] > 0:

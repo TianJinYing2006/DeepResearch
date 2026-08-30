@@ -12,6 +12,7 @@ from openai import OpenAI
 from qdrant_client.models import PointStruct
 
 from config import config
+from research_engine.rag.ids import stable_id as _stable_id
 from research_engine.rag.store import VectorStore
 
 
@@ -97,7 +98,7 @@ class DocumentIngester:
         vectors = self.embed(chunks)
         points = [
             PointStruct(
-                id=hash(f"{doc_id}:{i}") % (2**63),
+                id=_stable_id(doc_id, i),
                 vector=vectors[i],
                 payload={
                     "doc_id": doc_id,
