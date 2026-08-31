@@ -1,7 +1,7 @@
 # DeepResearch 项目约束（CONTRIBUTING）
 
 > 本文档为项目开发的**硬约束**，所有开发（含 AI 助手）必须严格遵守。
-> 飞书镜像：飞书个人文件夹 `DeepResearch 需求文档 / 约束总文档`（与本文保持一致，双轨记录）。
+> 飞书镜像：飞书个人空间文件夹 `DeepResearch 需求文档`（folder token `MYR6fazL5la0ardJdUecOBkVnd8`），含：约束总文档、需求文档模板、第N周需求文档（命名见 §5）。与本文保持一致，双轨记录。
 > 适用范围：DeepResearch 自主研究型 Agent 项目（补简历 agentic / 可观测 / 开源佐证缺口）。
 
 ---
@@ -54,8 +54,10 @@ feature/<issue>-<slug> | fix/<issue>-<slug>
 
 ## 5. 需求文档规范
 - **位置（双轨）**：
-  - 飞书：`DeepResearch 需求文档 / 需求-<编号>-<slug>`（规划活源）
-  - 仓库镜像：`docs/requirements/<编号>-<slug>.md`（与飞书同步）
+  - 飞书：个人空间文件夹 `DeepResearch 需求文档`（folder token `MYR6fazL5la0ardJdUecOBkVnd8`），含 `约束总文档`、`需求文档模板`、以及每周 `第N周需求文档`（规划活源）。
+  - 仓库镜像：`docs/requirements/<编号>-<slug>.md`（与飞书同步）。
+- **命名规范**：每周需求文档统一命名 `第N周需求文档`（N = 周序号，可加副标题说明本周主题，如 `第一周需求文档：Critic 节点化 + conditional_edge`）；`约束总文档`、`需求文档模板` 等元文档保持固定名。
+- **同步方式**：仓库 markdown 为源，用 `lark-cli docs +create --parent-token MYR6fazL5la0ardJdUecOBkVnd8` 推到飞书；旧文档删除重建（my_library 与 Drive 文件夹跨空间不可直接 move）。
 - **模板**：见 `docs/requirements/模板.md`（10 字段：元信息 / 问题背景 / 需求分析 / 当前设计 / 优化方案 / 设计策略 / 验收标准 / 影响范围与风险 / 测试策略 / 变更记录）。
 - **每次优化 / 修复 bug**：在对应需求文档「变更记录」追加（日期 + 原因 + 改动摘要 + 关联 PR/commit），并同步写一条 `docs/decisions/` ADR。
 - **周节奏**：以 Issue/需求为文档单位；周是推进节奏，需求跨周则更新状态，不强行 1:1。
