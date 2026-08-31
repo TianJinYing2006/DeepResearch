@@ -57,11 +57,17 @@ class RAGConfig:
 @dataclass
 class ResearchConfig:
     """研究流程配置（成本/质量旋钮，借鉴 dzhng 的 breadth/depth）。"""
-    max_depth: int = 5          # 多跳检索最大深度（防死循环）
+    max_depth: int = 5          # 多跳检索最大深度（防死循环）；W1 改为全局 max_total_hops 后作为单子问题语义上限保留
     breadth: int = 3            # 每轮生成的搜索查询数
     max_subquestions: int = 4   # Planner 最多分解的子问题数
-    max_concurrent: int = 3     # 并行检索数
+    max_concurrent: int = 3     # 并行检索数（W1 不启用，留 W2 与 Send 并行）
     min_sources_for_crosscheck: int = 2  # 多源印证所需最少独立来源数
+
+    # ---- W1 新增：全局预算 / 硬闸（呼应 grill Q4/Q5/Q6）----
+    max_total_hops: int = 20    # 全局总跳数上限；与旧 max_depth×max_subquestions=5×4 精确等价（Q4=A）
+    per_subq_hop_cap: int = 5   # 每子问题跳数上限 = max_total_hops/max_subquestions，防 starvation（Q5=A）
+    max_replan: int = 1         # revise 触发 Planner.replan 的最大次数，硬上限防空转（Q2-B 兜底）
+    token_budget: int = 200_000 # LLM token 总预算，作为硬闸停止条件之一（Q6-B）；正常等价预算下不先于 hop 触发
 
 
 @dataclass
