@@ -39,8 +39,9 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         response_format: Optional[Dict[str, str]] = None,
+        state: Optional[Any] = None,
     ) -> str:
-        """普通对话，返回文本内容。"""
+        """普通对话，返回文本内容。state 传入时把 token 用量累加进 state.token_used（Q6-B）。"""
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -52,18 +53,33 @@ class LLMClient:
             kwargs["response_format"] = response_format
 
         resp = self._get_client().chat.completions.create(**kwargs)
-        return resp.choices[0].message.content or ""
+        content = resp.choices[0].message.content or ""
+        if state is not None:
+            self._accumulate_usage(resp, state)
+        return content
+
+    def _accumulate_usage(self, resp, state) -> None:
+        """把响应里的 token 用量累加进 state.token_used（Q6-B 可观测+控闸）。"""
+        try:
+            u = resp.usage
+            if u is not None:
+                total = int(getattr(u, "total_tokens", 0) or 0)
+                state.token_used = getattr(state, "token_used", 0) + total
+        except Exception:  # noqa: BLE001
+            pass
 
     def chat_json(
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
+        state: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """结构化输出，返回 JSON 对象。失败时抛出异常由调用方降级。"""
+        """结构化输出，返回 JSON 对象。失败时抛出异常由调用方降级。state 传入时累加 token 用量。"""
         content = self.chat(
             messages,
             temperature=temperature,
             response_format={"type": "json_object"},
+            state=state,
         )
         # 兼容模型可能返回 ```json 包裹
         content = content.strip()

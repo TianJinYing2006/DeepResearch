@@ -5,7 +5,8 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import operator
+from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,13 +58,14 @@ class ResearchState(BaseModel):
     sufficient: bool = Field(default=False, description="critic 判研究是否充分")
     needs_replan: bool = Field(default=False, description="critic 判是否需要重分解")
     next_queries: List[Dict[str, Any]] = Field(default_factory=list, description="critic 产出的新查询，回填 frontier（Q2=A）")
-    reflection_log: List[Dict[str, Any]] = Field(default_factory=list, description="反思日志，纯追加（Q7）")
+    # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
+    reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
 
     # 报告
     report: str = Field(default="", description="最终报告")
     citations: List[Citation] = Field(default_factory=list)
 
-    # 过程追踪（用于 Web UI 实时展示）
-    progress: List[Dict[str, Any]] = Field(default_factory=list)
+    # 过程追踪（用于 Web UI 实时展示）—— Q7=A：add reducer，节点只 return 本步新增条目
+    progress: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list)
     status: str = Field(default="pending", description="pending/planning/researching/writing/validating/done/failed")
     error: Optional[str] = None

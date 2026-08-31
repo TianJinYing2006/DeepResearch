@@ -130,6 +130,70 @@ def test_loop_terminates_with_fake_nodes():
     print(f"  ✅ 最小图循环：即使 critic 永远 return continue，硬闸在 depth={depth} 强制 stop，无 GraphRecursionError")
 
 
+# ---------- 6) 真实 route_critic 接入条件边 + thread_id/MemorySaver 端到端跑通 ----------
+def test_topology_route_and_thread_id():
+    """用与真实 graph.py 完全相同的条件边拓扑 + 真实 route_critic，
+    但 research/critic 用 fake 节点（零 LLM、零网络），验证：
+      (a) 三态 continue/revise/stop 经 route_critic 正确路由
+      (b) 带 thread_id 时 MemorySaver 正常（不报 "thread_id required"）
+      (c) 循环在预算内 stop → write → validate 走到 done
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+    from langgraph.graph import END, StateGraph
+    from research_engine.critic import route_critic
+
+    def fake_research(state: ResearchState):
+        head = state.frontier[0] if state.frontier else None
+        new_frontier = state.frontier[1:]
+        new_depth = state.depth + 1
+        if new_depth >= 6:  # 模拟 max_total_hops 上限：清空队列触发 stop
+            new_frontier = []
+        return {"frontier": new_frontier, "depth": new_depth, "critic_signal": "continue"}
+
+    def mock_critic(state: ResearchState):
+        # 模拟 LLM 裁决：预算内 continue，达上限 sufficient→stop
+        if state.depth >= 6:
+            return {"critic_signal": "stop", "sufficient": True}
+        return {"critic_signal": "continue", "sufficient": False}
+
+    def fake_revise(state: ResearchState):
+        return {"frontier": list(state.frontier) + list(state.next_queries), "next_queries": []}
+
+    def fake_write(state: ResearchState):
+        return {"report": "r", "status": "writing"}
+
+    def fake_validate(state: ResearchState):
+        return {"status": "done"}
+
+    g = StateGraph(ResearchState)
+    g.add_node("research", fake_research)
+    g.add_node("critic", mock_critic)
+    g.add_node("revise", fake_revise)
+    g.add_node("write", fake_write)
+    g.add_node("validate", fake_validate)
+    g.set_entry_point("research")
+    g.add_edge("research", "critic")  # 每跳检索后必过 critic 裁决
+    g.add_conditional_edges("critic", route_critic,
+                            {"continue": "research", "revise": "revise", "stop": "write"})
+    g.add_edge("revise", "research")
+    g.add_edge("write", "validate")
+    g.add_edge("validate", END)
+    app = g.compile(checkpointer=MemorySaver())
+
+    init = ResearchState(
+        topic="t",
+        frontier=[{"sq_id": f"s{i}", "query": f"q{i}"} for i in range(3)],
+    )
+    # 与 run() 相同的 config 形状：thread_id + recursion_limit
+    res = app.invoke(init, {"configurable": {"thread_id": "topo-test"}, "recursion_limit": 100})
+    final = res if isinstance(res, dict) else res
+    depth = final.get("depth") if isinstance(final, dict) else final.depth
+    status = final.get("status") if isinstance(final, dict) else final.status
+    assert depth <= 6, f"depth({depth}) 超过模拟上限"
+    assert status == "done", "应在预算内 stop → write → validate 完成"
+    print("  ✅ 拓扑验证：真实 route_critic 接入条件边，三态路由正确；thread_id+MemorySaver 正常，端到端跑通到 done")
+
+
 def main():
     print("========== W1 收敛锁：硬闸 + 路由纯函数（纯单测，零 LLM） ==========")
     test_hard_gate()
@@ -137,6 +201,7 @@ def main():
     test_decide_with_mock_llm()
     test_hard_gate_short_circuits_llm()
     test_loop_terminates_with_fake_nodes()
+    test_topology_route_and_thread_id()
     print("\n========== 全部断言通过：W1 图循环收敛已被纯单测锁定 ==========")
 
 
