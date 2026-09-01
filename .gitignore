@@ -11,6 +11,8 @@ venv/
 # 测试/临时文件
 *.log
 .write_test
+# W1 端到端冒烟脚本（临时，不入库；本地用 Docker+Qdrant 跑 RAG 真验证时使用）
+run_e2e_smoke.py
 
 # IDE
 .idea/
