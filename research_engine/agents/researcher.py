@@ -42,15 +42,20 @@ class Researcher:
             return []
 
     def _search_rag(self, query: str) -> List[ResearchFinding]:
-        """RAG 知识库检索，返回研究发现。"""
+        """RAG 知识库检索，返回研究发现。
+
+        去重契约（Q8）：source 必须按文档身份 `rag:<filename>` 取值，
+        否则全部命中共用 rag:vector/rag:bm25 会被 visited_sources 去重饿死到 ≤2 条。
+        """
         try:
             hits = self.retriever.retrieve(query, top_k=config.rag.top_k)
             findings = []
             for h in hits:
+                doc = h.get("doc") or h.get("source") or "unknown"
                 findings.append(
                     ResearchFinding(
                         content=h["text"],
-                        source=f"rag:{h.get('source', 'vector')}",
+                        source=f"rag:{doc}",
                         source_type="rag",
                         confidence=0.7,
                     )

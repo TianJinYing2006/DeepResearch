@@ -109,6 +109,92 @@ def test_accumulate_usage_into_state():
     print("  ✅ _accumulate_usage：token 累加进 state，无 usage 时安全跳过（Q6-B 数据源正确）")
 
 
+# ---------- 4c) Q8/RAG：RAG finding 的 source 必须按文档身份（rag:<filename>），不得被去重饿死 ----------
+def test_rag_source_uses_doc_filename():
+    from research_engine.agents.researcher import Researcher
+
+    res = Researcher.__new__(Researcher)  # 不走 __init__（避免触发网络/嵌入）
+
+    class FakeRetriever:
+        def retrieve(self, query, top_k=5):
+            return [
+                {"text": "chunk A", "score": 0.90, "source": "vector", "doc": "doc_a.md"},
+                {"text": "chunk B", "score": 0.80, "source": "vector", "doc": "doc_a.md"},
+                {"text": "chunk C", "score": 0.70, "source": "bm25", "doc": "doc_b.md"},
+                {"text": "chunk D", "score": 0.60, "source": "bm25", "doc": ""},  # 无 doc 时兜底
+            ]
+
+    res.retriever = FakeRetriever()
+    fs = res._search_rag("q")
+    srcs = [f.source for f in fs]
+    assert srcs == ["rag:doc_a.md", "rag:doc_a.md", "rag:doc_b.md", "rag:bm25"], \
+        f"RAG source 应为 rag:<filename>（无 doc 兜底 rag:bm25），实际 {srcs}"
+    assert all(f.source_type == "rag" for f in fs)
+    print(f"  ✅ RAG source 按文档身份：{srcs}（不再共用 rag:vector 导致去重饿死）")
+
+
+# ---------- 4d) Q8/RAG：跨查询按 rag:<filename> 去重，不同 RAG 文档互不误伤 ----------
+def test_search_once_rag_dedup_across_queries():
+    from research_engine.agents.researcher import Researcher
+    from research_engine.state import ResearchFinding
+
+    res = Researcher.__new__(Researcher)
+    res._search_web = lambda q: []
+    res._search_rag = lambda q: [
+        ResearchFinding(content=f"r1-{q}", source="rag:doc_a.md", source_type="rag", confidence=0.7),
+        ResearchFinding(content=f"r2-{q}", source="rag:doc_b.md", source_type="rag", confidence=0.7),
+    ]
+
+    st = make_state()
+    first = res.search_once("q1", st)
+    assert {f.source for f in first} == {"rag:doc_a.md", "rag:doc_b.md"}, \
+        f"首批应保留两个不同 RAG 文档，实际 {[f.source for f in first]}"
+
+    # 模拟图把首批 source 写回 visited_sources：第二跳不应重复拉同一批 RAG 文档
+    st2 = make_state(visited_sources=[f.source for f in first])
+    second = res.search_once("q2", st2)
+    assert second == [], f"同一 RAG 文档重复检索应被 visited_sources 去重，实际 {[f.source for f in second]}"
+    print("  ✅ search_once：跨查询按 rag:<filename> 去重，不同 RAG 文档互不误伤")
+
+
+# ---------- 4e) RAG 健壮性：VectorStore 瞬时连接失败 2s 冷却降级，冷却后自动重试（不整场置灰） ----------
+def test_vectorstore_cooldown_retry():
+    import research_engine.rag.store as store_mod
+    from research_engine.rag.store import VectorStore
+
+    original_time = store_mod.time.time
+    original_client_cls = store_mod.QdrantClient
+    fake_now = [100.0]
+    calls = {"n": 0}
+
+    class FakeQdrant:
+        def __init__(self, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ConnectionError("首次连接瞬时失败")
+
+        def get_collections(self):
+            return type("R", (), {"collections": []})()
+
+        def create_collection(self, **kw):
+            pass
+
+    store_mod.time.time = lambda: fake_now[0]
+    store_mod.QdrantClient = FakeQdrant
+    try:
+        vs = VectorStore(url="http://127.0.0.1:9999", collection="t")
+        assert vs._get_client() is None, "首次失败后应进入降级"
+        assert vs._get_client() is None, "冷却期内应继续降级（不重试）"
+        fake_now[0] += 3.0  # 冷却期（2s）过后
+        client = vs._get_client()
+        assert client is not None, "冷却期过后应自动重试成功"
+        assert calls["n"] == 2, f"应恰好重试一次，实际 {calls['n']}"
+    finally:
+        store_mod.time.time = original_time
+        store_mod.QdrantClient = original_client_cls
+    print("  ✅ VectorStore：瞬时失败 2s 冷却降级，冷却后自动重试自愈（不再整场置灰）")
+
+
 # ---------- 5) 最小图循环：硬闸强制终止，无 GraphRecursionError ----------
 def test_loop_terminates_with_fake_nodes():
     from langgraph.checkpoint.memory import MemorySaver
@@ -222,6 +308,9 @@ def main():
     test_decide_with_mock_llm()
     test_hard_gate_short_circuits_llm()
     test_accumulate_usage_into_state()
+    test_rag_source_uses_doc_filename()
+    test_search_once_rag_dedup_across_queries()
+    test_vectorstore_cooldown_retry()
     test_loop_terminates_with_fake_nodes()
     test_topology_route_and_thread_id()
     print("\n========== 全部断言通过：W1 图循环收敛已被纯单测锁定 ==========")

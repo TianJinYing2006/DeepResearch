@@ -24,6 +24,7 @@ class HybridRetriever:
         self._client: OpenAI | None = None
         # 缓存所有文档块用于 BM25（简单实现，数据量小时够用）
         self._all_texts: List[str] = []
+        self._all_sources: List[str] = []  # 与 _all_texts 对齐的文档身份（文件名），供 RAG source 去重
         self._bm25: BM25Okapi | None = None
 
     def _get_client(self) -> OpenAI:
@@ -38,11 +39,13 @@ class HybridRetriever:
         return self._client
 
     def _load_all_texts(self) -> List[str]:
-        """从 Qdrant 加载全部文档块文本（用于 BM25）。"""
+        """从 Qdrant 加载全部文档块文本（用于 BM25），并同步记录每块的文档身份。"""
         if self._all_texts:
             return self._all_texts
         payloads = self.store.scroll_all()
-        self._all_texts = [p.get("text", "") for p in payloads if p.get("text")]
+        kept = [p for p in payloads if p.get("text")]
+        self._all_texts = [p["text"] for p in kept]
+        self._all_sources = [p.get("source", "") for p in kept]
         if self._all_texts:
             self._bm25 = BM25Okapi([tokenize(t) for t in self._all_texts])
         return self._all_texts
@@ -55,7 +58,11 @@ class HybridRetriever:
         return resp.data[0].embedding
 
     def retrieve(self, query: str, top_k: int | None = None) -> List[dict]:
-        """混合检索，返回 [{text, score, source}]。Qdrant 不可用时返回空。"""
+        """混合检索，返回 [{text, score, source, doc}]。
+
+        doc = 文档身份（payload.source 文件名），供上层 `rag:<filename>` 去重；
+        Qdrant 不可用时返回空。
+        """
         top_k = top_k or config.rag.top_k
         # 向量检索
         vec = self.embed_query(query)
@@ -69,7 +76,12 @@ class HybridRetriever:
             ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
             for idx in ranked[:top_k]:
                 if scores[idx] > 0:
-                    bm25_hits.append({"text": texts[idx], "score": float(scores[idx]), "source": "bm25"})
+                    bm25_hits.append({
+                        "text": texts[idx],
+                        "score": float(scores[idx]),
+                        "source": "bm25",
+                        "doc": self._all_sources[idx],
+                    })
 
         # 融合（简单加权，向量为主）
         merged: List[dict] = []
@@ -78,7 +90,12 @@ class HybridRetriever:
             text = h["payload"].get("text", "")
             if text and text not in seen:
                 seen.add(text)
-                merged.append({"text": text, "score": h["score"], "source": "vector"})
+                merged.append({
+                    "text": text,
+                    "score": h["score"],
+                    "source": "vector",
+                    "doc": h["payload"].get("source", ""),
+                })
         for h in bm25_hits:
             if h["text"] not in seen:
                 seen.add(h["text"])
