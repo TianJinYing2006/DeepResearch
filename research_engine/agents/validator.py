@@ -12,7 +12,7 @@ Validator 将编号映射回真实来源再做校验。
 from __future__ import annotations
 
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from research_engine.llm.router import get_router
 from research_engine.state import Citation, ResearchFinding
@@ -82,7 +82,7 @@ class Validator:
             return tokens
         return [ref.strip()]
 
-    def validate(self, report: str, findings: List[ResearchFinding]) -> List[Citation]:
+    def validate(self, report: str, findings: List[ResearchFinding], state: Any = None) -> List[Citation]:
         """校验报告引用。"""
         extracted = self._extract_citations(report)
         index = self._build_index(findings)
@@ -109,7 +109,7 @@ class Validator:
         user = f"研究发现：\n{findings_text}\n\n待校验引用：\n{citations_json}\n\n请输出校验结果。"
 
         try:
-            data = self.router.smart_json(VALIDATOR_SYSTEM.format(min_sources=config_min_sources()), user)
+            data = self.router.smart_json(VALIDATOR_SYSTEM.format(min_sources=config_min_sources()), user, state=state)
             result = []
             for item in data.get("citations", []):
                 result.append(

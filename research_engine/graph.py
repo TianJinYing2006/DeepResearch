@@ -87,6 +87,7 @@ class DeepResearchGraph:
             "frontier": frontier,
             "per_subq_hop": per_subq_hop,
             "status": "planning",
+            "token_used": state.token_used,  # Q6-B：planner 的 LLM token 累计写回
             "progress": [
                 {"stage": "plan", "msg": f"已分解为 {len(subs)} 个子问题，种子查询入队"}
             ],
@@ -159,6 +160,7 @@ class DeepResearchGraph:
             "sufficient": state.sufficient,
             "needs_replan": state.needs_replan,
             "next_queries": state.next_queries,
+            "token_used": state.token_used,  # Q6-B：critic 的 LLM token 累计写回
             "reflection_log": [entry],  # add reducer 追加（Q7）
             "progress": [
                 {"stage": "critic", "msg": f"depth={state.depth} 裁决={signal}"
@@ -183,6 +185,7 @@ class DeepResearchGraph:
                 "replan_count": state.replan_count + 1,
                 "needs_replan": False,
                 "next_queries": [],
+                "token_used": state.token_used,  # Q6-B：replan 的 LLM token 累计写回
                 "progress": [
                     {"stage": "revise", "msg": f"重分解：{len(new_subs)} 个子问题（replan_count={state.replan_count + 1}）"}
                 ],
@@ -193,6 +196,7 @@ class DeepResearchGraph:
             "frontier": list(state.frontier) + appended,
             "needs_replan": False,
             "next_queries": [],
+            "token_used": state.token_used,  # Q6-B：本步无新 LLM 调用，原样写回保持最新累计
             "progress": [
                 {"stage": "revise", "msg": f"换角度再搜：回填 {len(appended)} 条 next_queries"}
             ],
@@ -200,21 +204,23 @@ class DeepResearchGraph:
 
     def _write(self, state: ResearchState) -> Dict[str, Any]:
         # 先压缩再写作；压缩结果写回 state.findings（ADR-0004 引用编号契约，保持覆写语义）
-        compressed = self.context.compress(state.findings, state.topic)
-        report = self.writer.write(state.topic, state.subquestions, compressed)
+        compressed = self.context.compress(state.findings, state.topic, state)
+        report = self.writer.write(state.topic, state.subquestions, compressed, state)
         return {
             "report": report,
             "findings": compressed,  # 不加 reducer → 覆写（Q7=A）
             "status": "writing",
+            "token_used": state.token_used,  # Q6-B：writer+compress 的 LLM token 累计写回
             "progress": [{"stage": "write", "msg": "报告生成完成"}],
         }
 
     def _validate(self, state: ResearchState) -> Dict[str, Any]:
-        citations = self.validator.validate(state.report, state.findings)
+        citations = self.validator.validate(state.report, state.findings, state)
         verified = sum(1 for c in citations if c.verified)
         return {
             "citations": citations,
             "status": "done",
+            "token_used": state.token_used,  # Q6-B：validator 的 LLM token 累计写回
             "progress": [
                 {"stage": "validate",
                  "msg": f"校验完成：{verified}/{len(citations)} 条引用通过存在性校验"}

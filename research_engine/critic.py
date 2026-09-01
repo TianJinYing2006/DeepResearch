@@ -99,5 +99,6 @@ class Critic:
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
-            ]
+            ],
+            state=state,  # Q6-B：让 critic 的 LLM token 用量也累加进硬闸
         )

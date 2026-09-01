@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from research_engine.context.manager import ContextManager
 from research_engine.llm.router import get_router
@@ -35,13 +35,13 @@ class Writer:
         self.router = get_router()
         self.context = ContextManager()
 
-    def write(self, topic: str, subquestions: List, findings: List[ResearchFinding]) -> str:
+    def write(self, topic: str, subquestions: List, findings: List[ResearchFinding], state: Any = None) -> str:
         context_text = self.context.format_for_writer(findings)
 
         subq_text = "\n".join(f"- {s.question}" for s in subquestions)
         user = f"研究主题：{topic}\n\n子问题：\n{subq_text}\n\n研究发现：\n{context_text}\n\n请撰写研究报告。"
 
         try:
-            return self.router.smart_chat(WRITER_SYSTEM, user)
+            return self.router.smart_chat(WRITER_SYSTEM, user, state=state)
         except Exception:  # noqa: BLE001
             return f"# {topic}\n\n（报告生成失败，请检查 LLM 配置）"

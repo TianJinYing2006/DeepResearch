@@ -88,6 +88,27 @@ def test_hard_gate_short_circuits_llm():
     print("  ✅ 硬闸短路：frontier 空 / depth 超限时 LLM 完全不被调用（安全由代码兜底，Q3）")
 
 
+# ---------- 4b) Q6-B：LLMClient._accumulate_usage 把 token 累加进 state（可观测+控闸数据源）----------
+def test_accumulate_usage_into_state():
+    from research_engine.llm.client import LLMClient
+
+    class _Resp:
+        class usage:  # noqa: N801
+            total_tokens = 1234
+
+    st = make_state(token_used=10)
+    LLMClient()._accumulate_usage(_Resp(), st)
+    assert st.token_used == 1244, "token 必须累加进 state.token_used（Q6-B 数据源）"
+
+    # 响应无 usage 时不应报错，也不改变现有值
+    class _RespNoUsage:
+        usage = None
+
+    LLMClient()._accumulate_usage(_RespNoUsage(), st)
+    assert st.token_used == 1244, "无 usage 时应安全跳过，不改变累计值"
+    print("  ✅ _accumulate_usage：token 累加进 state，无 usage 时安全跳过（Q6-B 数据源正确）")
+
+
 # ---------- 5) 最小图循环：硬闸强制终止，无 GraphRecursionError ----------
 def test_loop_terminates_with_fake_nodes():
     from langgraph.checkpoint.memory import MemorySaver
@@ -200,6 +221,7 @@ def main():
     test_route_critic()
     test_decide_with_mock_llm()
     test_hard_gate_short_circuits_llm()
+    test_accumulate_usage_into_state()
     test_loop_terminates_with_fake_nodes()
     test_topology_route_and_thread_id()
     print("\n========== 全部断言通过：W1 图循环收敛已被纯单测锁定 ==========")
