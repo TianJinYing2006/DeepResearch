@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from research_engine.llm.router import get_router
 from research_engine.state import ResearchFinding
@@ -27,7 +27,7 @@ class ContextManager:
                 seen[key] = f
         return list(seen.values())
 
-    def compress(self, findings: List[ResearchFinding], topic: str) -> List[ResearchFinding]:
+    def compress(self, findings: List[ResearchFinding], topic: str, state: Any = None) -> List[ResearchFinding]:
         """当发现过多时，用 fast LLM 压缩为保留引用的摘要。
 
         借鉴 ODR 的 compress_research：压缩但保留引用，供 Writer 使用。
@@ -47,7 +47,7 @@ class ContextManager:
             system = "你是研究信息压缩助手。将以下关于同一来源的研究发现压缩为简洁摘要，保留关键事实与数字，不要丢失重要信息。"
             user = f"研究主题：{topic}\n\n来源：{source}\n\n内容：\n{texts}"
             try:
-                summary = router.fast_chat(system, user)
+                summary = router.fast_chat(system, user, state=state)
                 compressed.append(
                     ResearchFinding(
                         content=summary,

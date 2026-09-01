@@ -24,22 +24,22 @@ class LLMRouter:
         self._strategic = LLMClient(model=config.llm.strategic_model)
 
     # ---- fast 层：摘要、提取 ----
-    def fast_chat(self, system: str, user: str) -> str:
-        return self._fast.chat(build_messages(system, user))
+    def fast_chat(self, system: str, user: str, state: Optional[Any] = None) -> str:
+        return self._fast.chat(build_messages(system, user), state=state)
 
     # ---- smart 层：分析、写作 ----
-    def smart_chat(self, system: str, user: str) -> str:
-        return self._smart.chat(build_messages(system, user))
+    def smart_chat(self, system: str, user: str, state: Optional[Any] = None) -> str:
+        return self._smart.chat(build_messages(system, user), state=state)
 
-    def smart_json(self, system: str, user: str) -> Dict:
-        return self._smart.chat_json(build_messages(system, user))
+    def smart_json(self, system: str, user: str, state: Optional[Any] = None) -> Dict:
+        return self._smart.chat_json(build_messages(system, user), state=state)
 
     # ---- strategic 层：规划、裁决 ----
-    def strategic_chat(self, system: str, user: str) -> str:
-        return self._strategic.chat(build_messages(system, user))
+    def strategic_chat(self, system: str, user: str, state: Optional[Any] = None) -> str:
+        return self._strategic.chat(build_messages(system, user), state=state)
 
-    def strategic_json(self, system: str, user: str) -> Dict:
-        return self._strategic.chat_json(build_messages(system, user))
+    def strategic_json(self, system: str, user: str, state: Optional[Any] = None) -> Dict:
+        return self._strategic.chat_json(build_messages(system, user), state=state)
 
 
 _router: Optional[LLMRouter] = None

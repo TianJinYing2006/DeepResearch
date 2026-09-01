@@ -4,6 +4,11 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+# 本机隔离依赖（沙箱 bulk-delete guard 下用 pip --target 安装，不入库）
+.deps/
+
+# 工作区内部数据（设计 grill 记录/记忆日志等；如需入库请移入 docs/）
+.workbuddy/
 
 # 环境变量（含密钥，绝不提交）
 .env
@@ -11,6 +16,10 @@ venv/
 # 测试/临时文件
 *.log
 .write_test
+# W1 端到端冒烟脚本（临时，不入库；本地用 Docker+Qdrant 跑 RAG 真验证时使用）
+run_e2e_smoke.py
+# RAG 验证样例文档（临时，不入库）
+samples/
 
 # IDE
 .idea/

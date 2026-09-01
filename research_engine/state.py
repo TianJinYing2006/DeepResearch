@@ -5,7 +5,8 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import operator
+from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -44,13 +45,27 @@ class ResearchState(BaseModel):
 
     # 检索
     findings: List[ResearchFinding] = Field(default_factory=list)
-    visited_sources: List[str] = Field(default_factory=list, description="已访问来源，去重")
+    visited_sources: List[str] = Field(default_factory=list, description="已访问来源，去重（Q8 启用）")
+
+    # ---- W1 新增：循环 / 硬闸状态（呼应 grill Q1/Q3/Q5/Q6）----
+    frontier: List[Dict[str, Any]] = Field(default_factory=list, description="全局待检索队列，元素 {sq_id, query}")
+    depth: int = Field(default=0, description="已消耗总跳数")
+    per_subq_hop: Dict[str, int] = Field(default_factory=dict, description="每子问题已消耗跳数，防 starvation（Q5）")
+    token_used: int = Field(default=0, description="LLM token 累计消耗（Q6 观测+控闸）")
+    replan_count: int = Field(default=0, description="已触发 replan 次数（Q2-B 兜底）")
+    # critic 节点的结构化输出，供路由函数纯函数读取（Q3 分层）
+    critic_signal: str = Field(default="", description="条件边路由信号：continue/revise/stop")
+    sufficient: bool = Field(default=False, description="critic 判研究是否充分")
+    needs_replan: bool = Field(default=False, description="critic 判是否需要重分解")
+    next_queries: List[Dict[str, Any]] = Field(default_factory=list, description="critic 产出的新查询，回填 frontier（Q2=A）")
+    # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
+    reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
 
     # 报告
     report: str = Field(default="", description="最终报告")
     citations: List[Citation] = Field(default_factory=list)
 
-    # 过程追踪（用于 Web UI 实时展示）
-    progress: List[Dict[str, Any]] = Field(default_factory=list)
+    # 过程追踪（用于 Web UI 实时展示）—— Q7=A：add reducer，节点只 return 本步新增条目
+    progress: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list)
     status: str = Field(default="pending", description="pending/planning/researching/writing/validating/done/failed")
     error: Optional[str] = None

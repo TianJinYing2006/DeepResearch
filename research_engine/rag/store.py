@@ -6,6 +6,7 @@ Qdrant 连接采用懒加载，连接失败时优雅降级（RAG 检索返回空
 """
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
 from qdrant_client import QdrantClient
@@ -22,21 +23,32 @@ class VectorStore:
         self.collection = collection or config.rag.collection
         self._client: Optional[QdrantClient] = None
         self._available: Optional[bool] = None
+        self._last_fail_at: float = 0.0
 
     def _get_client(self) -> Optional[QdrantClient]:
-        """懒加载并测试连接。连接失败返回 None（降级）。"""
-        if self._available is False:
+        """懒加载并测试连接。连接失败时进入 2s 冷却降级，冷却后自动重试。
+
+        关键：不把一次瞬时失败永久缓存为不可用（否则整场研究进程的 RAG
+        全部降级为空），也不在冷却期内反复对不可达服务做超时重试。
+        """
+        if self._client is not None:
+            return self._client
+        if self._available is False and time.time() - self._last_fail_at < 2.0:
             return None
-        if self._client is None:
+        try:
             try:
                 client = QdrantClient(url=self.url, check_compatibility=False)
-                client.get_collections()  # 测试连接
-                self._client = client
-                self._available = True
-                self._ensure_collection()
-            except Exception:  # noqa: BLE001
-                self._available = False
-                self._client = None
+            except TypeError:
+                # qdrant_client 旧版（<1.12）无 check_compatibility kwarg，回退裸构造
+                client = QdrantClient(url=self.url)
+            client.get_collections()  # 测试连接
+            self._client = client
+            self._available = True
+            self._ensure_collection()
+        except Exception:  # noqa: BLE001
+            self._available = False
+            self._last_fail_at = time.time()
+            self._client = None
         return self._client
 
     def _ensure_collection(self):
