@@ -19,6 +19,10 @@ from config import config
 class LLMClient:
     """OpenAI 兼容的 LLM 客户端，封装百炼 Qwen 调用。"""
 
+    # W3（grill Q3=D'）：类级无条件计数（跨所有 agent 实例共享累计，不管 state 是否传入）。
+    # 按 run 对齐后与 state.token_used 差值为"漏传 state 的调用路径累计"——单点记账自动暴露漏计。
+    tokens_total = 0
+
     def __init__(self, model: Optional[str] = None):
         self.model = model or config.llm.smart_model
         self._client: Optional[OpenAI] = None
@@ -60,12 +64,18 @@ class LLMClient:
         return content
 
     def _accumulate_usage(self, resp, state) -> None:
-        """把响应里的 token 用量累加进 state.token_used（Q6-B 可观测+控闸）。"""
+        """把响应里的 token 用量累加进 state.token_used（Q6-B 可观测+控闸）。
+
+        W3（Q3=D'）：tokens_total（类级）**无条件**累加（不管 state 是否传入）；
+        state.token_used 只累加传 state 的调用。按 run 对齐后差值 = 漏传 state 的调用路径累计。
+        """
         try:
             u = resp.usage
             if u is not None:
                 total = int(getattr(u, "total_tokens", 0) or 0)
-                state.token_used = getattr(state, "token_used", 0) + total
+                LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
+                if state is not None:
+                    state.token_used = getattr(state, "token_used", 0) + total
         except Exception:  # noqa: BLE001
             pass
 

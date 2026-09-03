@@ -15,10 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 
 from research_engine.graph import create_graph
+from research_engine.observability import status_line  # W3（Q4）：知情打印
 
 st.set_page_config(page_title="DeepResearch 深度研究 Agent", layout="wide")
 st.title("🔍 DeepResearch 深度研究 Agent")
 st.caption("多 Agent 编排 + 多跳检索 + RAG 多源融合 + 交叉验证防幻觉")
+st.sidebar.caption(status_line())  # W3（Q4=知情行）：数据去向 + 脱敏策略
 
 # 侧边栏：文档摄取
 with st.sidebar:

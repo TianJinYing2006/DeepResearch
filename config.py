@@ -5,7 +5,7 @@
 """
 import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 from dotenv import load_dotenv
 
@@ -32,6 +32,15 @@ class LLMConfig:
 
     temperature: float = 0.2
     max_tokens: int = 4096
+
+    # W3（grill Q6）：分层定价表（元/1K tokens，取 output 最贵档做保守上界）。
+    # ⚠️ 价格有时效，默认值以阿里云官网为准，失效请更新——不要相信任何写死的长期价。
+    pricing: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        "qwen-turbo": {"input": 0.0003, "output": 0.0006},
+        "qwen-plus": {"input": 0.0008, "output": 0.002},
+        "qwen-max": {"input": 0.0024, "output": 0.0096},
+        "deepseek-r1": {"input": 0.003, "output": 0.012},  # 预留 W4 强推理切换
+    })
 
 
 @dataclass
@@ -71,11 +80,28 @@ class ResearchConfig:
 
 
 @dataclass
+class LangfuseConfig:
+    """Langfuse 可观测配置（W3，grill Q4/Q6/Q7 定稿）。
+
+    三态开关（Q4）：enabled=auto 时三件套齐备即自动启用；enabled=false 强制禁用；
+    缺任一 key 自动降级（零外发）。禁用态下 observability 不会 import langfuse.openai。
+    """
+    public_key: str = field(default_factory=lambda: _env("LANGFUSE_PUBLIC_KEY"))
+    secret_key: str = field(default_factory=lambda: _env("LANGFUSE_SECRET_KEY"))
+    host: str = field(default_factory=lambda: _env("LANGFUSE_HOST", "https://cloud.langfuse.com"))
+    enabled: str = field(default_factory=lambda: _env("LANGFUSE_ENABLED", "auto").lower())
+    sample_rate: float = field(default_factory=lambda: float(_env("LANGFUSE_SAMPLE_RATE", "1.0")))
+    mask_sensitive: bool = field(default_factory=lambda: _env("LANGFUSE_MASK_SENSITIVE", "false").lower() == "true")
+    truncate_len: int = 4000  # Q7：常量级配置（策略进代码，不见开关）
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     research: ResearchConfig = field(default_factory=ResearchConfig)
+    langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
 
 
 config = Config()
