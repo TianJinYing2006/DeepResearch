@@ -127,3 +127,10 @@
 | 2026-09-03 | 设计定稿 | grill Q6 拍板（含外部建议 B1' 审视修正） | **TBD-6 终判**：默认全采 + `LANGFUSE_SAMPLE_RATE` 逃生门；双轨成本口径（`state.token_used` + config 分层定价表按官网价维护标注时效 + 保守上界/人民币为主；W5 复用同表）；体积闭环（span input ≤200 字符 + mask 4000 兜底，payload 恒定） | 本文档 |
 | 2026-09-03 | 设计定稿 | grill Q7 拍板，7 项待定项全部清零 | **TBD-7 终判**：`LangfuseConfig` 7 字段（截断常量进代码不进配置）+ `.env.example` 6 变量 + README「可观测性」/面试演示资产/简历回填口径（落地才写）；DoD §7 与测试策略 §9 按 Q1~Q7 完整填充 | 本文档 |
 | 2026-09-03 | 实现完成 | grill 定稿后落地（并行会话完成，本会话验证） | 实现 commit `7b61ab3`(dev)：observability.py(214 行) + config `LangfuseConfig`/分层 `pricing` + `LLMClient.tokens_total`(Q3 D') + graph 7 节点 span 包裹(C1') + cli 收尾(Q5/Q6) + conftest 三重隔离 + test_observability 15 项；**pytest 38 passed**；两处 4.x 落地修正：trace id 用官方 `create_trace_id(seed=...)` 生成 32-hex（文档原拼串含下划线不合规）、mask 回调签名 `(*, data)` | `7b61ab3` |
+
+## 11. 实现与冒烟记录（2026-09-04）
+- 实现：commit `7b61ab3`（dev，pytest 38 全绿）；README「可观测性」小节见 `e9722e3`；缺 key 降级冒烟通过（知情打印已禁用 + fail-silent）。
+- **真实 trace 冒烟（LANGFUSE_* 三件套 → jp.cloud.langfuse.com）**：✅ PASS——trace `093f7bda598843025160a16161802c28`（32-hex，name=`deepresearch: 2026年RAG技术进展`）；**span 序列完整**：规划 → R1-检索 → R1-裁决 → R1-修订 → R2-检索 → R2-裁决 → 写作 → 校验 → 渲染（17 观测点 = 10 span + 5 generation）；CLI 回显 trace URL + 成本行 ≤¥0.32（26,972 tokens）+ 对账行一致；引用校验 43/43 双口径通过；运行溯源 2 跳/revise 1/replan 1/web 8/rag 6。验证脚本 `tools/verify_w3_trace.py`（解析日志 → Langfuse API 核对 → 断言）。
+- **⚠️ 待办 W3.2（真实冒烟暴露的两个实现偏差）**：
+  1. **generation 正文未记录**：Langfuse API 侧 5 个 generation 的 `input/output` 均为 2 字符（疑似 `{}`）——`langfuse.openai` 包装器未抓到 prompt/completion（Q1 承诺"自动记录 prompts/completions"未兑现）；面试若展示"每次调用的输入输出回放"会缺料。应对：查包装器参数解析（openai v1 request payload 结构）或降级为 client.py 单点手动 `create_generation` 兜底。
+  2. **usage 拆分/计量异常**：每个 generation `input:0 output:0 total>0`，且 5 个 total 合计 54,480 = 本地 27,240 的 **2 倍**——包装器对 openai v1 `usage`（prompt_tokens/completion_tokens/total_tokens）解析不兼容。影响面：**成本展示走本地口径（Q6 已定，不受影响）**、硬闸走本地（不受影响）；仅 Langfuse 控制台 usage/cost 列不准（面试演示以本地 + trace 结构为主即可）。应对：升级/降级 langfuse 复测，或 client 层补充修正。
