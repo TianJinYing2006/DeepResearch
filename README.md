@@ -13,6 +13,7 @@
 | **RAG 多源融合** | 网络搜索（博查）+ 私有知识库（Qdrant 混合检索：向量 + BM25）双路召回 |
 | **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级 |
 | **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划），初始全用便宜模型，可配置升级 |
+| **全链路可观测** | Langfuse trace：7 节点 span（含 critic 循环逐跳）+ 每次 LLM 调用 generation（token/cost），CLI/Web 知情打印 + trace URL 回显 |
 | **评测体系** | 检索命中率 + 引用准确率 + 报告质量（LLM-as-judge）三重评测 |
 
 ## 架构
@@ -60,6 +61,19 @@ cp .env.example .env
 可选：
 - `QDRANT_URL`：Qdrant 地址（默认 `http://127.0.0.1:6333`）
 - `FAST_MODEL` / `SMART_MODEL` / `STRATEGIC_MODEL`：三层模型（默认 qwen-turbo / qwen-plus / qwen-plus）
+
+### 3.1 可观测性（Langfuse，可选）
+
+> **三态开关**：`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` **三件套齐备即自动启用**（trace 上报）；设 `LANGFUSE_ENABLED=false` 可强制禁用（CI/单测默认已禁用，零外发）；缺任一 key 自动降级，主流程零影响。
+
+启用后：
+- CLI/Web 启动打印**知情行**（数据去向 + 脱敏策略）；
+- CLI 运行结束回显 **trace URL**（Langfuse 控制台可回放完整 span 树）；
+- 控制台展示每次 LLM 调用的 usage 与成本（Qwen 未内置定价时 cost 列为空，成本以本地守恒口径为准）。
+
+脱敏默认策略：节点 span 只记录截断输入（≤200 字符）；LLM 调用正文单字段 >4000 字符截断；敏感替换默认关闭（避免误伤论文/代码中的数字信息），需要时设 `LANGFUSE_MASK_SENSITIVE=true`。
+
+开源逃生门：若观测事件超限，设 `LANGFUSE_SAMPLE_RATE=0.1` 采样（默认 1.0 全采）。
 
 ### 4. 启动 Qdrant
 
