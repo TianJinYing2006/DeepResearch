@@ -1,6 +1,6 @@
 # 需求-4-tools-and-strategic-model
 
-> 飞书镜像：待创建（DeepResearch 需求文档 / 第四周需求文档）
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/KALRdCXwSoWI8hxMPtvcxoZTnBf（DeepResearch 需求文档 / 第四周需求文档）
 > 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合
 > 重排说明：原计划（deepresearch-plan.md §4）W4 即「工具集齐 + 强推理切换」；W2 引用溯源、W3 Langfuse 已先行。
 > 本稿为 **grill 前初始版**：明确区域已写实，未定区域以 **TBD-N** 标注，待逐项拷问拍板。

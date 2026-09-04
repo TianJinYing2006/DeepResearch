@@ -10,9 +10,9 @@
 |------|------|
 | **多 Agent 编排** | Planner（分解子问题）→ Researcher（多跳检索）→ Writer（生成报告）→ Validator（引用校验），LangGraph 状态机驱动 |
 | **多跳检索** | 基于"信息充分度"动态判断是否继续检索，上限 5 跳防死循环 |
-| **RAG 多源融合** | 网络搜索（博查）+ 私有知识库（Qdrant 混合检索：向量 + BM25）双路召回 |
-| **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级 |
-| **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划），初始全用便宜模型，可配置升级 |
+| **RAG 多源融合** | 网络搜索（博查）+ arXiv 学术检索 + 代码执行 + 私有知识库（Qdrant 混合检索）四路证据并行召回 |
+| **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级（W2：来源类型标注/失败隔离/运行溯源四桶） |
+| **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划+裁决，W4 拆 planner/critic 分档可配强推理） |
 | **全链路可观测** | Langfuse trace：7 节点 span（含 critic 循环逐跳）+ 每次 LLM 调用 generation（token/cost），CLI/Web 知情打印 + trace URL 回显 |
 | **评测体系** | 检索命中率 + 引用准确率 + 报告质量（LLM-as-judge）三重评测 |
 
@@ -23,10 +23,11 @@
   │
   ├─ [Planner]      分解为子问题（strategic LLM）
   │
-  ├─ [Researcher]   对每个子问题动态多跳检索
-  │     ├─ 网络搜索（博查，可切换 Provider）
-  │     └─ RAG 知识库（Qdrant 向量 + BM25 混合检索）
-  │     └─ 信息充分度判断 → 决定是否继续下一跳
+  ├─ [Researcher]   对每个查询并行全工具检索（W4）
+  │     ├─ 网络搜索（博查）+ arXiv 学术检索（官方 API 直连）
+  │     ├─ RAG 知识库（Qdrant 向量 + BM25 混合检索）
+  │     └─ 代码执行（受限沙箱，计算型查询自动触发）→ 结果池择优 Top-10
+  │     └─ [Critic] 信息充分度裁决（hard_gate 硬闸 + LLM）→ continue/revise/stop 条件边
   │
   ├─ [Writer]       基于研究发现生成带引用报告（smart LLM）
   │
@@ -61,6 +62,19 @@ cp .env.example .env
 可选：
 - `QDRANT_URL`：Qdrant 地址（默认 `http://127.0.0.1:6333`）
 - `FAST_MODEL` / `SMART_MODEL` / `STRATEGIC_MODEL`：三层模型（默认 qwen-turbo / qwen-plus / qwen-plus）
+- `PLANNER_MODEL` / `CRITIC_MODEL`（W4 分档）：规划与裁决各自独立模型；不设则回落 `STRATEGIC_MODEL`。演示强推理时：`PLANNER_MODEL=qwen-max`（规划只跑 1 次，成本增量 ≈ +¥0.007/run）；`CRITIC_MODEL=deepseek-r1` 注意裁决每轮 +10~30s 延迟——演示建议 `qwen-max` 够用。
+
+### 3.2 工具：arXiv 学术检索 + 代码执行（W4）
+
+**arXiv**：零配置可用（官方 API 直连，无需 key；自动 3s 间隔限流）。查询命中计算/复杂度/数值关键词时自动触发代码执行。
+
+**代码执行沙箱**（三层纵深，默认安全栈）：
+- subprocess `python -I -E -S` 隔离执行（不加载 site-packages = 天然依赖白名单）+ `timeout=15s` + 输出 128KB 截断 + 并发上限 2；
+- AST import 白名单：仅 `{math, statistics, itertools, functools, decimal, fractions, collections, typing, random}`；
+- PEP 578 Audit Hook 运行时拦截（网络/进程/破坏操作拒绝；文件读写仅允许沙箱临时目录内——cwd 外**读**也拒，防偷读 `.env`）。
+- 可选增强（默认关）：`CODE_EXEC_USE_JOB=true` 启用 Windows Job Object 进程级内存/CPU 配额（开源前需验证，见 DoD）。
+
+**Semantic Scholar 引用补全**（可选）：设 `SEMANTIC_SCHOLAR_API_KEY` 后，arXiv 论文的 `citationCount` 回填进报告溯源（"只采不决策"——不加权证据排序）；无 key 整条静默跳过。
 
 ### 3.1 可观测性（Langfuse，可选）
 
