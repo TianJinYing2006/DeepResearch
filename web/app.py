@@ -93,6 +93,10 @@ if st.button("开始研究", type="primary"):
                     badge = "🔵web"
                 elif c.source_type == "rag":
                     badge = f"🟢rag：{c.source}"
+                elif c.source_type == "arxiv":
+                    badge = "🔬arxiv"  # W4 Q6
+                elif c.source_type == "code_exec":
+                    badge = "💻code"   # W4 Q6
                 note = f" — 原因: {c.note}" if (not c.verified and c.note) else ""
                 st.write(f"{icon} **{c.claim[:100]}** — {badge or c.source}{note}")
         else:
@@ -105,8 +109,11 @@ if st.button("开始研究", type="primary"):
         signals = Counter(p.get("signal", "") for p in result.reflection_log)
         vs = result.visited_sources
         rag_count = sum(1 for s in vs if str(s).startswith("rag:"))
+        arxiv_count = sum(1 for s in vs if str(s).startswith("https://arxiv.org/"))  # W4 Q6
+        code_count = sum(1 for s in vs if str(s).startswith("code:"))                # W4 Q6
+        web_count = len(vs) - rag_count - arxiv_count - code_count
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("检索总跳数", result.depth)
         m2.metric("critic 决策", f"继续 {signals.get('continue', 0)} / 重来 {signals.get('revise', 0)} / 停止 {signals.get('stop', 0)}")
-        m3.metric("web / rag 命中", f"{len(vs) - rag_count} / {rag_count}")
+        m3.metric("web/rag/arxiv/code", f"{web_count} / {rag_count} / {arxiv_count} / {code_count}")
         m4.metric("Token 消耗", result.token_used)

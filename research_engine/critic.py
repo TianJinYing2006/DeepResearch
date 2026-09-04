@@ -107,7 +107,8 @@ class Critic:
             f"请判断：发现是否已充分支撑报告？若需换角度，给出 next_queries（带 sq_id）；"
             f"若方向跑偏，needs_replan=true。"
         )
-        client = LLMClient(model=config.llm.smart_model)
+        # W4 Q7：裁决归位 critic_model（修复 W3 前硬编码 smart_model 的现状 bug——裁决属 strategic 层）
+        client = LLMClient(model=config.llm.critic_model)
         return client.chat_json(
             [
                 {"role": "system", "content": system},

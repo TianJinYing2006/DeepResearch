@@ -144,17 +144,20 @@ def test_search_once_rag_dedup_across_queries():
         ResearchFinding(content=f"r1-{q}", source="rag:doc_a.md", source_type="rag", confidence=0.7),
         ResearchFinding(content=f"r2-{q}", source="rag:doc_b.md", source_type="rag", confidence=0.7),
     ]
+    res.arxiv = type("FakeArxiv", (), {"search": lambda self, q: type("R", (), {"results": []})()})()
 
     st = make_state()
-    first = res.search_once("q1", st)
+    first, _stats = res.search_once("q1", st)
     assert {f.source for f in first} == {"rag:doc_a.md", "rag:doc_b.md"}, \
         f"首批应保留两个不同 RAG 文档，实际 {[f.source for f in first]}"
 
-    # 模拟图把首批 source 写回 visited_sources：第二跳不应重复拉同一批 RAG 文档
+    # W4 契约变更：search_once 不再内部去重（去重职责在 graph._research 的 merged_visited）——
+    # 第二跳仍返回两个 RAG 文档；"跨查询去重"由 graph 层按 visited_sources 完成（下见 4f 图级断言）
     st2 = make_state(visited_sources=[f.source for f in first])
-    second = res.search_once("q2", st2)
-    assert second == [], f"同一 RAG 文档重复检索应被 visited_sources 去重，实际 {[f.source for f in second]}"
-    print("  ✅ search_once：跨查询按 rag:<filename> 去重，不同 RAG 文档互不误伤")
+    second, _s2 = res.search_once("q2", st2)
+    assert {f.source for f in second} == {"rag:doc_a.md", "rag:doc_b.md"}, \
+        f"W4 后 search_once 返回池化产出（不去重），实际 {[f.source for f in second]}"
+    print("  ✅ search_once（W4）：并行池化产出，去重职责在 graph 层")
 
 
 # ---------- 4e) RAG 健壮性：VectorStore 瞬时连接失败 2s 冷却降级，冷却后自动重试（不整场置灰） ----------

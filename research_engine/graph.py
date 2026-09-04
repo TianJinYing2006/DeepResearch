@@ -136,12 +136,12 @@ class DeepResearchGraph:
                 ],
             }
 
-        # 单跳检索（基于 state.visited_sources 去重，Q8 启用）
+        # 单跳检索（W4：并行全工具 + 结果池择优；visited_sources 去重在本节点）
         # W3（Q2=C1'）：每跳一个扁平 span，轮次前缀 R{k}，metadata 带 depth/sq_id/query
         with span_node(f"R{state.depth + 1}-检索", node="research",
                        input={"query": (query or "")[:200]},
                        depth=state.depth + 1, sq_id=sq_id or "", query=(query or "")[:200]):
-            new_findings = self.researcher.search_once(query, state)
+            new_findings, tool_stats = self.researcher.search_once(query, state)
 
         merged_findings = list(state.findings) + new_findings
         seen = set(state.visited_sources)
@@ -151,6 +151,14 @@ class DeepResearchGraph:
         new_depth = state.depth + 1
         per_subq_hop[sq_id] = per_subq_hop.get(sq_id, 0) + 1
 
+        # W4 Q8：状态快照消息（新增条数 / 工具明细 / 累计条数 / hop 进度）——零新增 state 字段
+        tool_detail = " / ".join(
+            f"{k} {tool_stats.get(k, 0)}" + ("(失败)" if k == "code" and tool_stats.get("code_failed", 0) else "")
+            for k in ("web", "rag", "arxiv", "code") if k in tool_stats
+        )
+        snapshot = (f"第 {new_depth}/{rc.max_total_hops} 跳 [{sq_id}]："
+                    f"+{len(new_findings)} 条新发现（{tool_detail}），累计 {len(merged_findings)} 条")
+
         return {
             "frontier": frontier,  # 已弹出 head
             "findings": merged_findings,
@@ -159,7 +167,7 @@ class DeepResearchGraph:
             "per_subq_hop": per_subq_hop,
             "status": "researching",
             "progress": [
-                {"stage": "research", "msg": f"第 {new_depth} 跳 [{sq_id}]：{query} → {len(new_findings)} 条新发现"}
+                {"stage": "research", "msg": snapshot},
             ],
         }
 

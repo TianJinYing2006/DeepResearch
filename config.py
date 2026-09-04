@@ -20,7 +20,9 @@ def _env(key: str, default: str = "") -> str:
 class LLMConfig:
     """三层 LLM 分级配置（借鉴 gpt-researcher 的 FAST/SMART/STRATEGIC）。
 
-    初始阶段全部用便宜的 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max。
+    W4（grill Q7）：分档配置——planner_model / critic_model 独立可配，
+    默认均回落 STRATEGIC_MODEL（qwen-plus），保 W3 实测基线；
+    strategic_model 保留为 planner_model 的兼容别名（router.strategic_* 继续服务 planner）。
     """
     base_url: str = field(default_factory=lambda: _env("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
     api_key: str = field(default_factory=lambda: _env("DASHSCOPE_API_KEY"))
@@ -28,6 +30,10 @@ class LLMConfig:
     # 三层分级：fast（摘要/提取）、smart（分析/写作）、strategic（规划/裁决）
     fast_model: str = field(default_factory=lambda: _env("FAST_MODEL", "qwen-turbo"))
     smart_model: str = field(default_factory=lambda: _env("SMART_MODEL", "qwen-plus"))
+    # W4 Q7：分档。优先各自 env，未设回落 STRATEGIC_MODEL（向后兼容单档配置）
+    planner_model: str = field(default_factory=lambda: _env("PLANNER_MODEL", _env("STRATEGIC_MODEL", "qwen-plus")))
+    critic_model: str = field(default_factory=lambda: _env("CRITIC_MODEL", _env("STRATEGIC_MODEL", "qwen-plus")))
+    # 兼容别名（W4 Q7）：strategic_model 语义 = planner_model，env 读 STRATEGIC_MODEL
     strategic_model: str = field(default_factory=lambda: _env("STRATEGIC_MODEL", "qwen-plus"))
 
     temperature: float = 0.2
@@ -49,6 +55,20 @@ class SearchConfig:
     provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "bocha"))
     bocha_api_key: str = field(default_factory=lambda: _env("BOCHA_API_KEY"))
     max_results: int = 8
+    # W4 Q3：Semantic Scholar 后处理管道（可选，缺 key 静默跳过；citationCount 只采不决策）
+    semantic_scholar_api_key: str = field(default_factory=lambda: _env("SEMANTIC_SCHOLAR_API_KEY"))
+
+
+@dataclass
+class CodeExecConfig:
+    """W4 Q2 代码执行沙箱配置（三层纵深：subprocess -I -E -S + AST 白名单 + Audit Hook）。
+
+    Windows 现实：resource 模块 Unix-only，timeout 是唯一可靠 kill；Job Object 走可选开关。
+    """
+    timeout: int = 15                      # wall-clock 超时（秒），Windows 唯一可靠 kill 手段
+    max_output_bytes: int = 128 * 1024     # stdout/stderr 各截断上限，超限标 [TRUNCATED]
+    concurrency: int = 2                   # code 同时执行上限（信号量默认 2，可配 4；防 CPU 密集抢占主进程）
+    use_job_object: bool = field(default_factory=lambda: _env("CODE_EXEC_USE_JOB", "false").lower() == "true")  # Windows Job Object 可选增强
 
 
 @dataclass
@@ -102,6 +122,7 @@ class Config:
     rag: RAGConfig = field(default_factory=RAGConfig)
     research: ResearchConfig = field(default_factory=ResearchConfig)
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
+    code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
 
 
 config = Config()

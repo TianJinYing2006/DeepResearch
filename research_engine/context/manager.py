@@ -48,6 +48,16 @@ class ContextManager:
             user = f"研究主题：{topic}\n\n来源：{source}\n\n内容：\n{texts}"
             try:
                 summary = router.fast_chat(system, user, state=state)
+                # W4 Q5：构造时透传 metadata（合并语义：citation_count 取 max / retry_history 拼接 / 其余键并集）
+                meta: dict = {}
+                for f in group:
+                    for k, v in (f.metadata or {}).items():
+                        if k == "citation_count" and isinstance(v, (int, float)):
+                            meta[k] = max(meta.get(k, 0), v)
+                        elif k == "retry_history" and isinstance(v, list):
+                            meta[k] = meta.get(k, []) + v
+                        else:
+                            meta.setdefault(k, v)
                 compressed.append(
                     ResearchFinding(
                         content=summary,
@@ -55,6 +65,7 @@ class ContextManager:
                         source_type=group[0].source_type,
                         confidence=max(f.confidence for f in group),
                         is_meta=any(f.is_meta for f in group),  # R2.4 Q5=A：压缩后不透传会丢标
+                        metadata=meta,  # W4 Q5：metadata 不透传会丢 citation_count/retry_history
                     )
                 )
             except Exception:  # noqa: BLE001

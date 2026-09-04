@@ -13,11 +13,13 @@ from typing import List
 
 @dataclass
 class SearchResult:
-    """单条搜索结果。"""
+    """单条搜索结果。W4：metadata 桶承载工具特有元数据（如 arxiv 的 arxiv_id/primary_category），
+    由 researcher 转 ResearchFinding.metadata（统一证据抽象，Q3）。"""
     title: str
     url: str
     snippet: str
     source: str = "web"
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -59,6 +59,10 @@ class ReportRenderer:
                     label = "🔵web"
                 elif f.source_type == "rag":
                     label = f"🟢rag：{f.source}"
+                elif f.source_type == "arxiv":
+                    label = "🔬arxiv"  # W4 Q6：新来源类型图标
+                elif f.source_type == "code_exec":
+                    label = "💻code"   # W4 Q6
                 else:
                     label = f.source_type
                 marks = []
@@ -120,16 +124,22 @@ class ReportRenderer:
     # ---- R2.5：运行溯源 block ----
 
     def build_run_provenance(self, state: Any) -> str:
-        """运行溯源块：总跳数 / critic 决策计数 / web-rag 命中 / token / replan（取自 state）。"""
+        """运行溯源块：总跳数 / critic 决策计数 / 工具命中四桶 / token / replan（取自 state）。
+
+        W4 Q6：两桶（rag/其余=web）会把 arxiv(abs URL)/code(code:hash) 误算进 web——
+        改四桶分前缀统计。
+        """
         signals = Counter(entry.get("signal", "") for entry in getattr(state, "reflection_log", []) or [])
         vs = list(getattr(state, "visited_sources", []) or [])
         rag_count = sum(1 for s in vs if str(s).startswith("rag:"))
-        web_count = len(vs) - rag_count
+        arxiv_count = sum(1 for s in vs if str(s).startswith("https://arxiv.org/"))
+        code_count = sum(1 for s in vs if str(s).startswith("code:"))
+        web_count = len(vs) - rag_count - arxiv_count - code_count  # 无前缀即 web
         return (
             "\n\n---\n## 📊 运行溯源\n"
             f"- **检索总跳数**：{getattr(state, 'depth', 0)}\n"
             f"- **Critic 决策**：continue {signals.get('continue', 0)} / revise {signals.get('revise', 0)} / stop {signals.get('stop', 0)}\n"
-            f"- **命中来源**（visited_sources 去重后）：web {web_count} / rag {rag_count}\n"
+            f"- **命中来源**（visited_sources 去重后）：web {web_count} / rag {rag_count} / arxiv {arxiv_count} / code {code_count}\n"
             f"- **Token 消耗**：{getattr(state, 'token_used', 0)}\n"
             f"- **Replan 次数**：{getattr(state, 'replan_count', 0)}"
         )

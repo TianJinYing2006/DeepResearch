@@ -21,10 +21,13 @@ class SubQuestion(BaseModel):
 class ResearchFinding(BaseModel):
     """单条研究发现（带来源）。"""
     content: str = Field(description="研究发现内容")
-    source: str = Field(description="来源（URL 或文档 ID）")
-    source_type: str = Field(description="来源类型：web / rag")
+    source: str = Field(description="来源（URL 或文档 ID 或 code:hash）")
+    source_type: str = Field(description="来源类型：web / rag / arxiv / code_exec")
     confidence: float = Field(default=0.5, description="置信度 0-1")
     is_meta: bool = Field(default=False, description="是否自指/元描述（R2.4：描述本系统自身），绝不作为正文证据")
+    # W4 Q3（统一证据抽象）：富元数据桶——arxiv: {arxiv_id, primary_category, citation_count, structured_match}；
+    #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match}
+    metadata: dict = Field(default_factory=dict, description="W4 扩展元数据（结构化保留，供呈现层展示，LLM 校验不消费）")
 
 
 class Citation(BaseModel):
