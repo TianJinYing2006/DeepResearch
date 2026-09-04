@@ -115,6 +115,7 @@
   3. `config.py` 的 `strategic_model` 支持切换 `qwen-max` / `deepseek-r1`；难问题走强推理。
 - **交付物**：Critic 能在 web/RAG/arXiv/CodeExec 间自决；strategic 可配强推理。
 - **DoD 检查**：一条需计算的学术问题能自动调 arXiv + 代码执行并溯源。
+- **取舍注记（2026-09-04 补）**：总需求 **FR3.2（网页正文抓取）明确不做**——用「博查 summary + arXiv abstract + RAG 全文分块」替代"点进 URL 读原文"；理由：全文抓取 3~5s/次 + 5~20k token/篇，与 W4 体积闭环（Q5 三层安检）和 ~24k token 口径冲突；需深挖时走学术摘要 + RAG 分块 + code 验证。若未来要补，`SearchProvider` 加 `fetch(url)` 接口（Jina Reader/Firecrawl）即可，列 W6 开源增强。这是有意取舍非漏项，勿当 bug 反复盘。
 
 ### W5 — eval 数据集 + 量化指标（NFR2 / DoD，顺延自原 W4）
 - **任务**
