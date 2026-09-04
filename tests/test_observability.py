@@ -160,6 +160,38 @@ def test_tokens_total_accumulates_without_state():
     LLMClient.tokens_total = 0  # 还原
 
 
+def test_chat_real_path_tokens_total_without_state(monkeypatch):
+    """W3.2 回归：走 chat() 顶层（真实调用路径），不传 state 也必须累计 tokens_total。
+
+    此前实现把 _accumulate_usage 包在 `if state is not None:` 里，底层单测测不出来——
+    真实路径下不传 state 连无条件计数都失效（Q3=D' 抓漏传完全失灵）。"""
+    from types import SimpleNamespace
+    LLMClient.tokens_total = 0
+
+    def fake_create(**kwargs):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))],
+            usage=SimpleNamespace(total_tokens=123),
+        )
+
+    client = LLMClient()
+    monkeypatch.setattr(client, "_get_client", lambda: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create))))
+
+    # 不传 state：tokens_total 必须累计（D' 无条件）
+    out = client.chat([{"role": "user", "content": "hi"}])
+    assert out == "OK"
+    assert LLMClient.tokens_total == 123
+
+    # 传 state：tokens_total 与 token_used 双累计
+    from research_engine.state import ResearchState
+    st = ResearchState(topic="t")
+    client.chat([{"role": "user", "content": "hi"}], state=st)
+    assert LLMClient.tokens_total == 246
+    assert st.token_used == 123
+    LLMClient.tokens_total = 0  # 还原
+
+
 # ---------- Q6：成本报告 ----------
 
 def test_format_cost_report_conservative(monkeypatch):

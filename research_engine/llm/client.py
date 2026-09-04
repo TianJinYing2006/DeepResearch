@@ -46,7 +46,11 @@ class LLMClient:
         response_format: Optional[Dict[str, str]] = None,
         state: Optional[Any] = None,
     ) -> str:
-        """普通对话，返回文本内容。state 传入时把 token 用量累加进 state.token_used（Q6-B）。"""
+        """普通对话，返回文本内容。state 传入时把 token 用量累加进 state.token_used（Q6-B）。
+
+        W3（Q3=D' 修复）：_accumulate_usage **无条件**调用——tokens_total（类级）任何调用都累计；
+        state.token_used 仅当 state 非 None 时累计（内部判断）。跑完差值 = 漏传 state 的调用路径。
+        """
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -59,8 +63,7 @@ class LLMClient:
 
         resp = self._get_client().chat.completions.create(**kwargs)
         content = resp.choices[0].message.content or ""
-        if state is not None:
-            self._accumulate_usage(resp, state)
+        self._accumulate_usage(resp, state)  # D'：无条件调用（内部处理 state=None）
         return content
 
     def _accumulate_usage(self, resp, state) -> None:

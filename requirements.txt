@@ -2,7 +2,7 @@
 # LLM 与 Agent 编排
 langgraph>=0.2.0
 langchain-core>=0.3.0
-openai>=1.40.0
+openai>=1.50,<1.93  # 锁 1.x 兼容轨道：langfuse.openai 包装器适配 1.50~1.92（3.x 致 generation 正文缺失 / usage 计量错乱，W3.2 实测）
 
 # RAG / 向量检索
 qdrant-client>=1.9.0
