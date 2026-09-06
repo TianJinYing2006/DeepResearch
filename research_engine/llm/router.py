@@ -19,9 +19,10 @@ class LLMRouter:
     """按任务复杂度路由到不同层级的 LLM。"""
 
     def __init__(self):
-        self._fast = LLMClient(model=config.llm.fast_model)
-        self._smart = LLMClient(model=config.llm.smart_model)
-        self._strategic = LLMClient(model=config.llm.strategic_model)
+        # W5（Q2）：role 标签 = 职责桶 key——compress / smart（writer+researcher 合桶）/ planner
+        self._fast = LLMClient(model=config.llm.fast_model, role="compress")
+        self._smart = LLMClient(model=config.llm.smart_model, role="smart")
+        self._strategic = LLMClient(model=config.llm.strategic_model, role="planner")
 
     # ---- fast 层：摘要、提取 ----
     def fast_chat(self, system: str, user: str, state: Optional[Any] = None) -> str:

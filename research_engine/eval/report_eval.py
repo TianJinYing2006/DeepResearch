@@ -6,7 +6,10 @@
 """
 from __future__ import annotations
 
-from research_engine.llm.router import get_router
+from typing import Dict
+
+from config import config
+from research_engine.llm.client import LLMClient, build_messages
 
 REPORT_EVAL_SYSTEM = """你是研究报告质量评审专家。请从以下四个维度对报告打分（0-100）：
 1. comprehensiveness（全面性）：是否覆盖了研究主题的各个方面
@@ -25,17 +28,24 @@ REPORT_EVAL_SYSTEM = """你是研究报告质量评审专家。请从以下四�
 }}
 """
 
+# W5（Q3/Q4）：judge 档位 = smart（qwen-plus），直建实例 role="judge" 单独进职责桶，
+# 不走 router（不污染主链路 smart 桶）；timeout=60s 治 LLM 层无超时的僵尸源。
+JUDGE_TIMEOUT_S = 60.0
+
 
 class ReportEvaluator:
-    """报告质量评测器（LLM-as-judge）。"""
+    """报告质量评测器（LLM-as-judge，smart 档）。"""
 
     def __init__(self):
-        self.router = get_router()
+        self._client = LLMClient(model=config.llm.smart_model, role="judge")
 
-    def evaluate(self, topic: str, report: str) -> dict:
+    def evaluate(self, topic: str, report: str) -> Dict:
         user = f"研究主题：{topic}\n\n研究报告：\n{report}\n\n请评分。"
         try:
-            data = self.router.strategic_json(REPORT_EVAL_SYSTEM, user)
+            data = self._client.chat_json(
+                build_messages(REPORT_EVAL_SYSTEM, user),
+                timeout=JUDGE_TIMEOUT_S,
+            )
             return {
                 "comprehensiveness": data.get("comprehensiveness", 0),
                 "accuracy": data.get("accuracy", 0),

@@ -194,7 +194,8 @@ class Validator:
         if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
             try:
                 # 与 critic.py 同款：Pydantic schema + 纠错重试，防漏 key 静默默认
-                client = LLMClient(model=config.llm.smart_model)
+                # W5（Q2）：role="validator" 进职责桶（直建实例不传 state 的漏计由类级差值补全）
+                client = LLMClient(model=config.llm.smart_model, role="validator")
                 data = client.chat_json(
                     [
                         {"role": "system", "content": VALIDATOR_SYSTEM.format(min_sources=config_min_sources())},
