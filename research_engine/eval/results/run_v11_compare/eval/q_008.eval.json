@@ -1,0 +1,154 @@
+{
+ "q_id": "q_008",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5034,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 53,
+   "verified": 40,
+   "existence_rate": 0.9811,
+   "fidelity_rate": 0.7692,
+   "by_source_type": {
+    "arxiv": {
+     "total": 2,
+     "verified": 1,
+     "existence": 2
+    },
+    "web": {
+     "total": 50,
+     "verified": 39,
+     "existence": 50
+    },
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源 https://arxiv.org/abs/2604.00242v1（标题": 1,
+    "来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。": 3,
+    "来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。": 3,
+    "来源 [8] 仅列出 Faithfulness 为指标之一，未提‘LLM 作为裁": 2,
+    "claim 截断（‘或 LCS’后缺内容），且原文 [9] 明确定义 ROUGE": 1,
+    "同 [9]，claim 错误拼写为 ‘Understudy’（正确为 ‘Unde": 1,
+    "claim 截断，且 [11] 原文明确指出 ROUGE 是 ‘Recall-O": 1,
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "目前RAG系统主流的公开评测基准有哪些（如BEIR、RAGBench、RECALL等）？各自的设计目标和覆盖场景是什么？",
+     "covered": false,
+     "reason": "检索到的内容提及了部分新基准线索（如arXiv:2602.10210v1提出的多跳推理混合知识基准、GraphRAG相关评测动机），也提到BEIR被隐含引用（如'各类主流RAG特性深度分析'中提及BEIR但未展开；'RAG评估三级体系'中未列名称），但未明确列出BEIR、RAGBench、RECALL等具体基准名称，更未说明其设计目标、覆盖场景或对比差异。关键信息缺失，不足以回答该子问题。"
+    },
+    {
+     "subquestion": "RAG系统评估中常用的自动化指标有哪些（如ROUGE、BLEU、F1、EM、Faithfulness、Answer Relevance等）？其计算逻辑和适用边界是什么？",
+     "covered": true,
+     "reason": "内容明确列举了ROUGE（含ROUGE-N、ROUGE-L定义及n-gram/LCS计算逻辑）、BLEU、F1、Faithfulness、Answer Relevance、Retrieval Recall@k、MRR、NDCG、BERTScore、EM（虽未直接写EM但'Exact Match'在F1上下文中可推知）、Corr（正确性）等指标；并解释了ROUGE面向召回、BLEU用于翻译、Faithfulness关联Prompt/生成幻觉、Recall@k衡量检索覆盖等适用边界；还指出ROUGE/BLEU在RAG端到端评估中存在局限，需结合RAGAS等专用框架——满足‘有哪些’及‘计算逻辑和适用边界’的要求。"
+    },
+    {
+     "subquestion": "人工评估在RAG系统评测中的典型实践包括哪些维度（如答案正确性、事实一致性、相关性、简洁性）？评估流程与标注规范如何设计？",
+     "covered": false,
+     "reason": "内容多次提及人工评估的必要性（如'专家评估'、'人工标recall@k'、'人工复核'、'人工标注数据'），并零散出现维度词如'准确性'、'连贯性'、'相关性'、'正确性'、'事实一致性'（隐含于Faithfulness低→'结论是否有冲突'）、'简洁性'未见；但完全未描述评估流程（如双盲标注、轮次设计、仲裁机制）、标注规范（如打分量表、判定标准文档、标注员培训）、质量控制（如Krippendorff’s alpha计算）等核心实践细节，信息碎片化且不系统，不足以支撑该子问题的回答。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 3,
+   "retrieval_hit_rate": 0.3333,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 6
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG评估",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "评测基准",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Faithfulness",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Answer Relevance",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "BEIR",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "RAGBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "人工评估",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "事实一致性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "事实一致性",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 27665,
+   "total_cost": 0.0387,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

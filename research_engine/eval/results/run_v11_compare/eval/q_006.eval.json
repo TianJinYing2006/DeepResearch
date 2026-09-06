@@ -1,0 +1,137 @@
+{
+ "q_id": "q_006",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4320,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 50,
+   "verified": 32,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.64,
+   "by_source_type": {
+    "web": {
+     "total": 35,
+     "verified": 23,
+     "existence": 35
+    },
+    "arxiv": {
+     "total": 15,
+     "verified": 9,
+     "existence": 15
+    }
+   },
+   "failed_note_distribution": {
+    "来源[1]摘要未出现‘CMDB’‘配置管理流程’等术语，全文无ITIL或运维流程": 5,
+    "前半句‘无法理解…’忠实于[22]；但后半句‘可构建领域知识图谱…’在来源[5]": 3,
+    "同上，来源[9]摘要讨论代理范式、评估框架与应用，**未出现‘领域知识图谱’‘概": 3,
+    "来源[12]摘要仅提及‘LangChain 是用于构建基于语言模型应用的框架’，": 1,
+    "来源[25]摘要仅提‘Gartner 预测到 2028 年将有超过 50% 的企": 3,
+    "来源[20]摘要仅称‘Gemma-3 4B、Qwen-3 1.7B’参与测试，评": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 3,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "AI Agent 的核心能力与技术架构是什么？",
+     "covered": true,
+     "reason": "多处研究发现明确指出AI Agent以大语言模型（LLM）为核心，具备感知、规划、记忆、工具调用、自主学习（如强化学习）、长周期交互、意图理解等核心能力；并提及现代AI Agent架构包含感知-规划-执行-记忆-工具使用等模块，以及LangChain、LangGraph、MCP协议、多Agent编排（如AI团队、Agent Node嵌套）等技术架构要素。摘要中还专门回顾了‘从早期基于规则的系统到现代融合LLM及感知、规划、工具使用模块的复杂系统’的演变与架构。"
+    },
+    {
+     "subquestion": "RPA 工作流自动化的典型实现方式与技术边界在哪里？",
+     "covered": true,
+     "reason": "研究发现一致描述RPA为‘基于规则/预设逻辑/预定义规则’的自动化技术，通过‘模拟人类操作’（如点击、输入、数据录入、系统间迁移）执行重复性、结构化、规则明确的任务；典型实现方式包括软件机器人、Copilot副驾驶模式、Python脚本封装等。技术边界被明确指出：无法理解自然语言、难以处理非结构化数据、规则维护成本高、流程变更频繁时易失效、不具学习/推理/适应能力、缺乏自主决策、依赖稳定UI/API（页面改版易崩溃），且属于‘数字劳工’而非智能实体。"
+    },
+    {
+     "subquestion": "AI Agent 与 RPA 在决策自主性、环境适应性和学习能力上的关键差异有哪些？",
+     "covered": true,
+     "reason": "所有对比性摘要均系统覆盖该差异：（1）决策自主性——AI Agent‘自主决策’‘目标导向’‘能实时感知环境并调整决策’‘可自主执行复杂任务’；RPA‘依赖预设逻辑’‘缺乏自主决策能力’‘无自主性’；（2）环境适应性——AI Agent‘能实时感知环境’‘适应复杂、动态、非结构化场景（如医疗诊断、客服）’‘支持协作与通信扩展认知’；RPA‘仅适用于结构化流程’‘环境变化（如UI改版）导致失效’‘缺乏环境适应性’；（3）学习能力——AI Agent‘具备自主学习能力’‘通过机器学习/深度学习/强化学习持续优化’‘能进化’；RPA‘不具自主学习能力’‘无学习/推理能力’‘静态规则驱动’。三者差异在多个独立摘要中交叉印证，表述清晰、维度分明。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 7,
+   "hit": 5,
+   "retrieval_hit_rate": 0.7143,
+   "matched_by": {
+    "keyword": 5,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "AI Agent",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "RPA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "规则驱动",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "自主决策",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "流程自动化",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "智能体架构",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务泛化",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 35730,
+   "total_cost": 0.05,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

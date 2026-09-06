@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import config
-from research_engine.eval.metrics import compute_all, _make_judge
+from research_engine.eval.metrics import compute_all, compute_cost, _make_judge
 from research_engine.graph import create_graph
 from research_engine.llm.client import LLMClient
 
@@ -80,7 +80,12 @@ def _run_one(
     run_dir: Path,
     graph,
 ) -> Dict[str, Any]:
-    """单条 Graph 运行：返回 (status, raw_dict)。异常重试 1 次（Q4 三档）。"""
+    """单条 Graph 运行：返回 (status, raw_dict)。异常重试 1 次（Q4 三档）。
+
+    成本归因：类级计数器在并发下是全局累计，单条落盘快照会互相污染——
+    因此单条成本用 state.token_used（该 run 自己的硬闸计数），
+    全局研究成本在 Phase1 收尾时由类级桶快照统一给出（phase1_global_stats.json）。
+    """
     q_id = row["id"]
     topic = row["query"]
     attempt = 0
@@ -96,9 +101,7 @@ def _run_one(
                 "difficulty": row.get("difficulty", ""),
                 "type": row.get("type", ""),
                 "state": state.model_dump(),
-                "model_stats": dict(LLMClient.model_stats),
-                "role_stats": dict(LLMClient.role_stats),
-                "model_io_stats": {k: dict(v) for k, v in LLMClient.model_io_stats.items()},
+                "token_used": state.token_used,  # 单条成本 = 该 run 自身硬闸计数（validator 漏计由全局差值补）
                 "git_commit": git_head(),
                 "dataset_version": meta.get("version", "unknown"),
                 "wall_clock_s": round(time.time() - t0, 1),
@@ -169,6 +172,15 @@ def phase1(dataset: Dict[str, Any], run_dir: Path, concurrency: int) -> None:
                         json.dumps(res["raw"], ensure_ascii=False, indent=1), encoding="utf-8"
                     )
                     done_failed += 1
+        # 成本归因（Q2）：并发下单条快照互相污染 → 全局研究成本统一在 Phase1 收尾抓类级桶
+        global_stats = {
+            "model_stats": dict(LLMClient.model_stats),
+            "role_stats": dict(LLMClient.role_stats),
+            "model_io_stats": {k: dict(v) for k, v in LLMClient.model_io_stats.items()},
+        }
+        (run_dir / "phase1_global_stats.json").write_text(
+            json.dumps(global_stats, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
         print(f"Phase 1 完成：完整 {done_ok} / 异常（failed+incomplete+timeout）{done_failed}")
     else:
         print("Phase 1: 全部已存在 raw，无需重跑")
@@ -177,14 +189,15 @@ def phase1(dataset: Dict[str, Any], run_dir: Path, concurrency: int) -> None:
 # ---------- Phase 2：评估（读 raw 跑七指标）----------
 
 def _evaluate_one(row: Dict[str, Any], raw: Dict[str, Any], judge, eval_dir: Path) -> Dict[str, Any]:
-    """单条评估：七指标聚合；judge 局部失败记 partial + missing_metrics（Q4 Level 2）。"""
+    """单条评估：七指标聚合；judge 局部失败记 partial + missing_metrics（Q4 Level 2）。
+
+    成本：单条用 raw.token_used（该 run 自身硬闸计数，类级快照在并发下不可归因）；
+    全局研究成本由 phase1_global_stats.json 在 summary 层给出。
+    """
     q_id = row["id"]
     try:
-        # 桶快照在 raw 顶层（Phase1 落盘位置），合并进 state 供 compute_cost 读取
         evaluate_state = dict(raw.get("state") or {})
-        evaluate_state["model_stats"] = raw.get("model_stats") or {}
-        evaluate_state["role_stats"] = raw.get("role_stats") or {}
-        evaluate_state["model_io_stats"] = raw.get("model_io_stats") or {}
+        evaluate_state["_token_used_single"] = raw.get("token_used", 0)
         metrics = compute_all(evaluate_state, row, judge=judge)
     except Exception:  # noqa: BLE001
         return {
@@ -249,8 +262,22 @@ def phase2(dataset: Dict[str, Any], run_dir: Path, force_revalidate: bool = Fals
     return summary
 
 
+def _read_phase1_cost(run_dir: Path) -> Dict[str, Any]:
+    """读 Phase1 全局成本快照（类级桶，收尾统一抓——并发下单条不可归因）。"""
+    p = run_dir / "phase1_global_stats.json"
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return {}
+
+
 def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Path) -> Dict[str, Any]:
     """聚合汇总：N 完整 / M 部分 / K 失败 + 七指标均值/合计（Q4 报告口径不混数字）。"""
+    # Phase1 全局成本（类级桶快照，收尾统一抓；并发下单条成本不可归因，走全局口径）
+    ph1 = _read_phase1_cost(run_dir)
+    cost_global = (
+        compute_cost(ph1.get("model_io_stats") or {}, ph1.get("model_stats") or {}, ph1.get("role_stats") or {})
+        if ph1 else {"total_tokens": 0, "total_cost": 0.0, "per_model": {}, "per_role": {}}
+    )
     if not results:
         return {"run_dir": str(run_dir), "total": 0, "complete": 0, "partial": 0, "failed": 0,
                 "metrics_mean": {}, "cost_total": {}, "struct": {}, "eval_tokens": LLMClient.tokens_total}
@@ -295,8 +322,10 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
             "reflection_critic_stop_rate": round(reflection_rate, 4),
         },
         "cost_phase1_total": {
-            "total_tokens": _avg("cost", "total_tokens"),
-            "cost_yuan": _avg("cost", "total_cost"),
+            "total_tokens": cost_global["total_tokens"],
+            "cost_yuan": cost_global["total_cost"],
+            "per_model": cost_global["per_model"],
+            "per_role": cost_global["per_role"],
         },
         "cost_phase2_judge_tokens": LLMClient.tokens_total,
         "git_commit": git_head(),

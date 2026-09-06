@@ -1,0 +1,112 @@
+{
+ "q_id": "q_002",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5050,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 48,
+   "verified": 24,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.5,
+   "by_source_type": {
+    "web": {
+     "total": 48,
+     "verified": 24,
+     "existence": 48
+    }
+   },
+   "failed_note_distribution": {
+    "来源[1]未提'CN-StockKG'或'预训练抽取器'，该claim属虚构具体": 7,
+    "同[1]，来源[5]为重复链接，内容相同，仍含虚构技术主张，faithful=f": 3,
+    "来源[6]未提'图摘要代理'、'<200 token'等细节，faithful=": 10,
+    "来源[2]未提'GraphRAG-Bench'、'GraphRAG-OS团队'、": 4
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 2,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "RAG 在 2026 年的主要技术演进方向",
+     "covered": true,
+     "reason": "多篇检索结果一致指出：2026年RAG的核心演进方向是从传统平面向量RAG向GraphRAG（图检索增强生成）范式转变，驱动力是突破语义相似性局限、支持复杂关系推理与多跳问答；具体体现为融合知识图谱（如Neo4j）、显式建模实体关联、提升可解释性与企业级决策能力。信息明确、聚焦2026年、覆盖动因、形态与技术特征。"
+    },
+    {
+     "subquestion": "RAG 的主流评价基准与方法",
+     "covered": false,
+     "reason": "虽有提及'评估工具'作为开源项目分类维度（如'七、RAG评估工具(质量/性能/成本)'），并出现'多跳问答任务中实现了72%的准确率提升'等零散指标，但未说明具体基准名称（如BEIR、RAGAS、TruEval等）、评估维度定义（相关性、忠实性、答案完整性等）、标准流程或主流方法论；缺乏系统性描述，不足以回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 4,
+   "hit": 3,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "检索增强",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "GraphRAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "混合检索",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 21865,
+   "total_cost": 0.0306,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 2,
+   "depth": 2
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "max_replan"
+   ],
+   "critic_signal": "stop",
+   "rounds": 2,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,126 @@
+{
+ "q_id": "q_004",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5313,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 51,
+   "verified": 34,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.6667,
+   "by_source_type": {
+    "web": {
+     "total": 38,
+     "verified": 27,
+     "existence": 38
+    },
+    "arxiv": {
+     "total": 13,
+     "verified": 7,
+     "existence": 13
+    }
+   },
+   "failed_note_distribution": {
+    "来源[14]摘要全文未提'Cypher'、'可视化门槛'或'可解释性被抵消'；c": 5,
+    "来源[16]摘要全文未提'关系泛化'、'<entity, type, Perso": 4,
+    "claim不完整（'如'后截断），且来源[10]摘要仅提'GraphRAG虽检索": 4,
+    "claim仅为不完整短语'另一方面，'，无实质内容，无法校验；视为无效claim": 2,
+    "claim仅为不完整连接词'因此，'，无实质内容，无法校验，faithful=f": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 3,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "GraphRAG 的结构与实现",
+     "covered": true,
+     "reason": "多篇摘要明确描述了GraphRAG的核心结构：从文档提取实体、概念及关系构建知识图谱；在问答时检索相关子图而非文本段；利用图结构（节点与边）编码异构关系；支持多尺度图谱、两阶段过滤（GraphRAG-FI）、动态/静态检索等实现细节；微软2024年提出、结合KG与RAG等关键实现要素均有覆盖。"
+    },
+    {
+     "subquestion": "GraphRAG vs 向量 RAG 的对比研究",
+     "covered": true,
+     "reason": "几乎所有摘要均围绕该对比展开，涵盖多个维度：检索机制（子图vs向量相似度）、上下文处理（结构化/关系性信息vs语义片段）、准确性（多跳推理89% vs 42%、KIQA数据集更优、教学相关性价值等）、效率（响应时间800ms vs 200ms）、可解释性、成本、幻觉抑制、实时更新能力、适用场景（复杂推理/专业领域 vs 简单单跳/速度敏感）等，对比全面且具实证支撑。"
+    },
+    {
+     "subquestion": "知识密集型问答的评测基准",
+     "covered": true,
+     "reason": "明确提到了专用基准：GraphRAG-Bench（涵盖事实检索到创造性生成、层次化知识检索、深度上下文推理）、RAGSearch（评估静态vs动态多轮检索）、KIQA数据集、477个数学教材问答对、暴力事件新闻数据集等；并指出当前评估标准不统一、需系统性基准测试等现状，满足‘评测基准’子问题的核心要求。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 5,
+   "hit": 2,
+   "retrieval_hit_rate": 0.4,
+   "matched_by": {
+    "keyword": 2,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "GraphRAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "知识图谱",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "社区检测",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "问答基准",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "对比实验",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 39931,
+   "total_cost": 0.0559,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

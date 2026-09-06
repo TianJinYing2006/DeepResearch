@@ -1,0 +1,142 @@
+{
+ "q_id": "q_007",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7618,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 93,
+   "verified": 91,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9785,
+   "by_source_type": {
+    "web": {
+     "total": 68,
+     "verified": 66,
+     "existence": 68
+    },
+    "arxiv": {
+     "total": 25,
+     "verified": 25,
+     "existence": 25
+    }
+   },
+   "failed_note_distribution": {
+    "claim为空字符串（仅双引号），无实际语义，无法校验；来源[13]摘要完整，但": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 4,
+   "coverage": 0.25,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph、CrewAI、AutoGen 在2026年最新稳定版本中支持的核心架构范式（如状态机、角色协作、多Agent编排）有何本质差异？",
+     "covered": true,
+     "reason": "多份摘要明确指出三者的核心架构范式差异：LangGraph为图驱动/状态机式（'显式状态机精确控制流程'、'图结构强调状态管理'）；CrewAI为角色驱动（'工作团队隐喻'、'角色与任务协作'、'模拟人类团队协作'）；AutoGen为对话驱动（'多轮对话迭代求解'、'原生支持多智能体对话系统'）。这些描述已覆盖‘本质差异’这一要求，且均锚定在2026年语境。"
+    },
+    {
+     "subquestion": "三者在生产环境部署关键指标上的实测对比：包括内存占用、推理延迟、分布式扩展能力及可观测性支持程度",
+     "covered": false,
+     "reason": "仅有一份摘要提及在SLM（小型语言模型）环境下对'能耗、时间、token使用量和内存占用'进行了150次实测，但未说明是否覆盖LangGraph/CrewAI/AutoGen三者完整对比，未提'推理延迟'、'分布式扩展能力'、'可观测性支持程度'等关键指标；其余摘要仅泛谈'可扩展性'、'性能优化难'或'工程化挑战'，无具体实测数据或横向对比维度。缺乏系统性、多指标、面向生产环境的实证支撑。"
+    },
+    {
+     "subquestion": "各框架对LLM调用抽象层的设计哲学差异（如工具调用封装方式、记忆管理机制、错误恢复策略）及其对开发效率与系统鲁棒性的影响",
+     "covered": false,
+     "reason": "摘要中仅零星提及'工具调用方面存在差异'、'工具生态系统最丰富（LangGraph）'、'支持自定义、多模式操作（AutoGen）'，但未说明具体封装方式（如函数调用vs. JSON schema vs. DSL）；未出现'记忆管理机制'（如短期/长期记忆抽象、向量存储集成粒度）、'错误恢复策略'（如重试逻辑、回滚、fallback agent设计）等关键词；更未分析这些设计如何影响开发效率或鲁棒性。属于关键信息完全缺失。"
+    },
+    {
+     "subquestion": "面向企业级应用时，三者在权限控制、审计日志、合规性适配（如GDPR/等保）和私有化部署支持方面的原生能力与生态插件成熟度",
+     "covered": false,
+     "reason": "所有摘要均未提及'权限控制'、'审计日志'、'GDPR/等保合规'、'私有化部署'等企业级治理与安全关键词；虽有摘要提到'Agentic Configuration Management (ACM)'作为跨框架配置模型，以及'企业级平台'、'企业级AI应用'等泛称，但未关联到具体框架的原生能力或插件生态；亦无任何关于认证、加密、数据驻留、合规认证（如SOC2、等保三级）的描述。该子问题完全未被覆盖。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 4,
+   "retrieval_hit_rate": 0.5,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "CrewAI",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "AutoGen",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LLM Agent框架",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态图",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色驱动架构",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多智能体编排",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "生产就绪",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 46075,
+   "total_cost": 0.0645,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.25
+  },
+  "raw_complete": true
+ }
+}

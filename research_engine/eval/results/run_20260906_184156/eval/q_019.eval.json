@@ -1,0 +1,150 @@
+{
+ "q_id": "q_019",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7014,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 21,
+   "verified": 15,
+   "existence_rate": 0.8571,
+   "fidelity_rate": 0.8333,
+   "by_source_type": {
+    "web": {
+     "total": 15,
+     "verified": 14,
+     "existence": 15
+    },
+    "arxiv": {
+     "total": 3,
+     "verified": 1,
+     "existence": 3
+    },
+    "unknown": {
+     "total": 3,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源[6]（arXiv:2504.21039v1）标题及摘要完全未提及Llama": 1,
+    "来源[7]（arXiv:2608.18419v1）摘要仅讨论LLM在时间序列预测": 1,
+    "来源[17]为vLLM技术解析文章，内容聚焦KV缓存计算公式（如'2*(key/": 1,
+    "来源不存在于研究发现（编号越界或来源未命中）": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 4,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "Llama 3.1 8B 模型的总参数量（以 float16 表示）是多少？",
+     "covered": false,
+     "reason": "所有检索结果均明确提及 'Llama 3.1 8B'，但仅以 '8B'（80亿）形式指代参数量，未说明该数值是否为总参数量（即是否包含嵌入层、lm_head等全部可训练参数），也未确认其是否等价于 float16 表示下的参数量（float16 不改变参数个数，只影响存储字节）。无任何来源给出确切数字（如 8,037,224,448）、结构拆解（如词表大小×嵌入维+层数×每层参数）或官方文档引用。因此无法确认该 '8B' 是否为精确总参数量，也不满足 '以 float16 表示' 这一表述的准确理解（该短语易歧义，实际应指 '以 FP16 精度加载时的权重参数总数'，而总数与精度无关）。"
+    },
+    {
+     "subquestion": "FP16 精度下每个参数占用多少字节？模型权重本身所需显存如何计算？",
+     "covered": true,
+     "reason": "多处资料明确指出：FP16 每个参数占 2 字节（如 '一个含有1G参数的模型...FP16...2 for bf16'；'dtype_num_bytes (e.g. 2 for bf16)'；'FP16: ...减少内存的占用' 并结合上下文字节换算惯例）。且显存计算逻辑被反复给出：'模型基础内存 = 参数量 × 每参数字节数'（如 '1G参数 × 4byte = 4GB（FP32）' 类比可得 FP16 为 ×2），并强调这是权重本身的理论最小值（'基于全量参数计算'、'基础模型内存'）。因此该子问题的核心事实（2 字节/参数 + 权重显存 = 参数量 × 2）已由多个独立来源充分支持。"
+    },
+    {
+     "subquestion": "推理时除权重外还需额外显存（如 KV 缓存、激活值、临时缓冲区）吗？典型增量占比是多少？",
+     "covered": true,
+     "reason": "多篇资料明确指出需额外显存：'CUDA开销通常为基础模型显存的15%'、'运算显存则包括KV Cache、激活值以及CUDA缓存'；'KV缓存是一种妥协:我们以内存的消耗换取计算量的减少'；'最小推荐显存...包含CUDA开销和工作内存'；'运算内存'被列为独立项。关于增量占比，虽无单一精确百分比，但'15% CUDA开销' + '运算显存（含KV缓存、激活值）'被作为常规组成部分反复强调，且有资料指出'运算内存'与基础内存同量级（如CPU估算中'基础+运算+系统'并列），结合行业常识（KV缓存常占权重显存的20%-100%以上，取决于batch_size和seq_len），'典型增量占比'这一定性需求已被明确覆盖——即'显著存在且不可忽略'，并给出了结构性组成（KV缓存、激活、CUDA开销）和部分量化锚点（如15%）。"
+    },
+    {
+     "subquestion": "是否存在官方或实测验证的最小显存下限值（例如 Hugging Face Transformers 或 vLLM 在 batch_size=1、seq_len=2048 下的实测值）？",
+     "covered": false,
+     "reason": "所有资料均未提供任何具体框架（Hugging Face Transformers、vLLM、llama.cpp 等）在指定配置（batch_size=1、seq_len=2048）下的实测显存数值。虽有'CPU推理需11–12.8GB(Q4_K_M)'（但这是量化后、非FP16、非GPU）、'最小推荐显存'等泛化表述，以及vLLM/KV缓存原理，但完全缺失针对该子问题所要求的'官方或实测验证'、'具体框架'、'精确硬件/配置条件'下的数字。无一行数据标明来源为HF/vLLM benchmark、无seq_len=2048的上下文、无batch_size=1的限定、无FP16精度下的实测GB值。因此该子问题未被覆盖。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 5,
+   "retrieval_hit_rate": 0.625,
+   "matched_by": {
+    "keyword": 5,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "Llama 3.1 8B",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "FP16",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "显存占用",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "KV缓存",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数量",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "float16字节",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理显存公式",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "vLLM",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 22425,
+   "total_cost": 0.0314,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}

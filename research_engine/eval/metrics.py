@@ -150,13 +150,19 @@ def compute_coverage(
 # ---------- 4. 检索命中率（第 7 项：关键词优先 + 嵌入回退）----------
 
 def _embed_texts(texts: List[str]) -> Optional[List[List[float]]]:
-    """调百炼 embedding（text-embedding-v3），失败返回 None（嵌入回退静默降级为纯关键词）。"""
+    """调百炼 embedding（text-embedding-v3），分批 ≤10（ingest.py:83 同款上限），失败返回 None。"""
     try:
         from openai import OpenAI
 
         client = OpenAI(base_url=config.llm.base_url, api_key=config.llm.api_key)
-        resp = client.embeddings.create(model=config.rag.embedding_model, input=texts)
-        return [d.embedding for d in resp.data]
+        out: List[List[float]] = []
+        for i in range(0, len(texts), 10):  # 百炼单次 batch 上限 10，超了报 400
+            resp = client.embeddings.create(
+                model=config.rag.embedding_model,
+                input=texts[i : i + 10],
+            )
+            out.extend(d.embedding for d in resp.data)
+        return out
     except Exception:  # noqa: BLE001
         return None
 
@@ -193,9 +199,10 @@ def compute_retrieval_hit(
 
     # 嵌入回退：仅对关键词未命中的条目做语义判定（Q1 语义回退的合法落点，仅此处）
     if semantic_kws and findings and embed_fn:
-        pool_texts = [(f.get("content") or "")[:500] for f in findings]
-        vec_all = embed_fn([kw for kw in gold_keywords] + pool_texts)
-        if vec_all is not None:
+        pool_texts = [(f.get("content") or "")[:500] for f in findings][:20]  # 池限量防 batch 超限
+        texts = [kw for kw in gold_keywords] + pool_texts
+        vec_all = embed_fn(texts)  # embed_fn 内部已分批 ≤10
+        if vec_all is not None and len(vec_all) == len(texts):
             kw_vecs = vec_all[: len(gold_keywords)]
             pool_vecs = vec_all[len(gold_keywords):]
             for i, kw in enumerate(gold_keywords):
@@ -226,10 +233,14 @@ def compute_cost(
     model_io_stats: Dict[str, Dict[str, int]],
     model_stats: Dict[str, int],
     role_stats: Dict[str, int],
+    single_token: Optional[int] = None,
 ) -> Dict[str, Any]:
     """成本 = Σ (input×input价 + output×output价)（W3 pricing 表精确加权，无近似比例）。
 
-    model_io_stats / model_stats / role_stats 来自 Phase1/2 各自开头的快照（类级桶）。
+    双模式：
+    - 全局（Phase1 收尾类级桶快照）：model_stats/role_stats/io 齐备，双轨报告；
+    - 单条兜底（并发下类级桶不可归因）：传 single_token（state.token_used），
+      仅给 token 计数，per_model/per_role 为空（如实声明"并发下单条成本不归因"）。
     """
     pricing = config.llm.pricing
     per_model: Dict[str, Dict[str, Any]] = {}
@@ -244,11 +255,17 @@ def compute_cost(
         total_tokens += tokens
         total_cost += cost
         per_model[model] = {"tokens": tokens, "input": inp, "output": out, "cost": round(cost, 6)}
+    # 单条兜底：全局桶为空但给了 single_token → 只报计数（按 smart 均价粗估，属参考值）
+    if not per_model and single_token:
+        total_tokens = single_token
+        price = pricing.get(config.llm.smart_model, {})
+        total_cost = single_token / 1000 * (price.get("input", 0) + price.get("output", 0)) / 2
     return {
         "total_tokens": total_tokens,
         "total_cost": round(total_cost, 4),
         "per_model": per_model,
         "per_role": dict(role_stats or {}),
+        "single_token_only": bool(not per_model and single_token),
     }
 
 
@@ -331,6 +348,7 @@ def compute_all(
             state.get("model_io_stats") or {},
             state.get("model_stats") or {},
             state.get("role_stats") or {},
+            single_token=state.get("_token_used_single"),  # 单条兜底（并发不可归因场景）
         ),
         "steps": compute_steps(state),
         "reflection": compute_reflection(state, coverage),

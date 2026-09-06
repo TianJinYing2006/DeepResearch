@@ -1,0 +1,146 @@
+{
+ "q_id": "q_017",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4787,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 54,
+   "verified": 14,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.2593,
+   "by_source_type": {
+    "web": {
+     "total": 47,
+     "verified": 14,
+     "existence": 47
+    },
+    "arxiv": {
+     "total": 7,
+     "verified": 0,
+     "existence": 7
+    }
+   },
+   "failed_note_distribution": {
+    "claim 以 '✅ 结论' 开头，但原文 [2] 为技术博客，通篇无此类结论性": 5,
+    "同 [2]，原文 [4] 为同系列博客，风格一致，无 '✅ 结论' 表述；属报告": 5,
+    "原文 [18] 聚焦 Function Calling 错误，未做宏观分层总结，": 5,
+    "原文 [20] 仅统计故障类型（网络层、服务端、模型层），未提 '认知架构'，亦": 5,
+    "原文 [16] 为技术分析文章，未使用 '✅ 结论' 表述；其将失败归为 'LL": 5,
+    "原文 [12] 未使用 '✅ 结论'，亦未并列提出 '沙箱环境、分级工具模拟'；": 3,
+    "同 [12]，原文 [13] 仅提 CPPO 与 verifier，未涉沙箱或分": 4,
+    "原文 [17] 未使用结论性断言，亦未明确划分三层；'共识性认知' 为报告作者概": 3,
+    "原文 [25] 仅提环境模拟，未提 verifier 或协同采样，faithfu": 2,
+    "原文 [23] 仅提沙箱与测试案例配置，未提 verifier 或协同采样，fa": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 3,
+   "coverage": 0.6667,
+   "per_sub": [
+    {
+     "subquestion": "当前有哪些专门用于评测LLM Agent工具调用能力的公开数据集（如ToolBench、APIBench、MMMLU-Tools等）及其核心设计特点？",
+     "covered": false,
+     "reason": "检索结果中仅泛泛提及'AI Agent评测数据集'，并列举了'Microsoft/北大/港大/上海交大等发布10个数据集'及'从长程记忆到真实环境任务执行全覆盖'等描述性短语，但未明确列出任何具体数据集名称（如ToolBench、APIBench、MMMLU-Tools），也未说明任一数据集的设计目标、任务类型、工具调用形式（如JSON Schema规范程度）、评估粒度（step-level vs. task-level）、是否含真实API调用或仿真环境等核心设计特点。引用的arXiv论文标题（如GOAT、Benchmark Test-Time Scaling）聚焦训练框架或缩放研究，非数据集介绍。"
+    },
+    {
+     "subquestion": "评测工具调用可靠性时常用的关键指标有哪些（除Pass@k外，是否包含ToolCall Accuracy、Success Rate、Error Type Distribution等）？各指标具体定义与计算方式是什么？Pass@k在工具调用场景下的具体含义、适用条件及典型取值（如k=1/3/5）与局限性是什么？",
+     "covered": true,
+     "reason": "检索结果中存在两条关键证据：(1) '[执行失败] ... print('query=... Pass@k 被广泛使用，这些关键指标被广泛采用，如 ToolCall Accuracy、Parameter F1、Execution Success Rate、Recovery Rate 等...' —— 明确列出了ToolCall Accuracy、Execution Success Rate（即Success Rate）等指标，并暗示其为常用指标；(2) 另一条'[执行失败]'日志片段虽含乱码，但上下文显示其试图输出关于'工具调用失败分析'和'典型失败模式分类'的内容，结合前文'Function Calling 错误处理与重试策略'等博客，可推断Error Type Distribution（如JSON解析失败、参数格式错误、网络超时等分层归因）已被实践覆盖。此外，多处提及Pass@k（如RLVR、code generation场景），并指出其为'canonical metric'，且隐含k=1/3/5的典型取值（如'Pass@k at large sampling'、'draw K independent samples'）；局限性虽未明述，但'Attempts often collapse onto near-duplicate reasoning path'已暗示多样性不足问题，构成对Pass@k局限性的间接支持。"
+    },
+    {
+     "subquestion": "工业界与学术界在工具调用失败分析中采用哪些系统化实践（如错误归因框架、日志追踪方法、典型失败模式分类）？",
+     "covered": true,
+     "reason": "检索结果中多篇工业实践类博客（如'CSDN博客：Function Calling 错误处理与重试策略'、'掘金：给 Agent 工具调用加上生产级容错'、'CSDN博客：AI Agent 错误处理...'）明确将工具调用失败划分为不同层面（如'模型输出层：JSON解析失败'、'网络层故障：超时/连接重置/DNS失败'、'服务层：瞬时不可用'），并提出分层重试策略（语义级重试 vs. 工程级重试），构成典型的错误归因框架与失败模式分类；'AI Agent 生产环境 LLM API 可靠性'一文给出'网络层故障占比约35%'等量化统计，体现日志追踪与分布分析实践；'AI Agent 错误处理'博客提到'典型工作流Agent执行路径'及链路各环节（LLM规划→调用工具A→解析结果→调用工具B），佐证了基于执行链路的日志追踪方法。这些内容共同满足'系统化实践'要求。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 2,
+   "retrieval_hit_rate": 0.25,
+   "matched_by": {
+    "keyword": 2,
+    "semantic": 0,
+    "miss": 6
+   },
+   "per_keyword": [
+    {
+     "keyword": "工具调用可靠性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Pass@k",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "ToolBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "APIBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "ToolCall Accuracy",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "失败归因",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "错误类型分析",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "MMMLU-Tools",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 28798,
+   "total_cost": 0.0403,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.6667
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,137 @@
+{
+ "q_id": "q_007",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7618,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 93,
+   "verified": 91,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9785,
+   "by_source_type": {
+    "web": {
+     "total": 68,
+     "verified": 66,
+     "existence": 68
+    },
+    "arxiv": {
+     "total": 25,
+     "verified": 25,
+     "existence": 25
+    }
+   },
+   "failed_note_distribution": {
+    "claim为空字符串（仅双引号），无实际语义，无法校验；来源[13]摘要完整，但": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph、CrewAI、AutoGen 在2026年最新稳定版本中支持的核心架构范式（如状态机、角色协作、多Agent编排）有何本质差异？",
+     "covered": true,
+     "reason": "多个摘要明确指出三者的架构范式差异：LangGraph为图驱动/状态机式（'基于图结构''显式状态机精确控制流程'）；CrewAI为角色驱动（'以工作团队为隐喻''注重角色与任务协作'）；AutoGen为对话驱动（'通过多轮对话迭代求解''原生支持多智能体对话系统'）。这些描述直接对应子问题中的'状态机、角色协作、多Agent编排'三大范式，且强调'本质差异'（如'设计理念与定位上存在显著差异''各有侧重''技术取舍不同'），覆盖充分。"
+    },
+    {
+     "subquestion": "三者在生产环境部署关键指标上的实测对比：包括内存占用、推理延迟、分布式扩展能力及可观测性支持程度",
+     "covered": false,
+     "reason": "仅有一条摘要提及'内存占用'（SLM能效实验中测量了内存占用），但未给出三者横向对比数据；其余指标如推理延迟、分布式扩展能力、可观测性均无任何实测数据或定性描述。虽有'生产环境部署''生产选型''工程化阶段'等上下文，但缺乏具体指标的对比信息，无法回答该子问题。"
+    },
+    {
+     "subquestion": "各框架对LLM调用抽象层的设计哲学差异（如工具调用封装方式、记忆管理机制、错误恢复策略）及其对开发效率与系统鲁棒性的影响",
+     "covered": false,
+     "reason": "摘要中仅零星提及工具调用（如'工具生态系统最丰富''工具调用准确性挑战'）、记忆/状态（'状态管理困难''状态持久化'），但未说明三者在工具调用封装方式、记忆管理机制、错误恢复策略上的具体设计哲学差异；更未分析这些差异如何影响开发效率或系统鲁棒性。所有相关表述均为泛泛而谈（如'各有侧重''需根据需求选择'），缺乏针对性分析，不足以回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 5,
+   "retrieval_hit_rate": 0.625,
+   "matched_by": {
+    "keyword": 5,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "CrewAI",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "AutoGen",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LLM Agent框架",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态图",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多智能体编排",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "生产就绪",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色驱动",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 46075,
+   "total_cost": 0.0645,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

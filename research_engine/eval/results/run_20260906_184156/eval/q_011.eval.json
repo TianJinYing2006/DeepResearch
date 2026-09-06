@@ -1,0 +1,154 @@
+{
+ "q_id": "q_011",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6471,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 86,
+   "verified": 46,
+   "existence_rate": 0.9535,
+   "fidelity_rate": 0.561,
+   "by_source_type": {
+    "web": {
+     "total": 73,
+     "verified": 44,
+     "existence": 73
+    },
+    "arxiv": {
+     "total": 9,
+     "verified": 2,
+     "existence": 9
+    },
+    "unknown": {
+     "total": 4,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "原文[1]仅对比'查询方式和索引方式'，指出'传统数据库主要处理结构化数据，通过": 2,
+    "原文[3]仅说'核心在于数据向量化和相似性搜索'，未涉及数学基础对比或'不可通约": 4,
+    "同[3]，[4]为镜像稿，无额外内容；claim无任何原文支撑，faithful": 3,
+    "原文[2]仅泛泛对比'传统关系型数据库'（MySQL/Oracle/SQL Se": 1,
+    "claim截断（'如'），且source[8]全文未提'所有结论均标注明确出处编": 19,
+    "source[15]未提PMF，faithful=false。": 5,
+    "source[25]未提PMF，faithful=false。": 2,
+    "来源不存在于研究发现（编号越界或来源未命中）": 4
+   }
+  },
+  "coverage": {
+   "covered_count": 4,
+   "total": 4,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "向量数据库的核心概念、基本原理及与传统数据库的关键区别是什么？",
+     "covered": true,
+     "reason": "多篇文献（如博客园随笔、中华网文章、《2024年向量数据库研究：大模型发展的基座》）明确定义了向量数据库是专门存储和检索高维向量数据的系统，核心在于数据向量化（通过embedding）和相似性搜索；对比指出其与传统数据库在数据形式（非结构化向量 vs 结构化表格）、查询方式（近似最近邻ANN vs 精确匹配/SQL）、索引机制（HNSW、IVF等ANN索引 vs B+树等）上的根本差异。内容覆盖核心概念、基本原理和关键区别。"
+    },
+    {
+     "subquestion": "Milvus、Qdrant、Pinecone 三者在架构设计（如是否开源、存储引擎、分布式能力）上的主要差异有哪些？",
+     "covered": true,
+     "reason": "多篇来源明确提供了架构级对比：Milvus被多次描述为'开源'、'分布式架构'、支持十亿/千亿级规模、多索引算法（IVF_FLAT/HNSW）；Qdrant被强调为'Rust开发'、'开源'、支持动态更新与混合搜索；Pinecone被一致标注为'全托管'、'非开源'（SaaS服务）、'低延迟但过滤能力弱'。虽未详述底层存储引擎（如LSM-tree vs columnar），但'开源/闭源'、'分布式能力'、'语言/运行时特征（Rust）'、'部署形态（托管vs自管）'等关键架构维度均有直接覆盖。"
+    },
+    {
+     "subquestion": "这三种向量数据库各自支持的典型应用场景（如推荐系统、RAG、图像检索）及对应的技术适配优势是什么？",
+     "covered": true,
+     "reason": "文献中场景与优势强关联：Milvus明确用于'金融风控、生物医药分子库检索'（因分布式+高QPS+混合检索）；Qdrant指向'电商推荐、广告精准投放'（因高并发、稀疏向量加速、标量量化）；三者均被反复置于'RAG'上下文中（如'生产视角对比'、'RAG核心组件'），并指出Pinecone适配'低延迟RAG'、Milvus适配'大规模企业级RAG'、Qdrant适配'实时业务需求'；语义搜索、推荐系统、图像检索（Weaviate提及多模态，Milvus/Qdrant亦隐含支持）均有覆盖。技术优势（如混合检索、实时更新、托管免运维）与场景形成合理映射。"
+    },
+    {
+     "subquestion": "在性能指标（如吞吐量、延迟、可扩展性）、运维复杂度和商业化支持方面，三者的对比情况如何？",
+     "covered": true,
+     "reason": "性能方面：Milvus有'QPS超百万级'、'延迟毫秒级'、'支持千亿级'；Qdrant有'延迟稳定在20ms内'、'稀疏向量速度提升16倍'；Pinecone强调'全托管低延迟'。可扩展性：Milvus明确'分布式支持十亿/千亿级'，Qdrant提'高效引擎'，Pinecone作为SaaS天然弹性伸缩。运维复杂度：Milvus被多次指出'部署复杂度高'、'需专业运维'、'内存占用大'；Pinecone被强调'全托管'、'低运维负担'；Qdrant未直接提运维难度，但'Rust单二进制'和'轻量部署'可推断较低。商业化支持：Pinecone为商业SaaS（隐含完善支持），Milvus有开源版+商业版（Zilliz提供），Qdrant为开源+商业托管（文档中虽未明说，但'开源'属性及与Pinecone/Milvus并列对比，结合行业常识可确认其商业化路径存在）。所有维度均有实质性信息支撑对比。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 6,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "向量数据库",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Milvus",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Qdrant",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Pinecone",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "相似性搜索",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "嵌入向量",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "ANN",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 37302,
+   "total_cost": 0.0522,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

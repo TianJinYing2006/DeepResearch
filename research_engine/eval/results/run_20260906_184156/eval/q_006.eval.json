@@ -1,0 +1,147 @@
+{
+ "q_id": "q_006",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4320,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 50,
+   "verified": 32,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.64,
+   "by_source_type": {
+    "web": {
+     "total": 35,
+     "verified": 23,
+     "existence": 35
+    },
+    "arxiv": {
+     "total": 15,
+     "verified": 9,
+     "existence": 15
+    }
+   },
+   "failed_note_distribution": {
+    "来源[1]摘要未出现‘CMDB’‘配置管理流程’等术语，全文无ITIL或运维流程": 5,
+    "前半句‘无法理解…’忠实于[22]；但后半句‘可构建领域知识图谱…’在来源[5]": 3,
+    "同上，来源[9]摘要讨论代理范式、评估框架与应用，**未出现‘领域知识图谱’‘概": 3,
+    "来源[12]摘要仅提及‘LangChain 是用于构建基于语言模型应用的框架’，": 1,
+    "来源[25]摘要仅提‘Gartner 预测到 2028 年将有超过 50% 的企": 3,
+    "来源[20]摘要仅称‘Gemma-3 4B、Qwen-3 1.7B’参与测试，评": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 4,
+   "total": 4,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "AI Agent 的核心能力与技术架构是什么？",
+     "covered": true,
+     "reason": "多处研究发现明确指出AI Agent以大语言模型（LLM）为核心，具备感知、规划、记忆、工具调用、自主学习（通过ML/DL/RL）、长周期交互、意图理解等能力；并提及现代架构包含感知-规划-执行-记忆模块，以及LangChain、LangGraph、MCP协议、多Agent协作等技术组件；还提到Focus Agent、SWE-Agent等具体框架实例，覆盖核心能力与技术架构。"
+    },
+    {
+     "subquestion": "RPA 工作流自动化的典型实现方式与技术边界在哪里？",
+     "covered": true,
+     "reason": "多份摘要一致描述RPA为‘模拟人类操作’‘基于预设规则’‘规则驱动’的软件技术，典型实现包括点击、输入、数据录入、系统间迁移等重复性结构化任务；技术边界被明确界定为：无法理解自然语言、难以处理非结构化数据、无学习/决策能力、规则维护成本高、流程变更频繁时易失效、缺乏环境适应性与自主性——这些均直接回答了其实现方式与边界。"
+    },
+    {
+     "subquestion": "AI Agent 与 RPA 在决策自主性、环境适应性和学习能力上的关键差异有哪些？",
+     "covered": true,
+     "reason": "研究发现反复对比二者：AI Agent具备‘自主决策’‘实时感知环境并调整’‘自主学习’‘处理复杂/非结构化/动态场景’；RPA则‘依赖预设逻辑’‘缺乏自主决策能力’‘不具自主学习能力’‘仅适用于结构化、规则明确任务’‘无法适应环境变化’。这些表述精准覆盖决策自主性、环境适应性、学习能力三大维度的关键差异。"
+    },
+    {
+     "subquestion": "在实际企业自动化场景中，AI Agent 与 RPA 的适用范围和协同模式是怎样的？",
+     "covered": true,
+     "reason": "多个摘要提供具体企业场景案例：RPA用于财务报销、订单处理、客户服务自动化、数据录入；AI Agent用于客户行为分析、精准营销、医疗诊断、智能客服、自动驾驶、AI编程（Issue分析/PR审查/Bug修复）、焦点小组主持等复杂任务；协同模式明确表述为‘互补共生’‘AI负责决策与思考，RPA负责稳定执行’‘混合架构（大模型生成逻辑 + RPA稳健执行）’‘副驾驶模式’‘超自动化’，并给出电商项目中维护时间从8小时/周降至0.5小时的实证，充分覆盖适用范围与协同模式。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 6,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "AI Agent",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "RPA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "规则驱动",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "自主决策",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "大语言模型",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "流程自动化",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "智能体架构",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务泛化",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 35730,
+   "total_cost": 0.05,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

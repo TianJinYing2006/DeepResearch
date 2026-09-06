@@ -1,0 +1,140 @@
+{
+ "q_id": "q_009",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5704,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 38,
+   "verified": 27,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.7105,
+   "by_source_type": {
+    "web": {
+     "total": 38,
+     "verified": 27,
+     "existence": 38
+    }
+   },
+   "failed_note_distribution": {
+    "重复校验：[12]未提小模型、未提ICL能力对比、未提敏感性；该claim后半句": 2,
+    "来源[9]全文讨论对象为'大模型'（如'大模型参数规模巨大'、'GPT、BERT": 3,
+    "来源[10]同样限定于'大型语言模型(LLM)'，其案例为'GPT、BERT'；": 3,
+    "来源[21]标题为'大模型微调技术简述'，全文语境为LLM；'小模型'未被讨论，": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "少样本提示在小模型（如<1B参数）上的推理任务（如逻辑推理、数学推理）中效果如何？有哪些典型实证研究及量化结果？",
+     "covered": false,
+     "reason": "检索到的内容普遍聚焦于大模型（LLM）场景，反复强调few-shot prompting适用于'大型语言模型'，引用论文如Language Models are Few-Shot Learners（针对GPT-3等百亿/千亿参数模型），并默认其有效性前提为大模型的上下文学习能力；未提及任何<1B参数的小模型（如TinyBERT、DistilGPT-2、Phi-2、Gemma-2B等）在逻辑/数学推理任务上的few-shot实验，更无具体量化指标（如准确率提升幅度、与零样本对比的delta、不同示例数的影响曲线等）。所有描述均为定性、泛化、面向LLM的概述。"
+    },
+    {
+     "subquestion": "参数高效微调（如LoRA、Adapter、Prefix-tuning）应用于小模型时，在相同推理任务上的性能提升幅度、训练成本与泛化性表现如何？",
+     "covered": false,
+     "reason": "所有检索内容均明确将PEFT定位为'大模型微调技术'，动机始终围绕'百亿/千亿参数模型全参微调显存/算力不可行'（如'动辄数十GB显存'、'冻结预训练语言模型的大多数层'），讨论对象是LLaMA、GPT、BERT等大模型；未出现任何针对<1B参数小模型应用LoRA/Adapter/Prefix-tuning的实证分析，缺失小模型上的性能增益（如+2.3% GSM8K准确率）、训练成本对比（如GPU小时数、显存占用MB级下降）、泛化性报告（如跨任务迁移效果、OOD鲁棒性）等关键信息。"
+    },
+    {
+     "subquestion": "是否存在直接对比少样本提示与PEFT在同一个小模型、同一推理数据集上的控制实验？其结果差异是否具有统计显著性？其结论与关键影响因素（如模型规模/数据量）是什么？",
+     "covered": false,
+     "reason": "检索内容完全未提及任何'直接对比实验'，更不存在'同一小模型+同一推理数据集'的控制变量设计；所有文本将few-shot prompting（推理时无参数更新）与PEFT（训练时参数更新）视为两类独立技术路径，仅在极个别地方模糊提到'few-shot相比大模型微调'，但未给出任何对比数据、统计检验（如p值、置信区间）或影响因素分析（如模型规模阈值、标注数据量临界点）。该子问题要求的严格控制实验及其分析结果完全缺失。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 6,
+   "retrieval_hit_rate": 0.6667,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "少样本提示",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数高效微调",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "PEFT",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LoRA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "小模型",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理能力",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "逻辑推理",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "数学推理",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "对比实验",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 25022,
+   "total_cost": 0.035,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

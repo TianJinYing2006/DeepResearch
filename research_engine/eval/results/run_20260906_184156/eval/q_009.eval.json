@@ -1,0 +1,140 @@
+{
+ "q_id": "q_009",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5704,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 38,
+   "verified": 27,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.7105,
+   "by_source_type": {
+    "web": {
+     "total": 38,
+     "verified": 27,
+     "existence": 38
+    }
+   },
+   "failed_note_distribution": {
+    "重复校验：[12]未提小模型、未提ICL能力对比、未提敏感性；该claim后半句": 2,
+    "来源[9]全文讨论对象为'大模型'（如'大模型参数规模巨大'、'GPT、BERT": 3,
+    "来源[10]同样限定于'大型语言模型(LLM)'，其案例为'GPT、BERT'；": 3,
+    "来源[21]标题为'大模型微调技术简述'，全文语境为LLM；'小模型'未被讨论，": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "少样本提示在小模型（如<1B参数）上的推理任务（如逻辑推理、数学推理）中效果如何？有哪些典型实证研究及量化结果？",
+     "covered": false,
+     "reason": "检索内容普遍将few-shot prompting与大模型（LLM）、GPT-3/4、DeepSeek-R1等百亿/千亿参数模型绑定，强调其作为in-context learning在大模型上的有效性；未提及任何针对<1B参数小模型（如T5-base、ALPACA、Phi-2、TinyLlama等）的实证研究，也未提供任何量化结果（如准确率提升幅度、对比基线、统计显著性p值等）。所有描述均为定性、泛化、面向大模型的概述。"
+    },
+    {
+     "subquestion": "参数高效微调（如LoRA、Adapter、Prefix-tuning）应用于小模型时，在相同推理任务上的性能提升幅度、训练成本与泛化性表现如何？",
+     "covered": false,
+     "reason": "所有PEFT相关材料均聚焦于大模型（'百亿、千亿级'、'GPT、BERT'、'LLaMA'），强调其解决'全参微调显存开销巨大'问题；未涉及小模型（<1B）场景下的适配性分析，更无任何关于小模型上PEFT的性能提升幅度（如+2.3% Acc）、训练成本（GPU小时、显存占用MB级变化）、泛化性（跨任务/跨分布表现）的具体数据或实验报告。"
+    },
+    {
+     "subquestion": "是否存在直接对比少样本提示与PEFT在同一个小模型、同一推理数据集上的控制实验？其结果差异是否具有统计显著性？",
+     "covered": false,
+     "reason": "检索内容完全未提及任何头对头（head-to-head）对比实验，尤其缺失'同一小模型+同一数据集+统一评估协议'的控制变量设计；既无实验设置描述（如模型选型、数据集名称、prompt模板/PEFT配置细节），也无结果表格、消融分析或统计检验（如t-test、bootstrap置信区间）信息。所有文本均将二者作为独立技术平行介绍，未建立可比性框架。"
+    },
+    {
+     "subquestion": "影响二者效果差异的关键因素有哪些？（例如模型规模阈值、任务类型、标注样本质量/数量、推理链长度等）",
+     "covered": false,
+     "reason": "虽有零星提及'任务类型'（如数学/逻辑题适合CoT）、'示例质量'、'推理链长度'，但均为经验性断言（如'few-shot和CoT可叠加'），未基于小模型实验提炼出系统性关键因素；尤其缺失对'模型规模阈值'（如何时few-shot优于PEFT、何时反转）的实证界定，也未量化'标注样本数量'与效果的非线性关系，或分析'推理链长度'对上下文窗口压力与PEFT稳定性的影响机制。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 6,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "少样本提示",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数高效微调",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "PEFT",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LoRA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "小模型",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理能力",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "逻辑推理",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "数学推理",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 25022,
+   "total_cost": 0.035,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

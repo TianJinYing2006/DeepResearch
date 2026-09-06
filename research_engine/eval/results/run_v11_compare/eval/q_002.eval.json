@@ -1,0 +1,112 @@
+{
+ "q_id": "q_002",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5050,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 48,
+   "verified": 24,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.5,
+   "by_source_type": {
+    "web": {
+     "total": 48,
+     "verified": 24,
+     "existence": 48
+    }
+   },
+   "failed_note_distribution": {
+    "来源[1]未提'CN-StockKG'或'预训练抽取器'，该claim属虚构具体": 7,
+    "同[1]，来源[5]为重复链接，内容相同，仍含虚构技术主张，faithful=f": 3,
+    "来源[6]未提'图摘要代理'、'<200 token'等细节，faithful=": 10,
+    "来源[2]未提'GraphRAG-Bench'、'GraphRAG-OS团队'、": 4
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 2,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "RAG 检索质量提升的主要技术路线（混合检索、重排序、查询改写）",
+     "covered": false,
+     "reason": "检索到的内容多次提及'重排'（如'检索增强工具(重排/过滤/生成)'）、隐含混合检索（如GraphRAG融合向量与图谱）、以及查询改写的可能性（未直接出现），但全文未系统阐述这三类技术路线的定义、原理、代表性方法、对比分析或实证效果；仅将'重排'列为工具分类之一，未说明其如何提升检索质量，也未提及其与混合检索、查询改写的协同关系或技术演进脉络。因此，不足以回答该子问题。"
+    },
+    {
+     "subquestion": "RAG 评测方法与基准的新进展",
+     "covered": true,
+     "reason": "多篇材料明确提到'RAG评估工具(质量/性能/成本)'（掘金文章）、'评估体系'（CSDN博客《GraphRAG:知识图谱赋能的RAG技术革新与实践指南》）、以及《2025年GraphRAG实践应用白皮书》中隐含对评估的重视；尤其指出GraphRAG在'多跳问答任务中实现了72%的准确率提升'，表明存在面向新能力（如多跳推理）的量化评测指标和基准任务。虽未列具体基准名称（如BEIR-RAG、RAGEval等），但已覆盖'新进展'的核心维度：评估维度扩展（质量/性能/成本）、新范式适配（GraphRAG专用评测）、实证结果导向。因此足以回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 4,
+   "hit": 3,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "检索增强",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "GraphRAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "混合检索",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 21865,
+   "total_cost": 0.0306,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 2,
+   "depth": 2
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "max_replan"
+   ],
+   "critic_signal": "stop",
+   "rounds": 2,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}

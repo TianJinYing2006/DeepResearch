@@ -1,0 +1,144 @@
+{
+ "q_id": "q_015",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5286,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 26,
+   "verified": 10,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.3846,
+   "by_source_type": {
+    "web": {
+     "total": 26,
+     "verified": 10,
+     "existence": 26
+    }
+   },
+   "failed_note_distribution": {
+    "原文通篇讨论对抗性攻击三大类型（规避、投毒、LLM提示攻击），但未对'LLM提示": 1,
+    "原文指出'词序乱序与变体攻击'可绕过输入检测，但未声称'绕过所有关键词检测与结构": 5,
+    "原文仅定义沙箱为'基于虚拟化技术产生的安全事件分析技术'，用于'开放银行沙箱环境": 2,
+    "原文未提出任何'分层组合策略'，未划分'基线/叠加'层级，未指定'数据库写入/邮": 4,
+    "原文仅为'清洗规则'词条解释，列举'机械产品故障诊断专家系统'的规则示例（如阀心": 1,
+    "原文为'沙盘模拟攻略'，内容关于ERP企业运营模拟游戏（P1/P2/P4产品策略": 1,
+    "原文为LLM防御技术综述，仅泛泛提及'涵盖预训练、后训练和推理各阶段'，未出现'": 1,
+    "原文仅报道'中央网信办指出...人工智能极端失控风险需要高度警惕'，列举'智能体": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 4,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "提示注入攻击的主要类型和典型利用场景有哪些？",
+     "covered": true,
+     "reason": "多篇文档明确区分了提示注入的类型（如直接注入 vs. 间接注入）、来源（用户输入、邮件正文、PDF、搜索结果、代码注释、工具返回、长期记忆等），并给出了典型场景：AI Agent 被邮件劫持执行导出通讯录、Agentic Botnet 大规模操控智能体、模板注入作为隐秘入口等；'别让你的 AI Agent 被一句话劫持'和'深入解析对抗性攻击'等文均系统描述了攻击本质与现实生产事故。"
+    },
+    {
+     "subquestion": "针对提示注入的防御策略中，输入过滤与规范化有哪些具体工程实践？",
+     "covered": false,
+     "reason": "文档提及'隔离不可信上下文'、'给每段输入标注来源'、'清洗规则'等概念，但未提供输入过滤与规范化的具体工程实践（如正则过滤策略、Unicode标准化、HTML实体转义、敏感token截断/替换、编码归一化流程、结构化解析后白名单校验等）。'清洗规则'条目仅泛泛提及数据清洗工具不足，无LLM场景下输入规范化实操细节。"
+    },
+    {
+     "subquestion": "LLM 应用中如何通过架构设计（如沙箱、输出验证、角色隔离）缓解提示注入风险？",
+     "covered": true,
+     "reason": "文档明确涉及沙箱（'沙箱又称sandbox...提供被安全策略限制程序行为的执行环境'，并关联开放银行沙箱与安全边界）、输出验证（'输出检测模型(Output Guardrail)'、'X-Boundary建立精确安全边界'、'双重检测模型'）、角色隔离（'先问“谁有权发指令”'、'隔离不可信上下文'、'标注来源'体现信任域分离思想）；'Agentic Botnet'文强调防御架构设计，'边缘AI安全能力'文指出传统权限控制失效，需新范式——印证架构层缓解的必要性。"
+    },
+    {
+     "subquestion": "当前主流开源/商业 LLM 安全框架（如 Microsoft Guidance、NeMo Guardrails、PromptShield）提供了哪些内置防护机制？",
+     "covered": false,
+     "reason": "检索结果中未出现 Microsoft Guidance、NeMo Guardrails、PromptShield 等任一框架名称，也未描述其具体内置机制（如Guidance的结构化生成约束、NeMo的guardrail pipeline、PromptShield的实时注入检测引擎等）。虽提到'UC伯克利与Meta最新研究揭示防御新策略'、'OpenAI安全系统负责人梳理防御方法'、'NeMo'未被提及，所有框架名均缺失，无法判断其内置防护机制。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 1,
+   "retrieval_hit_rate": 0.125,
+   "matched_by": {
+    "keyword": 1,
+    "semantic": 0,
+    "miss": 7
+   },
+   "per_keyword": [
+    {
+     "keyword": "提示注入",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "输入过滤",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "输出验证",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "沙箱机制",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色隔离",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "NeMo Guardrails",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Microsoft Guidance",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "PromptShield",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 21716,
+   "total_cost": 0.0304,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}

@@ -162,20 +162,36 @@ def generate_report(
         rows_tbl.append(f"| {key} | {target} | {val_s} | {mark} |")
 
     cost_total = summary.get("cost_phase1_total", {})
+    per_model = cost_total.get("per_model") or {}
+    per_model_str = ", ".join(
+        f"{m}: {v['tokens']}tok ¥{v['cost']:.4f}" for m, v in per_model.items()
+    )
+    per_role_str = ", ".join(f"{r}: {t}tok" for r, t in (cost_total.get("per_role") or {}).items())
     cost_line = (
         f"💰 总 token（Phase1 研究）：{cost_total.get('total_tokens', 0)}，"
         f"成本：¥{cost_total.get('cost_yuan', 0)}"
         f"（Phase2 judge 另计 {summary.get('cost_phase2_judge_tokens', 0)} token）\n"
+        f"  - 模型名桶：{per_model_str or '—'}\n"
+        f"  - 职责桶：{per_role_str or '—'}\n"
     )
 
     # ---- 4. 失败与异常附录 ----
     anomalies = []
     for r in results:
-        if r.get("status") != "ok" or (r.get("metrics") or {}).get("cost", {}).get("total_tokens", 0) > 60_000:
+        if r.get("status") != "ok":
+            anomalies.append(r)
+            continue
+        c = (r.get("metrics") or {}).get("cost", {})
+        if c.get("single_token_only"):
+            if c.get("total_tokens", 0) > 60_000:  # 单条软上限（Q3：超限标红不中止）
+                anomalies.append(r)
+        elif c.get("total_tokens", 0) > 60_000:
             anomalies.append(r)
     anomaly_lines = "\n".join(
-        f"- {r.get('q_id')} [{r.get('status')}] {((r.get('metrics') or {}).get('cost') or {}).get('total_tokens', '')}"
-        + (f" ¥{((r.get('metrics') or {}).get('cost') or {}).get('total_cost', '')}" if r.get("metrics") else "")
+        f"- {r.get('q_id')} [{r.get('status')}]"
+        + (f" {((r.get('metrics') or {}).get('cost') or {}).get('total_tokens', '')}tok"
+           f" ¥{((r.get('metrics') or {}).get('cost') or {}).get('total_cost', '')}"
+           if r.get("metrics") else "")
         + (f" error={r.get('error')[:200]}" if r.get("error") else "")
         for r in anomalies
     ) or "- 无"

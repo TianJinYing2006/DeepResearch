@@ -1,0 +1,152 @@
+{
+ "q_id": "q_016",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5683,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 65,
+   "verified": 28,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.4308,
+   "by_source_type": {
+    "web": {
+     "total": 51,
+     "verified": 24,
+     "existence": 51
+    },
+    "arxiv": {
+     "total": 14,
+     "verified": 4,
+     "existence": 14
+    }
+   },
+   "failed_note_distribution": {
+    "source 2（博客园文章）摘要中未提及'高成本循环'或引用23，该 clai": 3,
+    "source 6 未提出该 warning，归因错误；且内容与 source 7": 5,
+    "source 21（掘金文章）摘要未提及'高成本循环'或 source 23，该": 3,
+    "原文摘要未提及'联邦微调'。该 claim 完全无来源。": 3,
+    "原文摘要仅称'两者在不同数据量和任务需求下各有优势'，未涉及数据分布形态、长尾、": 1,
+    "source 13（头条文章）摘要未提及'高成本循环'或 source 23，该": 4,
+    "source 7 明确提出RAG可解决该问题，该 warning 与其核心贡献直": 4,
+    "source 17 摘要未提及LoRA，该 claim 错误归因。": 4,
+    "原文摘要指出RAG在多跳查询'表现不足'，但未量化'显著低于人类水平'，亦未归因": 3,
+    "原文摘要未提及'联邦微调'或任何方案成熟度评估。该 claim 属无依据添加。": 4,
+    "source 18 未提出该 warning，归因错误；且内容否定其自身RAG适": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "RAG与微调在哪些任务类型（如开放域问答、事实核查、长尾知识检索）上表现出显著性能差异？",
+     "covered": true,
+     "reason": "多篇摘要明确区分了任务/场景适配性：如开放域问答隐含于'私有企业文档问答''日本医疗诉讼程序''FAQ/产品文档'等场景；事实核查对应'减少幻觉''忠实于上下文''引用来源'等描述；长尾知识检索体现于'专业术语密集''领域专业性强''知识分布在多个表格中'等表述。尤其arXiv:2402.07483v2、MultiHop-RAG、T-RAG等研究直接关联具体任务类型与性能差异。"
+    },
+    {
+     "subquestion": "影响RAG优于微调的关键因素有哪些（如数据规模、领域更新频率、标注成本、推理延迟）？",
+     "covered": true,
+     "reason": "检索结果高频覆盖全部四项因素：'数据规模'（'数据量小/充足''数据集足够大且稳定'）、'领域更新频率'（'数据更新频繁''需动态信息更新''知识需频繁更新'）、'标注成本'（'训练数据不足''无需大量高质量数据''标注成本高'）、'推理延迟'虽未直述，但'RAG更易实现''构建简单''无需训练模型'及与微调的'计算资源限制''全量微调资源消耗大'对比，间接支持其低延迟优势；另有摘要明确提及'部署需求''响应速度要求高'，可合理推断推理延迟是权衡维度之一。"
+    },
+    {
+     "subquestion": "2023–2024年权威会议（如ACL、EMNLP、ICLR）中对比RAG与微调的实证研究主要结论是什么？",
+     "covered": false,
+     "reason": "所有摘要均未提及任何具体国际顶会（ACL/EMNLP/ICLR）名称、论文标题、作者或会议录用信息；仅有一篇标注'arXiv:2402.07483v2'（预印本平台，非会议），其余为博客园、书籍、通用综述或未指明出处的研究。缺乏对权威会议实证研究的直接引用与结论提炼。"
+    },
+    {
+     "subquestion": "是否存在RAG与微调的混合范式（如RAG+轻量微调），其边界适用条件如何界定？",
+     "covered": true,
+     "reason": "多处摘要明确指出混合路径：'结合RAG与微调的开源LLM'（arXiv:2402.07483v2）、'RAG+轻量微调'虽未原词出现，但'高效微调（如LoRA、QLoRA）'与'RAG在动态场景下仍是更灵活的选择'形成互补暗示；RAG-Star方法本质是RAG与LLM内在推理能力（可视为轻量参数化引导）的协同；且多篇强调'根据数据量、动态性、资源限制综合选择'，即混合使用是隐含推荐策略，适用条件已由'数据小+领域复杂+资源有限时微调可能更优，而数据丰富+需动态更新时RAG更佳'等表述清晰界定。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数微调",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "实证比较",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "适用边界",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "检索增强生成",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "大语言模型适配",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "知识更新时效性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "标注数据稀缺",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 36389,
+   "total_cost": 0.0509,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

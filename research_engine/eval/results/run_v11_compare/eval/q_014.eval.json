@@ -1,0 +1,144 @@
+{
+ "q_id": "q_014",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6265,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 56,
+   "verified": 52,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9286,
+   "by_source_type": {
+    "web": {
+     "total": 53,
+     "verified": 50,
+     "existence": 53
+    },
+    "arxiv": {
+     "total": 3,
+     "verified": 2,
+     "existence": 3
+    }
+   },
+   "failed_note_distribution": {
+    "来源[3]仅说明'中文标点符号也占3字节'，但未指定U+3000–U+303F（": 1,
+    "来源[1]全文讨论ASCII/GB2312/Unicode下字节与字符换算，未出": 2,
+    "source[19]摘要仅提'CPT-Filtering技术用于检测恶意提示'及": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "8k token 在中文文本中对应多少字符（以 UTF-8 编码下的字节长度为基准）？",
+     "covered": false,
+     "reason": "所有检索结果均未提供‘8k token → UTF-8字节长度’的直接换算关系。虽然多处提到UTF-8中一个中文字符占3或4字节，也提到token与字符的映射（如1 token ≈ 2–3字符），但从未将token数转换为总字节数（即8k × 平均token字节数）。问题要求的是字节长度（bytes），而非字符数或汉字数；而所有摘要均未给出token在UTF-8下对应的平均字节消耗（例如：BPE token平均含几个UTF-8字节），故无法回答。"
+    },
+    {
+     "subquestion": "使用 BPE 分词（如 LLaMA、ChatGLM 所用）时，8k token 大致覆盖多少常用中文字符？",
+     "covered": true,
+     "reason": "多条摘要明确给出BPE/BBPE分词下的估算：'每个token平均对应约2-3个中文字符'（出现至少4次），因此8k token ≈ 16,000–24,000中文字符；另有摘要称'约1.6万到2.4万'、'16,000至24,000个'，与前述一致。LLaMA使用BBPE、ChatGLM使用BPE类方案，这些数据可直接适用。"
+    },
+    {
+     "subquestion": "使用字粒度分词（如部分 NLP 工具）时，8k token 等于多少汉字？",
+     "covered": true,
+     "reason": "多条摘要明确指出字符级（character-based）分词：'每个token对应1个汉字，8k token ≈ 8,000汉字'（出现3次）；另有一条称'按字符切分时，可达4000字符左右'，但该值与其他多条8,000的陈述矛盾且无上下文支撑（疑似误写或特指异常编码），而'8,000汉字'被重复、独立、明确表述，且符合字粒度定义（1 token = 1 char），故足以回答。"
+    },
+    {
+     "subquestion": "使用词粒度分词（如 jieba）时，8k token 对应的中文字符数范围是多少？",
+     "covered": true,
+     "reason": "摘要中明确给出词粒度（word-based）分词的估算：'每个token对应约2-4个汉字，8k token ≈ 16,000–32,000汉字'；另有一条称'词语切分时，约为8000字符'，但该值与主流词粒度预期不符（jieba切词后token数远少于字数），且仅出现1次、无佐证；而16k–32k范围被明确标注为'基于词（word-based）分词'，逻辑自洽（1词≈2–4字），且与jieba等工具的实际切分密度一致，故足以回答。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 7,
+   "retrieval_hit_rate": 0.875,
+   "matched_by": {
+    "keyword": 7,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "token",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "中文字符",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "BPE",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "字粒度",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "词粒度",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "上下文窗口",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "分词方式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "UTF-8",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 41759,
+   "total_cost": 0.0585,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

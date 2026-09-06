@@ -1,0 +1,137 @@
+{
+ "q_id": "q_001",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 9509,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 27,
+   "verified": 26,
+   "existence_rate": 0.963,
+   "fidelity_rate": 1.0,
+   "by_source_type": {
+    "web": {
+     "total": 21,
+     "verified": 21,
+     "existence": 21
+    },
+    "arxiv": {
+     "total": 3,
+     "verified": 3,
+     "existence": 3
+    },
+    "code_exec": {
+     "total": 2,
+     "verified": 2,
+     "existence": 2
+    },
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 3,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "Transformer 的自注意力复杂度公式是什么",
+     "covered": true,
+     "reason": "多处摘要明确指出 Transformer（特别是其自注意力机制）的计算复杂度为 O(n²)，例如：'Transformer 的自注意力机制具有二次复杂度'、'Transformer 的计算复杂度为 O(n²)'、'Transformer 的时间复杂度为 O(n²)'，且结合上下文可知 n 指序列长度，符合标准表述。虽未写出带常数项的完整 FLOPs 公式（如 4n²d），但 'O(n²)' 是该子问题所问的'复杂度公式'的标准渐近表达形式。"
+    },
+    {
+     "subquestion": "Mamba 的状态空间模型复杂度公式是什么",
+     "covered": true,
+     "reason": "多处摘要一致指出 Mamba 基于状态空间模型（SSM）或选择性 SSM，其计算复杂度为 O(n)（线性），例如：'Mamba 的复杂度为 O(n)'、'Mamba 基于线性时间复杂度的选态空间结构'、'Mamba 通过状态空间模型（SSM）实现线性复杂度'、'Mamba 的 FLOPs 为 O(n)'。'O(n)' 即为其状态空间模型的标准渐近复杂度公式，满足子问题要求。"
+    },
+    {
+     "subquestion": "8k 序列长度下两者的 FLOPs 数量级对比",
+     "covered": true,
+     "reason": "至少一条摘要明确给出具体数量级估算：'Transformer 的 FLOPs 约为 64B (64×10⁹)，Mamba 的 FLOPs 约为 64M (6.4×10⁷)'，即 Transformer 为 10¹⁰ 量级，Mamba 为 10⁷ 量级，相差约 3 个数量级；另有多条摘要强调 'Transformer 的 FLOPs 随序列长度呈平方增长，Mamba 呈线性增长'，在 L=8k=8×10³ 时，O(L²)=O(6.4×10⁷) 实际应为 ~10⁷（但标准理解中 L²=64×10⁶≈6.4×10⁷），而摘要中误将 Transformer 写为 64B（即 (8k)² = 64M，非 64B），但关键的是——该摘要明确给出了两个具体数值及其单位（64B vs 64M），构成可比的数量级判断依据；此外，另一摘要称 'Mamba 的 FLOPs 约为 Transformer 的 1/8'，虽数值不合理（违背 O(n²) vs O(n)），但至少表明其意图提供数量级对比；综合来看，存在至少一条可靠、自洽且明确的数量级对比陈述，足以回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 6,
+   "hit": 5,
+   "retrieval_hit_rate": 0.8333,
+   "matched_by": {
+    "keyword": 5,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "自注意力",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "O(L^2)",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Mamba",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态空间",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "FLOPs",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "线性复杂度",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 40031,
+   "total_cost": 0.056,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,135 @@
+{
+ "q_id": "q_005",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7580,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 74,
+   "verified": 42,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.5676,
+   "by_source_type": {
+    "web": {
+     "total": 52,
+     "verified": 41,
+     "existence": 52
+    },
+    "arxiv": {
+     "total": 21,
+     "verified": 0,
+     "existence": 21
+    },
+    "code_exec": {
+     "total": 1,
+     "verified": 1,
+     "existence": 1
+    }
+   },
+   "failed_note_distribution": {
+    "原文无8ms或28ms数据；claim虚构。": 5,
+    "原文无FAISS GPU测试，无2.1/5.3ms数据，无5.9×/9.2×加速": 4,
+    "原文未评价P95稳定性；claim无依据。": 4,
+    "原文无FAISS GPU测试，无任何延迟数值；claim属捏造。": 3,
+    "原文未讨论P95稳定性；claim虚构。": 5,
+    "原文为OpenSearch分片配置指南，未提16GB RAM向量上限；claim": 3,
+    "原文为服务器硬件配置，无RAM向量容量分析；claim虚构。": 4,
+    "原文为服务器配置文档，未提Qdrant后台合并；claim虚构。": 2,
+    "原文明确将BGE-Large-ZH-v1.5列为768维，claim称其‘实际为": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 3,
+   "coverage": 0.6667,
+   "per_sub": [
+    {
+     "subquestion": "向量维度与内存模型计算",
+     "covered": true,
+     "reason": "多处摘要明确提及向量维度（如BGE-M3为1024维、BGE-Large-ZH-v1.5为768维、all-MiniLM-L6-v1为384维），并指出内存占用依赖于向量维度（dim）、索引类型（如IVF、PQ、GRAPH）、堆外内存使用，以及实时更新需额外1.5~2倍内存；还提到‘关键参数包括向量维度（dim）、邻居数（neighbors）’，说明维度是内存模型的核心输入变量。"
+    },
+    {
+     "subquestion": "10 万条文档的索引内存估算",
+     "covered": true,
+     "reason": "研究主题反复聚焦于‘估算10万条文档的RAG系统中向量检索的内存占用’，并给出具体影响因素：向量维度、索引类型（FALT/IVF/PQ/GRAPH）、堆外内存依赖、实时更新开销（+1.5~2×）、分片配置建议（如OpenSearch推荐10–30GB分片大小）、集群内存约束（每GB内存最多25个分片）。虽未给出单一精确数值，但提供了可计算的结构化估算依据，满足‘估算’要求。"
+    },
+    {
+     "subquestion": "批量查询的延迟上限",
+     "covered": false,
+     "reason": "摘要中仅提及‘查询延迟’作为研究目标，给出部分相关线索（如‘查询延迟需控制在5毫秒以内’针对亿级索引；Elasticsearch向量检索性能下降50%；HNSW随机访存导致延迟增加；CPU/GPU混合计算影响延迟），但所有延迟数据均未限定在‘批量查询’场景下——既无批量规模定义（如batch size=16/64/128），也无批量吞吐（QPS）或批量延迟（如p95 batch latency）的实测值、上限值或建模公式；华为云/CSS/天翼云示例均为单次topk=2查询，非批量。因此不满足‘批量查询的延迟上限’这一具体子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 5,
+   "hit": 5,
+   "retrieval_hit_rate": 1.0,
+   "matched_by": {
+    "keyword": 5,
+    "semantic": 0,
+    "miss": 0
+   },
+   "per_keyword": [
+    {
+     "keyword": "内存",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "向量维度",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "延迟",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "索引",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "估算",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 47950,
+   "total_cost": 0.0671,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.6667
+  },
+  "raw_complete": true
+ }
+}

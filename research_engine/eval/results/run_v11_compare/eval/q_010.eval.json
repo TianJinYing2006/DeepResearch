@@ -1,0 +1,134 @@
+{
+ "q_id": "q_010",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5246,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 40,
+   "verified": 32,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.8,
+   "by_source_type": {
+    "web": {
+     "total": 40,
+     "verified": 32,
+     "existence": 40
+    }
+   },
+   "failed_note_distribution": {
+    "来源[5]内容完全关于GB/BIG5编码差异与操作系统显示机制，未涉及token": 1,
+    "同上，来源[7]无任何GPU性能数据，claim属无中生有。": 4,
+    "来源[6]未提及GPU型号、FP16、显存带宽或任何加速效果量化；claim中全": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "单份2000字中文文档经主流中文嵌入模型（如bge-zh、m3e）向量化后产生的token数及对应API调用成本（含输入/输出）",
+     "covered": false,
+     "reason": "检索结果多次提及使用BGE-M3、BGE-Large-ZH-v1.5、M3E等模型，也提到文档长度（如2000字）、上下文长度限制（如8192 token、32768 token），但未给出单份2000字中文文档实际token化后的token数（需考虑中文分词、tokenizer差异），更未提供任何API调用成本（如按token计费的输入/输出价格、模型调用单价、请求次数等量化数据）。所有摘要仅泛称'估算token成本'，无具体数值、单位或计算依据。"
+    },
+    {
+     "subquestion": "在1万份文档构成的向量库中，执行单次语义检索（Top-K=5）的平均墙钟延迟（含向量查询生成、相似度计算、结果排序），考虑不同向量数据库（如Milvus、Qdrant、FAISS）的典型性能",
+     "covered": false,
+     "reason": "检索结果频繁提及'估算墙钟延迟'，并列举Milvus、Qdrant、FAISS、Chroma等向量数据库，还解释了ANN、HNSW、IVF等底层机制，甚至给出高并发场景下的P99延迟目标（如150ms/237ms），但**未提供任何实测或基准的延迟数值**（如毫秒级均值、P50/P95延迟、硬件配置、数据规模下具体耗时）。所有描述均为定性说明（如'性能高''需自行封装''存在延迟差异'），缺乏针对'1万份文档+Top-K=5'这一具体条件下的可比量化结果。"
+    },
+    {
+     "subquestion": "RAG系统单轮完整流程（文档分块→嵌入→存储→查询嵌入→检索→上下文拼接）的端到端token消耗构成（含分块提示、嵌入输入、检索后prompt组装）",
+     "covered": false,
+     "reason": "检索结果多次指出RAG流程包含'文档分块、向量化存储、相似度检索、上下文构建'等环节，并强调'端到端token成本'被估算，但**未分解任一环节的token消耗**：未说明分块使用的提示模板及token开销、未给出嵌入模型输入文本的实际token数（如2000字≈多少token）、未披露检索后prompt组装的结构（如system/user模板长度、上下文拼接格式及预留空间）、更无各环节占比或累加值。所有表述停留在'涉及这些步骤'和'有成本'层面，无构成性量化数据。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 7,
+   "retrieval_hit_rate": 0.875,
+   "matched_by": {
+    "keyword": 7,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "向量化",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "语义检索",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "token成本",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "墙钟延迟",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "bge-zh",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Milvus",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "FAISS",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 38675,
+   "total_cost": 0.0541,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

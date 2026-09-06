@@ -1,0 +1,146 @@
+{
+ "q_id": "q_020",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5275,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 42,
+   "verified": 31,
+   "existence_rate": 0.9762,
+   "fidelity_rate": 0.7561,
+   "by_source_type": {
+    "web": {
+     "total": 41,
+     "verified": 31,
+     "existence": 41
+    },
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源[7]为掘金博客片段，内容止于'一、核心概念与作用对比'，末尾括号')'为截": 1,
+    "同上，截断引用。": 4,
+    "来源[19]为Bounty页面，claim以'（如'截断，无后续内容，属无效引用": 3,
+    "同上，截断引用，无实质内容。": 2,
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 4,
+   "coverage": 0.25,
+   "per_sub": [
+    {
+     "subquestion": "LLM Agent中向量记忆（如向量数据库检索）的具体实现方式及其在多轮任务中的典型应用流程是什么？",
+     "covered": true,
+     "reason": "多篇材料明确描述了向量记忆的实现：如'利用外部向量储存和快速检索来实现'（AI agent里的长期记忆和短期记忆）、'Faiss、Pinecone等向量数据库'（从长期记忆的角度谈Agent）、'把所有对话、结果和网页都写进去...召回更多文本'（掘金文章），并指出其在多轮任务中用于'长期存储和召回信息'、支撑Autonomous Agents跨轮次运行。虽未给出完整端到端流程图，但已涵盖核心组件（向量库选型、写入内容、检索触发）、角色（克服上下文长度限制、替代提示便签本）及典型上下文（多轮任务/Agent Simulations），足以回答该子问题。"
+    },
+    {
+     "subquestion": "结构化记忆（如知识图谱、关系数据库）如何被集成到LLM Agent架构中，并支持跨轮次的语义一致性与状态追踪？",
+     "covered": false,
+     "reason": "所有检索材料均未提及知识图谱、关系数据库、RDF、SPARQL、图神经网络或任何结构化数据模型；全部聚焦于向量记忆（向量数据库）或分层记忆（Working/Episodic/Declarative等语义分类），但未说明其如何以结构化形式（如三元组、schema、事务性更新）实现或集成。'四层记忆'等讨论仍属抽象分类，未涉及具体结构化技术栈或语义一致性保障机制（如约束推理、版本化图谱、实体对齐）。因此无法回答该子问题。"
+    },
+    {
+     "subquestion": "现有实证研究中，长期记忆模块的引入对多轮任务性能（如任务完成率、响应准确性、上下文保持时长）带来哪些可量化的提升或局限？",
+     "covered": false,
+     "reason": "所有材料均为概念性、架构性或工程实践讨论（如'需长期记忆能力''放大过期事实'），未报告任何实验设置、基准任务（如MultiWOZ、AlfWorld）、量化指标（如任务完成率↑12%、F1↓3.5%、上下文窗口有效延长至50轮）或对照组对比数据。虽有'性能上Faiss、Pinecone等差异不大'等模糊表述，但属系统性能而非任务性能；'知识碎片化困境''hallucination等问题'属定性局限，无量化证据。因此不满足'可量化提升或局限'的要求。"
+    },
+    {
+     "subquestion": "向量记忆与结构化记忆在延迟、可解释性、更新维护成本等维度上的关键权衡有哪些？",
+     "covered": false,
+     "reason": "材料仅单方面讨论向量记忆（如延迟相关提及'快速检索'，但未对比结构化方案；可解释性提到'需证据链召回'，但未与SQL查询/图遍历的可解释性对比；维护成本提及'过期事实、隐私、恶意指令'风险，但未分析结构化记忆的schema演化、ACID事务开销等对应成本）。全文未出现'结构化记忆'的实现、评估或横向对比，因此完全缺失二者之间的多维权衡分析，无法回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 2,
+   "retrieval_hit_rate": 0.25,
+   "matched_by": {
+    "keyword": 2,
+    "semantic": 0,
+    "miss": 6
+   },
+   "per_keyword": [
+    {
+     "keyword": "LLM Agent",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "长期记忆",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "向量记忆",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "结构化记忆",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多轮任务",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "知识图谱",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "向量数据库",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "记忆检索",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 24981,
+   "total_cost": 0.035,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.25
+  },
+  "raw_complete": true
+ }
+}

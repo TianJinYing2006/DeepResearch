@@ -1,0 +1,143 @@
+{
+ "q_id": "q_013",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5447,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 81,
+   "verified": 79,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9753,
+   "by_source_type": {
+    "web": {
+     "total": 81,
+     "verified": 79,
+     "existence": 81
+    }
+   },
+   "failed_note_distribution": {
+    "来源[15]摘要仅描述AI Agent典型工作流：'接收用户指令 → LLM 规": 1,
+    "来源[33]摘要仅称'研究基于LangChain、Ollama和Qwen3实现，": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "单一 supervisor 模式下，Agent 协作流程如何调度？其在高并发或任务激增时的平均响应延迟与任务吞吐量表现如何？",
+     "covered": false,
+     "reason": "检索结果多次提及单一 supervisor 模式由中央节点（如中介者代理、主节点）负责任务分发与状态监控，并指出其存在单点故障、扩展性有限、数据同步延迟等问题，但未描述具体调度机制（如轮询、优先级队列、动态负载感知等），且完全缺失任何量化指标——如平均响应延迟、吞吐量（TPS）、并发容量阈值或压力测试结果。所有相关摘要均止步于定性断言（如'扩展性有限'），无实验数据支撑。"
+    },
+    {
+     "subquestion": "对等网络模式中 Agent 如何自主协商任务分配与状态同步？该模式下局部故障（如单个 Agent 崩溃）是否会导致全局阻塞或级联失败？",
+     "covered": false,
+     "reason": "检索结果确认P2P模式具有去中心化、节点平等、直接通信等特性，并指出其‘可扩展性高’‘故障隔离能力更强’，甚至提到‘Agent崩溃恢复面临复杂挑战’及‘需结合副作用一致性机制’，但未说明协商机制（如基于拍卖、共识算法、Gossip协议或资源通告的协商逻辑），也未明确回答局部故障是否引发全局阻塞或级联失败——仅泛泛提及‘提升故障隔离能力’，缺乏故障传播路径分析、容错边界定义或实证（如崩溃1个/3个/5个节点后的系统可用性变化）。"
+    },
+    {
+     "subquestion": "两种模式在日志聚合、链路追踪、实时状态监控等可观测性能力上分别依赖哪些基础设施组件（如 OpenTelemetry 支持程度、指标暴露方式）？",
+     "covered": false,
+     "reason": "检索结果多次提及可观测性（Traces/Metrics/Logs）、全链路追踪（Jaeger/Zipkin/SkyWalking）、Span结构及Trace ID串联等概念，并指出P2P模式‘可观测性较弱’、服务器模式‘易于管理与监控’，但未说明任一模式具体集成的组件栈（如是否使用OpenTelemetry SDK、Exporter配置、Metrics暴露端点如/prometheus）、指标采集粒度（per-agent/per-hop/per-task）、日志聚合方案（Loki/ELK vs. 自研）、或状态监控的实现方式（Pull模型vs.Push模型、健康检查探针类型）。所有描述均为通用技术名词罗列，无模式级绑定细节。"
+    },
+    {
+     "subquestion": "对比实验中，相同任务集（如多跳问答、分布式数据清洗）下，两种模式在协作成功率、平均重试次数及故障恢复时间（MTTR）上的量化差异是什么？",
+     "covered": false,
+     "reason": "检索结果反复声明‘研究对比了两种模式在协作效率、故障隔离和可观测性上的差异’，并列举了若干实验设置（如LangChain+Qwen3、150次运行、固定硬件），但所有摘要均未呈现任何具体数值结果：既无协作成功率百分比、重试次数均值/方差、MTTR（秒级或毫秒级）数据，也未说明任务集细节（如‘多跳问答’的具体基准如HotpotQA或‘分布式数据清洗’的输入规模/脏数据率）。唯一量化内容为能耗、token数、内存占用等非目标指标，核心对比指标完全缺失。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 8,
+   "retrieval_hit_rate": 0.8889,
+   "matched_by": {
+    "keyword": 8,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "多 Agent 编排",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "supervisor 模式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "对等网络",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "协作效率",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "故障隔离",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "可观测性",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "MTTR",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 51890,
+   "total_cost": 0.0726,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

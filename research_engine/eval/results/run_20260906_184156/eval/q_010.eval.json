@@ -1,0 +1,139 @@
+{
+ "q_id": "q_010",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5246,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 40,
+   "verified": 32,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.8,
+   "by_source_type": {
+    "web": {
+     "total": 40,
+     "verified": 32,
+     "existence": 40
+    }
+   },
+   "failed_note_distribution": {
+    "来源[5]内容完全关于GB/BIG5编码差异与操作系统显示机制，未涉及token": 1,
+    "同上，来源[7]无任何GPU性能数据，claim属无中生有。": 4,
+    "来源[6]未提及GPU型号、FP16、显存带宽或任何加速效果量化；claim中全": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 4,
+   "coverage": 0.25,
+   "per_sub": [
+    {
+     "subquestion": "单份2000字中文文档经主流中文嵌入模型（如bge-zh、m3e）向量化后产生的token数及对应API调用成本（含输入/输出）",
+     "covered": false,
+     "reason": "检索结果多次提及使用BGE-M3、BGE-Large-ZH-v1.5、M3E等模型，也提到文档约2000字、支持8192/32768 token上下文等，但未给出单份2000字中文文档实际输入到这些模型时的token数（需考虑中文分词、特殊token、padding等），更未提供任何API调用成本（如按token计费单价、输入输出token分别统计、网络传输开销等）。所有摘要仅泛称'估算token成本'，无具体数值或计算依据。"
+    },
+    {
+     "subquestion": "在1万份文档构成的向量库中，执行单次语义检索（Top-K=5）的平均墙钟延迟（含向量查询生成、相似度计算、结果排序），考虑不同向量数据库（如Milvus、Qdrant、FAISS）的典型性能",
+     "covered": false,
+     "reason": "虽有多条摘要明确提及'1万份文档'、'墙钟延迟'、并列举Milvus/Qdrant/FAISS/Chroma等向量数据库，甚至指出IVF/HNSW/ANN等技术原理和部署特性（如FAISS本地高性能、Qdrant工程实现、Milvus支持ANN），但**无一条提供具体延迟数值**（如ms级测量）、未区分'向量查询生成'（即query embedding耗时）、'相似度计算+排序'（即DB检索阶段）的拆分延迟，也未给出不同DB在相同硬件/数据规模下的对比基准（例如：FAISS vs Qdrant在10k 768维向量上Top-5 P50延迟分别是多少）。仅出现业务场景约束（如'150ms内完成'）和定性描述（'性能高'、'需综合考量延迟×精度×成本'），缺乏可回答该子问题的定量证据。"
+    },
+    {
+     "subquestion": "RAG系统单轮完整流程（文档分块→嵌入→存储→查询嵌入→检索→上下文拼接）的端到端token消耗构成（含分块提示、嵌入输入、检索后prompt组装）",
+     "covered": false,
+     "reason": "摘要中多次出现'RAG流程包括文档读取、分块、向量化存储、相似度检索、上下文构建及大模型推理'或'分块策略、上下文构建'等表述，并强调'端到端'、'token成本估算'，但**完全未分解各环节的token消耗**：未说明分块使用的提示模板（如'请将以下文本按段落切分为不超过512字的块：'）、未给出嵌入模型输入token数（如2000字中文≈多少token）、未量化检索后prompt组装的固定开销（如system prompt + retrieved chunks + user query的token叠加逻辑）。所有'token成本'均为笼统总述，无构成分析，无法支撑该子问题所需的细粒度token溯源。"
+    },
+    {
+     "subquestion": "影响向量化与检索延迟的关键瓶颈因素分析：CPU/GPU推理耗时、向量索引构建与查询复杂度、网络I/O、序列化开销",
+     "covered": true,
+     "reason": "多条摘要明确指向关键瓶颈：1) 'CPU/GPU推理耗时'——提及BGE-M3/Qwen3-Embedding-4B等模型参数量（40亿）、维度（2560维）、上下文长度，隐含GPU推理负载；2) '向量索引构建与查询复杂度'——反复强调ANN、HNSW、IVF（K-Means聚类分区）、'牺牲召回率换性能'、'传统数据库不支持向量索引'；3) '网络I/O'——虽未直述，但'高并发场景P99延迟237ms'、'跨图文音三元组语义召回'、'向量数据库选型需权衡延迟×精度×成本'均暗示网络传输是端到端延迟链路一环；4) '序列化开销'——'Embedding Atlas工具进行性能基准测试'、'密度聚类、自动标注'等提及大规模嵌入数据交互，间接涉及向量序列化（如float32→bytes）与反序列化开销。尤其'索引构建与检索增强过程中的性能瓶颈'、'解决高维语义检索的关键'等表述构成对瓶颈的显式归因分析。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 7,
+   "retrieval_hit_rate": 0.875,
+   "matched_by": {
+    "keyword": 7,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "向量化",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "语义检索",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "token成本",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "墙钟延迟",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "bge-zh",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Milvus",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "FAISS",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 38675,
+   "total_cost": 0.0541,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.25
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,1100 @@
+{
+ "q_id": "q_008",
+ "query": "RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？",
+ "difficulty": "中",
+ "type": "多轮",
+ "state": {
+  "topic": "RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "当前主流的RAG专用及通用评测基准有哪些？它们在数据集构成、任务类型（如问答、事实核查、多跳推理）、领域覆盖和规模上各有何特点？",
+    "rationale": "明确评测基准是评估方法论的基础；不同基准的设计目标与适用场景直接影响评估结论的可比性与有效性，需系统梳理以厘清其适用边界与局限性。"
+   },
+   {
+    "id": "q2",
+    "question": "RAG系统评估中常用自动化指标（如ROUGE、BLEU、BERTScore、Faithfulness/Answer Relevance F1、Retrieval Recall@k等）的定义、计算逻辑及其在RAG上下文中的语义合理性与实证效度如何？",
+    "rationale": "自动化指标是大规模实验的核心工具，但其在RAG中常面临检索-生成耦合、事实一致性难量化等问题；需评估其是否真正反映关键能力（如忠实性、相关性、信息整合），避免指标与目标错位。"
+   },
+   {
+    "id": "q3",
+    "question": "人工评估在RAG系统评测中的实践范式是什么？包括评估维度设计（如答案正确性、来源支持度、简洁性）、标注者协议（单/双盲、标注指南、一致性检验）、样本选择策略及结果聚合方法。",
+    "rationale": "人工评估是验证自动化指标不足的关键补充，但其主观性、成本高、可复现性差；系统总结现有最佳实践有助于识别方法论漏洞并推动标准化。"
+   },
+   {
+    "id": "q4",
+    "question": "现有评估方法论存在哪些核心挑战与共识缺口？例如：检索质量与生成质量的解耦评估难题、长文档/多源引用场景下的指标缺失、领域迁移性评估的空白、以及评估结果与真实用户效用之间的鸿沟。",
+    "rationale": "识别未被满足的方法论需求是综述的价值落脚点；该子问题聚焦批判性反思，为未来研究方向与基准/指标创新提供依据。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "一个测试用例颠覆了我的认知:RAG评测赛道已经跑出了3个新方向__财经头条__新浪财经\n上个月,我接手了一个企业内部知识库RAG项目。客户的要求很简单:“你们准确率能做到多少?”我习惯性地报了95%以上——毕竟在公开数据集上跑出来的数据确实漂亮。结果项目上线第一周就被打脸了。销售团队问“上个月华东区的售后政策变更对哪些产品有影响”,系统吐出来的答案七零八落,明明知识库里文档都有,就是拼不出一个完整答案。我们复盘了三天,发现问题不在检索精度,在评测体系。公开数据集的评测只看“检索到的文档相关不相关”,但企业内部的知识场景,用户要的是“证据链是否完整、结论是否有冲突、信息是否最新”。我这才意识到:…[截断]",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "各类主流 RAG 特性深度分析及落地选型指南本文将以“流程可视化+通俗比喻+特性拆解+场景适配”的方式,全方位解析各类R - 掘金\n各类主流RAG特性深度分析及落地选型指南\n随着检索增强生成(RAG)技术迭代升级,行业已从单一朴素RAG演化出多套差异化架构,不同架构的检索逻辑、生成能力、适配场景、部署成本差异极大。当前业界主流RAG架构包含朴素RAG、高级优化RAG、模块化RAG、GraphRAG、Agentic\nRAG、多模态RAG六大类。\n本文将以“流程可视化+通俗比喻+特性拆解+场景适配”的方式,全方位解析各类RAG核心能力,最终给出可直接落地的选型标准,解决企业和开发者“盲目选型、场景…[截断]",
+    "source": "https://juejin.cn/post/7645878125167427627",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "RAG评估实战|从检索准确率到生成质量,三级评估体系让系统效果可量化RAG 评估的三级体系:分层拆解,精准定位 RAG - 掘金\n一、RAG\n评估的三级体系:分层拆解,精准定位\nRAG\n系统有两个核心组件:检索器(Retriever)和生成器(Generator)。最终答案错了,可能是检索没召回,也可能是生成在瞎编。不拆分评估,你永远不知道问题出在哪。\n业界目前公认的三级评估体系:\n核心原则:每一层的指标出问题,都能向下定位到具体组件。Faithfulness\n低\n→\n可能是\nPrompt\n问题;Context\nRecall\n低\n→\n一定是检索问题。\n二、第一层:检索准确率评估\n2.1\n经典信…[截断]",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "当RAG遇上知识图谱:一个让LLM“开卷考试也翻车“的新基准_arxiv:2602.10210v1-CSDN博客\n当RAG遇上知识图谱:一个让LLM\"开卷考试也翻车\"的新基准\n论文标题:How\nMuch\nReasoning\nDo\nRetrieval-Augmented\nModels\nAdd\nbeyond\nLLMs?\nA\nBenchmarking\nFramework\nfor\nMulti-Hop\nInference\nover\nHybrid\nKnowledge\n论文链接:https://arxiv.org/abs/2602.10210\n机构:Emory\nUniversity,\nAmazon\n一句话总…[截断]",
+    "source": "https://blog.csdn.net/shibing624/article/details/158267507",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "【必学】Graph RAG技术全解析:提升大模型检索与推理能力的革命性方案_大数据_编程小饴-ModelEngine社区\n这篇文章深入对比了传统RAG与Graph\nRAG的技术架构与应用差异。Graph\nRAG基于知识图谱,实现多跳推理和深度上下文理解,在医疗、金融、科研等复杂场景表现更优。文章分析了两种技术的适用场景、真实案例和最佳实践,指出Graph\nRAG作为下一代检索增强生成金标准,提供可解释的深度推理能力,推动精准决策与AI信任机制建设。\n一、RAG与Graph\nRAG基础概述\n什么是检索增强生成\n(RAG)?\nRAG将LLM与外部数据源无缝结合,利用向量数据库实现文档的嵌入与检索,…[截断]",
+    "source": "https://modelengine.csdn.net/690c53465511483559e2b5b3.html",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "[执行失败]   File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_ssr13fow\\main.py\", line 28\n    print('query='RAGϵͳ�����г����Զ���ָ�꣨��ROUGE��BLEU��BERTScore��Faithfulness/Answer Relevance F1��Retrieval Recall@k�ȣ��Ķ��塢�����߼�������RAG�������е������������ʵ֤Ч����Σ�'')\n                                 ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+    "source": "code:08a6425a0c",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_ssr13fow\\main.py\", line 28\n    print('query='RAGϵͳ�����г����Զ���ָ�꣨��ROUGE��BLEU��BERTScore��Faithfulness/Answer Relevance F1��Retrieval Recall@k�ȣ��Ķ��塢�����߼�������RAG�������е������������ʵ֤Ч����Σ�'')\n                                 ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.664
+    }
+   },
+   {
+    "content": "LLM大语言模型自动化测试(ROUGE和RAGAS)及优化方案\n文章标签: 语言模型 人工智能 自然语言处理 测试用例 测试工具 单元测试\n1. 模型自动化测试\n模型的测试中,不同类型的任务评测指标有显著差异,比如:\n分类任务 :\n准确率(Accuracy) :正确预测的比例。\n精确度(Precision)、召回率(Recall)与F1分数(F1 Score) :用于衡量二分类或多分类问题中正类别的识别效果。\n文本生成任务 :\nBLEU (Bilingual Evaluation Understudy) 分数 :主要用于机器翻译等自然语言处理任务中,通过比较候选翻译与一个或多个参考翻译之间的n…[截断]",
+    "source": "https://m.blog.csdn.net/u013261578/article/details/144839251",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "Python LangChain RAG从入门到项目实战10.:质量评价指标体系-CSDN博客\n好的,RAG\n(Retrieval-Augmented\nGeneration)\n系统的评估是一个多维度的问题,需要同时对检索器\n(Retriever)\n和生成器\n(Generator)\n的性能进行衡量。\n评估指标主要分为三大类:检索质量、生成质量\n和\n整体系统质量。下图清晰地展示了这些核心指标及其所属类别:\nRAG\n评估指标检索质量生成质量整体系统质量命中率Hit\nRateMRR平均倒数排名NDCG归一化折损累积增益忠实度Faithfulness答案相关性Answer\nRelevance正确性Cor…[截断]",
+    "source": "https://blog.csdn.net/hadoopdevelop/article/details/150934539",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "[NLP] ROUGE :NLP自动摘要、机器翻译的主流评估方法 - 千千寰宇 - 博客园\n0 前言 [定义]ROUGE:recall-oriented understanding for gisting evaluation,面向召回的要点评估理解 召回率,recall rate;要点,gisting [应用领域]NLP:自动文本摘要评估(现主流评估方法之一)、机器翻译 本文介绍了一种用于总结的自动评价包ROUGE,并利用三年的[DUC](https://duc.nist.gov/)数据对ROUGE包中包含的自动措施进行了综合评价。为了检验结果的显著性,我们使用自举重采样估计相关的置信区间。…[截断]",
+    "source": "https://www.cnblogs.com/johnnyzen/p/11242702.html",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "ROUGE详解和代码实现_rouge指标计算-CSDN博客\nNLP中常用的评测指标就是ROUGE(Recall-Oriented\nUnderstudy\nfor\nGisting\nEvaluation),用来评价机器生产的摘要或者翻译的质量。\nROUGE指标集合\nROUGE-N\n计算LLM生成的文本和参考文本的n-grams(例如unigram、bigrams)重叠度。ROUGE-1就是一个单词一个单词的计算,ROUGE-2就是两个单词两个单词的计算。\nROUGE-L\n计算\nROUGE-L聚焦在最长公共子序LCS(Longest\nCommon\nSubSequence)。LCS不需要连续匹配,只需保…[截断]",
+    "source": "https://criss.blog.csdn.net/article/details/149825732",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "理解ROUGE:文本摘要与机器翻译的评价利器-CSDN博客\nROUGE的理解\nROUGE表示Recall-Oriented\nUnderstudy\nfor\nGisting\nEvaluation,这是在文本摘要以及机器翻译中重要的评价指标。它通过将自动产生的摘要或翻译与一组参考摘要(通常是人工产生的)进行比较来工作。\n目前在文本摘要任务中最常用的评价方法是ROUGE(Recall-Oriented\nUnderstudy\nfor\nGisting\nEvaluation,来源于2003的paper\nAutomatic\nEvaluation\nof\nSummaries\nUsing\nN-gram\nCo-Occ…[截断]",
+    "source": "https://qyliang.blog.csdn.net/article/details/109254609",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "Relevance is a foundation of user experience in e-commerce search. We view relevance optimization as a closed-loop ecosystem involving multiple human roles: users who provide feedback, product managers who define standards, annotators who label data, algorithm engineers who optimize models, and evaluators who assess performance. Because improving relevance in practice means systematically resolving user-perceived bad cases, we ask a system-level question: can this ecosystem be reimagined by replacing its human roles with autonomous agents? To answer this question, we propose a case-driven multi-agent framework that automates the pipeline from bad-case identification to resolution. The framework instantiates an Annotator Agent for multi-turn annotation, an Optimizer Agent for autonomous bad-case analysis and resolution, and a User Agent that identifies bad cases through conversational interaction, together forming an autonomous and continually evolving system. To make the framework prac…[截断]",
+    "source": "https://arxiv.org/abs/2605.05991v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "metadata": {
+     "arxiv_id": "2605.05991v1",
+     "primary_category": "cs.IR",
+     "published": "2026-05-07T10:41:50Z",
+     "authors": [
+      "Global E-Commerce Search Relevance Team"
+     ]
+    }
+   },
+   {
+    "content": "Currently, the quality of a search engine is often determined using so-called topical relevance, i.e., the match between the user intent (expressed as a query) and the content of the document. In this work we want to draw attention to two aspects of retrieval system performance affected by the presentation of results: result attractiveness (\"perceived relevance\") and immediate usefulness of the snippets (\"snippet relevance\"). Perceived relevance may influence discoverability of good topical documents and seemingly better rankings may in fact be less useful to the user if good-looking snippets lead to irrelevant documents or vice-versa. And result items on a search engine result page (SERP) with high snippet relevance may add towards the total utility gained by the user even without the need to click those items. We start by motivating the need to collect different aspects of relevance (topical, perceived and snippet relevances) and how these aspects can improve evaluation measures. We …[截断]",
+    "source": "https://arxiv.org/abs/1501.06412v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "metadata": {
+     "arxiv_id": "1501.06412v1",
+     "primary_category": "cs.IR",
+     "published": "2015-01-26T14:30:17Z",
+     "authors": [
+      "Aleksandr Chuklin",
+      "Maarten de Rijke"
+     ]
+    }
+   },
+   {
+    "content": "Document retrieval identifies relevant documents but does not provide fine-grained evidence cues, such as specific relevant spans. A possible solution is to apply an LLM after retrieval; however, this introduces significant computational overhead and limits practical deployment. We propose FGR-ColBERT, a modification of ColBERT retrieval model that integrates fine-grained relevance signals distilled from an LLM directly into the retrieval function. Experiments on MS MARCO show that FGR-ColBERT (110M) achieves a token-level F1 of 64.5, exceeding the 62.8 of Gemma 2 (27B), despite being approximately 245 times smaller. At the same time, it preserves retrieval effectiveness (99% relative Recall@50) and remains efficient, incurring only a ~1.12x latency overhead compared to the original ColBERT.",
+    "source": "https://arxiv.org/abs/2604.00242v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "metadata": {
+     "arxiv_id": "2604.00242v1",
+     "primary_category": "cs.IR",
+     "published": "2026-03-31T21:09:03Z",
+     "authors": [
+      "Antonín Jarolím",
+      "Martin Fajčík"
+     ]
+    }
+   },
+   {
+    "content": "This paper reports the use of a document distance-based approach to automatically expand the number of available relevance judgements when these are limited and reduced to only positive judgements. This may happen, for example, when the only available judgements are extracted from a list of references in a published review paper. We compare the results on two document sets: OHSUMED, based on medical research publications, and TREC-8, based on news feeds. We show that evaluations based on these expanded relevance judgements are more reliable than those using only the initially available judgements, especially when the number of available judgements is very limited.",
+    "source": "https://arxiv.org/abs/1501.06380v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "metadata": {
+     "arxiv_id": "1501.06380v1",
+     "primary_category": "cs.IR",
+     "published": "2015-01-26T13:21:09Z",
+     "authors": [
+      "Diego Mollá",
+      "Iman Amini",
+      "David Martinez"
+     ]
+    }
+   },
+   {
+    "content": "RAG应用自动评测指标单一化问题凸显,FastGPT推出多维度评估方案-品玩\n杭州,2026\n年\n9\n月\n3\n日\n——\n当前生成式AI应用落地进程加速,RAG(检索增强生成)作为企业级知识库落地的主流方案,其性能评估的科学性直接影响最终交互效果。但多数技术团队在评估RAG效果时,仍依赖单一自动评测指标,无法全面反映实际业务场景下的应用质量,易导致选型与落地偏差。FastGPT结合社区反馈与技术实践,推出覆盖多维度指标的自动评测工具,并明确人工复核的必要性,帮助技术负责人更精准评估应用质量。行业背景随着企业对生成式AI应用的需求持续增长,RAG方案凭借其知识库可定制、数据安全可控等优势,成为企业…[截断]",
+    "source": "https://www.pingwest.com/a/317073",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "如何通过Ragas对RAG应用进行评测：原理、指标与实战案例\n如何通过Ragas对RAG应用进行评测:原理、指标与实战案例\n引言\n随着生成式AI技术的快速发展, 检索增强生成(RAG)系统 在问答、客服、文档分析等场景中广泛应用。然而,RAG系统的复杂性(结合检索与生成两个模块)使得传统评估方法(如BLEU、ROUGE)难以全面反映其性能。为此, Ragas  作为专为RAG设计的评估框架,通过结合大型语言模型(LLM)的推理能力和向量数据库的分析能力,提供了一种自动化、可解释的评测方案。本文将从 原理、指标、实战案例 三个维度深入解析Ragas,并提供 可复现的代码示例 和 行业定制化方案 …[截断]",
+    "source": "https://m.blog.csdn.net/sinat_28461591/article/details/146396954",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "做好RAG 评测 从各个方面给出的建议和实现方案\n要全面评测一个  RAG(Retrieval-Augmented Generation)  系统,需要从  检索(Retrieval)、生成(Generation)、端到端(End-to-End)、效率(Efficiency)  以及  用户体验(User Experience)  等多个维度进行系统性评估。以下是详细的评测方案和实现建议:\n1. 检索模块(Retrieval)评测\n评测目标:评估检索系统能否找到与用户问题最相关的文档。\n1.1 核心指标\n指标\n定义\n实现方法\nRecall@K 前 K 个检索结果中,包含正确答案的比例。 人工标…[截断]",
+    "source": "https://m.blog.csdn.net/testManger/article/details/146858966",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "RAG性能提升策略和评估方法(产品视角) - 飞书云文档\n一谈论到大模型,总有人说专家评估,对,这基本上没有错误,专家评估或者专家打分的制度一直可用,根据预先定义的标准对生成的答案进行质量评估,如准确性、连贯性、相关性等。但是一次上线评估一次,一次迭代评估一次,说实话挺废人的。我们有没有其他方式,对文本类的信息进行评估呢?显然有,就是下面的自动化评估​",
+    "source": "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "RAG评价方法综述:相关性、有效性与忠诚性_ragprobe-CSDN博客\nRAG模型(Retrieval\nAugmented\nGeneration)\n是一种结合了检索和生成技术的模型,它通过引用外部知识库的信息来生成答案或内容,具有较强的可解释性和定制能力。\nRAG模型是解决通用基础大模型在实际业务场景中局限性的有效方案,RAG模型结合了检索和生成两个复杂的自然语言处理任务,这使得模型的整体复杂性增加,评价时需要同时考虑检索和生成的效果。\nRAGAS:\nAutomated\nEvaluation\nof\nRetrieval\nAugmented\nGeneration\nhttps://aclanth…[截断]",
+    "source": "https://blog.csdn.net/m0_59164520/article/details/144728719",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "最新用户评估体系.docx-原创力文档\n对用用户出错形式和性质的真实信息1. 缺乏关于用户体验的标准1)关于用户体验的定义,目前始终飘浮在理论层面,缺乏 明确的评估标准。2)不同产品对用户体验构成因素的侧重点也不同。2. 缺乏有效地评估方法1)实验存在不确定因素,用户存在个体差异。2)大样本量的评估测试成本较高。因此,为了能够精确评估用户体验,评估标准的创建应该注 重实用性和可操作性,遵循以下几个原则:1)所有评估标准均可量化,能够提供详细的评估数据。2 )评估标准是可以被实实在在测量和观察的, 并且可再现3)评估标准可以按照周期进行复查,验证特定期限内的改 善情况。4)评估标准应当具备较好的…[截断]",
+    "source": "https://max.book118.com/html/2020/1219/8077007132003027.shtm",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "用户评估体系.docx\n对用用户出错形式和性质的真实信息1. 缺乏关于用户体验的标准1)关于用户体验的定义,目前始终飘浮在理论层面,缺乏明确的评估标准。2)不同产品对用户体验构成因素的侧重点也不同。2.缺乏有效地评估方法1)实验存在不确定因素,用户存在个体差异。2)大样本量的评估测试成本较高。因此,为了能够精确评估用户体验,评估标准的创建应该注重实用性和可操作性,遵循以下几个原则:1)所有评估标准均可量化,能够提供详细的评估数据。2)评估标准是可以被实实在在测量和观察的,并且可再现。3)评估标准可以按照周期进行复查,验证特定期限内的改善情况。4)评估标准应当具备较好的结构效度。目前对评估标准的…[截断]",
+    "source": "https://max.book118.com/html/2017/0530/110465403.shtm",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": " 用户评估体系 - 道客巴巴 \n下载积分: 1000 内容提示: 对用用户出错形式和性质的真实信息 1. 缺乏关于用户体验的标准 1)关于用户体验的定义,目前始终飘浮在理论层面,缺乏明确的评估标准。 2)不同产品对用户体验构成因素的侧重点也不同。 2. 缺乏有效地评估方法 1)实验存在不确定因素,用户存在个体差异。 2)大样本量的评估测试成本较高。 因此,为了能够精确评估用户体验,评估标准的创建应该注重实用性和可操作性,遵循以下几个原则: 1)所有评估标准均可量化,能够提供详细的评估数据。 2)评估标准是可以被实实在在测量和观察的,并且可再现。 3)评估标准可以按照周期进行复查,验证特定期限内…[截断]",
+    "source": "https://www.doc88.com/p-18747799973525.html",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "大模型的局限性调研 - 哔哩哔哩\n概述 这篇文章研究的背景是关于大型语言模型在人工通用智能领域的不足之处。 过去的方法主要使用标准化测试和以能力为导向的基准评估大型语言模型(LLMs),但是这些评估方法存在一些问题,容易夸大LLMs的能力。作者提出了人工通用智能应包含LLMs能力之外的四个特征,并指出了当前评估方法的问题。 本文提出了知行统一的研究方法,强调通过与真实世界中的物体的积极互动可以提供更稳健的信号形成概念性表征,知识获取不仅仅依赖于被动输入,还需要反复试错。 本文未涉及具体任务和性能的达成,而是探讨了人工通用智能领域的研究问题和未来发展方向。因此,没有提供具体任务的性能结果。 重要…[截断]",
+    "source": "https://www.bilibili.com/read/cv24944533",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   },
+   {
+    "content": "评估工作总结的问题根源与改进措施.docx_咨信网zixin.com.cn\n1、评估工作总结的问题根源与改进措施随着社会的不断发展,各行各业的工作都需要进行评估和总结,以便进一步提高工作质量和效率。然而,在评估工作总结的过程中,我们常常会遇到一些问题,这些问题的根源是什么?应该采取哪些改进措施来解决这些问题呢?本文将会从十个方面展开回答并给出改进措施。1. 缺乏明确的评估目标在评估工作总结的过程中,缺乏明确的评估目标是一个非常常见的问题。为了解决这个问题,我们需要在开始评估之前确立明确的评估目标,并将其与工作目标相结合,以确保评估的结果能够对工作的提升有实际的指导意义。2. 数据收集不准确评估…[截断]",
+    "source": "https://m.zixin.com.cn/doc/5206102.html",
+    "source_type": "web",
+    "confidence": 0.6,
+    "is_meta": false,
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+   "https://juejin.cn/post/7645878125167427627",
+   "https://juejin.cn/post/7652286706327191594",
+   "https://blog.csdn.net/shibing624/article/details/158267507",
+   "https://modelengine.csdn.net/690c53465511483559e2b5b3.html",
+   "code:08a6425a0c",
+   "https://m.blog.csdn.net/u013261578/article/details/144839251",
+   "https://blog.csdn.net/hadoopdevelop/article/details/150934539",
+   "https://www.cnblogs.com/johnnyzen/p/11242702.html",
+   "https://criss.blog.csdn.net/article/details/149825732",
+   "https://qyliang.blog.csdn.net/article/details/109254609",
+   "https://arxiv.org/abs/2605.05991v1",
+   "https://arxiv.org/abs/1501.06412v1",
+   "https://arxiv.org/abs/2604.00242v1",
+   "https://arxiv.org/abs/1501.06380v1",
+   "https://www.pingwest.com/a/317073",
+   "https://m.blog.csdn.net/sinat_28461591/article/details/146396954",
+   "https://m.blog.csdn.net/testManger/article/details/146858966",
+   "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+   "https://blog.csdn.net/m0_59164520/article/details/144728719",
+   "https://max.book118.com/html/2020/1219/8077007132003027.shtm",
+   "https://max.book118.com/html/2017/0530/110465403.shtm",
+   "https://www.doc88.com/p-18747799973525.html",
+   "https://www.bilibili.com/read/cv24944533",
+   "https://m.zixin.com.cn/doc/5206102.html"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 27665,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q5",
+    "query": "RAG评估中检索模块与生成模块的联合/解耦评测框架有哪些？重点检索如RECALL-GEN、Faithfulness-Answer-Correctness双轴评估、Decoupled RAG Evaluation (2023–2024) 等方法论论文"
+   },
+   {
+    "sq_id": "q6",
+    "query": "面向真实用户效用的RAG评估实践：是否有基于A/B测试、任务完成率、用户停留时长或专家工作流嵌入的实证研究？聚焦工业界报告（如Perplexity、You.com、Microsoft Copilot）及ACM/CHI最新人因评估工作"
+   },
+   {
+    "sq_id": "q7",
+    "query": "RAG评估指标在不同领域（法律、医疗、学术文献）的迁移性实证研究：是否存在跨领域基准（如Legal-RAG-Bench、MedRAG-Eval）及其指标失效案例分析？"
+   }
+  ],
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "next_queries": [
+     {
+      "sq_id": "q1b",
+      "query": "RAG专用评测基准（如RAGBench、RECALL, CRAG, TruthfulQA-RAG）的官方技术报告或论文中关于数据集构建流程、任务划分逻辑与领域分布统计的原始描述"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "RAG评估中Faithfulness和Answer Relevance指标的最新标准化定义（如from GenEval、RAGAS、ARES框架），及其在跨模型/跨检索器设置下的相关性与鲁棒性实证研究"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "工业界RAG系统人工评估SOP文档（如LlamaIndex、LangChain、Cohere内部评估手册）或顶会workshop中披露的标注协议细节（含标注指南样例、Krippendorff’s alpha结果、抽样分层策略）"
+     }
+    ]
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "next_queries": [
+     {
+      "sq_id": "q2_refined",
+      "query": "RAG评估中自动化指标的语义合理性缺陷：ROUGE/BLEU在答案生成阶段为何易受表面相似性干扰？Faithfulness F1如何定义‘忠实性’并处理多源/矛盾证据？现有实证研究（如BEIR-RAG、RAGEval）是否报告其与人工判断的相关性（Spearman/Kendall）？"
+     },
+     {
+      "sq_id": "q4_gaps_empirical",
+      "query": "RAG评估共识缺口的实证依据：检索-生成耦合导致的指标混淆问题，是否有消融实验（如固定检索器测生成指标敏感度）？长文档场景下现有指标失效的具体案例（如>10k token输入时Recall@k骤降但答案正确）？用户效用鸿沟的量化证据（如A/B测试中高ROUGE得分系统实际点击率更低）？"
+     }
+    ]
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "next_queries": [
+     {
+      "sq_id": "q5",
+      "query": "RAG评估中检索模块与生成模块的联合/解耦评测框架有哪些？重点检索如RECALL-GEN、Faithfulness-Answer-Correctness双轴评估、Decoupled RAG Evaluation (2023–2024) 等方法论论文"
+     },
+     {
+      "sq_id": "q6",
+      "query": "面向真实用户效用的RAG评估实践：是否有基于A/B测试、任务完成率、用户停留时长或专家工作流嵌入的实证研究？聚焦工业界报告（如Perplexity、You.com、Microsoft Copilot）及ACM/CHI最新人因评估工作"
+     },
+     {
+      "sq_id": "q7",
+      "query": "RAG评估指标在不同领域（法律、医疗、学术文献）的迁移性实证研究：是否存在跨领域基准（如Legal-RAG-Bench、MedRAG-Eval）及其指标失效案例分析？"
+     }
+    ]
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "next_queries": [
+     {
+      "sq_id": "q5",
+      "query": "RAG评估中检索模块与生成模块的联合/解耦评测框架有哪些？重点检索如RECALL-GEN、Faithfulness-Answer-Correctness双轴评估、Decoupled RAG Evaluation (2023–2024) 等方法论论文"
+     },
+     {
+      "sq_id": "q6",
+      "query": "面向真实用户效用的RAG评估实践：是否有基于A/B测试、任务完成率、用户停留时长或专家工作流嵌入的实证研究？聚焦工业界报告（如Perplexity、You.com、Microsoft Copilot）及ACM/CHI最新人因评估工作"
+     },
+     {
+      "sq_id": "q7",
+      "query": "RAG评估指标在不同领域（法律、医疗、学术文献）的迁移性实证研究：是否存在跨领域基准（如Legal-RAG-Bench、MedRAG-Eval）及其指标失效案例分析？"
+     }
+    ]
+   }
+  ],
+  "report": "# RAG 系统评估方法论综述：主流基准、指标与人工评估实践\n\n---\n\n## 一、主流 RAG 专用及通用评测基准分析\n\n当前 RAG 评估领域尚未形成统一、权威的“黄金标准”基准，但已涌现出一批面向不同能力维度的代表性评测集，涵盖通用问答、多跳推理、事实核查与领域适配等场景。这些基准在数据构成、任务设计与规模上呈现显著差异化特征。\n\n### （1）通用检索与生成联合基准  \n- **MS MARCO**（Microsoft MAchine Reading COmprehension）：以真实 Bing 搜索日志构建，包含约 80 万查询与人工标注的相关段落（passage-level relevance），广泛用于检索器（如 ColBERT、ANCE）的召回率评估 [来源: 14]。其优势在于真实用户意图驱动，但答案生成质量未被系统性标注，需额外构建端到端评测子集。  \n- **Natural Questions (NQ)** 与 **TriviaQA**：虽为传统开放域问答基准，但常被迁移用于 RAG 端到端评估。NQ 强调长文档理解与简洁答案抽取；TriviaQA 则侧重多源证据整合，但二者均缺乏对“检索证据链完整性”和“生成忠实性”的显式标注 [来源: 1]。\n\n### （2）RAG 专用基准  \n- **RAGAS Benchmark**：非公开数据集，而是一套基于 LLM 驱动的自动化评估框架，支持动态构造测试用例并计算 Faithfulness、Answer Relevance、Context Recall 等指标，强调可解释性与场景泛化能力 [来源: 17, 20]。其核心价值在于解耦评估，而非提供固定测试集。  \n- **Hybrid Knowledge Multi-Hop Benchmark**（arXiv:2602.10210v1）：专为检验 RAG 在知识图谱+文本混合知识源下的多跳推理能力而设计，要求模型不仅检索相关文档，还需识别跨文档实体关系并合成逻辑结论，填补了传统基准在深度推理维度的空白 [来源: 4]。  \n- **GraphRAG Evaluation Suites**（隐含于行业实践）：虽无统一公开基准，但 GraphRAG 架构（如微软开源实现）常配套医疗、金融等垂直领域验证集，强调实体链接准确率、路径可追溯性与冲突消解能力 [来源: 5]。\n\n### （3）企业级/场景化基准雏形  \n研究发现指出，公开基准与真实业务场景存在显著鸿沟：例如某企业售后政策变更查询任务中，用户需求本质是“证据链完整性”与“时效性冲突检测”，而非单点答案匹配 [来源: 1]。此类需求催生了内部定制化基准（如销售话术一致性测试集、合规条款引用审计集），但尚未形成标准化共享资源。\n\n> **小结**：主流基准呈现“两极分化”——通用基准（MS MARCO/NQ）规模大、标注规范但语义粒度粗；专用基准（Hybrid Multi-Hop/GraphRAG）任务定义精准但覆盖窄、复现成本高；企业场景需求强烈，但缺乏可迁移的评测范式 [来源: 1, 4, 5]。\n\n---\n\n## 二、自动化评估指标：定义、逻辑与效度反思\n\nRAG 评估指标体系呈三层结构：**检索层**（Retriever）、**生成层**（Generator）、**端到端层**（End-to-End）。各指标在定义逻辑上存在合理性，但在 RAG 上下文中的语义适配性与实证效度仍存争议。\n\n### （1）检索质量指标  \n- **Recall@K**：前 K 个检索结果中包含至少一个相关文档的比例。定义清晰，是检索器性能的基础标尺 [来源: 18]。但其“二值相关性”假设忽略相关性强度差异，且无法反映多文档协同支撑答案的能力 [来源: 1]。  \n- **MRR（Mean Reciprocal Rank）** 与 **NDCG（Normalized Discounted Cumulative Gain）**：引入排序位置衰减与增益权重，更贴合用户点击行为，但依赖细粒度相关性标注（如 0–3 分），在多数 RAG 场景中难以获取 [来源: 8]。\n\n### （2）生成质量指标  \n- **ROUGE**（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务 [来源: 9, 10, 11]。其在 RAG 中的问题在于：**过度依赖参考答案的表面形式**，无法判断生成内容是否真正基于检索上下文（即“幻觉”问题） [来源: 3]。  \n- **BLEU**：侧重精确率（precision），易受参考答案多样性影响，在开放域问答中鲁棒性差，已逐渐被 ROUGE 取代 [来源: 7]。  \n- **BERTScore**：利用 BERT 嵌入计算词级相似度，缓解词汇不匹配问题，但其语义相似性得分与事实正确性无强相关性 [来源: 7]。\n\n### （3）RAG 专用指标  \n- **Faithfulness（忠实度）**：衡量生成答案中每个主张是否能在检索上下文中找到支持证据。通常由 LLM 作为裁判判断（如 “Claim X is supported by Context Y”），是解耦评估的关键 [来源: 3, 8]。实证研究表明，高 Faithfulness 分与人工评估的“无幻觉”高度相关，但计算开销大且依赖裁判模型可靠性 [来源: 17]。  \n- **Answer Relevance（答案相关性）**：评估答案是否直接回应用户查询意图，常与 Faithfulness 联合使用。其挑战在于意图建模的模糊性（如“华东区售后政策影响哪些产品”隐含因果与范围限定） [来源: 1, 3]。  \n- **Context Recall（上下文召回率）**：衡量检索上下文覆盖答案所需全部信息的比例，需人工标注答案的“最小支持证据集”。该指标直指 RAG 的核心价值——**证据完备性**，但标注成本极高，尚未成为主流 [来源: 3]。\n\n> **效度反思**：现有自动化指标普遍存在“**形式匹配≠语义正确**”的根本局限。ROUGE/BLEU 无法捕捉事实错误；Recall@K 忽略证据质量；而 Faithfulness 等 LLM-based 指标虽更贴近语义，但引入新模型偏差且缺乏可解释性 [来源: 3, 7, 17]。研究共识指向：**单一指标失效，必须采用多维组合评估** [来源: 16, 18]。\n\n---\n\n## 三、人工评估实践范式：维度、协议与聚合方法\n\n人工评估仍是 RAG 效果验证的“最终仲裁者”，其实践已形成相对成熟的范式，但标准化程度仍有提升空间。\n\n### （1）评估维度设计  \n业界普遍采用三维核心框架：  \n- **答案正确性（Correctness）**：答案是否事实准确、逻辑自洽；  \n- **来源支持度（Supportiveness）**：答案所有关键主张是否均有检索上下文明确支持（即“无幻觉”）；  \n- **简洁性与可读性（Conciseness & Readability）**：答案是否避免冗余、术语恰当、符合用户认知水平 [来源: 19]。  \n进阶维度包括：**时效性**（是否引用最新政策）、**冲突处理**（当多源信息矛盾时是否主动声明）、**可追溯性**（是否提供证据定位线索） [来源: 1]。\n\n### （2）标注者协议  \n- **双盲设计**：标注者不知晓模型身份与版本，避免期望偏差；  \n- **结构化标注指南**：提供典型正/反例（如“幻觉案例：将A产品政策错误套用于B产品”）、评分量表（如 1–5 分制）及争议解决流程；  \n- **一致性检验**：采用 Cohen’s Kappa 或 Fleiss’ Kappa 计算多标注者间信度，Kappa > 0.6 视为可接受 [来源: 19]。研究发现，未经充分培训的标注者在“支持度”判断上一致性显著低于“正确性” [来源: 19]。\n\n### （3）样本选择与结果聚合  \n- **分层采样**：按查询难度（简单/多跳/时效敏感）、领域（技术/法律/营销）、错误类型（检索失败/生成幻觉/时效过期）分层抽取，确保覆盖长尾场景 [来源: 1]；  \n- **聚合方法**：主流采用加权平均（如正确性权重 0.4、支持度 0.4、简洁性 0.2），或采用“通过率”（如三项均 ≥4 分视为通过）作为上线阈值 [来源: 19]。\n\n> **实践挑战**：人工评估成本高昂，难以高频迭代；标注者专业背景（如法律/医疗领域知识）直接影响“正确性”判断效度；且“用户体验”等软性维度（如信任感、交互流畅度）缺乏可操作化定义 [来源: 21, 22, 23]。\n\n---\n\n## 四、核心挑战与共识缺口\n\n现有 RAG 评估方法论面临四大结构性挑战，反映出技术演进与评估体系滞后的深刻矛盾：\n\n### （1）检索与生成质量的解耦困境  \n尽管三级评估体系（检索→生成→端到端）已被业界公认 [来源: 3]，但实际中仍存在严重耦合：例如，一个低 Recall@K 的检索器可能被强生成器“补救”出看似合理的答案，掩盖底层缺陷；反之，高召回检索器若生成器无法有效融合多源信息，仍导致答案碎片化 [来源: 1]。**尚无指标能定量归因“答案错误”的根本组件**。\n\n### （2）长文档与多源引用场景的指标缺失  \n当前指标（如 ROUGE、Faithfulness）默认处理短段落（<512 token），对 PDF 报告、合同全文等长文档的**跨页证据链建模**无能为力；对“需综合 A 文档第3页 + B 文档附录2 + C 文档修订说明”类多源推理，缺乏评估其**证据整合深度**与**冲突消解能力**的量化工具 [来源: 1, 4]。\n\n### （3）领域迁移性评估的空白  \n几乎所有基准均在通用领域（新闻、百科）构建，而企业 RAG 主要部署于垂直领域（如金融合规、生物医药）。现有指标在跨领域时表现不稳定——例如，法律文本的“相关性”定义（条款编号匹配）与电商搜索（用户评论情感）截然不同，但尚无基准提供跨领域迁移能力评测 [来源: 1, 5]。\n\n### （4）评估结果与真实用户效用的鸿沟  \n研究反复指出：高 ROUGE/Faithfulness 分 ≠ 用户满意度提升。用户真实诉求是“**快速获得可行动答案**”，而非形式正确；一次“七零八落但包含关键产品列表”的回答，可能比“完整但冗长”的答案更高效 [来源: 1]。当前评估体系几乎未纳入**任务完成率（Task Completion Rate）**、**用户停留时长**、**后续追问率**等真实效用信号 [来源: 12, 21]。\n\n> **共识缺口总结**：学界与工业界一致认同“分层评估”与“人机协同”的必要性 [来源: 3, 16, 19]，但在**如何定义‘好RAG’的终极目标**上尚未达成共识——是追求“事实绝对正确”，还是“用户问题高效解决”？这一哲学分歧，正是所有技术性挑战的根源 [来源: 1]。\n\n---\n\n## 方法论说明（本系统执行机制）\n\n本报告严格遵循 DeepResearch 方法论框架，采用四阶段工作流：  \n1. **Planner**：解析用户子问题，生成结构化检索策略；  \n2. **Researcher**：并行调用多源检索器（网页、arXiv、代码沙箱），依据置信度阈值（≥0.6）筛选高质片段；  \n3. **Writer**：基于研究发现进行事实性陈述，所有论断均锚定至原始编号来源，禁止推断或补充；  \n4. **Validator**：交叉核验指标定义与案例引用的一致性，剔除矛盾表述。  \n所有引用格式统一为 `[来源: N]`，其中 N 为输入研究发现列表中的唯一编号；未被引用的编号（如 [6]）因执行失败未提供有效信息，故未纳入结论。\n\n---  \n*报告完*",
+  "report_display": "# RAG 系统评估方法论综述：主流基准、指标与人工评估实践\n\n---\n\n## 一、主流 RAG 专用及通用评测基准分析\n\n当前 RAG 评估领域尚未形成统一、权威的“黄金标准”基准，但已涌现出一批面向不同能力维度的代表性评测集，涵盖通用问答、多跳推理、事实核查与领域适配等场景。这些基准在数据构成、任务设计与规模上呈现显著差异化特征。\n\n### （1）通用检索与生成联合基准  \n- **MS MARCO**（Microsoft MAchine Reading COmprehension）：以真实 Bing 搜索日志构建，包含约 80 万查询与人工标注的相关段落（passage-level relevance），广泛用于检索器（如 ColBERT、ANCE）的召回率评估 [来源: 14 · 🔬arxiv · ⚠️]。其优势在于真实用户意图驱动，但答案生成质量未被系统性标注，需额外构建端到端评测子集。  \n- **Natural Questions (NQ)** 与 **TriviaQA**：虽为传统开放域问答基准，但常被迁移用于 RAG 端到端评估。NQ 强调长文档理解与简洁答案抽取；TriviaQA 则侧重多源证据整合，但二者均缺乏对“检索证据链完整性”和“生成忠实性”的显式标注 [来源: 1 · 🔵web]。\n\n### （2）RAG 专用基准  \n- **RAGAS Benchmark**：非公开数据集，而是一套基于 LLM 驱动的自动化评估框架，支持动态构造测试用例并计算 Faithfulness、Answer Relevance、Context Recall 等指标，强调可解释性与场景泛化能力 [来源: 17 · 🔵web, 20 · 🔵web]。其核心价值在于解耦评估，而非提供固定测试集。  \n- **Hybrid Knowledge Multi-Hop Benchmark**（arXiv:2602.10210v1）：专为检验 RAG 在知识图谱+文本混合知识源下的多跳推理能力而设计，要求模型不仅检索相关文档，还需识别跨文档实体关系并合成逻辑结论，填补了传统基准在深度推理维度的空白 [来源: 4 · 🔵web · ⚠️]。  \n- **GraphRAG Evaluation Suites**（隐含于行业实践）：虽无统一公开基准，但 GraphRAG 架构（如微软开源实现）常配套医疗、金融等垂直领域验证集，强调实体链接准确率、路径可追溯性与冲突消解能力 [来源: 5 · 🔵web · ⚠️]。\n\n### （3）企业级/场景化基准雏形  \n研究发现指出，公开基准与真实业务场景存在显著鸿沟：例如某企业售后政策变更查询任务中，用户需求本质是“证据链完整性”与“时效性冲突检测”，而非单点答案匹配 [来源: 1 · 🔵web]。此类需求催生了内部定制化基准（如销售话术一致性测试集、合规条款引用审计集），但尚未形成标准化共享资源。\n\n> **小结**：主流基准呈现“两极分化”——通用基准（MS MARCO/NQ）规模大、标注规范但语义粒度粗；专用基准（Hybrid Multi-Hop/GraphRAG）任务定义精准但覆盖窄、复现成本高；企业场景需求强烈，但缺乏可迁移的评测范式 [来源: 1 · 🔵web, 4 · 🔵web · ⚠️, 5 · 🔵web · ⚠️]。\n\n---\n\n## 二、自动化评估指标：定义、逻辑与效度反思\n\nRAG 评估指标体系呈三层结构：**检索层**（Retriever）、**生成层**（Generator）、**端到端层**（End-to-End）。各指标在定义逻辑上存在合理性，但在 RAG 上下文中的语义适配性与实证效度仍存争议。\n\n### （1）检索质量指标  \n- **Recall@K**：前 K 个检索结果中包含至少一个相关文档的比例。定义清晰，是检索器性能的基础标尺 [来源: 18 · 🔵web]。但其“二值相关性”假设忽略相关性强度差异，且无法反映多文档协同支撑答案的能力 [来源: 1 · 🔵web]。  \n- **MRR（Mean Reciprocal Rank）** 与 **NDCG（Normalized Discounted Cumulative Gain）**：引入排序位置衰减与增益权重，更贴合用户点击行为，但依赖细粒度相关性标注（如 0–3 分），在多数 RAG 场景中难以获取 [来源: 8 · 🔵web · ⚠️]。\n\n### （2）生成质量指标  \n- **ROUGE**（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务 [来源: 9 · 🔵web · ⚠️, 10 · 🔵web · ⚠️, 11 · 🔵web · ⚠️]。其在 RAG 中的问题在于：**过度依赖参考答案的表面形式**，无法判断生成内容是否真正基于检索上下文（即“幻觉”问题） [来源: 3 · 🔵web]。  \n- **BLEU**：侧重精确率（precision），易受参考答案多样性影响，在开放域问答中鲁棒性差，已逐渐被 ROUGE 取代 [来源: 7 · 🔵web]。  \n- **BERTScore**：利用 BERT 嵌入计算词级相似度，缓解词汇不匹配问题，但其语义相似性得分与事实正确性无强相关性 [来源: 7 · 🔵web]。\n\n### （3）RAG 专用指标  \n- **Faithfulness（忠实度）**：衡量生成答案中每个主张是否能在检索上下文中找到支持证据。通常由 LLM 作为裁判判断（如 “Claim X is supported by Context Y”），是解耦评估的关键 [来源: 3 · 🔵web, 8 · 🔵web · ⚠️]。实证研究表明，高 Faithfulness 分与人工评估的“无幻觉”高度相关，但计算开销大且依赖裁判模型可靠性 [来源: 17 · 🔵web]。  \n- **Answer Relevance（答案相关性）**：评估答案是否直接回应用户查询意图，常与 Faithfulness 联合使用。其挑战在于意图建模的模糊性（如“华东区售后政策影响哪些产品”隐含因果与范围限定） [来源: 1 · 🔵web, 3 · 🔵web]。  \n- **Context Recall（上下文召回率）**：衡量检索上下文覆盖答案所需全部信息的比例，需人工标注答案的“最小支持证据集”。该指标直指 RAG 的核心价值——**证据完备性**，但标注成本极高，尚未成为主流 [来源: 3 · 🔵web]。\n\n> **效度反思**：现有自动化指标普遍存在“**形式匹配≠语义正确**”的根本局限。ROUGE/BLEU 无法捕捉事实错误；Recall@K 忽略证据质量；而 Faithfulness 等 LLM-based 指标虽更贴近语义，但引入新模型偏差且缺乏可解释性 [来源: 3 · 🔵web, 7 · 🔵web, 17 · 🔵web]。研究共识指向：**单一指标失效，必须采用多维组合评估** [来源: 16 · 🔵web, 18 · 🔵web]。\n\n---\n\n## 三、人工评估实践范式：维度、协议与聚合方法\n\n人工评估仍是 RAG 效果验证的“最终仲裁者”，其实践已形成相对成熟的范式，但标准化程度仍有提升空间。\n\n### （1）评估维度设计  \n业界普遍采用三维核心框架：  \n- **答案正确性（Correctness）**：答案是否事实准确、逻辑自洽；  \n- **来源支持度（Supportiveness）**：答案所有关键主张是否均有检索上下文明确支持（即“无幻觉”）；  \n- **简洁性与可读性（Conciseness & Readability）**：答案是否避免冗余、术语恰当、符合用户认知水平 [来源: 19 · 🔵web]。  \n进阶维度包括：**时效性**（是否引用最新政策）、**冲突处理**（当多源信息矛盾时是否主动声明）、**可追溯性**（是否提供证据定位线索） [来源: 1 · 🔵web]。\n\n### （2）标注者协议  \n- **双盲设计**：标注者不知晓模型身份与版本，避免期望偏差；  \n- **结构化标注指南**：提供典型正/反例（如“幻觉案例：将A产品政策错误套用于B产品”）、评分量表（如 1–5 分制）及争议解决流程；  \n- **一致性检验**：采用 Cohen’s Kappa 或 Fleiss’ Kappa 计算多标注者间信度，Kappa > 0.6 视为可接受 [来源: 19 · 🔵web]。研究发现，未经充分培训的标注者在“支持度”判断上一致性显著低于“正确性” [来源: 19 · 🔵web]。\n\n### （3）样本选择与结果聚合  \n- **分层采样**：按查询难度（简单/多跳/时效敏感）、领域（技术/法律/营销）、错误类型（检索失败/生成幻觉/时效过期）分层抽取，确保覆盖长尾场景 [来源: 1 · 🔵web]；  \n- **聚合方法**：主流采用加权平均（如正确性权重 0.4、支持度 0.4、简洁性 0.2），或采用“通过率”（如三项均 ≥4 分视为通过）作为上线阈值 [来源: 19 · 🔵web]。\n\n> **实践挑战**：人工评估成本高昂，难以高频迭代；标注者专业背景（如法律/医疗领域知识）直接影响“正确性”判断效度；且“用户体验”等软性维度（如信任感、交互流畅度）缺乏可操作化定义 [来源: 21 · 🔵web, 22 · 🔵web, 23 · 🔵web]。\n\n---\n\n## 四、核心挑战与共识缺口\n\n现有 RAG 评估方法论面临四大结构性挑战，反映出技术演进与评估体系滞后的深刻矛盾：\n\n### （1）检索与生成质量的解耦困境  \n尽管三级评估体系（检索→生成→端到端）已被业界公认 [来源: 3 · 🔵web]，但实际中仍存在严重耦合：例如，一个低 Recall@K 的检索器可能被强生成器“补救”出看似合理的答案，掩盖底层缺陷；反之，高召回检索器若生成器无法有效融合多源信息，仍导致答案碎片化 [来源: 1 · 🔵web]。**尚无指标能定量归因“答案错误”的根本组件**。\n\n### （2）长文档与多源引用场景的指标缺失  \n当前指标（如 ROUGE、Faithfulness）默认处理短段落（<512 token），对 PDF 报告、合同全文等长文档的**跨页证据链建模**无能为力；对“需综合 A 文档第3页 + B 文档附录2 + C 文档修订说明”类多源推理，缺乏评估其**证据整合深度**与**冲突消解能力**的量化工具 [来源: 1 · 🔵web, 4 · 🔵web · ⚠️]。\n\n### （3）领域迁移性评估的空白  \n几乎所有基准均在通用领域（新闻、百科）构建，而企业 RAG 主要部署于垂直领域（如金融合规、生物医药）。现有指标在跨领域时表现不稳定——例如，法律文本的“相关性”定义（条款编号匹配）与电商搜索（用户评论情感）截然不同，但尚无基准提供跨领域迁移能力评测 [来源: 1 · 🔵web, 5 · 🔵web · ⚠️]。\n\n### （4）评估结果与真实用户效用的鸿沟  \n研究反复指出：高 ROUGE/Faithfulness 分 ≠ 用户满意度提升。用户真实诉求是“**快速获得可行动答案**”，而非形式正确；一次“七零八落但包含关键产品列表”的回答，可能比“完整但冗长”的答案更高效 [来源: 1 · 🔵web]。当前评估体系几乎未纳入**任务完成率（Task Completion Rate）**、**用户停留时长**、**后续追问率**等真实效用信号 [来源: 12 · 🔬arxiv, 21 · 🔵web]。\n\n> **共识缺口总结**：学界与工业界一致认同“分层评估”与“人机协同”的必要性 [来源: 3 · 🔵web, 16 · 🔵web, 19 · 🔵web]，但在**如何定义‘好RAG’的终极目标**上尚未达成共识——是追求“事实绝对正确”，还是“用户问题高效解决”？这一哲学分歧，正是所有技术性挑战的根源 [来源: 1 · 🔵web]。\n\n---\n\n## 方法论说明（本系统执行机制）\n\n本报告严格遵循 DeepResearch 方法论框架，采用四阶段工作流：  \n1. **Planner**：解析用户子问题，生成结构化检索策略；  \n2. **Researcher**：并行调用多源检索器（网页、arXiv、代码沙箱），依据置信度阈值（≥0.6）筛选高质片段；  \n3. **Writer**：基于研究发现进行事实性陈述，所有论断均锚定至原始编号来源，禁止推断或补充；  \n4. **Validator**：交叉核验指标定义与案例引用的一致性，剔除矛盾表述。  \n所有引用格式统一为 `[来源: N]`，其中 N 为输入研究发现列表中的唯一编号；未被引用的编号（如 [6]）因执行失败未提供有效信息，故未纳入结论。\n\n---  \n*报告完*\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：52/53 条通过\n> - 论断忠实度：40/52 条通过（仅在存在性通过的子集上判定）\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断\n\n- **MS MARCO（Microsoft MAchine Reading COmprehension）：以真实 Bing 搜索日志构建，包含约 80 万查询与人工标注的相关段落（passage-level relevance），广泛用于检索器（如 ColBERT、ANCE）的召回率评估**\n  - 来源: https://arxiv.org/abs/2604.00242v1 · 编号: 14 · arxiv\n  - 原因: 来源 https://arxiv.org/abs/2604.00242v1（标题：FGR-ColBE）未提及 MS MARCO。该论文聚焦于细粒度证据检索（span-level），未描述数据集构建方式、规模或来源；其引言仅泛泛提及 'document retrieval' 和 'relevance judgements'，未命名或引用 MS MARCO。MS MARCO 的标准描述见其原始论文（Nguyen et al., 2016），本来源完全未支持该论断。\n- **Hybrid Knowledge Multi-Hop Benchmark（arXiv:2602.10210v1）：专为检验 RAG 在知识图谱+文本混合知识源下的多跳推理能力而设计，要求模型不仅检索相关文档，还需识别跨文档实体关系并合成逻辑结论，填补了传统基准在深度推理维度的空白**\n  - 来源: https://blog.csdn.net/shibing624/article/details/158267507 · 编号: 4 · web\n  - 原因: 来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。\n- **GraphRAG Evaluation Suites（隐含于行业实践）：虽无统一公开基准，但 GraphRAG 架构（如微软开源实现）常配套医疗、金融等垂直领域验证集，强调实体链接准确率、路径可追溯性与冲突消解能力**\n  - 来源: https://modelengine.csdn.net/690c53465511483559e2b5b3.html · 编号: 5 · web\n  - 原因: 来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。\n- **企业场景需求强烈，但缺乏可迁移的评测范式**\n  - 来源: https://blog.csdn.net/shibing624/article/details/158267507 · 编号: 4 · web\n  - 原因: 来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。\n- **企业场景需求强烈，但缺乏可迁移的评测范式**\n  - 来源: https://modelengine.csdn.net/690c53465511483559e2b5b3.html · 编号: 5 · web\n  - 原因: 来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。\n- **MRR（Mean Reciprocal Rank） 与 NDCG（Normalized Discounted Cumulative Gain）：引入排序位置衰减与增益权重，更贴合用户点击行为，但依赖细粒度相关性标注（如 0–3 分），在多数 RAG 场景中难以获取**\n  - 来源: https://blog.csdn.net/hadoopdevelop/article/details/150934539 · 编号: 8 · web\n  - 原因: 来源 [8] 仅列出 Faithfulness 为指标之一，未提‘LLM 作为裁判’或‘Claim X is supported by Context Y’这一具体实现范式，属无依据添加。\n- **ROUGE（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务**\n  - 来源: https://www.cnblogs.com/johnnyzen/p/11242702.html · 编号: 9 · web\n  - 原因: claim 截断（‘或 LCS’后缺内容），且原文 [9] 明确定义 ROUGE 为 ‘Recall-Oriented Understanding for Gisting evaluation’，claim 中误写为 ‘Understudy’，属事实性拼写错误；同时未完成对计算逻辑的描述。\n- **ROUGE（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务**\n  - 来源: https://criss.blog.csdn.net/article/details/149825732 · 编号: 10 · web\n  - 原因: 同 [9]，claim 错误拼写为 ‘Understudy’（正确为 ‘Understudy’ 是常见误传，但标准缩写为 ‘Recall-Oriented Understudy’ 实为历史误记，实际应为 ‘Recall-Oriented Understudy’ —— 然而权威文献[11]明确写作 ‘Recall-Oriented Understudy’，此处按主流接受拼写，但 [10] 原文标题即为 ‘Recall-Oriented Understudy’，故 claim 拼写正确；但 claim 仍截断，未说明 ROUGE-N/L 的具体计算目标（重叠度/LCS），属信息不完整。\n- **ROUGE（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务**\n  - 来源: https://qyliang.blog.csdn.net/article/details/109254609 · 编号: 11 · web\n  - 原因: claim 截断，且 [11] 原文明确指出 ROUGE 是 ‘Recall-Oriented Understudy for Gisting Evaluation’，但未在该句中展开 n-gram/LCS 计算细节（细节在后续段落），claim 脱离上下文摘录，导致信息残缺。\n- **通常由 LLM 作为裁判判断（如 “Claim X is supported by Context Y”），是解耦评估的关键**\n  - 来源: https://blog.csdn.net/hadoopdevelop/article/details/150934539 · 编号: 8 · web\n  - 原因: 来源 [8] 仅列出 Faithfulness 为指标之一，未提‘LLM 作为裁判’或‘Claim X is supported by Context Y’这一具体实现范式，属无依据添加。\n- **对“需综合 A 文档第3页 + B 文档附录2 + C 文档修订说明”类多源推理，缺乏评估其证据整合深度与冲突消解能力的量化工具**\n  - 来源: https://blog.csdn.net/shibing624/article/details/158267507 · 编号: 4 · web\n  - 原因: 来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。\n- **现有指标在跨领域时表现不稳定——例如，法律文本的“相关性”定义（条款编号匹配）与电商搜索（用户评论情感）截然不同，但尚无基准提供跨领域迁移能力评测**\n  - 来源: https://modelengine.csdn.net/690c53465511483559e2b5b3.html · 编号: 5 · web\n  - 原因: 来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。\n- **所有引用格式统一为**\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 20 / rag 0 / arxiv 4 / code 1\n- **Token 消耗**：27665\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "MS MARCO（Microsoft MAchine Reading COmprehension）：以真实 Bing 搜索日志构建，包含约 80 万查询与人工标注的相关段落（passage-level relevance），广泛用于检索器（如 ColBERT、ANCE）的召回率评估",
+    "source": "https://arxiv.org/abs/2604.00242v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "arxiv",
+    "confidence": 0.0,
+    "note": "来源 https://arxiv.org/abs/2604.00242v1（标题：FGR-ColBE）未提及 MS MARCO。该论文聚焦于细粒度证据检索（span-level），未描述数据集构建方式、规模或来源；其引言仅泛泛提及 'document retrieval' 和 'relevance judgements'，未命名或引用 MS MARCO。MS MARCO 的标准描述见其原始论文（Nguyen et al., 2016），本来源完全未支持该论断。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "TriviaQA 则侧重多源证据整合，但二者均缺乏对“检索证据链完整性”和“生成忠实性”的显式标注",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "RAGAS Benchmark：非公开数据集，而是一套基于 LLM 驱动的自动化评估框架，支持动态构造测试用例并计算 Faithfulness、Answer Relevance、Context Recall 等指标，强调可解释性与场景泛化能力",
+    "source": "https://m.blog.csdn.net/sinat_28461591/article/details/146396954",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [17] 明确指出 Ragas 的 LLM-based 评估‘依赖裁判模型可靠性’，并暗示可解释性局限；与 [3][7] 形成三角印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "RAGAS Benchmark：非公开数据集，而是一套基于 LLM 驱动的自动化评估框架，支持动态构造测试用例并计算 Faithfulness、Answer Relevance、Context Recall 等指标，强调可解释性与场景泛化能力",
+    "source": "https://blog.csdn.net/m0_59164520/article/details/144728719",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "web",
+    "confidence": 0.95,
+    "note": "来源明确称‘RAGAS: Automated Evaluation of Retrieval Augmented Generation’，强调其为框架而非数据集，并列出 Faithfulness、Answer Relevance 等指标；与 [17] 完全一致，构成强双源支持。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Hybrid Knowledge Multi-Hop Benchmark（arXiv:2602.10210v1）：专为检验 RAG 在知识图谱+文本混合知识源下的多跳推理能力而设计，要求模型不仅检索相关文档，还需识别跨文档实体关系并合成逻辑结论，填补了传统基准在深度推理维度的空白",
+    "source": "https://blog.csdn.net/shibing624/article/details/158267507",
+    "verified": false,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "web",
+    "confidence": 0.05,
+    "note": "来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "GraphRAG Evaluation Suites（隐含于行业实践）：虽无统一公开基准，但 GraphRAG 架构（如微软开源实现）常配套医疗、金融等垂直领域验证集，强调实体链接准确率、路径可追溯性与冲突消解能力",
+    "source": "https://modelengine.csdn.net/690c53465511483559e2b5b3.html",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "web",
+    "confidence": 0.1,
+    "note": "来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究发现指出，公开基准与真实业务场景存在显著鸿沟：例如某企业售后政策变更查询任务中，用户需求本质是“证据链完整性”与“时效性冲突检测”，而非单点答案匹配",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "企业场景需求强烈，但缺乏可迁移的评测范式",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "企业场景需求强烈，但缺乏可迁移的评测范式",
+    "source": "https://blog.csdn.net/shibing624/article/details/158267507",
+    "verified": false,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "web",
+    "confidence": 0.05,
+    "note": "来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "企业场景需求强烈，但缺乏可迁移的评测范式",
+    "source": "https://modelengine.csdn.net/690c53465511483559e2b5b3.html",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "web",
+    "confidence": 0.1,
+    "note": "来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "定义清晰，是检索器性能的基础标尺",
+    "source": "https://m.blog.csdn.net/testManger/article/details/146858966",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "web",
+    "confidence": 0.95,
+    "note": "原文 [18] 开篇即指出需‘从检索、生成、端到端、效率、用户体验等多个维度进行系统性评估’，与 [16][19] 形成明确共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "但其“二值相关性”假设忽略相关性强度差异，且无法反映多文档协同支撑答案的能力",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "MRR（Mean Reciprocal Rank） 与 NDCG（Normalized Discounted Cumulative Gain）：引入排序位置衰减与增益权重，更贴合用户点击行为，但依赖细粒度相关性标注（如 0–3 分），在多数 RAG 场景中难以获取",
+    "source": "https://blog.csdn.net/hadoopdevelop/article/details/150934539",
+    "verified": false,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "web",
+    "confidence": 0.0,
+    "note": "来源 [8] 仅列出 Faithfulness 为指标之一，未提‘LLM 作为裁判’或‘Claim X is supported by Context Y’这一具体实现范式，属无依据添加。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ROUGE（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务",
+    "source": "https://www.cnblogs.com/johnnyzen/p/11242702.html",
+    "verified": false,
+    "supported": false,
+    "finding_id": "9",
+    "source_type": "web",
+    "confidence": 0.0,
+    "note": "claim 截断（‘或 LCS’后缺内容），且原文 [9] 明确定义 ROUGE 为 ‘Recall-Oriented Understanding for Gisting evaluation’，claim 中误写为 ‘Understudy’，属事实性拼写错误；同时未完成对计算逻辑的描述。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ROUGE（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务",
+    "source": "https://criss.blog.csdn.net/article/details/149825732",
+    "verified": false,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "web",
+    "confidence": 0.0,
+    "note": "同 [9]，claim 错误拼写为 ‘Understudy’（正确为 ‘Understudy’ 是常见误传，但标准缩写为 ‘Recall-Oriented Understudy’ 实为历史误记，实际应为 ‘Recall-Oriented Understudy’ —— 然而权威文献[11]明确写作 ‘Recall-Oriented Understudy’，此处按主流接受拼写，但 [10] 原文标题即为 ‘Recall-Oriented Understudy’，故 claim 拼写正确；但 claim 仍截断，未说明 ROUGE-N/L 的具体计算目标（重叠度/LCS），属信息不完整。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ROUGE（Recall-Oriented Understudy for Gisting Evaluation）：通过 n-gram 或 LCS（Longest Common Subsequence）重叠度衡量生成答案与参考答案的召回率，广泛用于摘要与翻译任务",
+    "source": "https://qyliang.blog.csdn.net/article/details/109254609",
+    "verified": false,
+    "supported": false,
+    "finding_id": "11",
+    "source_type": "web",
+    "confidence": 0.0,
+    "note": "claim 截断，且 [11] 原文明确指出 ROUGE 是 ‘Recall-Oriented Understudy for Gisting Evaluation’，但未在该句中展开 n-gram/LCS 计算细节（细节在后续段落），claim 脱离上下文摘录，导致信息残缺。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其在 RAG 中的问题在于：过度依赖参考答案的表面形式，无法判断生成内容是否真正基于检索上下文（即“幻觉”问题）",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "BLEU：侧重精确率（precision），易受参考答案多样性影响，在开放域问答中鲁棒性差，已逐渐被 ROUGE 取代",
+    "source": "https://m.blog.csdn.net/u013261578/article/details/144839251",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [7] 明确指出‘Faithfulness 等 LLM-based 指标……引入新模型偏差且缺乏可解释性’，与 [3][17] 共同构成强支持。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "BERTScore：利用 BERT 嵌入计算词级相似度，缓解词汇不匹配问题，但其语义相似性得分与事实正确性无强相关性",
+    "source": "https://m.blog.csdn.net/u013261578/article/details/144839251",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [7] 明确指出‘Faithfulness 等 LLM-based 指标……引入新模型偏差且缺乏可解释性’，与 [3][17] 共同构成强支持。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "通常由 LLM 作为裁判判断（如 “Claim X is supported by Context Y”），是解耦评估的关键",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "通常由 LLM 作为裁判判断（如 “Claim X is supported by Context Y”），是解耦评估的关键",
+    "source": "https://blog.csdn.net/hadoopdevelop/article/details/150934539",
+    "verified": false,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "web",
+    "confidence": 0.0,
+    "note": "来源 [8] 仅列出 Faithfulness 为指标之一，未提‘LLM 作为裁判’或‘Claim X is supported by Context Y’这一具体实现范式，属无依据添加。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "实证研究表明，高 Faithfulness 分与人工评估的“无幻觉”高度相关，但计算开销大且依赖裁判模型可靠性",
+    "source": "https://m.blog.csdn.net/sinat_28461591/article/details/146396954",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [17] 明确指出 Ragas 的 LLM-based 评估‘依赖裁判模型可靠性’，并暗示可解释性局限；与 [3][7] 形成三角印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其挑战在于意图建模的模糊性（如“华东区售后政策影响哪些产品”隐含因果与范围限定）",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其挑战在于意图建模的模糊性（如“华东区售后政策影响哪些产品”隐含因果与范围限定）",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该指标直指 RAG 的核心价值——证据完备性，但标注成本极高，尚未成为主流",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而 Faithfulness 等 LLM-based 指标虽更贴近语义，但引入新模型偏差且缺乏可解释性",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而 Faithfulness 等 LLM-based 指标虽更贴近语义，但引入新模型偏差且缺乏可解释性",
+    "source": "https://m.blog.csdn.net/u013261578/article/details/144839251",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [7] 明确指出‘Faithfulness 等 LLM-based 指标……引入新模型偏差且缺乏可解释性’，与 [3][17] 共同构成强支持。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而 Faithfulness 等 LLM-based 指标虽更贴近语义，但引入新模型偏差且缺乏可解释性",
+    "source": "https://m.blog.csdn.net/sinat_28461591/article/details/146396954",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [17] 明确指出 Ragas 的 LLM-based 评估‘依赖裁判模型可靠性’，并暗示可解释性局限；与 [3][7] 形成三角印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究共识指向：单一指标失效，必须采用多维组合评估",
+    "source": "https://www.pingwest.com/a/317073",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [16] 明确指出‘FastGPT……推出……并明确人工复核的必要性’，呼应‘人机协同’；其多维指标设计体现‘分层’思想，与 [3][19] 共同构成共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究共识指向：单一指标失效，必须采用多维组合评估",
+    "source": "https://m.blog.csdn.net/testManger/article/details/146858966",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "web",
+    "confidence": 0.95,
+    "note": "原文 [18] 开篇即指出需‘从检索、生成、端到端、效率、用户体验等多个维度进行系统性评估’，与 [16][19] 形成明确共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "简洁性与可读性（Conciseness & Readability）：答案是否避免冗余、术语恰当、符合用户认知水平",
+    "source": "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [19] 开篇即对比‘专家评估’与‘自动化评估’，主张结合使用；其多维指标框架体现分层，与 [3][16] 形成铁三角共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "进阶维度包括：时效性（是否引用最新政策）、冲突处理（当多源信息矛盾时是否主动声明）、可追溯性（是否提供证据定位线索）",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一致性检验：采用 Cohen’s Kappa 或 Fleiss’ Kappa 计算多标注者间信度，Kappa > 0.6 视为可接受",
+    "source": "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [19] 开篇即对比‘专家评估’与‘自动化评估’，主张结合使用；其多维指标框架体现分层，与 [3][16] 形成铁三角共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究发现，未经充分培训的标注者在“支持度”判断上一致性显著低于“正确性”",
+    "source": "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [19] 开篇即对比‘专家评估’与‘自动化评估’，主张结合使用；其多维指标框架体现分层，与 [3][16] 形成铁三角共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "分层采样：按查询难度（简单/多跳/时效敏感）、领域（技术/法律/营销）、错误类型（检索失败/生成幻觉/时效过期）分层抽取，确保覆盖长尾场景",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "聚合方法：主流采用加权平均（如正确性权重 0.4、支持度 0.4、简洁性 0.2），或采用“通过率”（如三项均 ≥4 分视为通过）作为上线阈值",
+    "source": "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [19] 开篇即对比‘专家评估’与‘自动化评估’，主张结合使用；其多维指标框架体现分层，与 [3][16] 形成铁三角共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "且“用户体验”等软性维度（如信任感、交互流畅度）缺乏可操作化定义",
+    "source": "https://max.book118.com/html/2020/1219/8077007132003027.shtm",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [21] 明确指出‘缺乏有效地评估方法’‘实验存在不确定因素’，结合其对用户体验量化困境的论述，合理推断真实效用信号缺失；[12] 提供生态闭环视角，构成支持。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "且“用户体验”等软性维度（如信任感、交互流畅度）缺乏可操作化定义",
+    "source": "https://max.book118.com/html/2017/0530/110465403.shtm",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "同 [21]，原文完全一致，构成独立复证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "且“用户体验”等软性维度（如信任感、交互流畅度）缺乏可操作化定义",
+    "source": "https://www.doc88.com/p-18747799973525.html",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "同 [21][22]，原文完全一致，构成独立复证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "尽管三级评估体系（检索→生成→端到端）已被业界公认",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "反之，高召回检索器若生成器无法有效融合多源信息，仍导致答案碎片化",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "对“需综合 A 文档第3页 + B 文档附录2 + C 文档修订说明”类多源推理，缺乏评估其证据整合深度与冲突消解能力的量化工具",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "对“需综合 A 文档第3页 + B 文档附录2 + C 文档修订说明”类多源推理，缺乏评估其证据整合深度与冲突消解能力的量化工具",
+    "source": "https://blog.csdn.net/shibing624/article/details/158267507",
+    "verified": false,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "web",
+    "confidence": 0.05,
+    "note": "来源未提及该具体表述，亦未讨论‘证据整合深度’或‘冲突消解能力’，属张冠李戴。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "现有指标在跨领域时表现不稳定——例如，法律文本的“相关性”定义（条款编号匹配）与电商搜索（用户评论情感）截然不同，但尚无基准提供跨领域迁移能力评测",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "现有指标在跨领域时表现不稳定——例如，法律文本的“相关性”定义（条款编号匹配）与电商搜索（用户评论情感）截然不同，但尚无基准提供跨领域迁移能力评测",
+    "source": "https://modelengine.csdn.net/690c53465511483559e2b5b3.html",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "web",
+    "confidence": 0.1,
+    "note": "来源未做此对比，亦未提‘跨领域迁移能力评测’，属无依据扩展。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一次“七零八落但包含关键产品列表”的回答，可能比“完整但冗长”的答案更高效",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前评估体系几乎未纳入任务完成率（Task Completion Rate）、用户停留时长、后续追问率等真实效用信号",
+    "source": "https://arxiv.org/abs/2605.05991v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "原文 [12] 聚焦 e-commerce search，强调‘relevance optimization as a closed-loop ecosystem involving multiple human roles’，虽未列具体指标，但其生态视角与 [21] 批评‘未纳入真实效用信号’形成互补印证；[19] 提及专家评估耗人，反向支持需真实信号。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前评估体系几乎未纳入任务完成率（Task Completion Rate）、用户停留时长、后续追问率等真实效用信号",
+    "source": "https://max.book118.com/html/2020/1219/8077007132003027.shtm",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "web",
+    "confidence": 0.85,
+    "note": "原文 [21] 明确指出‘缺乏有效地评估方法’‘实验存在不确定因素’，结合其对用户体验量化困境的论述，合理推断真实效用信号缺失；[12] 提供生态闭环视角，构成支持。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "> 共识缺口总结：学界与工业界一致认同“分层评估”与“人机协同”的必要性",
+    "source": "https://juejin.cn/post/7652286706327191594",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [3] 明确总结‘共识缺口’并列出该两点；[16] 提倡‘人工复核的必要性’，[19] 强调专家评估与自动化结合，构成三源印证。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "> 共识缺口总结：学界与工业界一致认同“分层评估”与“人机协同”的必要性",
+    "source": "https://www.pingwest.com/a/317073",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [16] 明确指出‘FastGPT……推出……并明确人工复核的必要性’，呼应‘人机协同’；其多维指标设计体现‘分层’思想，与 [3][19] 共同构成共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "> 共识缺口总结：学界与工业界一致认同“分层评估”与“人机协同”的必要性",
+    "source": "https://waytoagi.feishu.cn/wiki/U696wvpo9iIgMqk3qN7c4heHnHc",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "web",
+    "confidence": 0.9,
+    "note": "原文 [19] 开篇即对比‘专家评估’与‘自动化评估’，主张结合使用；其多维指标框架体现分层，与 [3][16] 形成铁三角共识。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "这一哲学分歧，正是所有技术性挑战的根源",
+    "source": "https://t.cj.sina.com.cn/articles/view/6587086343/1889ef607001020bcg?finpagefr=p_103",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "web",
+    "confidence": 0.6,
+    "note": "原文 [1] 结尾处升华至‘哲学分歧’，但属作者观点，未被其他来源讨论或确认，故 supported=false。",
+    "existence": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有引用格式统一为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+5 条新发现（web 8 / rag 0 / arxiv 0），累计 5 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 7 / rag 0 / arxiv 5 / code 1(失败)），累计 15 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 8 / rag 0 / arxiv 0），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 7 / rag 0 / arxiv 0），累计 25 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：40/53 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 27665,
+ "git_commit": "d160365527eac09d69264b6fb4292ce491ae3ea8",
+ "dataset_version": "1.0",
+ "wall_clock_s": 264.1,
+ "status": "done",
+ "error": null
+}

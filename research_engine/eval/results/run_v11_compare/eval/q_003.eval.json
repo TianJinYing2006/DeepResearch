@@ -1,0 +1,120 @@
+{
+ "q_id": "q_003",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6095,
+   "headings": 2,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 61,
+   "verified": 61,
+   "existence_rate": 1.0,
+   "fidelity_rate": 1.0,
+   "by_source_type": {
+    "web": {
+     "total": 51,
+     "verified": 51,
+     "existence": 51
+    },
+    "arxiv": {
+     "total": 10,
+     "verified": 10,
+     "existence": 10
+    }
+   },
+   "failed_note_distribution": {}
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph 的条件边与状态管理机制",
+     "covered": true,
+     "reason": "检索结果中多篇文档明确详述了 add_conditional_edges 的作用（如动态路由、基于状态决定执行路径）、使用场景（如内容审核工作流中的批准/驳回分支），并系统性描述了 LangGraph 的状态管理机制：统一 JSON-like 状态对象、状态容器、状态转换函数、类型验证、checkpoints 持久化（内存/SQLite/AgentPersistence）、短期/长期记忆区分等。核心架构组件部分也专门指出‘状态管理系统’是其核心，涵盖状态读写、一致性维护和上下文保持。信息充分覆盖该子问题的技术原理与实现机制。"
+    },
+    {
+     "subquestion": "自研 agent 框架的优劣势",
+     "covered": false,
+     "reason": "所有检索结果均聚焦于 LangGraph（及其与 LangChain 生态的关系），未提及任何‘自研 agent 框架’——既无定义、无架构描述，也无对其设计目标、实现方式、性能指标、适用边界或局限性的分析；更不存在与 LangGraph 的横向对比或优劣势总结。该子问题完全缺乏对应信息支撑。"
+    },
+    {
+     "subquestion": "LangGraph 与自研框架在可观测性支持上的差异",
+     "covered": false,
+     "reason": "检索结果包含 LangGraph 的可观测性相关能力（如‘可视、可测、可控’、中间态可观察、get_state/get_state_history、checkpoints 支持时间旅行与回溯、执行日志与调度追踪等），但全文未出现任何关于‘自研框架’的可观测性设计或实践描述，因此无法构成二者差异的比较基础。缺少对比项中的一方，无法判断差异。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 5,
+   "hit": 3,
+   "retrieval_hit_rate": 0.6,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态管理",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "条件边",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "可观测性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "自研框架",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 29723,
+   "total_cost": 0.0416,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 3,
+   "depth": 3
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 3,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

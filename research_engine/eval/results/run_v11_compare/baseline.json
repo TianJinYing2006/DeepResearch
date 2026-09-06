@@ -1,0 +1,24 @@
+{
+ "baseline_id": "v0",
+ "git_commit": "d160365527eac09d69264b6fb4292ce491ae3ea8",
+ "dataset_version": "1.1",
+ "config_snapshot": {
+  "planner_model": "qwen-plus",
+  "critic_model": "qwen-plus",
+  "fast_model": "qwen-turbo",
+  "smart_model": "qwen-plus",
+  "token_budget": 200000,
+  "max_total_hops": 20,
+  "per_subq_hop_cap": 5,
+  "max_replan": 1,
+  "search_provider": "bocha"
+ },
+ "eval_env": {
+  "python": "3.13.14",
+  "os": "Windows",
+  "concurrency": 3,
+  "wall_clock": "40~60min（并发 3，20 条）"
+ },
+ "generated_at": "2026-09-06T19:34:01",
+ "hash": "2d348fd90698c953"
+}

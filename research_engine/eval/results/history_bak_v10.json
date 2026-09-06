@@ -1,0 +1,39 @@
+[
+ {
+  "run_id": "run_20260906_184156",
+  "git_commit": "d160365527eac09d69264b6fb4292ce491ae3ea8",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7193,
+   "existence_rate": 0.9753,
+   "coverage": 0.5708,
+   "retrieval_hit_rate": 0.5917,
+   "avg_steps": 3.85,
+   "reflection_critic_stop_rate": 0.95
+  },
+  "delta_pp_from_prev": null,
+  "status": "PASS",
+  "generated_at": "2026-09-06T19:22:57"
+ },
+ {
+  "run_id": "run_v11_compare",
+  "git_commit": "d160365527eac09d69264b6fb4292ce491ae3ea8",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7193,
+   "existence_rate": 0.9753,
+   "coverage": 0.5542,
+   "retrieval_hit_rate": 0.5974,
+   "avg_steps": 3.85,
+   "reflection_critic_stop_rate": 0.95
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 0.0,
+   "coverage": -1.7,
+   "retrieval_hit_rate": 0.6
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-06T19:30:36"
+ }
+]

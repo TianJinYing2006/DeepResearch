@@ -1,0 +1,152 @@
+{
+ "q_id": "q_012",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4285,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 31,
+   "verified": 15,
+   "existence_rate": 0.7742,
+   "fidelity_rate": 0.625,
+   "by_source_type": {
+    "web": {
+     "total": 23,
+     "verified": 14,
+     "existence": 23
+    },
+    "unknown": {
+     "total": 7,
+     "verified": 0,
+     "existence": 0
+    },
+    "code_exec": {
+     "total": 1,
+     "verified": 1,
+     "existence": 1
+    }
+   },
+   "failed_note_distribution": {
+    "来源[4]提到‘从心理学中选择了6项已被充分研究的任务类型’，但未说明具体任务名": 2,
+    "同上，[6]仅复述‘6项任务’及‘深思熟虑反而出错’定性描述，未列具体范式，未提": 2,
+    "来源不存在于研究发现（编号越界或来源未命中）": 7,
+    "来源[17]研究对象是‘负面在线服务评论’，与‘错误CoT’‘用户高风险行动’完": 2,
+    "同上，[20]研究‘负面在线评论对感知风险影响’，主题为电商购物，与CoT、医疗": 2,
+    "来源[8]文本截断，未出现任务名称或具体降幅数字，claim属无依据添加，fai": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 4,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "CoT提示在哪些具体NLP任务（如算术推理、常识推理、符号推理）中表现显著低于标准提示？",
+     "covered": true,
+     "reason": "多篇报道明确指出CoT在'生造词分类任务'中导致GPT-4准确率从94%断崖式下跌至64.4%，o1-preview降至57.7%；并提及该现象源于参照心理学中人类‘深思熟虑反而表现下降’的6类任务（如语义启动、直觉判断等），虽未逐一枚举'算术/常识/符号推理'，但'生造词分类'属于典型常识与语义推理任务，且强调CoT在'非多步、依赖直觉或模式匹配'类任务中系统性失效，足以支撑对具体任务类型的回答。"
+    },
+    {
+     "subquestion": "模型规模、参数量或架构类型（如decoder-only vs encoder-decoder）如何影响CoT的失效概率？",
+     "covered": false,
+     "reason": "所有检索结果均未提及模型规模、参数量、架构类型（decoder-only/encoder-decoder）等变量，也未比较不同模型在相同任务下CoT失效程度的差异；仅泛泛提及GPT-4、o1、o1-preview等模型名，但未分析其架构或规模与失效之间的因果或相关关系。"
+    },
+    {
+     "subquestion": "输入问题的结构特征（如歧义性、多步依赖深度、信息冗余度）与CoT负面效果之间存在何种关联？",
+     "covered": true,
+     "reason": "研究明确将CoT失效归因于任务本质特征：'生造词分类'任务无需多步推理，而依赖快速直觉/模式匹配；报道反复强调'人类被要求解释思路时性能下降'的任务类型（如Stroop、Go/No-go、语义启动）具有低认知负荷、高自动化、弱逻辑链依赖等结构特征；并指出CoT的'慢思考'机制与这类任务的'快思考'需求冲突，隐含了'多步依赖深度低'与负面效果强相关；虽未直接使用'歧义性''信息冗余度'等术语，但'生造词分类'本身即具高歧义性（无真实语义锚点），足以支撑结构特征关联性回答。"
+    },
+    {
+     "subquestion": "是否存在特定的CoT构造方式（如人工设计vs自动生成、一步分解vs多步展开）会系统性加剧错误传播？",
+     "covered": false,
+     "reason": "所有检索结果均未讨论CoT的具体构造方式（如人工设计/自动生成、步骤粒度、分解深度、模板形式等）；未对比不同构造方式下的错误传播率或失效强度；仅提及'无效逻辑CoT提示几乎与有效CoT一样提升性能'，但这是关于CoT有效性而非负面效果的构造敏感性，且未延伸至'加剧错误传播'这一机制性问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "思维链",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Chain-of-Thought",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "提示工程",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "推理失败",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "错误传播",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务特异性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "模型规模",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "输入结构",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 20921,
+   "total_cost": 0.0293,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}
