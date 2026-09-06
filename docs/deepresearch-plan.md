@@ -117,12 +117,15 @@
 - **DoD 检查**：一条需计算的学术问题能自动调 arXiv + 代码执行并溯源。
 - **取舍注记（2026-09-04 补）**：总需求 **FR3.2（网页正文抓取）明确不做**——用「博查 summary + arXiv abstract + RAG 全文分块」替代"点进 URL 读原文"；理由：全文抓取 3~5s/次 + 5~20k token/篇，与 W4 体积闭环（Q5 三层安检）和 ~24k token 口径冲突；需深挖时走学术摘要 + RAG 分块 + code 验证。若未来要补，`SearchProvider` 加 `fetch(url)` 接口（Jina Reader/Firecrawl）即可，列 W6 开源增强。这是有意取舍非漏项，勿当 bug 反复盘。
 
-### W5 — eval 数据集 + 量化指标（NFR2 / DoD，顺延自原 W4）
+### W5 — eval 数据集 + 量化指标（NFR2 / DoD，✅ 已完成 2026-09-07）
 - **任务**
   1. 建 `research_engine/eval/dataset.jsonl`，≥20 条，覆盖：易/中/难 + 多轮追问 + 需计算 + 需学术检索。
   2. 扩展现有 `retrieval_eval/citation_eval/report_eval`，输出指标表：完成率 / 引用准确率 / 覆盖度 / token 成本 / 平均步数 / 反思有效性（该停时是否停）。
   3. LLM-as-judge + 人工抽检 20%，记到 `docs/eval-report.md`。
 - **交付物**：可复跑的 eval 脚本 + 指标表 + 抽检记录。
+- **实现记录（2026-09-06~07）**：需求定稿 `docs/requirements/5-eval-and-metrics.md`（Q1~Q8 grill 全拍板）；实现两阶段管线 `eval/run.py`（--run-only/--eval-only/默认连续）+ 七指标 `eval/metrics.py` + 双轨成本桶（model_stats/role_stats）+ 报告生成 `eval/report_gen.py`；dataset v1.1（20 条，AI 草案+人工校准，校准记录入 meta）。
+- **v0/v1.1 基线（20/20 done，¥0.79/轮）**：完成率 100% / 引用准确率 72%（机器口径，抽检修正 83~92%）/ 覆盖度 55.4% / 命中率 59.7% / 步数 3.85 / 反思 95%。后验归因 5 项（critic 早停 14/19 / planner 无锅 / 覆盖-忠实负相关 / writer 越界发挥 / validator 误拒）+ 两级抽检（报告级 5 + 引用级 12，真实10/存疑1/不实1）+ 锚点无回归 + 可复现性重跑均值 |Δ|=0.257 超线（真实 API 固有波动，跨版本对比需 ≥3 次重跑取均值）。
+- **技术债（后续优先级）**：① critic 充分度判据接入覆盖度信号（早停 14/19 根因）；② validator 忠实度对查"note 错位"误拒修复；③ writer "信息不足"标注纪律（prompt 第 5 条未执行）；④ validator 成本占 47%（降采样/缓存）。
 - **DoD 检查**：能一条命令出指标表。
 
 ### W6 — 开源 + 博客（M5，顺延自原 W5）
