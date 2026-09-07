@@ -96,4 +96,8 @@
 
 - W1 记录范式：`D:\项目\DeepResearch\.workbuddy\design-grill.md`（9 题全拍板）。
 - 需求文档区：`docs/requirements/`（`模板.md` 为文档模板，`1-critic-conditional-edge.md` / `2-provenance-auditable-reporting.md` 为已产出周文档）。
-- 飞书镜像：本地文档拍板后按需同步飞书（如 W1 rev 4 已追加「变更记录」章节；显示名统一「第N周需求文档」）。
+- 飞书镜像：本地文档拍板后按需同步飞书（如 W1 rev 4 已追加「变更记录」章节；显示名统一「第N周需求文档」）。命令：`lark-cli docs +create --doc-format markdown --title "第N周需求文档" --content "@./xxx.md" --parent-token MYR6fazL5la0ardJdUecOBkVnd8`。
+- **⚠️ 镜像同步三坑（2026-09-07 实测踩坑，W4/W5 镜像曾损坏后修复）**：
+  1. **`~` 必须转义为 `\~`**：飞书 Markdown 导入会把单个 `~`（如 `2~4`、`6~8`、`Q1~Q8`）误解析为删除线 `<del>`，导致全文划线错乱；反引号代码内（如 `` `HEAD~1` ``）天然不解析、**不要转义**（转义后代码内显示 `\~` 字面量）；有意删除线 `~~text~~` 正常保留。
+  2. **`--title` 只对 +create 生效**：`+update --command overwrite` 时标题会变成正文第一个 `#` 标题——overwrite 的内容开头必须注入 `<title>第N周需求文档</title>` 第一行才能保住显示名。
+  3. **校验闭环**：overwrite 后用 `docs +fetch` 回查 `<del>` 数量（应为 0 或仅有意删除线数）、title 显示名、checkbox 是否保留。

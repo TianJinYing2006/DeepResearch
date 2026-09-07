@@ -132,3 +132,4 @@
 | 2026-09-04 | 拍板 | grill Q6 | TBD-6 定案（Q6+E+ 修正）：source 协议 code=`code:{sha256(脚本+参数+查询)[:10]}`（单 hash 收敛）；图标 🔬arxiv/💻code；溯源块两桶→四桶（实锤 arxiv/code 误算 web 的 bug）；validator 双口径（arxiv 格式校验/code 执行成功即存在；faithful 均 LLM 对查）；E+ 结构化比对**只记不改判**（存 metadata.structured_match 呈现层，verdict 仍 LLM 为准——字符串层假阳性实锤 + 成本账倒挂） | |
 | 2026-09-04 | 拍板 | grill Q7 | TBD-7 定案（分档+E+ 修正）：按职责分层无动态判定；拆 planner_model/critic_model（默认均 qwen-plus 保 W3 基线——动默认会污染 W5 eval）；strategic_model 降为 planner 兼容别名；修复 critic.py:110 硬编码 smart；硬闸零联动显式记录；启动知情打印；成本模拟值附 per-model token 计数依赖（演示增强） | |
 | 2026-09-04 | 拍板 | grill Q8 | TBD-9 定案（B+ 修正）：跳级消息升级状态快照（新增/工具明细/累计/hop 进度，零新增字段）；否决 solved_sq_ids 假字段（数据源不存在，进度用 hop 预算）；溯源块四桶作汇总；不做完整调用表（归 Langfuse trace）。**TBD 全部清零，grill 收官** | |
+| 2026-09-07 | 镜像修复 | W5 收尾 | **飞书镜像删除线误渲染修复**（5 处）：overwrite 转义版（`~`→`\~`、代码内不转义）+ 注入 `<title>` 保显示名；DoD 未勾选区保持原样（Job Object 单测挂账 W6 前验证，未达不收口） | 9fc2cf1 |

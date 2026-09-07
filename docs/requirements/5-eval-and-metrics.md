@@ -2,7 +2,7 @@
 
 > 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合
 > 本稿为 **grill 定稿版（2026-09-06 Q1~Q8 全部拍板，TBD 清零）**：全部设计决策已定案，新增/修订细节以**加粗**标注。
-> 飞书镜像：**第五周需求文档** https://wcnnpvbxd7li.feishu.cn/docx/SqpDd7AuZoN80Sx5Cc1cNNwdnbd（同步于 DeepResearch 需求文档 /，2026-09-06）
+> 飞书镜像：**第五周需求文档** https://wcnnpvbxd7li.feishu.cn/docx/SqpDd7AuZoN80Sx5Cc1cNNwdnbd（同步于 DeepResearch 需求文档 /，2026-09-06；2026-09-07 修复删除线误渲染——`~` 转义为 `\~`，见工作流文档三坑）
 > **grill 记录：Q1~Q8（TBD-1/2/3/4/5/6/7/8/9/10）全部定案（2026-09-04~09-06）；否决史保留在各条括号内备查。**
 
 ## 1. 元信息
@@ -138,3 +138,4 @@
 | 2026-09-04 | 拍板 | grill Q6 | **TBD-6 定案**：两级抽检（报告级 4~5 份通读覆盖质量+反思面+2~3 条精读 / 引用级 10~15 条跨报告核验）+ 单人声明 + reviewer 字段接口 + 锚点桶人工复核确认"真回归 vs 数据漂移"；工时 2~3h | |
 | 2026-09-06 | 拍板 | grill Q7 | **TBD-7/9 定案（E++ 二次裁决）**：基线 = `baseline.json` 冻结快照（采纳，修正：config_snapshot 每轮 run 记 + 默认值 qwen-plus 对齐 W4 Q7 + hash 降级"完整性校验"）；趋势 = `history.json` 追加式 + 报告第 7 节演进表（采纳，delta 用**百分点 pp** 否决相对 % 歧义；条级/run 级两层定位钉死）；触发 = **否决 eval_trigger.py**（无 CI、pre-commit 拖死、git diff 漏判），人工 + history 尾行检查；eval-report 8 节骨架定稿（含演进趋势表） | |
 | 2026-09-06 | 拍板 | grill Q8 | **TBD-10 定案（两阶段管道裁决）收官**：**两阶段 = --run-only（存 raw）/ --eval-only（读 raw 跑评估）/ 默认连续**（一条命令 DoD 保持）+ 条级/阶段级双断点；**citation_eval 改读 state.citations**（E++ 漏坑：重新 validate = 又一次 LLM 对查，吃掉两阶段收益一半；保留 --force-revalidate 逃生门）；**检索命中率升正式第 7 指标**（gold_keywords 作 ground truth）+ **关键词优先/嵌入回退仅此一处**（Q1 预留落点，matched_by 标签单独报告）+ 组合不重构（薄聚合层）。**TBD 全部清零，W5 需求定稿** | |
+| 2026-09-07 | 镜像修复 | W5 收尾 | **飞书镜像删除线误渲染修复**：overwrite 转义版（`~`→`\~`、有意 `~~删除线~~` 保留、代码内不转义）+ 注入 `<title>` 保显示名 + §7 追加验收状态注记（W5 已收官 commit f1e9a21/9fc2cf1）；验收标准 7 条全部达成，指标与抽检见 `docs/eval-report.md` | 9fc2cf1 |
