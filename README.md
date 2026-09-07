@@ -3,6 +3,8 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/TianJinYing2006/DeepResearch/ci.yml?branch=dev&label=CI&logo=github)](https://github.com/TianJinYing2006/DeepResearch/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> **GitHub 为权威源**；Gitee 仅作国内访问镜像（可能滞后）：[gitee.com/tian-jinying/DeepResearch](https://gitee.com/tian-jinying/DeepResearch)
+
 基于 **LangGraph 多 Agent 编排 + 多跳检索 + RAG 多源融合 + 交叉验证防幻觉** 的深度研究系统。
 
 输入一个研究主题，系统自动完成 **规划 → 多跳检索（网络 + RAG 私有知识库）→ 生成带引用报告 → 引用校验与多源印证** 的完整流程。

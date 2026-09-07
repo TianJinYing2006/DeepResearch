@@ -86,7 +86,7 @@
 
 ## 7. 验收标准（DoD）
 - [x] **Job Object + Windows 单测跑通（开源前置硬门槛，TBD-9 定案）**：`tests/test_code_exec.py` 三用例绿（逃逸杀净/正常执行/降级），否则开源延期 ✓ commit 58fcf39
-- [~] 仓库公开（GitHub 主仓 ✓ + Gitee 镜像待同步），README 可复现 ✓ https://github.com/TianJinYing2006/DeepResearch
+- [x] 仓库公开（GitHub 主仓 ✓ + Gitee 镜像 ✓），README 双平台链接并标注"GitHub 权威源/Gitee 镜像可能滞后" ✓ GitHub https://github.com/TianJinYing2006/DeepResearch · Gitee https://gitee.com/tian-jinying/DeepResearch（dev+master 已同步，W6 DoD #1 B 收口，commit 3191247 后推送）
 - [x] README「设计要点」段四件套齐（conditional_edge / 防幻觉 / eval 数字诚实口径 / 差异小表），全文无"面试/加分"字样 ✓ commit 6a31e5e
 - [x] CI 自动轨绿（ruff + 79 单测），徽章可见；eval 手动轨 workflow_dispatch 就位 ✓ commit bff0ba8
 - [x] LICENSE（MIT）生效 ✓ commit 6a31e5e
