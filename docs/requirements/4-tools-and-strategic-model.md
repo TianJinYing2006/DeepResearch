@@ -3,8 +3,8 @@
 > 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/KALRdCXwSoWI8hxMPtvcxoZTnBf（DeepResearch 需求文档 / 第四周需求文档）
 > 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合
 > 重排说明：原计划（deepresearch-plan.md §4）W4 即「工具集齐 + 强推理切换」；W2 引用溯源、W3 Langfuse 已先行。
-> 本稿为 **grill 前初始版**：明确区域已写实，未定区域以 **TBD-N** 标注，待逐项拷问拍板。
-> **✅ grill 定稿：2026-09-04 Q1~Q8 全部拍板，TBD 清零。§5 全部内容为本次 grill 新增/修订的定稿设计（下文的「## 5」即最终方案，历史否决项保留在括号内备查）。**
+> 本稿为 **评审前初始版**：明确区域已写实，未定区域以 **TBD-N** 标注，待逐项拷问拍板。
+> **✅ 设计评审 定稿：2026-09-04 Q1~Q8 全部拍板，TBD 清零。§5 全部内容为本次 设计评审 新增/修订的定稿设计（下文的「## 5」即最终方案，历史否决项保留在括号内备查）。**
 
 ## 1. 元信息
 | 项 | 值 |
@@ -12,7 +12,7 @@
 | 编号 | #4 |
 | 标题 | 工具集齐（arXiv 学术检索 + 代码执行）+ 强推理切换 |
 | 优先级 | P1 |
-| 状态 | **定稿（2026-09-04 grill Q1~Q8 全部拍板，TBD 清零）** |
+| 状态 | **定稿（2026-09-04 设计评审 Q1~Q8 全部拍板，TBD 清零）** |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #4（待建） |
 | 关联 PR | |
@@ -40,21 +40,21 @@
 - **落点缺口**：`research_engine/critic.py:L110` `_verdict` 硬编码 `LLMClient(model=config.llm.smart_model)`——critic 是裁决层应属 strategic，强推理没接进裁决；planner 是否走 strategic 需核实。
 - 代码执行：全项目无 sandbox/受限执行设施；根目录 `tools/` 是验证脚本目录（verify_w3_trace.py），与本研究工具无关。
 
-## 5. 优化方案（✅ grill Q1~Q8 全部拍板定稿，2026-09-04；否决史保留在括号内备查）
+## 5. 优化方案（✅ 设计评审 Q1~Q8 全部拍板定稿，2026-09-04；否决史保留在括号内备查）
 1. **工具面扩展**：新增 `research_engine/search/arxiv.py`（学术检索）+ `research_engine/tools/code_exec.py`（代码执行）。
-   - **工具调度契约（✅ grill Q1 终判=E，2026-09-04 拍板；历经 A→B→C→D→E 五轮）**：**并行全工具 + 结果池择优，零路由字段**。
+   - **工具调度契约（✅ 设计评审 Q1 终判=E，2026-09-04 拍板；历经 A→B→C→D→E 五轮）**：**并行全工具 + 结果池择优，零路由字段**。
      - research 节点对每个查询**并行调度全部可用工具**（web/rag/arxiv/code_exec），不挑报不优先；`ThreadPoolExecutor` 并行（**不引 asyncio**，保节点同步签名、零图改动）。
      - 合并去重 + 相关性预过滤：文本结果按 query 相似度（BM25/向量）排序取 Top-5/工具、总量封顶 10 条；**`source_type=code_exec` 的计算结果整条保留、豁免预过滤（P1）**。
      - Critic 只保留"充分度"单一职责（继续/停止/换角度查询），**从职责中删除"工具选型"**——路由误判类 bug 整体删除。
      - **code_exec 触发门槛（P2）**：确定性关键词启发式（复杂度/FLOPs/计算/数值对比/推导…），命中才执行，未命中返回空——零 LLM 成本、零 state 字段；不算路由，是 code 工具的入参门槛。
      - 已否决：A 全显式路由 / B 仅 Critic 动态标注 / C 顺序全工具（按 20 跳 × 4 工具 ≈ 80~160k token，会常态触发 200k 硬闸）/ D 双级字段（3 新字段 + 30 行回退链，为预算盈余内的"多余工具"问题写抽象）。
      - 成本实测口径：每跳去重后 4~6k token，实测 2~4 轮收敛 → 总 16~24k，占 `token_budget=200k` 的 ~12%。
-   - **arXiv 实现（✅ grill Q3 终判=直连+统一抽象+B+ 内核修正，2026-09-04 拍板；历经 A→B+ 两轮）**：**官方 API 直连零依赖（方案 A 不倒退回 SDK）**，`ArxivSearchProvider(SearchProvider)`，`http://export.arxiv.org/api/query`（注意官方是 http 非 https）+ `sortBy=relevance` + `max_results=5`（abstract 信息密度高，比 web 少）+ 模块级 RateLimiter `min_interval=3s`（官方要求；每轮仅 1 次请求，实测多轮最坏 +12s，在线程池内不阻塞 web/rag）。
+   - **arXiv 实现（✅ 设计评审 Q3 终判=直连+统一抽象+B+ 内核修正，2026-09-04 拍板；历经 A→B+ 两轮）**：**官方 API 直连零依赖（方案 A 不倒退回 SDK）**，`ArxivSearchProvider(SearchProvider)`，`http://export.arxiv.org/api/query`（注意官方是 http 非 https）+ `sortBy=relevance` + `max_results=5`（abstract 信息密度高，比 web 少）+ 模块级 RateLimiter `min_interval=3s`（官方要求；每轮仅 1 次请求，实测多轮最坏 +12s，在线程池内不阻塞 web/rag）。
      - **统一证据抽象（采纳 B+ 内核、修正落地）**：**不新建 EvidenceChunk 类型**——给现有 `ResearchFinding` 增 `metadata: dict = {}` 字段；arXiv 的 `arxiv_id` / `primary_category` /（后填充）`citation_count` 全进 metadata；Critic/Writer 只消费 findings，**下游零改动**（尊重 W2 溯源协议与 ADR-0004 findings 契约）。abstract **不做 provider 层截断**（否决 B+ 的 `[:1000]`），整传由 Q1/Q2 压缩层统一处理。
      - **Semantic Scholar 后处理管道（采纳，话术修正）**：`SEMANTIC_SCHOLAR_API_KEY` 可选；research 节点返回后 batch 查 `citationCount`（`/graph/v1/paper/batch`，ids=`arXiv:{id}`）回填 `metadata.citation_count`；超时/无 key **静默跳过**。**如实记录墙钟**：单次 batch 请求同步执行 **+0.5~1.5s/轮**（非 B+ 声称的"零延迟"），演示场景可接受。
      - **citation_count 只采不决策**：Writer 不加权、不参与证据排序（与 Q1"不做工具预测"一致）；报告附录可展示引用数（呈现细节归 TBD-6/TBD-9）。
      - 失败兜底：请求异常/XML 解析失败 → 空列表（Q1 并行 `return_exceptions` 天然兼容）。
-   - **sandbox 边界（✅ grill Q2 终判=B++，2026-09-04 拍板；历经 A→B→B++ 三轮）**：**三层纵深防御，subprocess 主路径 + 两层增强**。
+   - **sandbox 边界（✅ 设计评审 Q2 终判=B++，2026-09-04 拍板；历经 A→B→B++ 三轮）**：**三层纵深防御，subprocess 主路径 + 两层增强**。
      - **主路径（默认栈，可论证）**：`subprocess.run(["python","-I","-E","-S"])`（-I 隔离用户环境 / -E 忽略环境变量防密钥泄漏 / -S 不加载 site-packages=天然白名单）+ 独立临时 cwd + `timeout=15s` + stdout/stderr 各截断 **128KB**（超限标 `[TRUNCATED]`）+ 信号量**默认 2（可配 4）**——不引 asyncio，Windows 用 wall-clock timeout 作唯一可靠 kill 手段（`resource` 模块 Unix-only，直接出局）。
      - **第二层：AST import 白名单（静态压面）**：`Import/ImportFrom` 节点扫描，只放行 `{math, statistics, itertools, functools, decimal, fractions, collections, typing}`；非纯 stdlib 兜底由 `-S` 保证。此层可被动态 import 绕过 → 由第三层兜底。
      - **第三层：PEP 578 Audit Hook（运行时，默认启用，~10 行）**：子进程内 `sys.addaudithook` 拦截 `subprocess.Popen` / `socket.socket` / `os.system` 等事件**无条件拒绝**；**`open` 事件例外——白名单路径判断**（`abspath` 必须位于临时 cwd 内，cwd 外写权限拒绝），避免误伤包装脚本自身读写（B++ 原文坑，已修正）。
@@ -63,18 +63,18 @@
      - 失败回传：非零退出/超时/导入拦截 → finding `note=报错信息` 不吞，LLM 证据池可审计（Q1 延续）。
      - 已否决：A exec 同进程（面试自杀项，无法 kill 死循环）；C Docker（面试环境单点失败 + 每次 1~3s × 20 跳墙钟 +30~60s + 重依赖）；D 全双路径实现（两条都要维护，Job 层已作为可选开关覆盖其价值）。
 2. **触发与调度**：TBD-4（计算型子问题识别：**已由 Q1 的 P2 启发式吸收**；识别错/漏的兜底走"本轮空产出 → Critic/硬闸收敛"，Q4 已实证兜住）。
-   - **溯源呈现（✅ grill Q6 终判=Q6+E+ 修正，2026-09-04 拍板）**：
+   - **溯源呈现（✅ 设计评审 Q6 终判=Q6+E+ 修正，2026-09-04 拍板）**：
      - **source 取值协议**：web→URL / rag→`rag:<filename>` / arxiv→`https://arxiv.org/abs/{id}` / **code→`code:{sha256(脚本+参数+触发查询)[:10]}`**（完整执行上下文串接哈希——覆盖"同脚本不同参数"不误去重且防重复计算；E+ 参数指纹主张采纳，收敛为单 hash）。
      - **图标映射**（render.annotate_types else 分支显式化）：`arxiv → 🔬arxiv`、`code_exec → 💻code`；CLI/Web 同一套。
      - **运行溯源块口径修正（实锤 bug）**：`build_run_provenance` 两桶（rag/其余=web）会把 arxiv/code 误算进 web → 改**四桶分前缀**（web 无前缀 / `rag:` / `arxiv:` / `code:`），此即 TBD-9 工具命中数主线。
      - **validator 双口径对 arxiv/code**：arxiv existence=**格式校验**（`/abs/{id}` 正则，不发 HTTP——来源出自 API 响应，伪造面≈0）；code existence=**执行成功**（失败→`existence=False`+`note=error`→进 W2 附录）；faithful 两者均 **LLM 对查**（claim vs abstract / claim vs stdout）。
      - **E+ 修正（结构化比对该判的教训）**：code stdout 数值提取与 claim 数值比对**只记不改判**——结果存 `metadata.structured_match`（呈现层，报告附录可显示"数值与执行结果一致 ✅"）；**verdict 仍以 LLM 对查为准**（字符串层匹配存在语义无关假阳性：裸数字对撞可绕过 LLM；成本账倒挂：省 1~6 次调用≈几分钱 vs 60~80 行解析器+误判面）。
-3. **结果进上下文的体积闭环（✅ grill Q5 终判=方案 A+A+ 修正，2026-09-04 拍板；历经 A→A+ 两轮）**：**三层安检，顺序钉死：入池截断 → 才可能触发 compress → format 兜底**。
+3. **结果进上下文的体积闭环（✅ 设计评审 Q5 终判=方案 A+A+ 修正，2026-09-04 拍板；历经 A→A+ 两轮）**：**三层安检，顺序钉死：入池截断 → 才可能触发 compress → format 兜底**。
    - **入池层**（research 节点 merge 后、写回 state 前，一个 `pool_and_trim()` 纯函数可单测）：确定性截断 + 择优（Q1 落位）。数值：web 300 字符 / arXiv abstract **1000 字符** / code stdout **头 8KB + 尾 4KB（共 12KB，尾部放宽保 Python Traceback 完整）**；并行工具各自 Top-5、总量封顶 10 条；**code 豁免的是"相似度过滤"（不被 BM25 滤掉），"总量 Top-10 封顶"对 code 同样生效**（防 Monte Carlo 多条结果失控）。现实口径：5~8 文本（×~1KB）+ 1~2 code（×12KB）≈ 5~7k token/轮。
    - **压缩层**（ContextManager.compress 存量：仅 >30 条触发、fast LLM 按来源分组）：**补"构造时透传 metadata"**——压缩构造新 finding 时带 `metadata`（合并语义：`citation_count` 取组内 max、`retry_history` 拼接、其余键并集；source_type/confidence/is_meta 沿用存量逻辑）。**否决 A+ 的"注入式压缩"**（把元数据烧进文本塞 LLM）：①Q3/Q4 已拍"citation_count 只采不决策、retry_history 呈现层"，消费侧本期不读；②结构化（int/list）转文本 = 呈现层想精确展示就得正则提取。**压缩顺序**：入池先确定性截断 → 才送 compress（fast LLM 输入 token 省 ~80%，A+ 采纳点）。
    - **出池兜底层**（`format_for_writer`）：单条 content **2000 字符硬截断** + `[…]截断` 标记（正常不触发，防漏网巨块）。
    - **已顺便实证**：`compress` 的 fast 调用已传 `state=state`（manager.py:50）→ token 已进硬闸计数，无新增联动工作。
-4. **强推理切换（✅ grill Q7 终判=分档+E+ 修正，2026-09-04 拍板；历经单档→E+ 两轮）**：**按职责分层、无动态难度判定**。
+4. **强推理切换（✅ 设计评审 Q7 终判=分档+E+ 修正，2026-09-04 拍板；历经单档→E+ 两轮）**：**按职责分层、无动态难度判定**。
    - **难易即职责划分**：规划（strategic）与裁决（strategic）= 难；写作/提取/压缩（smart/fast）= 易——不改每题判难度（与 Q1"零字段、不做预测"一致）。
    - **拆分 `planner_model` / `critic_model`**：planner 1 次/run 可上强档；critic 2~4 轮/run 默认中等。**默认两档均 qwen-plus（保 W3 实测基线，避免污染 W5 eval 对比样本）**；env `PLANNER_MODEL` / `CRITIC_MODEL` 独立可配、未设回落 `STRATEGIC_MODEL`（向后兼容）；`strategic_model` 保留为 **planner_model 的兼容别名**（router 的 `strategic_*` 继续服务 planner，接口零改）；critic 改 `LLMClient(model=critic_model)`——修复 **critic.py:110 硬编码 smart_model** 的现状 bug。
    - **成本表（W3 pricing，strategic ≈ 11k in + 1.4k out/run）**：qwen-plus ≈¥0.012 / qwen-max ≈¥0.04（+3.3×）/ deepseek-r1 ≈¥0.05（+4×）；分档实测增量（planner 切 max）≈ **+¥0.007/run** 而非 E+ 估的 +¥0.011，量级一致。
@@ -82,14 +82,14 @@
    - **启动知情打印（采纳 E+）**：与 W3 Langfuse 三态打印同构：`🧠 模型档位: 规划=… / 裁决=…`。
    - **成本报告切档模拟值（采纳 E+，附依赖）**：⚠️ 前提 = **client 层补 per-model token 计数（~10 行）**，否则汇总值会把 fast/smart 的 token 按 r1 价算错；列为演示增强（DoD 可选），不阻塞主功能。
    - **延迟警示**：deepseek-r1 推理模型，critic 单轮 +10~30s、2~4 轮 +30~120s 墙钟；演示建议 critic 切 `qwen-max`（快且够用），r1 作配置选项。
-5. **失败兜底（✅ grill Q4 终判=R2+ 修正版，2026-09-04 拍板；历经 R1→R2→R2+ 三轮）**：
+5. **失败兜底（✅ 设计评审 Q4 终判=R2+ 修正版，2026-09-04 拍板；历经 R1→R2→R2+ 三轮）**：
    - **读型工具（web/arXiv）**：`retries=1` + **固定退避 1s**（429 带 Retry-After 则遵之）；不做指数退避（单机单用户 1 次重试，1→2→4 的差别无意义，成本+0~4s/研究）；不做 429/5xx/超时多维区分（R3 否决：20 跳预算内不值得区分）。
    - **重试留痕（采纳 R2+ 内核，定位修正）**：每次尝试写入 `retry_history`（attempt/status/error/elapsed）进 `finding.metadata`（复用 Q3 的 dict）；**Critic/Writer 本期不消费**（prompt 不加重试概念、token 不涨），定位为**呈现层数据**，报告附录可展示"该来源首次被限流、重试成功"（细节归 TBD-6/TBD-9）。实现诚实账：wrapper + 4 调用点签名适配 + 单测 ≈ 40~60 行，非"5 行"。
    - **sandbox**：**零重试**（确定性失败重跑同错，错误经 `finding.note` 回传，Q2 已定）；**否决 R2+ 的 random 检测重试**——`random` 原不在白名单（前提矛盾：检测逻辑服务不存在的代码），且随机模拟两次结果均有效，"多次采样"由用户代码自身循环实现。
    - **`random` 进白名单（功能决策，独立于重试）**：Q2 白名单 8→**9 个**（+random），支持蒙特卡洛/数值模拟类计算型子问题；random 无 I/O/系统/网络能力，扩界风险≈0。
    - **全域失败**：不设显式降级分支——Q1 并行 + `return_exceptions` 天然覆盖（web 挂 rag/arxiv 照跑），四源全空走 Critic 自然收敛。
    - **空产出防饿死（实证已兜住，不新增机制）**：`graph.py:151` depth 每查询**无条件 +1**（无论产出是否为空）+ `graph.py:119-127/154` frontier **一次性 pop 消费** → 空产出轮最坏撞 `max_total_hops=20` 强制停，不发生无限空转。
-6. **工具调用可见性（✅ grill Q8 终判=B+ 修正，2026-09-04 拍板；TBD 全部清零）**：
+6. **工具调用可见性（✅ 设计评审 Q8 终判=B+ 修正，2026-09-04 拍板；TBD 全部清零）**：
    - **跳级消息升级为状态快照**（每跳 progress 消息 + 约 5 行）：`第 N/20 跳 [sq_id]：+12 条新发现（web 5 / rag 2 / arxiv 3 / code 1 失败），累计 47 条`——本跳新增（`len(new_findings)`）+ 工具产出明细（web/rag/arxiv/code 计数，失败带 `(失败)` 标记）+ 累计（`len(state.findings)`）+ **hop 进度 `depth/max_total_hops`**，全部已有数据、零新增字段。
    - **否决"已解决子问题数"（B+ 假字段）**：`solved_sq_ids` 不存在——Q1 方案 E 无初标、findings 无 `sq_id`、Critic 是整体充分性裁决无逐子问题完成度概念；补字段撞零字段精神。进度语义用 hop 预算（诚实且已有）。
    - **溯源块四桶（Q6 已定）作汇总视图**；消息 = 明细视图，闭环完整。
@@ -123,13 +123,13 @@
 ## 10. 变更记录
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
-| 2026-09-04 | 建稿 | W4 启动 | 初始版（模板 §5 方案留 TBD-1~9 待 grill） | |
-| 2026-09-04 | 拍板 | grill Q1 | TBD-1 定案：并行全工具 + 结果池择优（方案 E），零路由字段；补丁 P1 计算豁免预过滤、P2 关键词触发门槛、P3 线程池并行；TBD-4 触发识别由 P2 吸收 | |
-| 2026-09-04 | 拍板 | grill Q2 | TBD-3 定案：三层纵深 sandbox（AST 白名单 + PEP 578 Audit Hook 默认启 + Job Object 可选开关），数值 timeout 15s/输出 128KB/并发默认 2；修正 B++ 的 open 全禁误伤坑为 cwd 白名单路径判断 | |
-| 2026-09-04 | 拍板 | grill Q3 | TBD-2 定案：arXiv 官方 API 直连（零依赖）+ relevance + max_results=5 + 3s RateLimiter；采纳 B+ 统一抽象内核但落地为扩展现有 ResearchFinding 加 metadata 字段（不新建类型）；S2 后处理管道可选（citation_count 只采不决策，顺序墙钟 +0.5~1.5s/轮如实记录） | |
-| 2026-09-04 | 拍板 | grill Q4 | TBD-8 定案（R2+ 修正版）：读型 retries=1 + 固定退避 1s/遵 Retry-After；重试留痕进 metadata 但定位呈现层（LLM 本期不消费）；sandbox 零重试（否决 random 检测——前提矛盾）；random 进白名单（8→9，支持蒙特卡洛）；全域失败无显式降级（并行天然覆盖）；空产出防饿死实证已由 graph.py:151 depth 无条件 +1 兜住 | |
-| 2026-09-04 | 拍板 | grill Q5 | TBD-5 定案（A+A+ 修正）：三层安检（入池截断→compress→format 兜底）顺序钉死；数值 web 300/abstract 1000/stdout 头 8 尾 4KB（12KB）/format 2000；code 豁免相似度过滤但计入 Top-10 封顶；compress 补构造时 metadata 透传（否决注入式：结构化→文本破坏呈现，消费侧本期不读）；compress 已传 state 实证 token 进硬闸 | |
-| 2026-09-04 | 拍板 | grill Q6 | TBD-6 定案（Q6+E+ 修正）：source 协议 code=`code:{sha256(脚本+参数+查询)[:10]}`（单 hash 收敛）；图标 🔬arxiv/💻code；溯源块两桶→四桶（实锤 arxiv/code 误算 web 的 bug）；validator 双口径（arxiv 格式校验/code 执行成功即存在；faithful 均 LLM 对查）；E+ 结构化比对**只记不改判**（存 metadata.structured_match 呈现层，verdict 仍 LLM 为准——字符串层假阳性实锤 + 成本账倒挂） | |
-| 2026-09-04 | 拍板 | grill Q7 | TBD-7 定案（分档+E+ 修正）：按职责分层无动态判定；拆 planner_model/critic_model（默认均 qwen-plus 保 W3 基线——动默认会污染 W5 eval）；strategic_model 降为 planner 兼容别名；修复 critic.py:110 硬编码 smart；硬闸零联动显式记录；启动知情打印；成本模拟值附 per-model token 计数依赖（演示增强） | |
-| 2026-09-04 | 拍板 | grill Q8 | TBD-9 定案（B+ 修正）：跳级消息升级状态快照（新增/工具明细/累计/hop 进度，零新增字段）；否决 solved_sq_ids 假字段（数据源不存在，进度用 hop 预算）；溯源块四桶作汇总；不做完整调用表（归 Langfuse trace）。**TBD 全部清零，grill 收官** | |
+| 2026-09-04 | 建稿 | W4 启动 | 初始版（模板 §5 方案留 TBD-1~9 待设计评审） | |
+| 2026-09-04 | 拍板 | 设计评审 Q1 | TBD-1 定案：并行全工具 + 结果池择优（方案 E），零路由字段；补丁 P1 计算豁免预过滤、P2 关键词触发门槛、P3 线程池并行；TBD-4 触发识别由 P2 吸收 | |
+| 2026-09-04 | 拍板 | 设计评审 Q2 | TBD-3 定案：三层纵深 sandbox（AST 白名单 + PEP 578 Audit Hook 默认启 + Job Object 可选开关），数值 timeout 15s/输出 128KB/并发默认 2；修正 B++ 的 open 全禁误伤坑为 cwd 白名单路径判断 | |
+| 2026-09-04 | 拍板 | 设计评审 Q3 | TBD-2 定案：arXiv 官方 API 直连（零依赖）+ relevance + max_results=5 + 3s RateLimiter；采纳 B+ 统一抽象内核但落地为扩展现有 ResearchFinding 加 metadata 字段（不新建类型）；S2 后处理管道可选（citation_count 只采不决策，顺序墙钟 +0.5~1.5s/轮如实记录） | |
+| 2026-09-04 | 拍板 | 设计评审 Q4 | TBD-8 定案（R2+ 修正版）：读型 retries=1 + 固定退避 1s/遵 Retry-After；重试留痕进 metadata 但定位呈现层（LLM 本期不消费）；sandbox 零重试（否决 random 检测——前提矛盾）；random 进白名单（8→9，支持蒙特卡洛）；全域失败无显式降级（并行天然覆盖）；空产出防饿死实证已由 graph.py:151 depth 无条件 +1 兜住 | |
+| 2026-09-04 | 拍板 | 设计评审 Q5 | TBD-5 定案（A+A+ 修正）：三层安检（入池截断→compress→format 兜底）顺序钉死；数值 web 300/abstract 1000/stdout 头 8 尾 4KB（12KB）/format 2000；code 豁免相似度过滤但计入 Top-10 封顶；compress 补构造时 metadata 透传（否决注入式：结构化→文本破坏呈现，消费侧本期不读）；compress 已传 state 实证 token 进硬闸 | |
+| 2026-09-04 | 拍板 | 设计评审 Q6 | TBD-6 定案（Q6+E+ 修正）：source 协议 code=`code:{sha256(脚本+参数+查询)[:10]}`（单 hash 收敛）；图标 🔬arxiv/💻code；溯源块两桶→四桶（实锤 arxiv/code 误算 web 的 bug）；validator 双口径（arxiv 格式校验/code 执行成功即存在；faithful 均 LLM 对查）；E+ 结构化比对**只记不改判**（存 metadata.structured_match 呈现层，verdict 仍 LLM 为准——字符串层假阳性实锤 + 成本账倒挂） | |
+| 2026-09-04 | 拍板 | 设计评审 Q7 | TBD-7 定案（分档+E+ 修正）：按职责分层无动态判定；拆 planner_model/critic_model（默认均 qwen-plus 保 W3 基线——动默认会污染 W5 eval）；strategic_model 降为 planner 兼容别名；修复 critic.py:110 硬编码 smart；硬闸零联动显式记录；启动知情打印；成本模拟值附 per-model token 计数依赖（演示增强） | |
+| 2026-09-04 | 拍板 | 设计评审 Q8 | TBD-9 定案（B+ 修正）：跳级消息升级状态快照（新增/工具明细/累计/hop 进度，零新增字段）；否决 solved_sq_ids 假字段（数据源不存在，进度用 hop 预算）；溯源块四桶作汇总；不做完整调用表（归 Langfuse trace）。**TBD 全部清零，设计评审 收官** | |
 | 2026-09-07 | 镜像修复 | W5 收尾 | **飞书镜像删除线误渲染修复**（5 处）：overwrite 转义版（`~`→`\~`、代码内不转义）+ 注入 `<title>` 保显示名；DoD 未勾选区保持原样（Job Object 单测挂账 W6 前验证，未达不收口） | 9fc2cf1 |

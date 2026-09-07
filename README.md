@@ -1,5 +1,8 @@
 # DeepResearch — 深度研究 Agent
 
+[![CI](https://img.shields.io/github/actions/workflow/status/TianJinYing2006/DeepResearch/ci.yml?branch=dev&label=CI&logo=github)](https://github.com/TianJinYing2006/DeepResearch/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 基于 **LangGraph 多 Agent 编排 + 多跳检索 + RAG 多源融合 + 交叉验证防幻觉** 的深度研究系统。
 
 输入一个研究主题，系统自动完成 **规划 → 多跳检索（网络 + RAG 私有知识库）→ 生成带引用报告 → 引用校验与多源印证** 的完整流程。
@@ -159,6 +162,53 @@ CitationEvaluator().evaluate(report, findings)
 # C: 报告质量
 ReportEvaluator().evaluate(topic, report)
 ```
+
+## 设计要点
+
+> 技术事实摆台面，不堆形容词。以下四件套是本项目的差异化设计。
+
+### 1. 决策循环在图里，不在 prompt 里
+
+核心区别：不是"在 prompt 里让 LLM 自己决定继续还是停止"，而是用 LangGraph 的 `conditional_edge` 把 continue/revise/stop 三态路由暴露为**图结构**。
+
+```
+plan → research → critic ──(conditional_edge)──┐
+                  │           ├─ continue → research（多跳检索继续）
+                  │           ├─ revise   → plan（方向跑偏，重新分解）
+                  │           └─ stop     → write → validate → END
+```
+
+硬闸四维（depth/frontier/replan/token）优先于 LLM 裁决，路由纯函数——LLM 说"继续"但硬闸说"超 20 跳了"就停。防幻觉不是靠 prompt 祈祷，是靠图结构兜底。
+
+### 2. 防幻觉三件套
+
+| 手段 | 实现 | 位置 |
+|------|------|------|
+| **Validator 图内节点** | 引用存在性 + 忠实度双层校验，不通过论断进附录（不删除，读者需看见才能理解"为何不可信"） | `agents/validator.py` + `render.py` |
+| **引用溯源四桶** | 每条引用标注来源类型（web/rag/arxiv/code），可审计 | `state.py:Citation.source_type` |
+| **多源印证** | 关键论断需 ≥2 独立来源支撑，置信度分级呈现 | `validator.py` 交叉验证逻辑 |
+
+### 3. eval 诚实数字
+
+| 指标 | 数值 | 口径说明 |
+|------|------|----------|
+| 单元测试 | 79 项全绿 | 离线可跑，CI 自动轨验证 |
+| 完成率 | 100%（20/20） | 20 条 dataset 全部产出可用报告 |
+| 引用准确率 | 72%（机器口径）→ 83~92%（人工抽检修正区间） | 机器口径低估，真实区间需人工两级抽检修正 |
+| 覆盖度 | 55.4% | 如实声明——"查得不够"是当前主要瓶颈（critic 早停 14/19 条） |
+| 单轮成本 | ~¥0.48（qwen-plus 规划价） | 真实 API 非确定性，单轮数字需 ≥3 次重跑取均值 |
+
+不吹指标。覆盖度 55% 就写 55%，引用准确率分机器/人工双口径——追问时有据可查。
+
+### 4. 与主流项目差异
+
+| 维度 | 本项目 | open_deep_research | dzhng/deep-research |
+|------|--------|--------------------|---------------------|
+| Validator | 图内节点（双层校验） | 无 | 无 |
+| 代码沙箱 | 三层纵深（subprocess+AST+Audit Hook） | 无 | 无 |
+| 可观测 | Langfuse 全链路 trace | LangSmith（可选） | 无 |
+| 量化评测 | 20 条 + 7 指标 + 双轨成本 | Deep Research Bench 100 题 | 无 |
+| LICENSE | MIT | MIT | MIT |
 
 ## 设计取舍
 
