@@ -212,7 +212,7 @@ def test_client_stats_reset():
 
 def test_load_dataset():
     ds = load_dataset(Path(__file__).resolve().parent.parent / "research_engine" / "eval" / "dataset.jsonl")
-    assert ds["meta"]["version"] == "1.0"
+    assert ds["meta"]["version"] == "1.1"
     assert len(ds["rows"]) >= 5
     assert ds["rows"][0]["id"] == "q_001"
 

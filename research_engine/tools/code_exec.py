@@ -8,7 +8,9 @@
 - 第三层：PEP 578 Audit Hook（包装脚本内 sys.addaudithook，运行时拦截）——
   破坏/网络/进程类事件无条件拒绝；open 例外走 cwd 白名单路径判断（避免误伤包装脚本自身读写）
 - Windows 现实：resource 模块 Unix-only → timeout 是唯一可靠 kill；Job Object 为可选增强
-  （CODE_EXEC_USE_JOB=1，进程树级内存/CPU 配额），**本期留桩：默认关，开源前必须验证**（DoD）。
+  （CODE_EXEC_USE_JOB=1，进程树级 KILL_ON_JOB_CLOSE——超时关闭 job 句柄即全树终止，防 ctypes 逃逸进程）。
+  实现（W6）：Popen 正常启动 + 立即 AssignProcessToJobObject（CREATE_SUSPENDED 因 Popen._thread 缺失不可行，
+  竞态窗口 = 解释器启动前微秒级，audit hook 已拦 Python 层 fork）；Job 创建失败安全降级 plain。
 
 输出契约（给 researcher 用）：
     CodeExecOutput(ok, stdout(截断), stderr(截断), note, elapsed)
@@ -141,6 +143,156 @@ def _truncate(text: str, limit: int = MAX_OUTPUT) -> str:
     return text[:limit] + _TRUNC_MARK
 
 
+# ---- Windows Job Object（第四层纵深增强，W6 实现，默认关）----
+# 仅在 Windows 启用：进程树级 KILL_ON_JOB_CLOSE——超时关闭 job 句柄即终止全部派生进程，
+# 防 ctypes 逃逸进程（audit hook 拦 Python 层 subprocess.Popen/socket，但 ctypes 调
+# CreateProcessW 不触发 Python audit，靠 job 兜底）。
+
+if sys.platform == "win32":  # pragma: no cover - 平台守卫
+    import ctypes
+    from ctypes import wintypes
+
+    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    _JobObjectExtendedLimitInformation = 9
+    _PROCESS_SET_QUOTA = 0x0100
+    _PROCESS_TERMINATE = 0x0001
+    _PROCESS_QUERY_INFORMATION = 0x0400
+
+    class _IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_void_p),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", _IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    def _win_create_job():
+        """创建带 KILL_ON_JOB_CLOSE 标志的 Job Object；失败返回 None（调用方降级 plain）。"""
+        k32 = ctypes.windll.kernel32
+        h_job = k32.CreateJobObjectW(None, None)
+        if not h_job:
+            return None
+        info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        ok = k32.SetInformationJobObject(
+            h_job, _JobObjectExtendedLimitInformation,
+            ctypes.byref(info), ctypes.sizeof(info),
+        )
+        if not ok:
+            k32.CloseHandle(h_job)
+            return None
+        return h_job
+
+    def _win_open_process(pid: int, access: int):
+        return ctypes.windll.kernel32.OpenProcess(access, False, pid)
+
+    def _win_assign_job(h_job, h_proc) -> bool:
+        return bool(ctypes.windll.kernel32.AssignProcessToJobObject(h_job, h_proc))
+
+    def _win_close_handle(h) -> None:
+        if h:
+            ctypes.windll.kernel32.CloseHandle(h)
+
+else:  # pragma: no cover - 非 Windows 无 Job 路径
+    _win_create_job = _win_open_process = _win_assign_job = _win_close_handle = None
+
+
+@dataclass
+class _RunResult:
+    """子进程运行结果（plain 与 Job 路径共用）。"""
+    stdout: str = ""
+    stderr: str = ""
+    returncode: int = -1
+    timed_out: bool = False
+    note_extra: str = ""
+
+
+def _run_plain(wrapper_path: str, cwd: str) -> _RunResult:
+    """默认路径：subprocess.run + timeout（Windows 唯一可靠 kill）。"""
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-I", "-E", "-S", "main.py"],
+            cwd=cwd, input="",
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            timeout=config.code_exec.timeout,
+        )
+        return _RunResult(proc.stdout or "", proc.stderr or "", proc.returncode, False, "")
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout if isinstance(e.stdout, str) else ""
+        err = e.stderr if isinstance(e.stderr, str) else ""
+        return _RunResult(out, err, -1, True, "")
+
+
+def _run_with_job(wrapper_path: str, cwd: str) -> _RunResult:
+    """Job 增强路径：Popen + AssignProcessToJobObject + KILL_ON_JOB_CLOSE；创建失败降级 plain。"""
+    h_job = _win_create_job()
+    if h_job is None:
+        return _run_plain(wrapper_path, cwd)  # 降级，不抛
+
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-I", "-E", "-S", "main.py"],
+            cwd=cwd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+        )
+        h_proc = _win_open_process(
+            proc.pid, _PROCESS_SET_QUOTA | _PROCESS_TERMINATE | _PROCESS_QUERY_INFORMATION,
+        )
+        if h_proc:
+            try:
+                _win_assign_job(h_job, h_proc)
+            finally:
+                _win_close_handle(h_proc)
+        try:
+            out, err = proc.communicate(timeout=config.code_exec.timeout)
+            return _RunResult(out or "", err or "", proc.returncode, False, "")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                out, err = proc.communicate(timeout=2)
+            except Exception:  # noqa: BLE001
+                out, err = "", ""
+            return _RunResult(out or "", err or "", proc.returncode or -1, True, "")
+    except Exception as e:  # noqa: BLE001 - Job 路径异常 → 降级 plain
+        return _RunResult("", f"job path error: {type(e).__name__}: {e}", -1, False, "")
+    finally:
+        # KILL_ON_JOB_CLOSE：句柄关闭即终止 job 内全部进程（防 ctypes 逃逸孙进程）
+        _win_close_handle(h_job)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def exec_code(code: str, query: str = "", params: str = "") -> CodeExecOutput:
     """在受限子进程中执行用户代码，返回截断输出 + 失败 note（不吞，Q4）。
 
@@ -171,34 +323,32 @@ def exec_code(code: str, query: str = "", params: str = "") -> CodeExecOutput:
             with open(wrapper_path, "w", encoding="utf-8") as f:
                 f.write(wrapper)
 
-            # Q2 主线：subprocess -I -E -S + timeout。Job Object 增强（Windows，默认关）：
-            # CODE_EXEC_USE_JOB=1 时此处应附加 AssignProcessToJobObject（ctypes，进程树级
-            # 内存/CPU 配额）；**本期留桩，开源前（W6）必须实现并配 Windows 单测（DoD §7）**，
-            # 此前一律走 timeout 兜底——功能不受影响，边界声明确认 AST+Audit+timeout 三层。
-            proc = subprocess.run(
-                [sys.executable, "-I", "-E", "-S", "main.py"],
-                cwd=tmp_dir,
-                input="",  # 无 stdin（用户代码通过 main.py 文件传入）
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=config.code_exec.timeout,
-            )
-            out = _truncate(proc.stdout)
-            err = _truncate(proc.stderr)
-            if proc.returncode == 0 and not err:
+            # Q2 主线 + W6 Job 增强：默认走 plain（subprocess -I -E -S + timeout）；
+            # Windows 且 config.code_exec.use_job_object 时走 _run_with_job
+            # （Popen + AssignProcessToJobObject + KILL_ON_JOB_CLOSE，防 ctypes 逃逸进程）。
+            use_job = (sys.platform == "win32" and config.code_exec.use_job_object)
+            if use_job:
+                r = _run_with_job(wrapper_path, tmp_dir)
+            else:
+                r = _run_plain(wrapper_path, tmp_dir)
+            out = _truncate(r.stdout)
+            err = _truncate(r.stderr)
+            if r.timed_out:
+                ok = False
+                note = f"执行超时（>{config.code_exec.timeout}s），已终止"
+            elif r.returncode == 0 and not err:
                 ok = True
                 note = ""
             else:
                 ok = False
-                note = (err or out)[:500] or f"exit code {proc.returncode}"
+                note = (err or out)[:500] or f"exit code {r.returncode}"
+            meta = {"exit_code": r.returncode}
+            if use_job:
+                meta["job"] = "enabled"
             return CodeExecOutput(
                 ok=ok, stdout=out, stderr=err, note=note,
                 elapsed=time.monotonic() - start, script_hash=script_hash,
-                metadata={"exit_code": proc.returncode} if proc is not None else {},
-            )
-        except subprocess.TimeoutExpired:
-            return CodeExecOutput(
-                ok=False, note=f"执行超时（>{config.code_exec.timeout}s），已终止",
-                elapsed=time.monotonic() - start, script_hash=script_hash,
+                metadata=meta,
             )
         except Exception as e:  # noqa: BLE001 — 失败回传不吞（Q2/Q4）
             return CodeExecOutput(
