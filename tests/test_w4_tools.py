@@ -103,10 +103,17 @@ def test_code_exec_import_whitelist_denies_os():
 
 
 def test_code_exec_audit_hook_blocks_outside_read():
-    """builtin open 不经 AST → 靠 Audit Hook：cwd 外读被拒（Q2 修正：读也拒，防偷读 .env）。"""
+    """builtin open 不经 AST → 靠 Audit Hook：cwd 外读被拒（Q2 修正：读也拒，防偷读 .env）。
+
+    跨平台：Windows 用 C:/Windows/win.ini、Linux 用 /etc/passwd，均为 sandbox cwd 外的绝对路径；
+    本地（Windows）与 CI（Linux）都能真正验到 audit hook 的 outside-cwd 拦截（避免 skip 留覆盖盲区）。
+    """
+    import sys
+
     from research_engine.tools.code_exec import exec_code
 
-    r = exec_code('open(r"C:/Windows/win.ini", "r")')
+    outside = r"C:/Windows/win.ini" if sys.platform == "win32" else "/etc/passwd"
+    r = exec_code(f'open(r"{outside}", "r")')
     assert not r.ok
     assert "outside sandbox cwd" in (r.note + r.stderr)
 
