@@ -92,7 +92,9 @@
 - [x] LICENSE（MIT）生效 ✓ commit 6a31e5e
 - [x] 密钥/路径脱敏终审零泄漏（TBD-8 A' 全清：路径相对化/措辞中性化/占位符 `<your-...>` 形态/历史 0 命中已实测）✓ commit 6a31e5e
 - [x] v0.1.0 tag + Release notes（W1~W6 里程碑 + 诚实指标口径）✓ https://github.com/TianJinYing2006/DeepResearch/releases/tag/v0.1.0
-- [ ] 博客 ≥1 篇发布（掘金①必发；知乎镜像①）
+- [x] 博客 ≥1 篇发布（掘金①必发 + 知乎镜像①，用户已于 2026-09-07 发布；草稿 docs/blog/ 双推仓库）✓
+
+**W6 DoD 全达成（8/8 + 博客发布）**：CI 自动轨 + Job Object/Windows 单测 + README 设计要点 + LICENSE + 脱敏 + 仓库公开(GitHub 主/Gitee 镜像) + v0.1.0 Release + 博客，2026-09-07 收官。后续演进见 plan.md W6 待办（技术债/博客② Langfuse 可缓篇）。
 
 ## 8. 影响范围与风险
 - 新增：`.github/workflows/ci.yml`、`pyproject.toml(rust?)`、`LICENSE`、可能 `requirements-dev.txt`；改 `README.md`、`.env.example`、`docs/` 2 处路径、`code_exec.py` + `tests/test_code_exec.py`（Job Object）。
