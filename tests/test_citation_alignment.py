@@ -108,7 +108,7 @@ def main():
     small = findings[:24]
     small_compressed = cm.compress(small, TOPIC)
     assert len(small_compressed) == 24, "少量 findings 不应触发压缩"
-    print(f"\n[边界] 24 条（≤30，不压缩）：编号一致 ✅")
+    print("\n[边界] 24 条（≤30，不压缩）：编号一致 ✅")
 
     print("\n========== 验证通过：修复后 [来源: N] 全部映射回正确来源 ==========")
 

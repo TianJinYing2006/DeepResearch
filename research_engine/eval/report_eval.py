@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """评测 C：报告质量评测（LLM-as-judge）。
 
 借鉴 LangChain open_deep_research 的 RACE 评分思路，

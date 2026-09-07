@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LangGraph 状态机编排（W1：frontier 循环 + Critic 条件边 + 硬闸）。
 
 W1 重构（grill 设计，见 .workbuddy/design-grill.md）：
@@ -18,9 +17,8 @@ W1 重构（grill 设计，见 .workbuddy/design-grill.md）：
 """
 from __future__ import annotations
 
-import operator
 import uuid
-from typing import Annotated, Any, Dict, List
+from typing import Any, Dict, List
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -193,7 +191,7 @@ class DeepResearchGraph:
             "reflection_log": [entry],  # add reducer 追加（Q7）
             "progress": [
                 {"stage": "critic", "msg": f"depth={state.depth} 裁决={signal}"
-                 + (f"（需重分解）" if state.needs_replan else "")}
+                 + ("（需重分解）" if state.needs_replan else "")}
             ],
         }
 

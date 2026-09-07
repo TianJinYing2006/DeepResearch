@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """上下文管理：隔离 + 压缩。
 
 借鉴 LangChain open_deep_research 的上下文隔离与渐进式压缩思路。

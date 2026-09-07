@@ -15,8 +15,9 @@
 """
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from research_engine.agents.validator import Validator
 from research_engine.context.manager import ContextManager

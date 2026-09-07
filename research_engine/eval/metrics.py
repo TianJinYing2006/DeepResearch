@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """W5 七项指标聚合（eval run.py Phase 2 核心，grill Q2/Q8 拍板落地）。
 
 指标清单：

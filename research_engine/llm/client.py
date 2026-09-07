@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LLM 客户端封装。
 
 基于 OpenAI 兼容接口调用阿里云百炼 Qwen 系列模型。

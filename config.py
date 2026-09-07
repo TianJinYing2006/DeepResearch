@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """DeepResearch 全局配置。
 
 所有部署相关的可调参数集中在此，便于从 .env 或环境变量覆盖。
 """
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict
 
 from dotenv import load_dotenv
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Langfuse 可观测层（W3，grill Q1~Q7 全部定稿，见 docs/requirements/3-langfuse-observability.md）。
 
 设计要点（速查）：

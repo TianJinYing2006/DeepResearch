@@ -72,7 +72,7 @@ def main():
     rows = extract("直接引用真实来源 [来源: https://example.com/source-3]。")
     assert len(rows) == 1
     assert rows[0]["verified"] and rows[0]["mapped"] == "https://example.com/source-3"
-    print(f"  URL 原样保留且校验通过 ✅")
+    print("  URL 原样保留且校验通过 ✅")
 
     print("\n========== 场景 5：数字+URL 混合（不拆分，整体视为来源） ==========")
     rows = extract("混合内容 [来源: 5, https://example.com/source-5]。")
@@ -85,7 +85,7 @@ def main():
     m = re.search(old_pattern, "对照 [来源: 5, 72, 77]。")
     old_ref = m.group(1).strip()
     print(f"  旧逻辑捕获整串：'{old_ref}' → 索引 miss → verified=False ❌")
-    print(f"  新逻辑拆分后：5 ✅ / 72 ❌ / 77 ❌（各自独立校验）")
+    print("  新逻辑拆分后：5 ✅ / 72 ❌ / 77 ❌（各自独立校验）")
 
     print("\n========== 全部断言通过：多编号引用拆分正确 ==========")
 

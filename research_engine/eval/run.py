@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """W5 eval 两阶段管线（grill Q8 拍板落地）。
 
 阶段划分（Q8）：
@@ -25,13 +24,13 @@ import sys
 import time
 import traceback
 import uuid
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from config import config
-from research_engine.eval.metrics import compute_all, compute_cost, _make_judge
+from research_engine.eval.metrics import _make_judge, compute_all, compute_cost
 from research_engine.graph import create_graph
 from research_engine.llm.client import LLMClient
 

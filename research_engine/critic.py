@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Critic 节点：确定性硬闸 + LLM 语义裁决，分层决策（grill Q3）。
 
 设计要点（见 .workbuddy/design-grill.md）：

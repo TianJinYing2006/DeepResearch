@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """Planner Agent：将研究主题分解为子问题。
 
 使用 strategic 层 LLM 做高层规划，输出结构化子问题列表。
 """
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from config import config
 from research_engine.llm.router import get_router

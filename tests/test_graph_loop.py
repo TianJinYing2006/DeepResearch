@@ -16,9 +16,9 @@ import sys
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from config import config
-from research_engine.state import ResearchState
-from research_engine.critic import hard_gate, route_critic, Critic
+from config import config  # noqa: E402
+from research_engine.critic import Critic, hard_gate, route_critic  # noqa: E402
+from research_engine.state import ResearchState  # noqa: E402
 
 
 def make_state(**kw) -> ResearchState:
@@ -250,10 +250,10 @@ def test_topology_route_and_thread_id():
     """
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import END, StateGraph
+
     from research_engine.critic import route_critic
 
     def fake_research(state: ResearchState):
-        head = state.frontier[0] if state.frontier else None
         new_frontier = state.frontier[1:]
         new_depth = state.depth + 1
         if new_depth >= 6:  # 模拟 max_total_hops 上限：清空队列触发 stop

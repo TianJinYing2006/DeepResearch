@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """三层 LLM 分级路由（借鉴 gpt-researcher 的 FAST/SMART/STRATEGIC）。
 
 - fast:      快速摘要、信息提取（qwen-turbo，最便宜）
@@ -9,7 +8,7 @@
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from config import config
 from research_engine.llm.client import LLMClient, build_messages

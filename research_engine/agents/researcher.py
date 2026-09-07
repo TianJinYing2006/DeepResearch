@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Researcher Agent：单跳检索（并行全工具 + 结果池择优，W4 Q1/Q5 定案）。
 
 W4 重构（grill Q1/Q5/Q6/Q8）：
@@ -199,7 +198,7 @@ def _default_code_script(query: str) -> str:
 
     模板覆盖：序列长度 × 常数 → 数值；打印 key=value（Q6 structured_match 呈现层数据源）。
     """
-    m = re.search(r"(\d+(?:\.\d+)?)\s*[kK万]", query)
+    # 数值抽取占位（未来由 LLM 增强生成脚本时启用）
     return (
         "import math\n"
         "n = 8192\n"

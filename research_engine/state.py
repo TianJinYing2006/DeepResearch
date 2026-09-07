@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LangGraph 状态定义。
 
 使用 Pydantic 类型化状态，借鉴 LangChain open_deep_research 的 AgentState 设计。

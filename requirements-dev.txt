@@ -1,0 +1,3 @@
+# 开发依赖（CI lint + 单测；与运行时依赖 requirements.txt 分离，符合 W6 TBD-10 b 轻量版定案）
+ruff>=0.6.0
+pytest>=8.0.0

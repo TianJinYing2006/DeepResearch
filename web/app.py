@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Streamlit Web UI。
 
 实时展示研究进度（当前节点、检索情况），输出带引用的报告。
@@ -6,8 +5,8 @@
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
 # 确保能 import research_engine
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,8 +27,9 @@ with st.sidebar:
     st.info("上传文档到知识库，供研究时检索（可选）")
     uploaded = st.file_uploader("上传文档", type=["pdf", "docx", "md", "txt"], accept_multiple_files=True)
     if uploaded and st.button("摄取到知识库"):
-        from research_engine.rag.ingest import DocumentIngester
         import tempfile
+
+        from research_engine.rag.ingest import DocumentIngester
         ingester = DocumentIngester()
         total = 0
         for f in uploaded:

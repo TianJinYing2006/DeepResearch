@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Qdrant 向量库封装。
 
 负责文档向量的写入与检索。Embedding 使用阿里云百炼 text-embedding-v3。

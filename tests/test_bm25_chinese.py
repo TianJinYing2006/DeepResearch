@@ -20,7 +20,6 @@ from rank_bm25 import BM25Okapi
 
 from research_engine.rag.tokenizer import tokenize
 
-
 # 4 条中文文档（模拟 RAG 切块后的语料）
 DOCS = [
     "大模型 Agent 系统的多跳检索架构设计",

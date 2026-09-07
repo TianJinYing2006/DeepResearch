@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """报告渲染器（W2 R2.1/R2.2/R2.5 + R2.4 兜底）。
 
 grill 落点：
@@ -15,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from research_engine.agents.validator import Validator
 from research_engine.state import Citation, ResearchFinding
@@ -95,7 +94,7 @@ class ReportRenderer:
             "\n\n> **可信声明**（动态生成，非 LLM 自述）",
             f"> - 来源存在性：{existence_ok}/{total} 条通过",
             f"> - 论断忠实度：{faithful_ok}/{existence_ok} 条通过（仅在存在性通过的子集上判定）",
-            f"> - 未通过者见下方附录",
+            "> - 未通过者见下方附录",
         ]
         if degraded:
             lines.append("> - ⚠️ 本次校验发生 LLM 降级，忠实度口径按存在性通过计，参考性有限")

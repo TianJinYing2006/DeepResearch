@@ -36,8 +36,8 @@ def test_job_object_created_with_kill_on_job_close(monkeypatch):
 @pytest.mark.skipif(not _WIN32, reason="Job Object 仅 Windows")
 def test_job_path_normal_exec(monkeypatch):
     """Job 路径下正常代码 1+1=2 顺利输出（被分配进 job 但不超时）。"""
-    from research_engine.tools import code_exec
     from config import config
+    from research_engine.tools import code_exec
     monkeypatch.setattr(config.code_exec, "use_job_object", True)
     monkeypatch.setattr(config.code_exec, "timeout", 15)
 
@@ -50,8 +50,8 @@ def test_job_path_normal_exec(monkeypatch):
 @pytest.mark.skipif(not _WIN32, reason="Job Object 仅 Windows")
 def test_job_path_timeout_kills_process(monkeypatch):
     """Job 路径下超时被杀 + note 含"超时"（验证 KILL_ON_JOB_CLOSE 在超时分支生效）。"""
-    from research_engine.tools import code_exec
     from config import config
+    from research_engine.tools import code_exec
     monkeypatch.setattr(config.code_exec, "use_job_object", True)
     monkeypatch.setattr(config.code_exec, "timeout", 2)  # 短超时加速测试
 
@@ -64,8 +64,8 @@ def test_job_path_timeout_kills_process(monkeypatch):
 @pytest.mark.skipif(not _WIN32, reason="Job Object 仅 Windows")
 def test_job_path_disabled_falls_back_to_plain(monkeypatch):
     """use_job_object=False 时走 plain 路径，metadata 无 job 字段。"""
-    from research_engine.tools import code_exec
     from config import config
+    from research_engine.tools import code_exec
     monkeypatch.setattr(config.code_exec, "use_job_object", False)
 
     r = code_exec.exec_code("print('hello')")
@@ -94,8 +94,8 @@ def test_plain_path_syntax_error_reported():
 
 def test_plain_path_timeout(monkeypatch):
     """默认路径超时（subprocess.run TimeoutExpired）仍正确处理（W4 既有用例回归保护）。"""
-    from research_engine.tools import code_exec
     from config import config
+    from research_engine.tools import code_exec
     monkeypatch.setattr(config.code_exec, "timeout", 1)
     r = code_exec.exec_code("__import__('time').sleep(30)")
     assert not r.ok

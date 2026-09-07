@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """代码执行工具（W4 Q2 定案：三层纵深 sandbox = B++ 修正版）。
 
 安全模型（设计详见 docs/requirements/4-tools-and-strategic-model.md §5）：
@@ -315,7 +314,6 @@ def exec_code(code: str, query: str = "", params: str = "") -> CodeExecOutput:
 
     wrapper = _build_wrapper(code)
     tmp_dir = ""
-    proc = None
     with _semaphore:  # Q2：并发信号量（默认 2）
         try:
             tmp_dir = tempfile.mkdtemp(prefix="dr_sandbox_")

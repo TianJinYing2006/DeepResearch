@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Writer Agent：基于研究发现生成带引用的研究报告。
 
 使用 smart 层 LLM 写作，输出 Markdown 报告，每个论断标注引用来源编号。

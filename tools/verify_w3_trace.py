@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """W3 真实冒烟验证：从 CLI 日志提取 trace_id → Langfuse API 核对落库结构与 usage。"""
 import os
 import re
@@ -6,8 +5,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import config  # noqa: E402
 from langfuse import Langfuse  # noqa: E402
+
+from config import config  # noqa: E402
 
 LOG = sys.argv[1] if len(sys.argv) > 1 else None
 

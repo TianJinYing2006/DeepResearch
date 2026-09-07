@@ -1,0 +1,30 @@
+# DeepResearch 项目配置（W6 TBD-5 定案：ruff 规则集照抄 open_deep_research + 本地豁免）
+# 不含 [build-system]——本项目以 requirements.txt 安装，pyproject.toml 仅承载工具配置。
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120  # E501 已忽略，不强制行长
+
+[tool.ruff.lint]
+# 规则集：E/F/I/UP（grill Q5 实测修正：移除 D——D 规则集对中文 docstring 几乎全失败，
+#   552 个问题里 348 是 D415/D400 标点警告，价值低；保留 D 等于一堆 ignore 假装纪律）
+# 本地豁免（grill Q5 定案）：
+# - UP006/UP007/UP035/UP045：typing 别名迁移——新旧风格都允许（Optional[X] 不强制改 X|None）
+# - E501：行长不强制（与 open_deep_research 一致）
+# T201（print 检测）不 select——sandbox/CLI 靠 print 输出给 LLM，属契约非调试残留
+select = ["E", "F", "I", "UP"]
+ignore = ["UP006", "UP007", "UP035", "UP045", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件：放宽 pyupgrade
+"tests/*" = ["UP"]
+# 沙箱包装脚本：import 在条件块后（Win32 平台守卫）
+"research_engine/tools/code_exec.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # W3 conftest 强制关闭 Langfuse；过滤 OTel/langfuse 的 ResourceWarning
+    "ignore::ResourceWarning",
+]

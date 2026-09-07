@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """arXiv 学术检索 Provider（W4 Q3 定案：官方 API 直连，零新增依赖）。
 
 - API：http://export.arxiv.org/api/query（官方就是 http，非 https——别被强制跳转坑）

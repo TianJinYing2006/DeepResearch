@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """博查搜索 Provider 实现。
 
 调用博查 Web Search API，返回结构化搜索结果。

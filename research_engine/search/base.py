@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """搜索 Provider 抽象基类。
 
 所有网络搜索实现继承 SearchProvider，通过工厂函数按配置选择。

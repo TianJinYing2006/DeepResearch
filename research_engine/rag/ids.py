@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Qdrant 点 ID 生成。
 
 独立模块，避免被 ingest.py 的重依赖（qdrant_client/openai）牵连，
@@ -22,6 +21,6 @@ def stable_id(doc_id: str, chunk_index: int) -> int:
 
     返回值保证：0 < id < 2**63。
     """
-    raw = f"{doc_id}:{chunk_index}".encode("utf-8")
+    raw = f"{doc_id}:{chunk_index}".encode()
     digest = hashlib.sha1(raw).digest()  # 20 bytes
     return int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)

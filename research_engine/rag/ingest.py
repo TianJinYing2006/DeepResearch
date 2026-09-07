@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """文档摄取：解析、分块、向量化、写入 Qdrant。
 
 支持 PDF / Word / Markdown / 纯文本。分块策略：按段落/标题切分，控制块大小。
@@ -45,7 +44,7 @@ class DocumentIngester:
         if ext in (".md", ".markdown"):
             return self._parse_markdown(path)
         if ext in (".txt", ".text"):
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 return f.read()
         raise ValueError(f"不支持的文档类型: {ext}")
 
@@ -60,7 +59,7 @@ class DocumentIngester:
         return "\n".join(p.text for p in doc.paragraphs)
 
     def _parse_markdown(self, path: str) -> str:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(path, encoding="utf-8", errors="ignore") as f:
             return f.read()
 
     # ---- 分块 ----

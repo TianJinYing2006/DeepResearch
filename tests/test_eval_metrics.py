@@ -12,17 +12,15 @@
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from research_engine.eval import metrics as M
-from research_engine.eval.run import load_dataset, git_head
+from research_engine.eval.run import git_head, load_dataset
 from research_engine.llm.client import LLMClient
-
 
 # ---------- 完成率 ----------
 
@@ -101,7 +99,9 @@ def test_retrieval_keyword_hit_and_semantic_fallback():
 def test_retrieval_semantic_fallback_hit():
     findings = [{"content": "自注意力复杂度为 O(L^2)"}]
     # 假嵌入：gold 关键词向量 vs findings 向量做余弦——直接构造同向向量触发 semantic
-    fake_embed = lambda texts: [[1.0] * 8 for _ in texts]
+    def fake_embed(texts):
+        return [[1.0] * 8 for _ in texts]
+
     res = M.compute_retrieval_hit(["自注意力"], findings, embed_fn=fake_embed)
     assert res["matched_by"]["keyword"] == 1  # 关键词直接命中优先
 
@@ -110,7 +110,9 @@ def test_retrieval_semantic_when_keyword_miss():
     """关键词未命中 → 嵌入回退命中（matched_by=semantic，单独标签不混口径）。"""
     findings = [{"content": "状态空间模型在长序列上保持线性计算复杂度"}]
     # query 向量（关键词"FLOPs"）与 findings 向量相同 → 余弦=1 触发回退
-    fake_embed = lambda texts: [[1.0] * 8 for _ in texts]
+    def fake_embed(texts):
+        return [[1.0] * 8 for _ in texts]
+
     res = M.compute_retrieval_hit(["FLOPs"], findings, embed_fn=fake_embed)
     assert res["matched_by"]["semantic"] == 1
     assert res["retrieval_hit_rate"] == 1.0

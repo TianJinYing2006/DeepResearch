@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """W5 eval 报告生成（grill Q7 拍板落地）。
 
 产出：
@@ -120,7 +119,6 @@ def generate_report(
     run_id = run_dir.name
     metrics_mean = summary["metrics_mean"]
     meta = dataset["meta"]
-    rows = dataset["rows"]
 
     # 反思有效性结构性占比先算（summary 层 _avg 对 dict 不适用），供指标表与 history 共用
     sts = [r for r in results if (r.get("metrics") or {}).get("reflection", {}).get("stop_type")]
@@ -197,7 +195,7 @@ def generate_report(
     ) or "- 无"
 
     # ---- 7. 指标演进趋势表 ----
-    trend_lines, prev_row = [], None
+    trend_lines = []
     if history_path.exists():
         history = json.loads(history_path.read_text(encoding="utf-8"))
         trend_lines.append("| 运行 | 完成率 | 引用准确率 | 覆盖度 | 检索命中率 | vs 上轮(pp) |")

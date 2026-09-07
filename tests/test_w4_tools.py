@@ -2,8 +2,6 @@
 """W4 测试：arXiv provider + code_exec sandbox + 并行调度（纯单测，零外部 API/零 key）。"""
 from __future__ import annotations
 
-import pytest
-
 # ---------------- arXiv provider ----------------
 
 ARXIV_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -71,6 +69,7 @@ def test_arxiv_failure_returns_empty(monkeypatch):
 def test_arxiv_rate_limiter_schedules(monkeypatch):
     """RateLimiter 3s：连续两次请求的最小间隔 ≥3s（用假时钟验证计算逻辑）。"""
     import time
+
     from research_engine.search.arxiv import RateLimiter
 
     clock = iter([100.5, 100.5])  # now=100.5（距上次 100.0 仅 0.5s）→ 应睡 2.5s；其后 _last_ts 复写仍 100.5
@@ -197,12 +196,9 @@ def test_run_provenance_four_buckets():
 
 def test_graph_snapshot_message_format():
     """Q8：状态快照消息格式（新增/工具明细/累计/hop 进度，零新增字段）。"""
-    from research_engine.graph import DeepResearchGraph, config
-    from research_engine.state import ResearchState
+    from research_engine.graph import config
 
-    g = DeepResearchGraph.__new__(DeepResearchGraph)
     rc = config.research
-    state = ResearchState(topic="t", depth=2, findings=[])
     # 直接调用半成品：仅验证消息组装逻辑（跳过真实检索）
     merged = ["f1", "f2", "f3"]
     new_depth = 3
