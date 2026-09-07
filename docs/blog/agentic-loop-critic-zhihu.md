@@ -32,19 +32,17 @@
 1. **节点是纯函数**：入参 `ResearchState`，出参是一个 patch dict，不直接改全局。
 2. **状态是 Pydantic `ResearchState`**：跨节点数据都走它，类型可校验。
 
-6 个节点 + 一个 Critic 条件边，形成 2 个回环：
+6 个节点 + 一个 Critic 条件边，形成 2 个回环（文字版，知乎不渲染 Mermaid）：
 
-```mermaid
-flowchart TD
-    P[Planner 分解子问题] --> R[Researcher 多跳检索]
-    R --> C{Critic 条件边}
-    C -->|充分 sufficient| W[Writer 生成报告]
-    C -->|不足 needs_more| R
-    C -->|重写 replan| P
-    W --> V[Validator 引用校验]
-    V --> C2{Critic 回判}
-    C2 -->|充分| END([结束])
-    C2 -->|不足| R
+```
+Planner 分解子问题 → Researcher 多跳检索 → Critic 条件边
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+   充分 sufficient            不足 needs_more              重写 replan
+        │                           │                           │
+   Writer 生成报告        回到 Researcher 再检索        回到 Planner（max_replan=1 兜底）
+        │                                                   （回环 1）
+   Validator 引用校验 → Critic 回判 → 充分则结束，不足则再检索（回环 2）
 ```
 
 **反直觉设计：`findings`（检索到的证据）故意不加 reducer。**
