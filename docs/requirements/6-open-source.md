@@ -85,12 +85,12 @@
 - **数据诚信铁律延伸**：博客与 README 中的数据必须来自 eval-report 真实记录，不编演示效果。
 
 ## 7. 验收标准（DoD）
-- [ ] **Job Object + Windows 单测跑通（开源前置硬门槛，TBD-9 定案）**：`tests/test_code_exec.py` 三用例绿（逃逸杀净/正常执行/降级），否则开源延期
+- [x] **Job Object + Windows 单测跑通（开源前置硬门槛，TBD-9 定案）**：`tests/test_code_exec.py` 三用例绿（逃逸杀净/正常执行/降级），否则开源延期 ✓ commit 58fcf39
 - [ ] 仓库公开（GitHub 主仓 + Gitee 镜像），README 可复现（陌生人 10 分钟跑通 CLI + Web）
-- [ ] README「设计要点」段四件套齐（conditional_edge / 防幻觉 / eval 数字诚实口径 / 差异小表），全文无"面试/加分"字样
-- [ ] CI 自动轨绿（ruff + 72 单测），徽章可见；eval 手动轨 workflow_dispatch 就位
-- [ ] LICENSE（MIT）生效
-- [ ] 密钥/路径脱敏终审零泄漏（TBD-8 A' 全清：路径相对化/措辞中性化/占位符 `<your-...>` 形态/历史 0 命中已实测）
+- [x] README「设计要点」段四件套齐（conditional_edge / 防幻觉 / eval 数字诚实口径 / 差异小表），全文无"面试/加分"字样 ✓ commit 6a31e5e
+- [x] CI 自动轨绿（ruff + 79 单测），徽章可见；eval 手动轨 workflow_dispatch 就位 ✓ commit bff0ba8
+- [x] LICENSE（MIT）生效 ✓ commit 6a31e5e
+- [x] 密钥/路径脱敏终审零泄漏（TBD-8 A' 全清：路径相对化/措辞中性化/占位符 `<your-...>` 形态/历史 0 命中已实测）✓ commit 6a31e5e
 - [ ] v0.1.0 tag + Release notes（W1~W6 里程碑 + 诚实指标口径）
 - [ ] 博客 ≥1 篇发布（掘金①必发；知乎镜像①）
 
