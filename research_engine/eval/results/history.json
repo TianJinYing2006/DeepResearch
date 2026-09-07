@@ -35,5 +35,26 @@
   },
   "status": "PASS",
   "generated_at": "2026-09-06T19:30:36"
+ },
+ {
+  "run_id": "run_20260907_001658",
+  "git_commit": "22e0d731ab9daee48c146e84126762a6de0d7d63",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.5965,
+   "existence_rate": 0.9665,
+   "coverage": 0.2778,
+   "retrieval_hit_rate": 0.6759,
+   "avg_steps": 3.3333,
+   "reflection_critic_stop_rate": 0.6666666666666666
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -12.3,
+   "coverage": -27.6,
+   "retrieval_hit_rate": 7.8
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-07T00:24:44"
  }
 ]

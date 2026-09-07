@@ -1,0 +1,23 @@
+{
+ "model_stats": {
+  "qwen-plus": 79772,
+  "qwen-turbo": 11943
+ },
+ "role_stats": {
+  "planner": 3232,
+  "critic": 4101,
+  "compress": 11943,
+  "smart": 24075,
+  "validator": 48364
+ },
+ "model_io_stats": {
+  "qwen-plus": {
+   "input": 42265,
+   "output": 37507
+  },
+  "qwen-turbo": {
+   "input": 8928,
+   "output": 3015
+  }
+ }
+}

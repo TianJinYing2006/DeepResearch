@@ -1,0 +1,46 @@
+{
+ "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260907_001658",
+ "run_id": "run_20260907_001658",
+ "total": 3,
+ "complete": 3,
+ "partial": 0,
+ "failed": 0,
+ "metrics_mean": {
+  "completion_rate": 1.0,
+  "citation_accuracy": 0.5965,
+  "existence_rate": 0.9665,
+  "coverage": 0.2778,
+  "retrieval_hit_rate": 0.6759,
+  "avg_steps": 3.3333,
+  "reflection_critic_stop_rate": 0.6667
+ },
+ "cost_phase1_total": {
+  "total_tokens": 91715,
+  "cost_yuan": 0.1133,
+  "per_model": {
+   "qwen-plus": {
+    "tokens": 79772,
+    "input": 42265,
+    "output": 37507,
+    "cost": 0.108826
+   },
+   "qwen-turbo": {
+    "tokens": 11943,
+    "input": 8928,
+    "output": 3015,
+    "cost": 0.004487
+   }
+  },
+  "per_role": {
+   "planner": 3232,
+   "critic": 4101,
+   "compress": 11943,
+   "smart": 24075,
+   "validator": 48364
+  }
+ },
+ "cost_phase2_judge_tokens": 11271,
+ "git_commit": "22e0d731ab9daee48c146e84126762a6de0d7d63",
+ "dataset_version": "unknown",
+ "generated_at": "2026-09-07T00:24:43"
+}

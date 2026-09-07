@@ -1,0 +1,119 @@
+{
+ "q_id": "q_002",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 3913,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 35,
+   "verified": 7,
+   "existence_rate": 0.9429,
+   "fidelity_rate": 0.2121,
+   "by_source_type": {
+    "web": {
+     "total": 33,
+     "verified": 7,
+     "existence": 33
+    },
+    "unknown": {
+     "total": 2,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "原文[1]称'本文整理2026年RAG技术生态的主流开源项目'，但未声明'所有主": 7,
+    "原文[9]为技术分析文章，未进行框架文档普查，'所有主流框架'无依据，属以偏概全": 4,
+    "原文[10]未提任何API方法名或抽象层设计，'retrievewithsubg": 3,
+    "原文[3]标题为'RAG 已死?2026 年最值得关注的 5 个下一代检索增强生": 1,
+    "原文[2]未展示或提及任何配置文件schema、枚举值或'retriever.t": 11,
+    "来源不存在于研究发现（编号越界或来源未命中）": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 2,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "RAG 检索质量提升的主要技术路线（混合检索、重排序、查询改写）",
+     "covered": false,
+     "reason": "检索到的内容多次提及'重排'（如'检索增强工具(重排/过滤/生成)'）、'GraphRAG'、'知识图谱'、'多跳检索'等，但未明确解释混合检索（如向量+关键词/图+向量）、重排序（reranking）的具体技术方法（如Cross-Encoder微调、LLM-based rerankers）、或查询改写（query rewriting/ expansion）的实现方式（如基于LLM的重写、伪相关反馈等）。所有提及均为笼统归类或作为子项列出，缺乏对这三类技术路线的原理、代表方法、效果对比等实质性描述，不足以回答该子问题。"
+    },
+    {
+     "subquestion": "RAG 评测方法与基准的新进展",
+     "covered": true,
+     "reason": "检索内容中明确提到'七、RAG评估工具(质量/性能/成本)'（来自掘金文章），并指出其涵盖'质量/性能/成本'多维指标；另有多处提及GraphRAG在'多跳问答任务中实现了72%的准确率提升'，暗示存在面向复杂推理的新型评测任务；还出现'《2025 年GraphRAG 实践应用白皮书》'及'2026年RAG技术路线图'等指向系统性评估框架的线索。虽未列具体基准名称（如BEIR-RAG、RAGEval、TRAVERSE），但已覆盖评测维度拓展（从传统召回/准确率到质量/性能/成本/多跳推理能力）和工具生态进展的核心信息，足以支撑对该子问题的回答。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 4,
+   "hit": 3,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "检索增强",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "GraphRAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "混合检索",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 17308,
+   "total_cost": 0.0242,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 2,
+   "depth": 2
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "max_replan"
+   ],
+   "critic_signal": "stop",
+   "rounds": 2,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,148 @@
+{
+ "q_id": "q_013",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5661,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 70,
+   "verified": 68,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9714,
+   "by_source_type": {
+    "arxiv": {
+     "total": 12,
+     "verified": 11,
+     "existence": 12
+    },
+    "web": {
+     "total": 58,
+     "verified": 57,
+     "existence": 58
+    }
+   },
+   "failed_note_distribution": {
+    "来源[18]研究的是基于人工生命的分布式自主代理模型解N-皇后问题，使用'随机移": 1,
+    "来源[13]全文聚焦LLM输出截断、上下文过长等错误的恢复机制，未涉及P2P、共": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "单一 supervisor 模式下，Agent 协作流程如何调度？其在高并发或任务激增时的平均响应延迟与任务吞吐量表现如何？",
+     "covered": false,
+     "reason": "检索结果多次提及单一 supervisor 模式与对等模式的对比，但未描述其具体调度机制（如任务分发、优先级队列、状态机驱动等）；虽有一处提到用户请求量突增300%时响应时间从200ms增至12秒，但该数据未明确归属单一supervisor模式，也未说明是否为实验测得、是否控制变量，且缺乏吞吐量（如TPS）、延迟分布（P95/P99）、负载曲线等量化指标，不足以回答该子问题。"
+    },
+    {
+     "subquestion": "对等网络模式中 Agent 如何自主协商任务分配与状态同步？该模式下局部故障（如单个 Agent 崩溃）是否会导致全局阻塞或级联失败？",
+     "covered": false,
+     "reason": "所有检索结果均未说明对等网络模式下任务协商的具体协议（如基于拍卖、合同网、Gossip、RAFT变体等）或状态同步机制（如CRDT、版本向量、定期广播等）；关于故障影响，仅泛泛提及‘故障隔离能力增强’‘鲁棒性提升’，但无任何实证或机制分析说明单点崩溃是否引发阻塞/级联，亦无故障传播路径、恢复边界、超时策略等关键信息，无法判断其容错行为。"
+    },
+    {
+     "subquestion": "两种模式在日志聚合、链路追踪、实时状态监控等可观测性能力上分别依赖哪些基础设施组件（如 OpenTelemetry 支持程度、指标暴露方式）？",
+     "covered": false,
+     "reason": "检索结果多次出现‘可观测性’一词，并提及OpenTelemetry未被直接命名，仅泛引Dapper、Zipkin、Pinpoint、Jaeger、Kibana、ES、Span/Trace等通用分布式追踪概念及采样策略，但未明确指出任一模式具体集成何种可观测性组件（如是否注入OTel SDK、是否导出Metrics到Prometheus、是否支持Baggage propagation）；更未区分两种模式在日志格式、trace上下文传播、健康端点暴露（如/health、/metrics）等实现细节上的差异，缺乏基础设施映射关系。"
+    },
+    {
+     "subquestion": "对比实验中，相同任务集（如多跳问答、分布式数据清洗）下，两种模式在协作成功率、平均重试次数及故障恢复时间（MTTR）上的量化差异是什么？",
+     "covered": false,
+     "reason": "检索结果中虽有多个实验描述（如SWE-bench测试、能量/内存/耗时测量、长时任务运行），但均未按‘相同任务集’对照设计；未出现‘协作成功率’‘平均重试次数’‘MTTR’等具体指标名称，亦无数值对比表格或统计显著性声明；所提任务场景（如技术文章撰写、保险理赔、N皇后求解）均为定性举例，缺乏可复现的基准任务定义与量化结果，无法支撑该子问题所需的结构化性能对比。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 7,
+   "retrieval_hit_rate": 0.7778,
+   "matched_by": {
+    "keyword": 7,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "多 Agent 编排",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "supervisor 模式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "对等网络",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "协作效率",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "故障隔离",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "可观测性",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "MTTR",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 44569,
+   "total_cost": 0.0624,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,148 @@
+{
+ "q_id": "q_007",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 8078,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 69,
+   "verified": 40,
+   "existence_rate": 0.9565,
+   "fidelity_rate": 0.6061,
+   "by_source_type": {
+    "web": {
+     "total": 52,
+     "verified": 28,
+     "existence": 52
+    },
+    "arxiv": {
+     "total": 14,
+     "verified": 12,
+     "existence": 14
+    },
+    "unknown": {
+     "total": 3,
+     "verified": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "原文[1]未出现‘状态可审计’短语，仅泛提‘状态管理’；属术语滥用。": 5,
+    "原文[5]未提asyncio或线程池；属虚构并发机制。": 9,
+    "原文[4]未提‘可审计’；同上，属虚构属性。": 4,
+    "原文[25]未提资源隔离粒度；属无依据技术判断。": 6,
+    "原文[6]为泛泛而谈多智能体应用广泛性，无成本分析；属无依据捏造。": 1,
+    "来源不存在于研究发现（编号越界或来源未命中）": 3,
+    "原文[9]讨论agentic systems配置演化，但未提《ACM白皮书》或‘": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph、CrewAI、AutoGen 在2026年最新稳定版本中支持的核心架构范式（如状态机、角色协作、多Agent编排）有何本质差异？",
+     "covered": true,
+     "reason": "检索内容多次明确指出三者的核心架构哲学差异：LangGraph为'图驱动/状态机范式'（'用显式状态机精确控制每一步'，'节点+边+状态流转'），CrewAI为'角色驱动'（'模拟人类团队的自然协作模式'，'基于工作团队隐喻'），AutoGen为'对话驱动'（'通过Agent间的多轮对话迭代求解'，'对话驱动型设计'）。且多处来源（如掘金文章《2025-2026年是AI Agent工程化的爆发期》《2026 AI Agent框架“四强争霸”》）明确锚定2026年时间语境，并描述其范式定位已成定型共识。因此该子问题被充分覆盖。"
+    },
+    {
+     "subquestion": "三者在生产环境部署关键指标上的实测对比：包括内存占用、推理延迟、分布式扩展能力及可观测性支持程度",
+     "covered": false,
+     "reason": "检索内容未提供任何具体、可量化的实测数据：无内存占用数值、无推理延迟毫秒级指标、无分布式扩展吞吐量或节点规模实测结果；虽提及AutoGen‘支持分布式多智能体’、LangGraph‘状态可审计’、CrewAI‘任务分配’等定性描述，以及零星提到‘可观测性’（如Agentic系统需配置observability）、‘长任务可恢复’等生产级诉求，但全无横向对比表格、基准测试（benchmark）或第三方实测报告支撑。所有相关表述均为泛泛而谈或愿景式陈述，不构成‘实测对比’。因此该子问题未被覆盖。"
+    },
+    {
+     "subquestion": "各框架对LLM调用抽象层的设计哲学差异（如工具调用封装方式、记忆管理机制、错误恢复策略）及其对开发效率与系统鲁棒性的影响",
+     "covered": false,
+     "reason": "检索内容仅碎片化提及部分表层信息：如LangGraph‘工具调用⭐⭐⭐⭐⭐，最丰富的工具生态系统’，CrewAI‘基本’，AutoGen‘对话驱动’；有文章提到‘记忆系统’重要性（但属通用Agent概念，非框架特异性设计），并类比人脑海马体，但未说明LangGraph/CrewAI/AutoGen各自如何实现记忆（如是否内置短期上下文管理、持久化记忆抽象、向量存储集成方式等）；错误恢复策略完全未涉及（如重试机制、fallback agent、状态回滚逻辑等）；更无任何关于这些设计选择如何量化影响‘开发效率’（如代码行数、调试耗时）或‘系统鲁棒性’（如失败率、平均无故障时间）的分析或实证。因此该子问题未被覆盖。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 4,
+   "retrieval_hit_rate": 0.5,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "CrewAI",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "AutoGen",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LLM Agent框架",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "状态图",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多智能体编排",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "生产就绪",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色驱动",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 29838,
+   "total_cost": 0.0418,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": true,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}
