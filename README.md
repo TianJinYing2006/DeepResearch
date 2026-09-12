@@ -218,6 +218,12 @@ plan → research → critic ──(conditional_edge)──┐
 - **rerank 先评测再定**：默认关闭，先立评测再决定是否引入（借鉴 wechatbot 的 rerank 负收益经验）
 - **Validator 是差异化亮点**：主流 DeepResearch 项目普遍缺失图内 Validator 节点，本项目将其作为防幻觉核心
 
+## 相关文章
+
+- **《agentic loop 设计与 Critic 节点化踩坑》**
+  - 掘金：https://juejin.cn/post/7647054707223511059
+  - 知乎：https://zhuanlan.zhihu.com/p/2080442055638127641
+
 ## 项目记忆（设计决策记录）
 
 本项目建立**设计决策记录（ADR）机制**作为项目记忆，见 [docs/decisions/README.md](docs/decisions/README.md)。
