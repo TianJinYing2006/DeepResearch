@@ -195,7 +195,11 @@ def generate_report(
     ) or "- 无"
 
     # ---- 7. 指标演进趋势表 ----
-    trend_lines = []
+    trend_lines = [
+        "> ⚠️ 本表数值由各 run 的 summary 直读**主链路 validator** 裁决，而各 run 的实验配置与裁判模型并不一致；",
+        "> 「vs 上轮(pp)」仅作记录，**不构成可比趋势**（W7 实测：同一引用集仅换裁判即产生 +7.53pp 差异）。",
+        "",
+    ]
     if history_path.exists():
         history = json.loads(history_path.read_text(encoding="utf-8"))
         trend_lines.append("| 运行 | 完成率 | 引用准确率 | 覆盖度 | 检索命中率 | vs 上轮(pp) |")
@@ -212,6 +216,11 @@ def generate_report(
 
     # ---- 人工抽检模板（v0 首次生成占位，跑完后人工填写）----
     report = f"""# eval 报告（{run_id}）
+
+> ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
+> 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
+> 未纳入跨裁判复判。**项目结论以 `docs/eval-w7-conclusion.md` 为准。**
+> 若需长期保存某次 run 的判定，请另存为结论文档，不要依赖本文件。
 
 ## 1. 数据集说明
 - version: {meta.get('version', 'unknown')} / created_at: {meta.get('created_at', 'unknown')}
@@ -247,6 +256,8 @@ def generate_report(
 - 单人标注/单人抽检（标注者=评估者同源偏倚，如实声明）
 - 真实 API 非确定性（博查/arXiv 结果随时间漂移）
 - 成本为精确加权（input/output 拆分 × W3 pricing 表），价格有时效
+- **引用准确率的裁判未与被测对象解耦**：`citation_accuracy` 直读主链路 validator 裁决，凡改动 validator 的 run
+  其数值同时含「被测效应 + 裁判效应」，**不可与其他 run 直接比较**（W7 实测裁判效应 +7.53pp 与被测效应同量级）
 """
     EVAL_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     EVAL_REPORT_PATH.write_text(report, encoding="utf-8")
