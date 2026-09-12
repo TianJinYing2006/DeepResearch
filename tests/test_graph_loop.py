@@ -39,23 +39,25 @@ def test_hard_gate():
     # token 达预算 → stop（Q6-B）
     assert hard_gate(make_state(frontier=seed, token_used=config.research.token_budget)) == "stop"
 
-    # replan 达上限 → stop（Q2-B 兜底）
-    assert hard_gate(make_state(frontier=seed, replan_count=config.research.max_replan)) == "stop"
+    # P1 max_replan 语义修正：replan_count 不再是全局 hard_stop，
+    # 只在 needs_replan=True 时在 _resolve_signal 中限制
+    assert hard_gate(make_state(frontier=seed, replan_count=config.research.max_replan)) is None
 
     # 全部在预算内 → 不触发（返回 None，交 LLM 裁决）
     assert hard_gate(make_state(frontier=seed)) is None
-    print("  ✅ hard_gate：frontier空/depth/token/replan 四维度均触发 stop；正常返回 None")
+    print("  ✅ hard_gate：frontier空/depth/token 三维度均触发 stop；replan 不全局 stop；正常返回 None")
 
 
-# ---------- 2) 路由纯函数三态 ----------
+# ---------- 2) 路由纯函数四态（P1：新增 augment） ----------
 def test_route_critic():
     assert route_critic(make_state(critic_signal="stop")) == "stop"
     assert route_critic(make_state(critic_signal="continue")) == "continue"
     assert route_critic(make_state(critic_signal="revise")) == "revise"
-    print("  ✅ route_critic：critic_signal 三态纯函数映射正确")
+    assert route_critic(make_state(critic_signal="augment")) == "augment"
+    print("  ✅ route_critic：critic_signal 四态纯函数映射正确")
 
 
-# ---------- 3) Critic.decide + 注入 mock LLM 三态 ----------
+# ---------- 3) Critic.decide + 注入 mock LLM 四态 ----------
 def test_decide_with_mock_llm():
     # sufficient=True → stop
     c1 = Critic(llm_fn=lambda s: {"sufficient": True, "needs_replan": False, "next_queries": []})
@@ -65,14 +67,22 @@ def test_decide_with_mock_llm():
     c2 = Critic(llm_fn=lambda s: {"sufficient": False, "needs_replan": True, "next_queries": []})
     assert c2.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "revise"
 
-    # 不充分且有 next_queries → continue（Q2-A 回填 frontier）
+    # 不充分且有 next_queries → augment（P1 frontier 闭环：回填 frontier）
     c3 = Critic(llm_fn=lambda s: {
         "sufficient": False,
         "needs_replan": False,
         "next_queries": [{"sq_id": "s1", "query": "q2"}],
     })
-    assert c3.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "continue"
-    print("  ✅ Critic.decide：sufficient→stop / needs_replan→revise / 不充分+next_queries→continue")
+    assert c3.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "augment"
+
+    # 不充分且无 next_queries → continue（lazy_continue，不回填）
+    c4 = Critic(llm_fn=lambda s: {
+        "sufficient": False,
+        "needs_replan": False,
+        "next_queries": [],
+    })
+    assert c4.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "continue"
+    print("  ✅ Critic.decide：sufficient→stop / needs_replan→revise / 不充分+queries→augment / 不充分无queries→continue")
 
 
 # ---------- 4) 硬闸优先于 LLM（短路，绝不调 LLM）----------

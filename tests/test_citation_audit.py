@@ -189,7 +189,9 @@ def test_claim_text_cleans_markdown_and_sentence_boundary():
     cits = v._extract_citations(report)
     claim = cits[0]["claim"]
     assert "**" not in claim, "加粗残留应被清理（W2.1）"
-    assert claim.startswith("这是其核心优势"), f"应从句子边界开始，实际: {claim!r}"
+    # 设计-5 修复后 "这" 也触发 F4 主语兜底，补回前一句做上下文
+    assert "这是其核心优势" in claim, f"claim 应包含核心论断，实际: {claim!r}"
+    assert claim.endswith("这是其核心优势"), f"claim 应以核心论断结尾，实际: {claim!r}"
     # 无句号长句兜底：不残留换行/多空格，且保底非空
     long_report = "第一句结束。**复杂段落**没有标点一直延续到引用位置附近的好几个词组 [来源: 2]。"
     claim2 = v._extract_citations(long_report)[0]["claim"]
@@ -232,7 +234,8 @@ def test_trust_statement_dual_metric(renderer):
     ]
     stmt = renderer.build_trust_statement(cits)
     assert "来源存在性：2/3 条通过" in stmt
-    assert "论断忠实度：1/2 条通过" in stmt, "忠实度只在存在性通过子集上判定（Q6 双口径）"
+    assert "论断忠实度（严格）：1/2 条通过" in stmt, "忠实度只在存在性通过子集上判定（Q6 双口径）"
+    assert "论断宽松口径：0/2 条通过" in stmt, "W7 TBD-5 新增宽松口径"
 
 
 # ============ R2.5：运行溯源 ============

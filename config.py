@@ -32,6 +32,8 @@ class LLMConfig:
     # W4 Q7：分档。优先各自 env，未设回落 STRATEGIC_MODEL（向后兼容单档配置）
     planner_model: str = field(default_factory=lambda: _env("PLANNER_MODEL", _env("STRATEGIC_MODEL", "qwen-plus")))
     critic_model: str = field(default_factory=lambda: _env("CRITIC_MODEL", _env("STRATEGIC_MODEL", "qwen-plus")))
+    # W7 TBD-7 C：validator 可独立降档，默认回落 smart_model（未设时等价 qwen-plus）
+    validator_model: str = field(default_factory=lambda: _env("VALIDATOR_MODEL", _env("SMART_MODEL", "qwen-plus")))
     # 兼容别名（W4 Q7）：strategic_model 语义 = planner_model，env 读 STRATEGIC_MODEL
     strategic_model: str = field(default_factory=lambda: _env("STRATEGIC_MODEL", "qwen-plus"))
 
@@ -115,6 +117,24 @@ class LangfuseConfig:
 
 
 @dataclass
+class ExperimentConfig:
+    """W7 TBD-8 受控单变量实验开关。默认全开 = 保持当前行为；全关 = v1.1 基线。"""
+
+    critic_gap_enabled: bool = field(
+        default_factory=lambda: _env("CRITIC_GAP_ENABLED", "true").lower() == "true"
+    )
+    validator_fixes_enabled: bool = field(
+        default_factory=lambda: _env("VALIDATOR_FIXES_ENABLED", "true").lower() == "true"
+    )
+    writer_sectioned_feed_enabled: bool = field(
+        default_factory=lambda: _env("WRITER_SECTIONED_FEED_ENABLED", "true").lower() == "true"
+    )
+    validator_trim_enabled: bool = field(
+        default_factory=lambda: _env("VALIDATOR_TRIM_ENABLED", "true").lower() == "true"
+    )
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -122,6 +142,7 @@ class Config:
     research: ResearchConfig = field(default_factory=ResearchConfig)
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
     code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
+    experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
 
 
 config = Config()

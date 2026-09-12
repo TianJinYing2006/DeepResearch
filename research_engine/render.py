@@ -78,10 +78,11 @@ class ReportRenderer:
     # ---- R2.2 + Q6：动态可信声明（双口径）----
 
     def build_trust_statement(self, citations: List[Citation]) -> str:
-        """报告末尾可信声明：存在性 / 忠实度双口径（Q6=A），随失败数动态生成。
+        """报告末尾可信声明：存在性 / 忠实度 / 宽松度三口径（Q6=A + W7 TBD-5），随失败数动态生成。
 
         - 存在性口径：existence=True 数 / 总数
-        - 忠实度口径：verified=True 数 / 存在性通过数（忠实度只在存在性子集上判定）
+        - 忠实度口径（严格）：verified=True 数 / 存在性通过数（忠实度只在存在性子集上判定）
+        - 宽松口径：verified_relaxed=True 数 / 存在性通过数（existence AND (faithful OR supported)）
         - 发生 LLM 降级时显式注明，避免口径失真
         """
         total = len(citations)
@@ -89,11 +90,13 @@ class ReportRenderer:
             return "\n\n> **可信声明**：报告中未检测到引用标注，无法校验。"
         existence_ok = sum(1 for c in citations if c.existence)
         faithful_ok = sum(1 for c in citations if c.verified)
+        relaxed_ok = sum(1 for c in citations if c.verified_relaxed)
         degraded = any("降级为存在性判定" in c.note for c in citations)
         lines = [
             "\n\n> **可信声明**（动态生成，非 LLM 自述）",
             f"> - 来源存在性：{existence_ok}/{total} 条通过",
-            f"> - 论断忠实度：{faithful_ok}/{existence_ok} 条通过（仅在存在性通过的子集上判定）",
+            f"> - 论断忠实度（严格）：{faithful_ok}/{existence_ok} 条通过（verified = 存在且忠实）",
+            f"> - 论断宽松口径：{relaxed_ok}/{existence_ok} 条通过（存在且（忠实或多源印证））",
             "> - 未通过者见下方附录",
         ]
         if degraded:
@@ -103,13 +106,17 @@ class ReportRenderer:
     # ---- R2.2：失败论断附录 ----
 
     def build_failed_appendix(self, citations: List[Citation]) -> str:
-        """把 verified=False 的论断抽进报告末尾附录，附 claim + 原因 + finding_id（Q1=A）。"""
+        """把 verified=False 的论断抽进报告末尾附录，附 claim + 原因 + finding_id（Q1=A）。
+
+        W7 TBD-5：每条失败引用额外标注其在宽松口径下是否通过，便于解释口径差。
+        """
         failed = [c for c in citations if not c.verified]
         if not failed:
             return ""
-        lines = ["\n\n## ⚠️ 未通过引用校验的论断", ""]
+        lines = ["\n\n## ⚠️ 未通过引用校验的论断（严格口径）", ""]
         for c in failed:
-            lines.append(f"- **{c.claim[:150]}**")
+            relaxed_note = "（宽松口径：通过）" if c.verified_relaxed else "（宽松口径：未通过）"
+            lines.append(f"- **{c.claim[:150]}** {relaxed_note}")
             meta = [
                 f"来源: {c.source}",
                 f"编号: {c.finding_id}" if c.finding_id else "",

@@ -51,8 +51,10 @@ def main():
         total = len(citations)
         existence = sum(1 for c in citations if c.existence)
         faithful = sum(1 for c in citations if c.verified)
+        relaxed = sum(1 for c in citations if c.verified_relaxed)
         print(f"\n引用校验（双口径）：存在性 {existence}/{total} 条通过；"
-              f"忠实度 {faithful}/{existence} 条通过（存在性通过子集上判定）")
+              f"严格忠实度 {faithful}/{existence} 条通过；"
+              f"宽松口径 {relaxed}/{existence} 条通过（存在且（忠实或多源印证））")
 
     # W3（Q6）：成本展示（精确 token + 保守上界，人民币为主）
     print(format_cost_report(result.token_used))

@@ -70,11 +70,11 @@ class DeepResearchGraph:
         g.set_entry_point("plan")
         g.add_edge("plan", "research")
         g.add_edge("research", "critic")  # 每跳检索后必过 critic 裁决
-        # critic 经纯函数路由三态
+        # critic 经纯函数路由四态（P1：新增 augment = gap 查询回填 frontier）
         g.add_conditional_edges(
             "critic",
             route_critic,
-            {"continue": "research", "revise": "revise", "stop": "write"},
+            {"continue": "research", "augment": "revise", "revise": "revise", "stop": "write"},
         )
         g.add_edge("revise", "research")  # 回填 next_queries 或 replan 后，继续研究
         g.add_edge("write", "validate")
@@ -141,6 +141,10 @@ class DeepResearchGraph:
                        depth=state.depth + 1, sq_id=sq_id or "", query=(query or "")[:200]):
             new_findings, tool_stats = self.researcher.search_once(query, state)
 
+        # W7 Arm4 G1：把当前查询归属的子问题 ID 写回 finding（post-tag，覆盖所有工具路径）
+        for f in new_findings:
+            f.sq_id = sq_id or ""
+
         merged_findings = list(state.findings) + new_findings
         seen = set(state.visited_sources)
         new_sources = [f.source for f in new_findings if f.source not in seen]
@@ -180,18 +184,23 @@ class DeepResearchGraph:
             "signal": signal,
             "sufficient": state.sufficient,
             "needs_replan": state.needs_replan,
+            "knowledge_gap": state.critic_gap,
             "next_queries": state.next_queries,
+            "stop_reason": state.critic_stop_reason,
         }
         return {
             "critic_signal": state.critic_signal,
             "sufficient": state.sufficient,
             "needs_replan": state.needs_replan,
+            "critic_gap": state.critic_gap,
+            "critic_stop_reason": state.critic_stop_reason,
             "next_queries": state.next_queries,
             "token_used": state.token_used,  # Q6-B：critic 的 LLM token 累计写回
             "reflection_log": [entry],  # add reducer 追加（Q7）
             "progress": [
                 {"stage": "critic", "msg": f"depth={state.depth} 裁决={signal}"
-                 + ("（需重分解）" if state.needs_replan else "")}
+                 + ("（需重分解）" if state.needs_replan else "")
+                 + (f" [gap={state.critic_gap[:30]}…]" if state.critic_gap else "")}
             ],
         }
 

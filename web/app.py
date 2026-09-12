@@ -83,9 +83,10 @@ if st.button("开始研究", type="primary"):
             total = len(result.citations)
             existence = sum(1 for c in result.citations if c.existence)
             faithful = sum(1 for c in result.citations if c.verified)
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
             c1.metric("来源存在性通过", f"{existence}/{total}")
-            c2.metric("论断忠实度通过", f"{faithful}/{existence}")
+            c2.metric("论断忠实度通过（严格）", f"{faithful}/{existence}")
+            c3.metric("论断宽松口径", f"{sum(1 for c in result.citations if c.verified_relaxed)}/{existence}")
             for c in result.citations:
                 icon = "✅" if c.verified else "❌"
                 badge = ""

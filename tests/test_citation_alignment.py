@@ -22,8 +22,8 @@ from research_engine.llm.router import LLMRouter
 from research_engine.state import ResearchFinding
 
 # ---- 模拟 LLM：不产生真实 API 调用 ----
-LLMRouter.fast_chat = lambda self, system, user: f"[模拟压缩摘要] {user[:30]}"
-LLMRouter.smart_chat = lambda self, system, user: (
+LLMRouter.fast_chat = lambda self, system, user, state=None: f"[模拟压缩摘要] {user[:30]}"
+LLMRouter.smart_chat = lambda self, system, user, state=None: (
     "# 测试报告\n\n"
     "论断甲 [来源: 5]。\n\n"
     "论断乙 [来源: 8]。\n"

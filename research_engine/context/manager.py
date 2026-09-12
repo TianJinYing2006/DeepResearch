@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from typing import Any, List
 
+from config import config
 from research_engine.llm.router import get_router
-from research_engine.state import ResearchFinding
+from research_engine.state import ResearchFinding, SubQuestion
 
 
 class ContextManager:
@@ -57,6 +58,8 @@ class ContextManager:
                             meta[k] = meta.get(k, []) + v
                         else:
                             meta.setdefault(k, v)
+                # Bug-3 修复：压缩后 sq_id 取所有子问题中首个非空值（非 group[0]，防跨子问题合并时归属丢失）
+                merged_sq_id = next((f.sq_id for f in group if f.sq_id), group[0].sq_id)
                 compressed.append(
                     ResearchFinding(
                         content=summary,
@@ -64,6 +67,7 @@ class ContextManager:
                         source_type=group[0].source_type,
                         confidence=max(f.confidence for f in group),
                         is_meta=any(f.is_meta for f in group),  # R2.4 Q5=A：压缩后不透传会丢标
+                        sq_id=merged_sq_id,
                         metadata=meta,  # W4 Q5：metadata 不透传会丢 citation_count/retry_history
                     )
                 )
@@ -72,14 +76,42 @@ class ContextManager:
 
         return compressed
 
-    def format_for_writer(self, findings: List[ResearchFinding]) -> str:
-        """将研究发现格式化为 Writer 可用的上下文文本。
+    def format_for_writer(
+        self,
+        findings: List[ResearchFinding],
+        subquestions: List[SubQuestion] | None = None,
+    ) -> str:
+        """将研究发现格式化为 Writer 可用的上下文文本（W7 Arm4 G2：按子问题分节）。
 
-        每个发现分配一个编号 [N]，Writer 用 [来源: N] 引用，Validator 再映射回真实来源。
+        每个发现以 "Finding N:" 标记编号，Writer 用 [来源: N] 引用，Validator 再映射回真实来源。
+        关键约束：编号顺序与 ``findings`` 列表完全一致，禁止重排/删除，否则引用编号会错位。
         """
-        lines = []
+        subquestions = subquestions or []
+        sq_map = {s.id: s.question for s in subquestions}
+
+        # W7 Arm4：分节喂料可通过 WRITER_SECTIONED_FEED_ENABLED 关闭（TBD-8 基线对照）
+        sectioned = config.experiment.writer_sectioned_feed_enabled
+
+        lines: List[str] = []
+        current_sq: str | None = None
         for i, f in enumerate(findings, 1):
+            if sectioned and f.sq_id != current_sq:
+                header = sq_map.get(f.sq_id, f.sq_id or "未分类材料")
+                lines.append(f"\n--- 子问题：{header} ---")
+                current_sq = f.sq_id
             meta = "，自指/方法论" if f.is_meta else ""  # R2.4：is_meta 仅用于方法论说明小节
-            lines.append(f"[{i}] 来源: {f.source} (类型: {f.source_type}, 置信度: {f.confidence:.2f}{meta})")
+            # P0 引用协议统一：用 Finding N: 编号，彻底避免 #、[] 等符号被 LLM 模仿到引用中
+            lines.append(f"Finding {i}: 来源: {f.source} (类型: {f.source_type}, 置信度: {f.confidence:.2f}{meta})")
             lines.append(f"    {f.content}")
+
+        # G4 系统级兜底：无材料的子问题显式列出，强制 writer 看到"信息不足"义务
+        if sectioned:
+            found_sq = {f.sq_id for f in findings}
+            missing = [s for s in subquestions if s.id not in found_sq]
+            if missing:
+                lines.append("\n--- 以下子问题暂无研究发现 ---")
+                for s in missing:
+                    lines.append(f"--- 子问题：{s.question} ---")
+                    lines.append("（暂无研究发现）")
+
         return "\n".join(lines)

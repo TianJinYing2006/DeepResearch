@@ -24,6 +24,7 @@ class ResearchFinding(BaseModel):
     source_type: str = Field(description="来源类型：web / rag / arxiv / code_exec")
     confidence: float = Field(default=0.5, description="置信度 0-1")
     is_meta: bool = Field(default=False, description="是否自指/元描述（R2.4：描述本系统自身），绝不作为正文证据")
+    sq_id: str = Field(default="", description="W7 Arm4 G1：所属子问题 ID，用于 writer 分节喂料")
     # W4 Q3（统一证据抽象）：富元数据桶——arxiv: {arxiv_id, primary_category, citation_count, structured_match}；
     #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match}
     metadata: dict = Field(default_factory=dict, description="W4 扩展元数据（结构化保留，供呈现层展示，LLM 校验不消费）")
@@ -46,6 +47,7 @@ class Citation(BaseModel):
     confidence: float = Field(default=0.0, description="LLM 校验置信度 0-1（grill Q3=A，不再丢弃）")
     note: str = Field(default="", description="校验说明/失败原因（grill Q3=A，不再丢弃）")
     existence: bool = Field(default=False, description="本地来源存在性判定（grill Q6=A 双口径之一）")
+    verified_relaxed: bool = Field(default=False, description="W7 宽松口径：existence AND (faithful OR supported)，仅呈现不改动 verified 语义")
     is_meta: bool = Field(default=False, description="自指/元描述复核结果（R2.4 Q5=A：validator verdict 兜底）")
 
 
@@ -73,6 +75,8 @@ class ResearchState(BaseModel):
     sufficient: bool = Field(default=False, description="critic 判研究是否充分")
     needs_replan: bool = Field(default=False, description="critic 判是否需要重分解")
     next_queries: List[Dict[str, Any]] = Field(default_factory=list, description="critic 产出的新查询，回填 frontier（Q2=A）")
+    critic_gap: str = Field(default="", description="W7 Arm1：critic 识别的知识缺口文本")
+    critic_stop_reason: str = Field(default="", description="W7 Arm1：本轮 critic 停止原因（hard_stop/gap_unresolved/no_next_queries/critic_stop/continue/gap_continue/revise）")
     # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
     reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
 
