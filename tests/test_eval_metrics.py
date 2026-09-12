@@ -32,6 +32,7 @@ def _state(**overrides) -> Dict[str, Any]:
         "depth": 3,
         "token_used": 1000,
         "replan_count": 0,
+        "frontier": [{"sq_id": "s1", "query": "q"}],  # P1 Bug-6：非空 frontier → 不触发 frontier_empty hard_stop
         "critic_signal": "stop",
         "reflection_log": [{"decision": "continue"}, {"decision": "continue"}, {"decision": "stop"}],
         "findings": [],
@@ -139,6 +140,17 @@ def test_reflection_hard_stop(mock_cfg):
     res = M.compute_reflection(_state(depth=20, token_used=1000), coverage=0.5)
     assert res["stop_type"] == "hard_stop"
     assert "max_total_hops" in res["hard_reasons"]
+
+
+@patch("research_engine.eval.metrics.config")
+def test_reflection_hard_stop_frontier_empty(mock_cfg):
+    """P1 Bug-6：frontier 空应计为 hard_stop，与 critic.py hard_gate 行为一致。"""
+    mock_cfg.research.max_total_hops = 20
+    mock_cfg.research.token_budget = 200_000
+    mock_cfg.research.max_replan = 1
+    res = M.compute_reflection(_state(frontier=[], depth=3, token_used=1000), coverage=0.5)
+    assert res["stop_type"] == "hard_stop"
+    assert "frontier_empty" in res["hard_reasons"]
 
 
 @patch("research_engine.eval.metrics.config")

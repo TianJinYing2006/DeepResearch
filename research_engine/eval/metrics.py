@@ -69,17 +69,20 @@ def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
     """基于主链路校验产物统计（Q2/Q8：不再重跑 validator——那是又一次 LLM 对查）。
 
     口径对齐 W2：verified = 存在且忠实；existence 单独统计；by_source_type 拆分。
+    W7 TBD-5 新增：verified_relaxed = existence AND (faithful OR supported)，仅作解释性附注。
     """
     total = len(citations)
     verified = sum(1 for c in citations if c.get("verified"))
+    verified_relaxed = sum(1 for c in citations if c.get("verified_relaxed"))
     existence = sum(1 for c in citations if c.get("existence"))
     by_type: Dict[str, Dict[str, int]] = {}
     failed_notes: Dict[str, int] = {}
     for c in citations:
         t = c.get("source_type") or "unknown"
-        bucket = by_type.setdefault(t, {"total": 0, "verified": 0, "existence": 0})
+        bucket = by_type.setdefault(t, {"total": 0, "verified": 0, "verified_relaxed": 0, "existence": 0})
         bucket["total"] += 1
         bucket["verified"] += 1 if c.get("verified") else 0
+        bucket["verified_relaxed"] += 1 if c.get("verified_relaxed") else 0
         bucket["existence"] += 1 if c.get("existence") else 0
         if not c.get("verified"):
             key = (c.get("note") or "未说明")[:40]
@@ -87,8 +90,10 @@ def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "total_citations": total,
         "verified": verified,
+        "verified_relaxed": verified_relaxed,
         "existence_rate": round(existence / total, 4) if total else 0,
         "fidelity_rate": round(verified / existence, 4) if existence else 0,  # W2 忠实度口径
+        "relaxed_rate": round(verified_relaxed / existence, 4) if existence else 0,  # W7 宽松口径
         "by_source_type": by_type,
         "failed_note_distribution": failed_notes,
     }
@@ -281,22 +286,26 @@ def compute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
 def compute_reflection(state: Dict[str, Any], coverage: float) -> Dict[str, Any]:
     """结构性口径 + 交叉信号（Q2/TBD-8 拍板，不标期望跳数）。
 
-    - hard_stop：终态任一硬闸触顶（depth / token_used / replan_count）
+    - hard_stop：终态任一硬闸触顶（frontier 空 / depth / token_used）
     - critic_stop：未触顶且 critic_signal == "stop"
     - 早停候选：critic_stop ∧ 覆盖度 < 90%；晚停候选：critic_stop ∧ 轮数 > 5
+
+    P1 Bug-6 修复：增加 frontier_empty 到 hard_stop 判定，
+    与 critic.py 的 hard_gate() 保持一致。replan_count 不再
+    作为全局 hard_stop（P1 max_replan 语义修正）。
     """
     rc = config.research
     depth = state.get("depth", 0)
     token_used = state.get("token_used", 0)
-    replan_count = state.get("replan_count", 0)
     signal = state.get("critic_signal", "")
     hard_reasons: List[str] = []
+    frontier = state.get("frontier") or []
+    if not frontier:
+        hard_reasons.append("frontier_empty")
     if depth >= rc.max_total_hops:
         hard_reasons.append("max_total_hops")
     if token_used >= rc.token_budget:
         hard_reasons.append("token_budget")
-    if replan_count >= rc.max_replan:
-        hard_reasons.append("max_replan")
     is_hard = bool(hard_reasons)
     is_critic = (not is_hard) and signal == "stop"
     reflection_log = state.get("reflection_log") or []

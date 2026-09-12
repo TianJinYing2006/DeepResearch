@@ -314,6 +314,7 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
         "metrics_mean": {
             "completion_rate": _avg("completion", "complete"),
             "citation_accuracy": _avg("citation", "fidelity_rate"),  # W2 忠实度口径
+            "citation_accuracy_relaxed": _avg("citation", "relaxed_rate"),  # W7 TBD-5 宽松口径
             "existence_rate": _avg("citation", "existence_rate"),
             "coverage": _avg("coverage", "coverage"),
             "retrieval_hit_rate": _avg("retrieval_hit", "retrieval_hit_rate"),
