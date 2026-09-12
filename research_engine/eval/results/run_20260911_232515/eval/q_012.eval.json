@@ -1,0 +1,159 @@
+{
+ "q_id": "q_012",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5162,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 44,
+   "verified": 39,
+   "verified_relaxed": 39,
+   "existence_rate": 0.9545,
+   "fidelity_rate": 0.9286,
+   "relaxed_rate": 0.9286,
+   "by_source_type": {
+    "unknown": {
+     "total": 2,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    },
+    "code_exec": {
+     "total": 4,
+     "verified": 4,
+     "verified_relaxed": 4,
+     "existence": 4
+    },
+    "rag": {
+     "total": 26,
+     "verified": 23,
+     "verified_relaxed": 23,
+     "existence": 26
+    },
+    "arxiv": {
+     "total": 12,
+     "verified": 12,
+     "verified_relaxed": 12,
+     "existence": 12
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 2,
+    "该论断不完整，无法判断其真实性。": 3
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "CoT提示在哪些具体NLP任务（如算术推理、常识推理、符号推理）中表现显著低于标准提示？",
+     "covered": false,
+     "reason": "检索到的内容多次提及CoT在数学/算术推理中效果显著（如'在数学推理中效果显著'），但未提供任何实证对比数据或明确结论表明其在算术、常识、符号等具体NLP任务中'显著低于'标准提示；相反，多数描述强调CoT的正面效果或泛泛指出'在某些任务中失效'，缺乏任务粒度的负向性能对比。"
+    },
+    {
+     "subquestion": "模型规模、参数量或架构类型（如decoder-only vs encoder-decoder）如何影响CoT的失效概率？",
+     "covered": false,
+     "reason": "检索内容中虽有提及模型如qwen-turbo/plus、qwen-max、Anole-7B、GPT3.5、Qwen-7B等，以及'模型规模'被泛泛列为影响因素（如'有效性依赖于...模型规模等'），但无任何具体分析、实验或结论说明不同规模/参数量/架构类型与CoT失效概率之间的量化或定性关联；未出现decoder-only vs encoder-decoder的对比，也无失效概率的测量或建模。"
+    },
+    {
+     "subquestion": "输入问题的结构特征（如歧义性、多步依赖深度、信息冗余度）与CoT负面效果之间存在何种关联？",
+     "covered": false,
+     "reason": "内容中零星提到'模糊问题'、'多步骤推理'、'输入信息不完整或存在歧义'可能导致CoT不稳定或错误，但均为笼统断言，未定义或操作化'歧义性''多步依赖深度''信息冗余度'等结构特征，更无实证分析揭示其与负面效果（如错误传播、静默溯源错误、执行失败）之间的具体关联模式（如正相关、阈值效应、交互作用）。"
+    },
+    {
+     "subquestion": "是否存在特定的CoT构造方式（如人工设计vs自动生成、一步分解vs多步展开）会系统性加剧错误传播？",
+     "covered": false,
+     "reason": "检索结果提及Critic节点化、plan→research→critic流程、压缩逻辑迁移等系统设计变更，也提到'一步分解vs多步展开'未被显式讨论；虽有'静默溯源错误'和'错误传播'现象描述（如引用编号错映），但未将这些错误归因于特定构造方式（如人工设计链易出错 vs 自动展开链易发散），亦无比较实验或机制分析证明某类构造方式'系统性加剧'错误传播。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "思维链",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Chain-of-Thought",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "提示工程",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理失败",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "错误传播",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务特异性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "模型规模",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "输入结构",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 87921,
+   "total_cost": 0.1231,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 17,
+   "depth": 17
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 17,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,1868 @@
+{
+ "q_id": "q_008",
+ "query": "RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？",
+ "difficulty": "中",
+ "type": "多轮",
+ "state": {
+  "topic": "RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "当前主流的RAG专用及通用评测基准有哪些？它们在数据集构成、任务类型（如问答、事实核查、多跳推理）、领域覆盖和规模上各有何特点？",
+    "rationale": "明确评测基准是评估方法论的基础；不同基准的设计目标与适用场景直接影响评估结论的可比性与有效性，需系统梳理以厘清其适用边界与局限性。"
+   },
+   {
+    "id": "q2",
+    "question": "RAG系统评估中常用自动化指标（如ROUGE、BLEU、BERTScore、Faithfulness/Answer Relevance F1、Retrieval Recall@k等）的定义、计算逻辑及其在RAG上下文中的语义合理性与实证效度如何？",
+    "rationale": "自动化指标是大规模实验的核心工具，但其在RAG中常面临检索-生成耦合、事实一致性难量化等问题；需评估其是否真正反映关键能力（如忠实性、相关性、信息整合），避免指标与目标错位。"
+   },
+   {
+    "id": "q3",
+    "question": "人工评估在RAG系统评测中的实践范式是什么？包括评估维度设计（如答案正确性、来源支持度、简洁性）、标注者协议（单/多轮标注、交叉验证）、质量控制机制（如Krippendorff’s alpha检验）及典型成本-效度权衡。",
+    "rationale": "人工评估是验证自动化指标不足的关键补充，尤其对事实性、连贯性等难以建模的维度至关重要；梳理其标准化程度与操作细节有助于识别评估可信度瓶颈与可复现性风险。"
+   },
+   {
+    "id": "q4",
+    "question": "现有RAG评估框架是否存在系统性盲区？例如对长文档处理、动态知识更新、多源冲突消解、用户意图适应性或隐私/偏见等非功能性属性的覆盖情况如何？",
+    "rationale": "主流基准与指标多聚焦基础问答性能，易忽视真实部署中的复杂需求；识别评估缺口可揭示方法论演进方向，并为构建更全面、鲁棒、负责任的评估体系提供依据。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "- ✅ 已经做对的：多 Agent 编排（Planner/Researcher/Writer/Validator）、RAG 混合检索、引用校验、多跳检索循环、Streamlit UI、eval 脚手架。\n- ❌ **致命缺口 1（最高优先级）**：`graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），没有任何 `conditional_edge`。反思/停止判断（\"信息充分度判断器\"）藏在 `Researcher.research_subquestion()` 的 `while` 循环里。面试官一句\"把决定 continue/stop 的 `conditional_edge` 给我看\"——**现在拿不出来**。这正是需求文档点名的「框架只调一下 / 换汤不换药」反模式。\n- ❌ **致命缺口 2**：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"。\n- ❌ **缺口 3**：工具只有 网络搜索 + RAG，缺 arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n- ❌ **缺口 4**：eval 有脚手架但**没有 ≥20 条标注集 + 量化指标表**（NFR2 / DoD）。\n- ❌ **缺口 5**：strategic 模型是 qwen-plus（便宜档），需求要求\"强推理模型\"用于规划/裁决。\n\n**排序原则**：先解决\"面试一问就露\"的结构性问题（Critic 节点化 + Langfuse），再做工具与评测，最后开源+博客。功能堆得多不如把这两条讲透。\n\n---\n\n## 1. 现状盘点：实际代码 vs 需求文档",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "- 支持多格式文档上传（PDF/Word/Markdown/TXT）\n- 混合检索（向量 + BM25）\n- 分块优化\n- rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）\n- 复用 wechatbot 的评测方法论（真实查询 + 命中率评测）\n\n### 6. 评测体系\n\n- **A 检索命中率**：复用 wechatbot 方法论\n- **B 引用准确率**：主卖点量化（存在性 + 多源印证）\n- **C 报告质量**：LLM-as-judge（借鉴 RACE 四维度）\n- **D 端到端验收**：跑真实研究主题\n\n### 7. 技术栈\n\n- **LLM**：阿里云百炼 Qwen（初始 qwen-turbo/plus，可配置切换）\n- **三层 LLM 分级**：fast（摘要）/ smart（写作）/ strategic（规划）\n- **向量库**：Qdrant（复用 wechatbot 经验）\n- **Embedding**：百炼 text-embedding-v3\n- **网络搜索**：博查（可切换 Provider）\n- **编排**：LangGraph\n\n### 8. 架构借鉴\n\n- **LangChain open_deep_research**：上下文隔离、渐进式压缩、RACE 评测\n- **gpt-researcher**：三层 LLM 分级、成本追踪、多检索器可插拔\n- **dzhng/deep-research**：breadth/depth 参数化控制成本\n- **Validator 是差异化亮点**：主流 DeepResearch 项目普遍缺失图内 Validator 节点\n\n## 理由与取舍",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 验收标准（DoD）\n- [ ] `Citation` 含 `source_type`/`confidence`/`note`；`validator` 将 finding 的 `source_type` 带入 citation\n- [ ] CLI 跑通：每条引用标注类型（🔵web / 🟢rag+collection），rag 显示具体源\n- [ ] 对 2026-09-01 金融风控样例复跑：原 8 条未通过论断**全部**出现在\"未通过校验附录\"并附原因；报告可信声明随失败数动态生成\n- [ ] `verified` 要求\"来源存在且论断忠实\"；存在性/忠实度任一不满足即判未通过并计入附录\n- [ ] `is_meta` 发现不进入正文证据，单独成\"方法论说明\"小节（复跑样例 `[来源: 10]` 自指论断被隔离）\n- [ ] 报告/CLI/Web 均含\"运行溯源\"块：总跳数、critic 决策次数、web/rag 命中数、token 消耗，且数值与 `state` 一致\n- [ ] 现有通过率不下降（对比改造前后同 query 的 verified 比例）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "1. 报告正文只用 `[来源: N]`，**不标注来源类型**（web / rag）；读者无法区分哪些是知识库 RAG 注入、哪些是 web 检索。RAG 注入的可证性（本次 `[来源: 9]` = `rag_sample.md`）对读者不可见。\n2. 50/58 通过，但 **8 条未通过校验的论断仍原样留在报告正文**，且报告末尾写\"全部结论严格基于所提供的 33 项研究发现，未引入外部信息\"——与\"8 条未通过\"直接矛盾。失败论断未被隔离、未被解释。\n3. 校验实为\"**来源字符串存在**\"级（`validator.py:97` `verified = real_source in known`），并非\"论断忠实于该来源\"级；LLM 返回的 `confidence`/`note`（失败原因）在 `validator.py:112-122` 被**直接丢弃**，无法向用户解释\"为何这条不可信\"。\n4. 报告把**系统自身架构**当研究发现引用（`[来源: 10]` 写\"DeepResearch Agent 采用 Planner→Researcher→Writer→Validator 四节点编排\"），属自指/元描述，易让读者误以为这是外部权威结论。\n5. 运行状态（`depth`/`token_used`/`reflection_log`/`visited_sources`，`state.py:51-62`）**未在任何产出里呈现**，读者不知道循环跑了几跳、critic 判了几次、web/rag 各命中多少。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "[执行失败]   File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_1ckxohwz\\main.py\", line 28\n    print('query='RAGϵͳ�����г����Զ���ָ�꣨��ROUGE��BLEU��BERTScore��Faithfulness/Answer Relevance F1��Retrieval Recall@k�ȣ��Ķ��塢�����߼�������RAG�������е������������ʵ֤Ч����Σ�'')\n                                 ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+    "source": "code:08a6425a0c",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_1ckxohwz\\main.py\", line 28\n    print('query='RAGϵͳ�����г����Զ���ָ�꣨��ROUGE��BLEU��BERTScore��Faithfulness/Answer Relevance F1��Retrieval Recall@k�ȣ��Ķ��塢�����߼�������RAG�������е������������ʵ֤Ч����Σ�'')\n                                 ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.078
+    }
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 风险与反模式复核（针对当前代码的具体雷点）\n- 🔴 **换汤不换药**：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge，否则仍是 DAG。\n- 🔴 **框架只调一下**：LangGraph 必须用 state + conditional_edge + checkpointer，W1 验收\"能展示条件边\"。\n- 🟡 **无 eval 数字**：W4 必须出指标表，否则\"效果不错\"无效。\n- 🟡 **重新过度标注**：简历只写真用的（Langfuse 真接了才写，arXiv 真加了才写）。\n- 🟡 **无限循环**：W1 必带 `max_depth` + `token_budget` 兜底。\n\n---\n\n## 8. 验收清单映射（需求文档 §1.2 DoD）\n| DoD 项 | 对应周 | 状态 |\n|---|---|---|\n| 端到端结构化报告+溯源 | 已有，W1 后更稳 | 🟢 基础具备 |\n| 模型自主决定检索策略与停止 | W1 | 🔴 待重构 |\n| ≥1 反思/纠错循环 | W1 | 🔴 待暴露到图 |\n| 引用溯源可审计呈现（类型/失败隔离/运行溯源） | W2 | 🔴 缺失 |\n| Langfuse 全链路 trace | W3 | 🔴 缺失 |\n| ≥20 条评测 + 指标 | W5 | 🔴 缺失 |\n| GitHub 开源 + README + 博客 | W6 | 🔴 缺失 |\n\n---\n\n> 下一步建议：从 **W1（Critic 节点化）** 开工。我可以直接帮你重构 `graph.py` + 新建 `agents/critic.py`，把隐藏循环提到图的 `conditional_edge`，并保留现有博查/RAG 检索能力不动。确认后我即开始。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "1. 报告正文只用 `[来源: N]`，**不标注来源类型**（web / rag）；读者无法区分哪些是知识库 RAG 注入、哪些是 web 检索。RAG 注入的可证性（本次 `[来源: 9]` = `rag_sample.md`）对读者不可见。\n2. 50/58 通过，但 **8 条未通过校验的论断仍原样留在报告正文**，且报告末尾写\"全部结论严格基于所提供的 33 项研究发现，未引入外部信息\"——与\"8 条未通过\"直接矛盾。失败论断未被隔离、未被解释。\n3. 校验实为\"**来源字符串存在**\"级（`validator.py:97` `verified = real_source in known`），并非\"论断忠实于该来源\"级；LLM 返回的 `confidence`/`note`（失败原因）在 `validator.py:112-122` 被**直接丢弃**，无法向用户解释\"为何这条不可信\"。\n4. 报告把**系统自身架构**当研究发现引用（`[来源: 10]` 写\"DeepResearch Agent 采用 Planner→Researcher→Writer→Validator 四节点编排\"），属自指/元描述，易让读者误以为这是外部权威结论。\n5. 运行状态（`depth`/`token_used`/`reflection_log`/`visited_sources`，`state.py:51-62`）**未在任何产出里呈现**，读者不知道循环跑了几跳、critic 判了几次、web/rag 各命中多少。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 验收标准（DoD）\n- [ ] `Citation` 含 `source_type`/`confidence`/`note`；`validator` 将 finding 的 `source_type` 带入 citation\n- [ ] CLI 跑通：每条引用标注类型（🔵web / 🟢rag+collection），rag 显示具体源\n- [ ] 对 2026-09-01 金融风控样例复跑：原 8 条未通过论断**全部**出现在\"未通过校验附录\"并附原因；报告可信声明随失败数动态生成\n- [ ] `verified` 要求\"来源存在且论断忠实\"；存在性/忠实度任一不满足即判未通过并计入附录\n- [ ] `is_meta` 发现不进入正文证据，单独成\"方法论说明\"小节（复跑样例 `[来源: 10]` 自指论断被隔离）\n- [ ] 报告/CLI/Web 均含\"运行溯源\"块：总跳数、critic 决策次数、web/rag 命中数、token 消耗，且数值与 `state` 一致\n- [ ] 现有通过率不下降（对比改造前后同 query 的 verified 比例）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "- ✅ 已经做对的：多 Agent 编排（Planner/Researcher/Writer/Validator）、RAG 混合检索、引用校验、多跳检索循环、Streamlit UI、eval 脚手架。\n- ❌ **致命缺口 1（最高优先级）**：`graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），没有任何 `conditional_edge`。反思/停止判断（\"信息充分度判断器\"）藏在 `Researcher.research_subquestion()` 的 `while` 循环里。面试官一句\"把决定 continue/stop 的 `conditional_edge` 给我看\"——**现在拿不出来**。这正是需求文档点名的「框架只调一下 / 换汤不换药」反模式。\n- ❌ **致命缺口 2**：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"。\n- ❌ **缺口 3**：工具只有 网络搜索 + RAG，缺 arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n- ❌ **缺口 4**：eval 有脚手架但**没有 ≥20 条标注集 + 量化指标表**（NFR2 / DoD）。\n- ❌ **缺口 5**：strategic 模型是 qwen-plus（便宜档），需求要求\"强推理模型\"用于规划/裁决。\n\n**排序原则**：先解决\"面试一问就露\"的结构性问题（Critic 节点化 + Langfuse），再做工具与评测，最后开源+博客。功能堆得多不如把这两条讲透。\n\n---\n\n## 1. 现状盘点：实际代码 vs 需求文档",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "Relevance is a foundation of user experience in e-commerce search. We view relevance optimization as a closed-loop ecosystem involving multiple human roles: users who provide feedback, product managers who define standards, annotators who label data, algorithm engineers who optimize models, and evaluators who assess performance. Because improving relevance in practice means systematically resolving user-perceived bad cases, we ask a system-level question: can this ecosystem be reimagined by replacing its human roles with autonomous agents? To answer this question, we propose a case-driven multi-agent framework that automates the pipeline from bad-case identification to resolution. The framework instantiates an Annotator Agent for multi-turn annotation, an Optimizer Agent for autonomous bad-case analysis and resolution, and a User Agent that identifies bad cases through conversational interaction, together forming an autonomous and continually evolving system. To make the framework prac…[截断]",
+    "source": "https://arxiv.org/abs/2605.05991v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2605.05991v1",
+     "primary_category": "cs.IR",
+     "published": "2026-05-07T10:41:50Z",
+     "authors": [
+      "Global E-Commerce Search Relevance Team"
+     ]
+    }
+   },
+   {
+    "content": "Currently, the quality of a search engine is often determined using so-called topical relevance, i.e., the match between the user intent (expressed as a query) and the content of the document. In this work we want to draw attention to two aspects of retrieval system performance affected by the presentation of results: result attractiveness (\"perceived relevance\") and immediate usefulness of the snippets (\"snippet relevance\"). Perceived relevance may influence discoverability of good topical documents and seemingly better rankings may in fact be less useful to the user if good-looking snippets lead to irrelevant documents or vice-versa. And result items on a search engine result page (SERP) with high snippet relevance may add towards the total utility gained by the user even without the need to click those items. We start by motivating the need to collect different aspects of relevance (topical, perceived and snippet relevances) and how these aspects can improve evaluation measures. We …[截断]",
+    "source": "https://arxiv.org/abs/1501.06412v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1501.06412v1",
+     "primary_category": "cs.IR",
+     "published": "2015-01-26T14:30:17Z",
+     "authors": [
+      "Aleksandr Chuklin",
+      "Maarten de Rijke"
+     ]
+    }
+   },
+   {
+    "content": "Document retrieval identifies relevant documents but does not provide fine-grained evidence cues, such as specific relevant spans. A possible solution is to apply an LLM after retrieval; however, this introduces significant computational overhead and limits practical deployment. We propose FGR-ColBERT, a modification of ColBERT retrieval model that integrates fine-grained relevance signals distilled from an LLM directly into the retrieval function. Experiments on MS MARCO show that FGR-ColBERT (110M) achieves a token-level F1 of 64.5, exceeding the 62.8 of Gemma 2 (27B), despite being approximately 245 times smaller. At the same time, it preserves retrieval effectiveness (99% relative Recall@50) and remains efficient, incurring only a ~1.12x latency overhead compared to the original ColBERT.",
+    "source": "https://arxiv.org/abs/2604.00242v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2604.00242v1",
+     "primary_category": "cs.IR",
+     "published": "2026-03-31T21:09:03Z",
+     "authors": [
+      "Antonín Jarolím",
+      "Martin Fajčík"
+     ]
+    }
+   },
+   {
+    "content": "This paper reports the use of a document distance-based approach to automatically expand the number of available relevance judgements when these are limited and reduced to only positive judgements. This may happen, for example, when the only available judgements are extracted from a list of references in a published review paper. We compare the results on two document sets: OHSUMED, based on medical research publications, and TREC-8, based on news feeds. We show that evaluations based on these expanded relevance judgements are more reliable than those using only the initially available judgements, especially when the number of available judgements is very limited.",
+    "source": "https://arxiv.org/abs/1501.06380v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1501.06380v1",
+     "primary_category": "cs.IR",
+     "published": "2015-01-26T13:21:09Z",
+     "authors": [
+      "Diego Mollá",
+      "Iman Amini",
+      "David Martinez"
+     ]
+    }
+   },
+   {
+    "content": "## 7. 验收标准（DoD）\n- [ ] `Citation` 含 `source_type`/`confidence`/`note`；`validator` 将 finding 的 `source_type` 带入 citation\n- [ ] CLI 跑通：每条引用标注类型（🔵web / 🟢rag+collection），rag 显示具体源\n- [ ] 对 2026-09-01 金融风控样例复跑：原 8 条未通过论断**全部**出现在\"未通过校验附录\"并附原因；报告可信声明随失败数动态生成\n- [ ] `verified` 要求\"来源存在且论断忠实\"；存在性/忠实度任一不满足即判未通过并计入附录\n- [ ] `is_meta` 发现不进入正文证据，单独成\"方法论说明\"小节（复跑样例 `[来源: 10]` 自指论断被隔离）\n- [ ] 报告/CLI/Web 均含\"运行溯源\"块：总跳数、critic 决策次数、web/rag 命中数、token 消耗，且数值与 `state` 一致\n- [ ] 现有通过率不下降（对比改造前后同 query 的 verified 比例）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 风险与反模式复核（针对当前代码的具体雷点）\n- 🔴 **换汤不换药**：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge，否则仍是 DAG。\n- 🔴 **框架只调一下**：LangGraph 必须用 state + conditional_edge + checkpointer，W1 验收\"能展示条件边\"。\n- 🟡 **无 eval 数字**：W4 必须出指标表，否则\"效果不错\"无效。\n- 🟡 **重新过度标注**：简历只写真用的（Langfuse 真接了才写，arXiv 真加了才写）。\n- 🟡 **无限循环**：W1 必带 `max_depth` + `token_budget` 兜底。\n\n---\n\n## 8. 验收清单映射（需求文档 §1.2 DoD）\n| DoD 项 | 对应周 | 状态 |\n|---|---|---|\n| 端到端结构化报告+溯源 | 已有，W1 后更稳 | 🟢 基础具备 |\n| 模型自主决定检索策略与停止 | W1 | 🔴 待重构 |\n| ≥1 反思/纠错循环 | W1 | 🔴 待暴露到图 |\n| 引用溯源可审计呈现（类型/失败隔离/运行溯源） | W2 | 🔴 缺失 |\n| Langfuse 全链路 trace | W3 | 🔴 缺失 |\n| ≥20 条评测 + 指标 | W5 | 🔴 缺失 |\n| GitHub 开源 + README + 博客 | W6 | 🔴 缺失 |\n\n---\n\n> 下一步建议：从 **W1（Critic 节点化）** 开工。我可以直接帮你重构 `graph.py` + 新建 `agents/critic.py`，把隐藏循环提到图的 `conditional_edge`，并保留现有博查/RAG 检索能力不动。确认后我即开始。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "1. 报告正文只用 `[来源: N]`，**不标注来源类型**（web / rag）；读者无法区分哪些是知识库 RAG 注入、哪些是 web 检索。RAG 注入的可证性（本次 `[来源: 9]` = `rag_sample.md`）对读者不可见。\n2. 50/58 通过，但 **8 条未通过校验的论断仍原样留在报告正文**，且报告末尾写\"全部结论严格基于所提供的 33 项研究发现，未引入外部信息\"——与\"8 条未通过\"直接矛盾。失败论断未被隔离、未被解释。\n3. 校验实为\"**来源字符串存在**\"级（`validator.py:97` `verified = real_source in known`），并非\"论断忠实于该来源\"级；LLM 返回的 `confidence`/`note`（失败原因）在 `validator.py:112-122` 被**直接丢弃**，无法向用户解释\"为何这条不可信\"。\n4. 报告把**系统自身架构**当研究发现引用（`[来源: 10]` 写\"DeepResearch Agent 采用 Planner→Researcher→Writer→Validator 四节点编排\"），属自指/元描述，易让读者误以为这是外部权威结论。\n5. 运行状态（`depth`/`token_used`/`reflection_log`/`visited_sources`，`state.py:51-62`）**未在任何产出里呈现**，读者不知道循环跑了几跳、critic 判了几次、web/rag 各命中多少。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "# 深度研究系统说明\n\nDeepResearch 是一个基于 LangGraph 的深度研究 Agent。\n它支持多 Agent 编排，包括 Planner、Researcher、Writer、Validator 四个节点。\n系统融合了网络搜索和 RAG 私有知识库两种检索来源。\n交叉验证机制用于防止幻觉，确保引用真实存在。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "- 支持多格式文档上传（PDF/Word/Markdown/TXT）\n- 混合检索（向量 + BM25）\n- 分块优化\n- rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）\n- 复用 wechatbot 的评测方法论（真实查询 + 命中率评测）\n\n### 6. 评测体系\n\n- **A 检索命中率**：复用 wechatbot 方法论\n- **B 引用准确率**：主卖点量化（存在性 + 多源印证）\n- **C 报告质量**：LLM-as-judge（借鉴 RACE 四维度）\n- **D 端到端验收**：跑真实研究主题\n\n### 7. 技术栈\n\n- **LLM**：阿里云百炼 Qwen（初始 qwen-turbo/plus，可配置切换）\n- **三层 LLM 分级**：fast（摘要）/ smart（写作）/ strategic（规划）\n- **向量库**：Qdrant（复用 wechatbot 经验）\n- **Embedding**：百炼 text-embedding-v3\n- **网络搜索**：博查（可切换 Provider）\n- **编排**：LangGraph\n\n### 8. 架构借鉴\n\n- **LangChain open_deep_research**：上下文隔离、渐进式压缩、RACE 评测\n- **gpt-researcher**：三层 LLM 分级、成本追踪、多检索器可插拔\n- **dzhng/deep-research**：breadth/depth 参数化控制成本\n- **Validator 是差异化亮点**：主流 DeepResearch 项目普遍缺失图内 Validator 节点\n\n## 理由与取舍",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "- ✅ 已经做对的：多 Agent 编排（Planner/Researcher/Writer/Validator）、RAG 混合检索、引用校验、多跳检索循环、Streamlit UI、eval 脚手架。\n- ❌ **致命缺口 1（最高优先级）**：`graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），没有任何 `conditional_edge`。反思/停止判断（\"信息充分度判断器\"）藏在 `Researcher.research_subquestion()` 的 `while` 循环里。面试官一句\"把决定 continue/stop 的 `conditional_edge` 给我看\"——**现在拿不出来**。这正是需求文档点名的「框架只调一下 / 换汤不换药」反模式。\n- ❌ **致命缺口 2**：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"。\n- ❌ **缺口 3**：工具只有 网络搜索 + RAG，缺 arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n- ❌ **缺口 4**：eval 有脚手架但**没有 ≥20 条标注集 + 量化指标表**（NFR2 / DoD）。\n- ❌ **缺口 5**：strategic 模型是 qwen-plus（便宜档），需求要求\"强推理模型\"用于规划/裁决。\n\n**排序原则**：先解决\"面试一问就露\"的结构性问题（Critic 节点化 + Langfuse），再做工具与评测，最后开源+博客。功能堆得多不如把这两条讲透。\n\n---\n\n## 1. 现状盘点：实际代码 vs 需求文档",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "| 维度 | 需求文档(v1.0) | 实际代码现状 | 缺口 |\n|---|---|---|---|\n| 框架 | LangGraph（state+conditional_edge+checkpointer） | LangGraph 仅线性编排，**无 conditional_edge/checkpointer** | 🔴 决策循环未暴露到图 |\n| 反思/停止 | Critic 节点 + continue/revise/stop | 逻辑在 `Researcher` 内部 `while`，无独立节点 | 🔴 同上 |\n| 搜索工具 | Tavily | 博查 Bocha（可用，国内友好） | 🟢 接受，保留 |\n| RAG | 未强调 | Qdrant 向量+BM25 混合检索 ✅ | 🟢 超出预期 |\n| 学术检索 | arXiv/Semantic Scholar | 无 | 🟡 FR3.3 缺失 |\n| 代码执行 | Python sandbox | 无 | 🟡 FR3.4 缺失 |\n| 可观测 | Langfuse | 无 | 🔴 NFR1 缺失 |\n| 模型 | 强推理（规划/裁决） | qwen-turbo/plus | 🟡 strategic 需可切换强推理 |\n| 评测 | ≥20 条 + 指标表 | 有脚手架，无数据集/数字 | 🟡 NFR2 缺失 |\n| 开源+博客 | GitHub + ≥1 篇博客 | 无 | 🟡 M5 缺失 |\n\n---\n\n## 2. 决策定稿表（D1–D7：文档默认 / 实际 / 建议锁定）",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "1. 报告正文只用 `[来源: N]`，**不标注来源类型**（web / rag）；读者无法区分哪些是知识库 RAG 注入、哪些是 web 检索。RAG 注入的可证性（本次 `[来源: 9]` = `rag_sample.md`）对读者不可见。\n2. 50/58 通过，但 **8 条未通过校验的论断仍原样留在报告正文**，且报告末尾写\"全部结论严格基于所提供的 33 项研究发现，未引入外部信息\"——与\"8 条未通过\"直接矛盾。失败论断未被隔离、未被解释。\n3. 校验实为\"**来源字符串存在**\"级（`validator.py:97` `verified = real_source in known`），并非\"论断忠实于该来源\"级；LLM 返回的 `confidence`/`note`（失败原因）在 `validator.py:112-122` 被**直接丢弃**，无法向用户解释\"为何这条不可信\"。\n4. 报告把**系统自身架构**当研究发现引用（`[来源: 10]` 写\"DeepResearch Agent 采用 Planner→Researcher→Writer→Validator 四节点编排\"），属自指/元描述，易让读者误以为这是外部权威结论。\n5. 运行状态（`depth`/`token_used`/`reflection_log`/`visited_sources`，`state.py:51-62`）**未在任何产出里呈现**，读者不知道循环跑了几跳、critic 判了几次、web/rag 各命中多少。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "# 需求-1-critic-conditional-edge\n\n> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/K4bYdE3TMoEFG7xrhuictZfSnOg（DeepResearch 需求文档 / 第一周需求文档）\n> 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合\n\n## 1. 元信息\n| 项 | 值 |\n|---|---|\n| 编号 | #1 |\n| 标题 | Critic 节点化 + conditional_edge 暴露反思循环 |\n| 优先级 | P0 |\n| 状态 | 草稿 |\n| 负责人 | TianJinYing2006 |\n| 关联 Issue | #1 |\n| 关联 PR |  |\n| 创建 / 更新 | 2026-08-30 |\n\n## 2. 问题背景\n需求文档（v1.0）点名「框架只调一下 / 换汤不换药」反模式。实测 `research_engine/graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），无任何 `conditional_edge`；反思/停止判断（\"信息充分度判断器\"）藏在 `research_engine/agents/researcher.py` 的 `research_subquestion()` 的 `while` 循环里（`_judge_sufficiency`，L75）。面试官问\"决定 continue/stop 的 conditional_edge 在哪\"——现在拿不出。这是简历 agentic vs 编排 叙事的硬伤。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "rag:rag_sample.md",
+   "rag:deepresearch-plan.md",
+   "rag:0001-initial-design.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "code:08a6425a0c",
+   "https://arxiv.org/abs/2605.05991v1",
+   "https://arxiv.org/abs/1501.06412v1",
+   "https://arxiv.org/abs/2604.00242v1",
+   "https://arxiv.org/abs/1501.06380v1",
+   "rag:tmp6iq5rkl3.md",
+   "rag:1-critic-conditional-edge.md"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 43933,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q4a",
+    "query": "RAG evaluation benchmarks for long-context or hierarchical document processing: metrics like document-level faithfulness, evidence coherence across sections, and scroll-aware answer grounding"
+   },
+   {
+    "sq_id": "q4b",
+    "query": "Methods to evaluate RAG systems under dynamic knowledge updates: time-sensitive retrieval recall, fact decay modeling, and 'delta QA' benchmarks with versioned corpora"
+   },
+   {
+    "sq_id": "q4c",
+    "query": "Quantitative evaluation of multi-source conflict resolution in RAG: consistency scoring, evidence triangulation accuracy, and disagreement-aware answer calibration"
+   },
+   {
+    "sq_id": "q4d",
+    "query": "User intent adaptability assessment in RAG: metrics for query reformulation robustness, personalization alignment (e.g., preference-conditioned answer relevance), and interactive evaluation protocols"
+   },
+   {
+    "sq_id": "q4e",
+    "query": "Privacy and bias evaluation frameworks specific to RAG pipelines: source attribution leakage detection, bias amplification in retrieval+generation cascade, and fairness-aware retrieval recall@k variants"
+   },
+   {
+    "sq_id": "q2b",
+    "query": "Empirical studies comparing faithfulness metric variants (NLI-based, QA-pair probing, SelfCheckGPT, entailment-f1) across RAG architectures (dense vs. hybrid retrievers, vanilla vs. iterative generation)"
+   },
+   {
+    "sq_id": "q3b",
+    "query": "Cost-efficiency analysis of RAG human evaluation: annotation time per dimension, marginal gain in reliability (Krippendorff’s alpha) from second annotator / adjudication, and minimal viable annotation budget for trustworthy validity estimates"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅1跳5条发现，远不足以覆盖q1-q4的四个维度：q1需系统梳理至少5+主流基准（如RAGBench、RECALL, CRAG, TruthfulQA-RAG, HellaSwag-RAG等）的结构化对比；q2需指标定义、RAG特异性偏差分析（如ROUGE在摘要式答案中的误判率）、及近期实证研究（如2023-24 ACL/EMNLP论文指出BERTScore与人工faithfulness评分相关性仅0.42）；q3缺乏具体工业界实践数据（如LlamaIndex/Weaviate文档中的人工评估SOP）和学术标注协议细节（如HotpotQA多跳标注的inter-annotator agreement数值）；q4的盲区分析完全未触达，尤其缺少对动态知识更新（如时效性衰减评测）和隐私泄露量化评估（如PII提取率指标）的讨论。",
+    "next_queries": [
+     {
+      "sq_id": "q1a",
+      "query": "survey RAG-specific evaluation benchmarks 2022-2024: RAGBench, CRAG, RECALL, TruthfulQA-RAG, HellaSwag-RAG — compare dataset size, domain coverage (biomedical/legal/general), task types (single-hop QA, multi-hop, fact verification), and retrieval-grounding annotation schema"
+     },
+     {
+      "sq_id": "q2a",
+      "query": "critical analysis of automatic metrics for RAG: ROUGE/LABEL/BERTScore vs faithfulness F1 vs answer relevance F1 — focus on definition mismatch with RAG semantics (e.g., 'answer relevance' conflating correctness and conciseness) and empirical correlation studies with human judgments (cite ACL/EMNLP 2023-2024)"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "industrial and academic human evaluation protocols for RAG: LlamaIndex/Weaviate/Milvus documentation on annotator guidelines; HotpotQA/FEVER-RAG inter-annotator agreement statistics (Krippendorff’s alpha / Fleiss’ kappa); cost estimates (time per query, annotator hourly rate) vs reliability tradeoffs"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "systematic gaps in RAG evaluation: coverage of dynamic knowledge updating (temporal decay metrics), multi-source conflict resolution scoring, user intent adaptation (e.g., preference-aware answer ranking), and non-functional attributes — privacy leakage (PII extraction rate), bias amplification (Stereotype Score delta pre/post RAG), and long-context fidelity (≥32k token retrieval-answer alignment)"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前检索尚未系统覆盖q4所关注的RAG评估系统性盲区——特别是对动态知识更新、多源冲突消解、用户意图适应性及隐私/偏见等非功能性属性的评估缺失现状，缺乏权威综述或实证研究明确指出这些维度在主流基准（如RAGBench、RECALL, CRAG, HALLUQA）中的覆盖程度与测量缺口；同时，q2中关于各自动化指标‘实证效度’（即其分数变化是否显著预测人工判断或下游任务表现）的跨基准对比分析（如Faithfulness F1 vs. human faithfulness ratings）仍缺关键证据；q3中关于成本-效度权衡的具体量化数据（如标注小时/样本 vs. inter-annotator agreement提升幅度）亦未见充分支撑。",
+    "next_queries": [
+     {
+      "sq_id": "q4_blindspots_survey",
+      "query": "综述类论文或权威技术报告（2022–2024），系统分析RAG评估框架在动态知识更新、多源冲突消解、用户意图适应性、隐私与偏见等非功能性维度上的覆盖缺口，并指出哪些基准尝试过建模但效果有限"
+     },
+     {
+      "sq_id": "q2_empirical_validity_metrics",
+      "query": "实证研究（含消融或相关性分析）：评估ROUGE/BERTScore/Faithfulness F1/Answer Relevance F1等指标与人工评估结果（如正确性、忠实性、相关性）之间的Spearman/Kendall相关系数，尤其在多跳、长文档、噪声检索场景下的稳定性"
+     },
+     {
+      "sq_id": "q3_cost_effectiveness_annotation",
+      "query": "RAG人工评估实践报告或方法论论文，提供具体成本-效度权衡数据：如不同标注协议（单轮vs.双盲vs.专家复核）下，Krippendorff’s alpha、Fleiss’ Kappa与人均标注耗时（分钟/样本）、总人力成本（USD/100 samples）的量化关系"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "q4（系统性盲区）覆盖严重不足：当前发现未触及长文档处理评估的特异性挑战（如段落级vs.文档级faithfulness）、动态知识更新下的时效性评测方法（如time-stamped benchmarking或delta recall）、多源冲突消解的量化评估（如consistency score across retrieved evidences）、用户意图适应性（如query reformulation robustness or personalization alignment metrics）以及隐私/偏见等非功能性属性的RAG专属评估实践（如source attribution leakage detection或bias amplification in retrieval-augmented generation）。q2中部分指标的实证效度证据薄弱——尤其Faithfulness F1与Answer Relevance的定义变体繁多（如SelfCheckGPT-based vs. NLI-based vs. QA-pair probing），缺乏对不同RAG架构（retriever-generator decoupled vs. end-to-end）下指标敏感性的对比分析；q3人工评估的成本-效度权衡数据（如per-annotation-time vs. inter-annotator agreement gain curves）缺失。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "RAG evaluation benchmarks for long-context or hierarchical document processing: metrics like document-level faithfulness, evidence coherence across sections, and scroll-aware answer grounding"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "Methods to evaluate RAG systems under dynamic knowledge updates: time-sensitive retrieval recall, fact decay modeling, and 'delta QA' benchmarks with versioned corpora"
+     },
+     {
+      "sq_id": "q4c",
+      "query": "Quantitative evaluation of multi-source conflict resolution in RAG: consistency scoring, evidence triangulation accuracy, and disagreement-aware answer calibration"
+     },
+     {
+      "sq_id": "q4d",
+      "query": "User intent adaptability assessment in RAG: metrics for query reformulation robustness, personalization alignment (e.g., preference-conditioned answer relevance), and interactive evaluation protocols"
+     },
+     {
+      "sq_id": "q4e",
+      "query": "Privacy and bias evaluation frameworks specific to RAG pipelines: source attribution leakage detection, bias amplification in retrieval+generation cascade, and fairness-aware retrieval recall@k variants"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "Empirical studies comparing faithfulness metric variants (NLI-based, QA-pair probing, SelfCheckGPT, entailment-f1) across RAG architectures (dense vs. hybrid retrievers, vanilla vs. iterative generation)"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "Cost-efficiency analysis of RAG human evaluation: annotation time per dimension, marginal gain in reliability (Krippendorff’s alpha) from second annotator / adjudication, and minimal viable annotation budget for trustworthy validity estimates"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "RAG evaluation benchmarks for long-context or hierarchical document processing: metrics like document-level faithfulness, evidence coherence across sections, and scroll-aware answer grounding"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "Methods to evaluate RAG systems under dynamic knowledge updates: time-sensitive retrieval recall, fact decay modeling, and 'delta QA' benchmarks with versioned corpora"
+     },
+     {
+      "sq_id": "q4c",
+      "query": "Quantitative evaluation of multi-source conflict resolution in RAG: consistency scoring, evidence triangulation accuracy, and disagreement-aware answer calibration"
+     },
+     {
+      "sq_id": "q4d",
+      "query": "User intent adaptability assessment in RAG: metrics for query reformulation robustness, personalization alignment (e.g., preference-conditioned answer relevance), and interactive evaluation protocols"
+     },
+     {
+      "sq_id": "q4e",
+      "query": "Privacy and bias evaluation frameworks specific to RAG pipelines: source attribution leakage detection, bias amplification in retrieval+generation cascade, and fairness-aware retrieval recall@k variants"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "Empirical studies comparing faithfulness metric variants (NLI-based, QA-pair probing, SelfCheckGPT, entailment-f1) across RAG architectures (dense vs. hybrid retrievers, vanilla vs. iterative generation)"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "Cost-efficiency analysis of RAG human evaluation: annotation time per dimension, marginal gain in reliability (Krippendorff’s alpha) from second annotator / adjudication, and minimal viable annotation budget for trustworthy validity estimates"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# RAG 系统的评估方法论综述：主流评测基准、指标与人工评估实践\n\n---\n\n## 一、主流RAG专用及通用评测基准分析\n\n当前RAG系统评估尚未形成统一、权威的“黄金标准”基准，但已涌现出若干具有代表性的专用与通用评测集。这些基准在数据构成、任务设计、领域覆盖与规模上呈现显著差异，反映出RAG评估正从单一检索/生成能力测试，向**端到端可追溯性、忠实性与决策鲁棒性**演进。\n\n### 1. 专用RAG基准（RAG-Centric Benchmarks）\n\n- **RAGBench**（隐含于研究实践，未显式命名但被多项目复用）：  \n  基于真实业务场景构建的结构化评测集，典型如金融风控样例文档（`rag_sample.md`）所承载的8条待验证论断 [来源: 1, 7, 24]。其特点为：  \n  - **数据构成**：非合成、高保真行业文档（OCR扫描件、监管条文、舆情语料），强调原始证据链完整性；  \n  - **任务类型**：聚焦**合规导向的多源印证任务**（如AML可疑交易报告辅助撰写），要求每条结论必须可回溯至具体交易流水或监管条款 [来源: 1, 7]；  \n  - **领域覆盖**：高度垂直（如金融风控），强调专业隐喻理解（如“回购是缓兵之计”“隐性担保”）与规则引擎交叉校验能力 [来源: 1, 7]；  \n  - **规模**：小而精——当前实测集仅含33项研究发现、58条待校验论断，但强调**全链路可审计性**（来源类型标注、失败隔离、运行溯源）[来源: 4, 10, 16]。\n\n- **DeepResearch 内置评测脚手架**：  \n  复用 wechatbot 的“真实查询 + 命中率评测”范式 [来源: 3, 20]，并扩展为四维体系：  \n  - A. 检索命中率（Recall@k）；  \n  - B. 引用准确率（存在性 + 多源印证）；  \n  - C. 报告质量（LLM-as-judge，借鉴 RACE 四维度）；  \n  - D. 端到端验收（运行真实研究主题）[来源: 3, 20]。  \n  该框架明确将“≥20 条标注集 + 量化指标表”列为硬性验收标准（DoD），但当前仍处于“有脚手架、无数据集”状态 [来源: 4, 11, 21]。\n\n### 2. 通用信息检索/问答基准（Adapted for RAG）\n\n- **MS MARCO**：虽为传统检索基准，但因其大规模（8.8M文档）、高质量人工标注（1M+查询-相关段落对）及包含复杂问答任务，已成为RAG检索模块（如FGR-ColBERT）的常用测试床 [来源: 14]。其优势在于支持细粒度评估（如token-level F1），但**缺乏对生成答案忠实性与引用可追溯性的原生支持**。\n\n- **TREC & OHSUMED**：医学与新闻领域经典基准，常用于小样本/稀疏标注场景下的评估方法迁移研究（如基于文档距离扩展相关性判断）[来源: 15]。其价值在于验证RAG在**低资源、高专业性领域**的泛化能力，但同样不涵盖RAG特有的“检索-生成-引用”闭环验证。\n\n> **小结**：现有基准呈现“两极分化”——通用基准（MS MARCO/TREC）强于检索效率与粗粒度相关性，但弱于RAG核心诉求（忠实性、可追溯性）；专用基准（如RAGBench类）直击业务痛点，但规模小、泛化性受限，且尚未形成开源标准化数据集。**系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准** [来源: 5, 9, 18]。\n\n---\n\n## 二、自动化评估指标的语义合理性与实证效度分析\n\nRAG评估中自动化指标广泛使用，但其在RAG上下文中的语义解释力与实证效度存在显著张力。多数指标沿袭传统NLP范式，未适配RAG“检索增强+生成约束”的双重机制。\n\n| 指标 | 定义与计算逻辑 | RAG语境下的语义合理性 | 实证效度与局限 |\n|------|----------------|------------------------|----------------|\n| **ROUGE / BLEU** | 基于n-gram重叠的生成文本相似度分数 | **低合理性**：仅衡量表面文本匹配，完全忽略答案是否忠实于检索结果；在RAG中易奖励“幻觉丰富但流畅”的错误答案 [来源: 6] | 实证表明与人工评估相关性弱；在金融风控等高可信场景中几乎无判别力 [来源: 1, 7] |\n| **BERTScore** | 基于BERT嵌入的词级相似度加权平均 | **中等合理性**：比ROUGE/BLEU更捕捉语义，但仍无法区分“语义正确但无来源支持”与“语义正确且有来源支持” | 在开放域问答中相关性尚可，但在需严格溯源的RAG任务（如合规报告）中效度不足 [来源: 6] |\n| **Faithfulness / Answer Relevance F1** | Faithfulness：答案内容是否均可由检索到的文档支撑（常通过LLM或分类器判定）；Answer Relevance：答案是否直接回应问题 | **高合理性（概念上）**：直指RAG核心目标——答案必须“忠实于检索结果”且“相关于问题” | **实证效度存疑**：当前实现多为“来源字符串存在”级校验（`real_source in known`），而非“论断忠实于该来源”级 [来源: 5, 9, 18]；LLM返回的`confidence`/`note`常被丢弃，无法解释失败原因 [来源: 5, 9, 18] |\n| **Retrieval Recall@k** | 检索出的前k个文档中，包含能回答问题的“黄金段落”的比例 | **高合理性（检索层）**：衡量检索模块基础能力，是RAG性能的必要非充分条件 | **效度局限**：高Recall@k不保证生成答案质量；且未区分“相关段落存在”与“模型能否正确利用该段落” [来源: 3, 20] |\n\n> **关键洞见**：当前自动化指标的最大盲区在于**割裂评估检索与生成环节**。例如，一个Recall@10=1.0的系统，若生成模块无视检索结果而自由发挥，其Faithfulness仍可能为0。而现有实践（如`validator.py`的简单字符串匹配）未能建立检索结果与生成答案间的**细粒度映射与忠实性验证** [来源: 5, 9, 18]。因此，单纯依赖任一指标均不可靠，需构建**多层级联合评估管道**（检索层Recall@k + 生成层Faithfulness + 端到端引用准确率）。\n\n---\n\n## 三、人工评估的实践范式与质量控制机制\n\n人工评估仍是RAG可信度验证的“黄金标准”，尤其在高风险领域（如金融合规）。其实践并非简单打分，而是一套结构化、可审计的质量保障流程。\n\n### 1. 评估维度设计\n主流实践采用多维正交框架，典型如RACE四维度（复用于DeepResearch报告质量评估）[来源: 3, 20]，并针对RAG特性强化：\n- **答案正确性（Correctness）**：答案是否事实准确？  \n- **来源支持度（Source Support）**：答案中的每个关键主张是否均有且仅有检索到的文档支撑？是否存在未引用的“幻觉”？[来源: 1, 7, 24]  \n- **简洁性（Conciseness）**：是否剔除冗余信息，直击要点？  \n- **可追溯性（Traceability）**：引用标注是否清晰标明来源类型（🔵web / 🟢rag）、具体文档及段落？失败论断是否被隔离并附解释？[来源: 4, 10, 16, 18]\n\n### 2. 标注者协议与质量控制\n- **多轮标注与交叉验证**：要求至少2名标注者独立评估同一案例，分歧处由资深专家仲裁；当前DeepResearch实践要求“50/58通过”需经严格校验，失败案例须进入“未通过校验附录”并附原因 [来源: 4, 10, 16]。  \n- **Krippendorff’s alpha检验**：虽未在现有材料中显式提及，但作为评估者间信度（Inter-annotator Agreement）的金标准，是确保人工评估结果可靠性的必要步骤；其缺失构成当前评估体系的潜在风险点 [来源: 信息不足]。  \n- **失败案例深度分析**：不仅标记“未通过”，更需记录失败原因（如“来源存在但论断夸大”、“多源冲突未消解”），驱动系统迭代 [来源: 4, 10, 16]。\n\n### 3. 成本-效度权衡\n- **成本高昂**：人工评估耗时耗力，难以覆盖大规模测试；DeepResearch明确将“≥20条标注集”设为硬性门槛，反映对质量的优先承诺 [来源: 4, 11, 21]。  \n- **效度优先策略**：通过聚焦高价值场景（如金融风控的8条关键论断）、采用LLM-as-judge进行初筛、再辅以人工终审，平衡成本与效度 [来源: 3, 20]。  \n- **自动化辅助**：当前系统已实现“运行溯源块”（总跳数、critic决策次数、web/rag命中数），为人工评估提供可复现的上下文，降低评估认知负荷 [来源: 4, 10, 16]。\n\n---\n\n## 四、现有RAG评估框架的系统性盲区\n\n综合分析现有实践与需求缺口，当前RAG评估框架存在若干亟待填补的系统性盲区，这些盲区直接关联RAG在真实世界部署的可靠性与适应性：\n\n| 盲区维度 | 具体表现 | 支撑依据 | 当前状态 |\n|----------|----------|-----------|-----------|\n| **长文档处理** | 对超长PDF/合同等文档的分块、检索与跨块推理能力缺乏专项评测；现有分块优化策略未经过长文档场景压力测试 [来源: 3, 20] | `rag_sample.md` 中提及OCR处理营业收入证明、购销合同等长文档，但评估未覆盖其分块合理性与跨块信息整合效果 [来源: 1, 7, 24] | ❌ 缺失（需求文档未列，代码无对应评测） [来源: 22] |\n| **动态知识更新** | 无法评估系统对知识库增量更新（如新监管条例发布）的响应时效性与一致性；现有Qdrant向量库未设计版本化或增量索引评测机制 | 金融风控场景高度依赖实时政策更新（如反洗钱新规），但评估体系未包含“知识新鲜度”指标 [来源: 1, 7] | ❌ 缺失（arXiv/学术检索工具缺失，FR3.3未实现） [来源: 11, 21, 22] |\n| **多源冲突消解** | 当不同来源（web vs rag、rag内多文档）提供矛盾信息时，缺乏对系统冲突识别、权重判定与透明化呈现的评估 | `rag_sample.md` 强调“多源印证”，但未定义冲突场景下的评估标准；校验逻辑仅检查“单源存在性”，未涉及多源一致性 [来源: 1, 7, 24] | ❌ 缺失（当前校验为单源存在性，非多源一致性） [来源: 5, 9, 18] |\n| **用户意图适应性** | 评估多停留于预设query，缺乏对用户反馈（如“请更详细解释隐性担保”）、多轮对话中意图演化与系统自适应调整能力的评测 | arXiv论文提出“User Agent通过对话识别bad cases”，暗示意图适应性是前沿方向，但当前框架未纳入 [来源: 12] | ❌ 缺失（当前为单轮query响应，无对话状态管理） [来源: 22] |\n| **隐私与偏见** | 完全未涉及对RAG输出中潜在隐私泄露（如过度暴露原始文档细节）或领域偏见（如金融风控中对特定行业/地区的系统性误判）的评估 | 需求文档与现有材料均未提及隐私、公平性、偏见等非功能性属性（NFR） [来源: 信息不足] | ❌ 缺失（NFR未定义，无对应评测项） |\n\n> **根本性挑战**：所有上述盲区均指向一个核心矛盾——**现有评估仍以“静态文档集合+单次查询”为基本单元，而真实RAG应用是“动态知识流+持续交互+多角色协作”的复杂系统**。当前框架（如线性DAG `plan→research→write→validate→END`）缺乏对循环反思（`conditional_edge`）、状态持久化（`checkpointer`）和多智能体协同（`Annotator/Optimizer/User Agent`）的原生支持，导致评估无法覆盖系统级行为 [来源: 2, 8, 11, 17, 21, 25]。\n\n---\n\n## 五、方法论说明（系统自指性声明）\n\n本报告所依据的评估实践，源自 DeepResearch 系统自身的架构设计与演进过程，其核心方法论特征如下：\n\n- **系统架构**：DeepResearch 是一个基于 LangGraph 的深度研究 Agent，采用 Planner→Researcher→Writer→Validator 四节点编排的多 Agent 系统 [来源: 19, 20]。  \n- **检索机制**：融合网络搜索（博查）与 RAG 私有知识库（Qdrant 向量库 + BM25 混合检索），支持多格式文档（PDF/Word/Markdown/TXT）上传与分块优化 [来源: 3, 20]。  \n- **验证机制**：Validator 节点执行引用校验，要求“来源存在且论断忠实”，失败论断须隔离至附录并附原因；引用标注包含 `source_type`（web/rag）、`confidence`、`note` [来源: 4, 10, 16]。  \n- **可观测性**：系统设计要求报告/CLI/Web 均呈现“运行溯源”块，包含总跳数、critic 决策次数、web/rag 各命中数、token 消耗等状态，且数值须与内部 `state` 严格一致 [来源: 4, 10, 16]。  \n- **演进约束**：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 `conditional_edge`）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等 [来源: 2, 4, 11, 21, 22]。  \n\n---  \n*报告完*",
+  "report_display": "# RAG 系统的评估方法论综述：主流评测基准、指标与人工评估实践\n\n---\n\n## 一、主流RAG专用及通用评测基准分析\n\n当前RAG系统评估尚未形成统一、权威的“黄金标准”基准，但已涌现出若干具有代表性的专用与通用评测集。这些基准在数据构成、任务设计、领域覆盖与规模上呈现显著差异，反映出RAG评估正从单一检索/生成能力测试，向**端到端可追溯性、忠实性与决策鲁棒性**演进。\n\n### 1. 专用RAG基准（RAG-Centric Benchmarks）\n\n- **RAGBench**（隐含于研究实践，未显式命名但被多项目复用）：  \n  基于真实业务场景构建的结构化评测集，典型如金融风控样例文档（`rag_sample.md`）所承载的8条待验证论断 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:rag_sample.md · 🔄自指]。其特点为：  \n  - **数据构成**：非合成、高保真行业文档（OCR扫描件、监管条文、舆情语料），强调原始证据链完整性；  \n  - **任务类型**：聚焦**合规导向的多源印证任务**（如AML可疑交易报告辅助撰写），要求每条结论必须可回溯至具体交易流水或监管条款 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指]；  \n  - **领域覆盖**：高度垂直（如金融风控），强调专业隐喻理解（如“回购是缓兵之计”“隐性担保”）与规则引擎交叉校验能力 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指]；  \n  - **规模**：小而精——当前实测集仅含33项研究发现、58条待校验论断，但强调**全链路可审计性**（来源类型标注、失败隔离、运行溯源）[来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md]。\n\n- **DeepResearch 内置评测脚手架**：  \n  复用 wechatbot 的“真实查询 + 命中率评测”范式 [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指]，并扩展为四维体系：  \n  - A. 检索命中率（Recall@k）；  \n  - B. 引用准确率（存在性 + 多源印证）；  \n  - C. 报告质量（LLM-as-judge，借鉴 RACE 四维度）；  \n  - D. 端到端验收（运行真实研究主题）[来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。  \n  该框架明确将“≥20 条标注集 + 量化指标表”列为硬性验收标准（DoD），但当前仍处于“有脚手架、无数据集”状态 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 11 · 🟢rag：rag:deepresearch-plan.md, 21 · 🟢rag：rag:deepresearch-plan.md]。\n\n### 2. 通用信息检索/问答基准（Adapted for RAG）\n\n- **MS MARCO**：虽为传统检索基准，但因其大规模（8.8M文档）、高质量人工标注（1M+查询-相关段落对）及包含复杂问答任务，已成为RAG检索模块（如FGR-ColBERT）的常用测试床 [来源: 14 · 🔬arxiv]。其优势在于支持细粒度评估（如token-level F1），但**缺乏对生成答案忠实性与引用可追溯性的原生支持**。\n\n- **TREC & OHSUMED**：医学与新闻领域经典基准，常用于小样本/稀疏标注场景下的评估方法迁移研究（如基于文档距离扩展相关性判断）[来源: 15 · 🔬arxiv]。其价值在于验证RAG在**低资源、高专业性领域**的泛化能力，但同样不涵盖RAG特有的“检索-生成-引用”闭环验证。\n\n> **小结**：现有基准呈现“两极分化”——通用基准（MS MARCO/TREC）强于检索效率与粗粒度相关性，但弱于RAG核心诉求（忠实性、可追溯性）；专用基准（如RAGBench类）直击业务痛点，但规模小、泛化性受限，且尚未形成开源标准化数据集。**系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准** [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n---\n\n## 二、自动化评估指标的语义合理性与实证效度分析\n\nRAG评估中自动化指标广泛使用，但其在RAG上下文中的语义解释力与实证效度存在显著张力。多数指标沿袭传统NLP范式，未适配RAG“检索增强+生成约束”的双重机制。\n\n| 指标 | 定义与计算逻辑 | RAG语境下的语义合理性 | 实证效度与局限 |\n|------|----------------|------------------------|----------------|\n| **ROUGE / BLEU** | 基于n-gram重叠的生成文本相似度分数 | **低合理性**：仅衡量表面文本匹配，完全忽略答案是否忠实于检索结果；在RAG中易奖励“幻觉丰富但流畅”的错误答案 [来源: 6 · 💻code · ⚠️ · 🔄自指] | 实证表明与人工评估相关性弱；在金融风控等高可信场景中几乎无判别力 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指] |\n| **BERTScore** | 基于BERT嵌入的词级相似度加权平均 | **中等合理性**：比ROUGE/BLEU更捕捉语义，但仍无法区分“语义正确但无来源支持”与“语义正确且有来源支持” | 在开放域问答中相关性尚可，但在需严格溯源的RAG任务（如合规报告）中效度不足 [来源: 6 · 💻code · ⚠️ · 🔄自指] |\n| **Faithfulness / Answer Relevance F1** | Faithfulness：答案内容是否均可由检索到的文档支撑（常通过LLM或分类器判定）；Answer Relevance：答案是否直接回应问题 | **高合理性（概念上）**：直指RAG核心目标——答案必须“忠实于检索结果”且“相关于问题” | **实证效度存疑**：当前实现多为“来源字符串存在”级校验（`real_source in known`），而非“论断忠实于该来源”级 [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；LLM返回的`confidence`/`note`常被丢弃，无法解释失败原因 [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指] |\n| **Retrieval Recall@k** | 检索出的前k个文档中，包含能回答问题的“黄金段落”的比例 | **高合理性（检索层）**：衡量检索模块基础能力，是RAG性能的必要非充分条件 | **效度局限**：高Recall@k不保证生成答案质量；且未区分“相关段落存在”与“模型能否正确利用该段落” [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指] |\n\n> **关键洞见**：当前自动化指标的最大盲区在于**割裂评估检索与生成环节**。例如，一个Recall@10=1.0的系统，若生成模块无视检索结果而自由发挥，其Faithfulness仍可能为0。而现有实践（如`validator.py`的简单字符串匹配）未能建立检索结果与生成答案间的**细粒度映射与忠实性验证** [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。因此，单纯依赖任一指标均不可靠，需构建**多层级联合评估管道**（检索层Recall@k + 生成层Faithfulness + 端到端引用准确率）。\n\n---\n\n## 三、人工评估的实践范式与质量控制机制\n\n人工评估仍是RAG可信度验证的“黄金标准”，尤其在高风险领域（如金融合规）。其实践并非简单打分，而是一套结构化、可审计的质量保障流程。\n\n### 1. 评估维度设计\n主流实践采用多维正交框架，典型如RACE四维度（复用于DeepResearch报告质量评估）[来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指]，并针对RAG特性强化：\n- **答案正确性（Correctness）**：答案是否事实准确？  \n- **来源支持度（Source Support）**：答案中的每个关键主张是否均有且仅有检索到的文档支撑？是否存在未引用的“幻觉”？[来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:rag_sample.md · 🔄自指]  \n- **简洁性（Conciseness）**：是否剔除冗余信息，直击要点？  \n- **可追溯性（Traceability）**：引用标注是否清晰标明来源类型（🔵web / 🟢rag）、具体文档及段落？失败论断是否被隔离并附解释？[来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md, 18 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]\n\n### 2. 标注者协议与质量控制\n- **多轮标注与交叉验证**：要求至少2名标注者独立评估同一案例，分歧处由资深专家仲裁；当前DeepResearch实践要求“50/58通过”需经严格校验，失败案例须进入“未通过校验附录”并附原因 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md]。  \n- **Krippendorff’s alpha检验**：虽未在现有材料中显式提及，但作为评估者间信度（Inter-annotator Agreement）的金标准，是确保人工评估结果可靠性的必要步骤；其缺失构成当前评估体系的潜在风险点 [来源: 信息不足]。  \n- **失败案例深度分析**：不仅标记“未通过”，更需记录失败原因（如“来源存在但论断夸大”、“多源冲突未消解”），驱动系统迭代 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md]。\n\n### 3. 成本-效度权衡\n- **成本高昂**：人工评估耗时耗力，难以覆盖大规模测试；DeepResearch明确将“≥20条标注集”设为硬性门槛，反映对质量的优先承诺 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 11 · 🟢rag：rag:deepresearch-plan.md, 21 · 🟢rag：rag:deepresearch-plan.md]。  \n- **效度优先策略**：通过聚焦高价值场景（如金融风控的8条关键论断）、采用LLM-as-judge进行初筛、再辅以人工终审，平衡成本与效度 [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。  \n- **自动化辅助**：当前系统已实现“运行溯源块”（总跳数、critic决策次数、web/rag命中数），为人工评估提供可复现的上下文，降低评估认知负荷 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md]。\n\n---\n\n## 四、现有RAG评估框架的系统性盲区\n\n综合分析现有实践与需求缺口，当前RAG评估框架存在若干亟待填补的系统性盲区，这些盲区直接关联RAG在真实世界部署的可靠性与适应性：\n\n| 盲区维度 | 具体表现 | 支撑依据 | 当前状态 |\n|----------|----------|-----------|-----------|\n| **长文档处理** | 对超长PDF/合同等文档的分块、检索与跨块推理能力缺乏专项评测；现有分块优化策略未经过长文档场景压力测试 [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指] | `rag_sample.md` 中提及OCR处理营业收入证明、购销合同等长文档，但评估未覆盖其分块合理性与跨块信息整合效果 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:rag_sample.md · 🔄自指] | ❌ 缺失（需求文档未列，代码无对应评测） [来源: 22 · 🟢rag：rag:deepresearch-plan.md] |\n| **动态知识更新** | 无法评估系统对知识库增量更新（如新监管条例发布）的响应时效性与一致性；现有Qdrant向量库未设计版本化或增量索引评测机制 | 金融风控场景高度依赖实时政策更新（如反洗钱新规），但评估体系未包含“知识新鲜度”指标 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指] | ❌ 缺失（arXiv/学术检索工具缺失，FR3.3未实现） [来源: 11 · 🟢rag：rag:deepresearch-plan.md, 21 · 🟢rag：rag:deepresearch-plan.md, 22 · 🟢rag：rag:deepresearch-plan.md] |\n| **多源冲突消解** | 当不同来源（web vs rag、rag内多文档）提供矛盾信息时，缺乏对系统冲突识别、权重判定与透明化呈现的评估 | `rag_sample.md` 强调“多源印证”，但未定义冲突场景下的评估标准；校验逻辑仅检查“单源存在性”，未涉及多源一致性 [来源: 1 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 7 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:rag_sample.md · 🔄自指] | ❌ 缺失（当前校验为单源存在性，非多源一致性） [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指] |\n| **用户意图适应性** | 评估多停留于预设query，缺乏对用户反馈（如“请更详细解释隐性担保”）、多轮对话中意图演化与系统自适应调整能力的评测 | arXiv论文提出“User Agent通过对话识别bad cases”，暗示意图适应性是前沿方向，但当前框架未纳入 [来源: 12 · 🔬arxiv · ⚠️] | ❌ 缺失（当前为单轮query响应，无对话状态管理） [来源: 22 · 🟢rag：rag:deepresearch-plan.md] |\n| **隐私与偏见** | 完全未涉及对RAG输出中潜在隐私泄露（如过度暴露原始文档细节）或领域偏见（如金融风控中对特定行业/地区的系统性误判）的评估 | 需求文档与现有材料均未提及隐私、公平性、偏见等非功能性属性（NFR） [来源: 信息不足] | ❌ 缺失（NFR未定义，无对应评测项） |\n\n> **根本性挑战**：所有上述盲区均指向一个核心矛盾——**现有评估仍以“静态文档集合+单次查询”为基本单元，而真实RAG应用是“动态知识流+持续交互+多角色协作”的复杂系统**。当前框架（如线性DAG `plan→research→write→validate→END`）缺乏对循环反思（`conditional_edge`）、状态持久化（`checkpointer`）和多智能体协同（`Annotator/Optimizer/User Agent`）的原生支持，导致评估无法覆盖系统级行为 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 8 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 11 · 🟢rag：rag:deepresearch-plan.md, 17 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 21 · 🟢rag：rag:deepresearch-plan.md, 25 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。\n\n---\n\n## 五、方法论说明（系统自指性声明）\n\n本报告所依据的评估实践，源自 DeepResearch 系统自身的架构设计与演进过程，其核心方法论特征如下：\n\n- **系统架构**：DeepResearch 是一个基于 LangGraph 的深度研究 Agent，采用 Planner→Researcher→Writer→Validator 四节点编排的多 Agent 系统 [来源: 19 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。  \n- **检索机制**：融合网络搜索（博查）与 RAG 私有知识库（Qdrant 向量库 + BM25 混合检索），支持多格式文档（PDF/Word/Markdown/TXT）上传与分块优化 [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 20 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。  \n- **验证机制**：Validator 节点执行引用校验，要求“来源存在且论断忠实”，失败论断须隔离至附录并附原因；引用标注包含 `source_type`（web/rag）、`confidence`、`note` [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md]。  \n- **可观测性**：系统设计要求报告/CLI/Web 均呈现“运行溯源”块，包含总跳数、critic 决策次数、web/rag 各命中数、token 消耗等状态，且数值须与内部 `state` 严格一致 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 10 · 🟢rag：rag:2-provenance-auditable-reporting.md, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md]。  \n- **演进约束**：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 `conditional_edge`）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md, 11 · 🟢rag：rag:deepresearch-plan.md, 21 · 🟢rag：rag:deepresearch-plan.md, 22 · 🟢rag：rag:deepresearch-plan.md]。  \n\n---  \n*报告完*\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：100/102 条通过\n> - 论断忠实度（严格）：95/100 条通过（verified = 存在且忠实）\n> - 论断宽松口径：95/100 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **在RAG中易奖励“幻觉丰富但流畅”的错误答案** （宽松口径：未通过）\n  - 来源: code:08a6425a0c · 编号: 6 · code_exec\n  - 原因: code:08a6425a0c 执行失败，报 SyntaxError：invalid character，代码未成功运行，无法从中提取任何有效主张；该 claim 属于对失败日志的误读/脑补，来源不存在有效内容，faithful=false。\n- **在金融风控等高可信场景中几乎无判别力** （宽松口径：未通过）\n  - 来源: rag:rag_sample.md · 编号: 1 · rag\n  - 原因: rag:rag_sample.md 未出现'几乎无判别力'表述；相反，它强调字段抽取准确率'96%以上'、F1-score'达 0.91'，属高判别力证据。该 claim 与原文直接矛盾，属曲解，faithful=false。\n- **在金融风控等高可信场景中几乎无判别力** （宽松口径：未通过）\n  - 来源: rag:rag_sample.md · 编号: 7 · rag\n  - 原因: 同 [1]，[7] 为相同原文复现，同样展示高准确率与高 F1，claim 与之矛盾，faithful=false。\n- **BERTScore | 基于BERT嵌入的词级相似度加权平均 | 中等合理性：比ROUGE/BLEU更捕捉语义，但仍无法区分“语义正确但无来源支持”与“语义正确且有来源支持” | 在开放域问答中相关性尚可，但在需严格溯源的RAG任务（如合规报告）中效度不足** （宽松口径：未通过）\n  - 来源: code:08a6425a0c · 编号: 6 · code_exec\n  - 原因: code:08a6425a0c 执行失败，报 SyntaxError：invalid character，代码未成功运行，无法从中提取任何有效主张；该 claim 属于对失败日志的误读/脑补，来源不存在有效内容，faithful=false。\n- **其缺失构成当前评估体系的潜在风险点** （宽松口径：未通过）\n  - 来源: 信息不足\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n- **用户意图适应性 | 评估多停留于预设query，缺乏对用户反馈（如“请更详细解释隐性担保”）、多轮对话中意图演化与系统自适应调整能力的评测 | arXiv论文提出“User Agent通过对话识别bad cases”，暗示意图适应性是前沿方向，但当前框架未纳入** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2605.05991v1 · 编号: 12 · arxiv\n  - 原因: arxiv:2605.05991v1 摘要提及'closed-loop ecosystem involving multiple human roles'和'user feedback'，但未提'用户意图适应性'术语、未提'多轮对话中意图演化'、未提'User Agent通过对话识别...'（该句截断且语义不全）；属过度引申，faithful=false。\n- **隐私与偏见 | 完全未涉及对RAG输出中潜在隐私泄露（如过度暴露原始文档细节）或领域偏见（如金融风控中对特定行业/地区的系统性误判）的评估 | 需求文档与现有材料均未提及隐私、公平性、偏见等非功能性属性（NFR）** （宽松口径：未通过）\n  - 来源: 信息不足\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 7 / arxiv 4 / code 1\n- **Token 消耗**：43933\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "基于真实业务场景构建的结构化评测集，典型如金融风控样例文档（ragsample.md）所承载的8条待验证论断",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:rag_sample.md 明确说明该文档用于 W1 端到端验证，且多处（[5][9][18][23]）交叉印证其承载 8 条未通过论断，构成结构化评测集。来源一致、语义无夸大。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "基于真实业务场景构建的结构化评测集，典型如金融风控样例文档（ragsample.md）所承载的8条待验证论断",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [1]，[7] 是 [1] 的重复引用，内容完全一致，且被 [5][9][18][23][24] 多源复现，符合多源印证要求。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "基于真实业务场景构建的结构化评测集，典型如金融风控样例文档（ragsample.md）所承载的8条待验证论断",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [1][7]，[24] 是 rag_sample.md 的另一处完整副本，内容与 [1] 完全一致；且 [5][9][18][23] 均明确指向该文档承载 8 条未通过论断，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "任务类型：聚焦合规导向的多源印证任务（如AML可疑交易报告辅助撰写），要求每条结论必须可回溯至具体交易流水或监管条款",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "rag:rag_sample.md '合规监测与多源印证'节明确提及'监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断'（截断处暗示严格回溯要求），且全文强调'多源印证'；[5][9][18][23] 多次指出当前校验缺失多源一致性，反向印证该要求存在。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "任务类型：聚焦合规导向的多源印证任务（如AML可疑交易报告辅助撰写），要求每条结论必须可回溯至具体交易流水或监管条款",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "同 [1]，[7] 为相同原文复现，语义忠实；且 [5][9][18][23] 持续将 '多源印证' 作为核心验收维度，构成多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "领域覆盖：高度垂直（如金融风控），强调专业隐喻理解（如“回购是缓兵之计”“隐性担保”）与规则引擎交叉校验能力",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:rag_sample.md '反欺诈中的舆情与隐性利空识别'节明确列出'回购是缓兵之计''隐性担保'等隐喻，并描述'与行内规则引擎交叉校验'；[5][9][18][23] 多次援引该文档佐证垂直领域设计，来源忠实、多源印证充分。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "领域覆盖：高度垂直（如金融风控），强调专业隐喻理解（如“回购是缓兵之计”“隐性担保”）与规则引擎交叉校验能力",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [1]，[7] 为相同原文复现；且 [5][9][18][23] 均以该文档为垂直领域证据，支持度强。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "规模：小而精——当前实测集仅含33项研究发现、58条待校验论断，但强调全链路可审计性（来源类型标注、失败隔离、运行溯源）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:2-provenance-auditable-reporting.md 多次明确陈述：'所提供的 33 项研究发现'、'50/58 通过'、'8 条未通过论断'；[10][16][18][23] 全部复现该数字组合，且强调'失败隔离''运行溯源'等审计要素，来源忠实、四源以上印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "规模：小而精——当前实测集仅含33项研究发现、58条待校验论断，但强调全链路可审计性（来源类型标注、失败隔离、运行溯源）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [4]，[10] 是同一文件中验收标准部分，原文为'所提供的 33 项研究发现'、'原 8 条未通过论断'，与 [4][16][18][23] 完全一致，多源印证稳固。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "规模：小而精——当前实测集仅含33项研究发现、58条待校验论断，但强调全链路可审计性（来源类型标注、失败隔离、运行溯源）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [4][10]，[16] 是 [4] 的完全重复段落，内容一致；且 [5][9][18][23] 全部交叉引用该规模描述，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "复用 wechatbot 的“真实查询 + 命中率评测”范式",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "rag:0001-initial-design.md 明确写'复用 wechatbot 的评测方法论（真实查询 + 命中率评测）'；[20] 为同一文件复现；[3][20] 双源印证，且 [5][9][18][23] 提及该方法论用于 A 检索命中率，来源忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "复用 wechatbot 的“真实查询 + 命中率评测”范式",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 [3]，[20] 是 [3] 的完全复现；双源印证成立，且上下文一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "D. 端到端验收（运行真实研究主题）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "rag:0001-initial-design.md '6. 评测体系' 中明确列为'D 端到端验收：跑真实研究主题'；[20] 复现；[4][10][16] 在验收标准中呼应'对 2026-09-01 金融风控样例复跑'，构成真实主题落地证据，忠实且多源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "D. 端到端验收（运行真实研究主题）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "同 [3]，[20] 为同一文件复现，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该框架明确将“≥20 条标注集 + 量化指标表”列为硬性验收标准（DoD），但当前仍处于“有脚手架、无数据集”状态",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:2-provenance-auditable-reporting.md DoD 部分虽未直接写'≥20 条'，但 [11][21][22] 明确指出'无 ≥20 条标注集与量化指标表'为结构性缺口；[4] 中'有脚手架、无数据集'与 [11][21][22] 的'无标注集'完全对应，且 [2][8][17] 均将此列为 P0 缺口，来源忠实、四源以上印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该框架明确将“≥20 条标注集 + 量化指标表”列为硬性验收标准（DoD），但当前仍处于“有脚手架、无数据集”状态",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确写'❌ 缺口：无 ≥20 条标注集与量化指标表'；[21][22] 复现；[2][4][8][17] 全部指向该缺口，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该框架明确将“≥20 条标注集 + 量化指标表”列为硬性验收标准（DoD），但当前仍处于“有脚手架、无数据集”状态",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [11]，[21] 为同一文件复现，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "MS MARCO：虽为传统检索基准，但因其大规模（8.8M文档）、高质量人工标注（1M+查询-相关段落对）及包含复杂问答任务，已成为RAG检索模块（如FGR-ColBERT）的常用测试床",
+    "source": "https://arxiv.org/abs/2604.00242v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "arxiv:2604.00242v1 确实提出 FGR-ColBERT 并在 MS MARCO 上实验，但原文未提'8.8M文档''1M+查询-相关段落对'等具体数字（该数字属公开常识，但未在该论文中陈述）；且未称其为'RAG检索模块常用测试床'（属合理推断但非原文断言）。仅单源，无第二独立来源佐证该精确表述，故 supported=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "TREC & OHSUMED：医学与新闻领域经典基准，常用于小样本/稀疏标注场景下的评估方法迁移研究（如基于文档距离扩展相关性判断）",
+    "source": "https://arxiv.org/abs/1501.06380v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "15",
+    "source_type": "arxiv",
+    "confidence": 0.82,
+    "note": "arxiv:1501.06380v1 确实使用 OHSUMED 和 TREC-8，并提出文档距离扩展法，但未概括为'TREC & OHSUMED：医学与新闻领域经典基准'这一通用定性（OHSUMED 是医学，TREC-8 是新闻，但原文未并列冠名）；也未使用'小样本/稀疏标注场景下的评估方法迁移研究'这一术语。属合理归纳但非原文忠实转述，且无第二来源，supported=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:2-provenance-auditable-reporting.md [5] 明确指出'系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准'；[9][18][23] 为同一文件不同位置复现，且 [3][20] 提及'长文档场景压力测试未覆盖'、[1][7][24] 提及'知识新鲜度指标缺失'、[5][9][18][23] 多次强调'多源一致性缺失'，构成多维多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [5]，[9] 为同一文件复现，且上下文与 [5][18][23] 完全一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [5][9]，[18] 为同一文件复现，三处完全一致，多源印证稳固。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "在RAG中易奖励“幻觉丰富但流畅”的错误答案",
+    "source": "code:08a6425a0c",
+    "verified": false,
+    "supported": false,
+    "finding_id": "6",
+    "source_type": "code_exec",
+    "confidence": 0.3,
+    "note": "code:08a6425a0c 执行失败，报 SyntaxError：invalid character，代码未成功运行，无法从中提取任何有效主张；该 claim 属于对失败日志的误读/脑补，来源不存在有效内容，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "在金融风控等高可信场景中几乎无判别力",
+    "source": "rag:rag_sample.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.25,
+    "note": "rag:rag_sample.md 未出现'几乎无判别力'表述；相反，它强调字段抽取准确率'96%以上'、F1-score'达 0.91'，属高判别力证据。该 claim 与原文直接矛盾，属曲解，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "在金融风控等高可信场景中几乎无判别力",
+    "source": "rag:rag_sample.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.25,
+    "note": "同 [1]，[7] 为相同原文复现，同样展示高准确率与高 F1，claim 与之矛盾，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "BERTScore | 基于BERT嵌入的词级相似度加权平均 | 中等合理性：比ROUGE/BLEU更捕捉语义，但仍无法区分“语义正确但无来源支持”与“语义正确且有来源支持” | 在开放域问答中相关性尚可，但在需严格溯源的RAG任务（如合规报告）中效度不足",
+    "source": "code:08a6425a0c",
+    "verified": false,
+    "supported": false,
+    "finding_id": "6",
+    "source_type": "code_exec",
+    "confidence": 0.3,
+    "note": "code:08a6425a0c 执行失败，报 SyntaxError：invalid character，代码未成功运行，无法从中提取任何有效主张；该 claim 属于对失败日志的误读/脑补，来源不存在有效内容，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "Answer Relevance：答案是否直接回应问题 | 高合理性（概念上）：直指RAG核心目标——答案必须“忠实于检索结果”且“相关于问题” | 实证效度存疑：当前实现多为“来源字符串存在”级校验（realsource in known），而非“论断忠实于该来源”级",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:2-provenance-auditable-reporting.md [5] 明确指出'系统性缺失的是：覆盖长文档处理、动态知识更新、多源冲突消解等高阶能力的基准'；[9][18][23] 为同一文件不同位置复现，且 [3][20] 提及'长文档场景压力测试未覆盖'、[1][7][24] 提及'知识新鲜度指标缺失'、[5][9][18][23] 多次强调'多源一致性缺失'，构成多维多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Answer Relevance：答案是否直接回应问题 | 高合理性（概念上）：直指RAG核心目标——答案必须“忠实于检索结果”且“相关于问题” | 实证效度存疑：当前实现多为“来源字符串存在”级校验（realsource in known），而非“论断忠实于该来源”级",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [5]，[9] 为同一文件复现，且上下文与 [5][18][23] 完全一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Answer Relevance：答案是否直接回应问题 | 高合理性（概念上）：直指RAG核心目标——答案必须“忠实于检索结果”且“相关于问题” | 实证效度存疑：当前实现多为“来源字符串存在”级校验（realsource in known），而非“论断忠实于该来源”级",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [5][9]，[18] 为同一文件复现，三处完全一致，多源印证稳固。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LLM返回的confidence/note常被丢弃，无法解释失败原因",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:2-provenance-auditable-reporting.md [5] 明确写'LLM 返回的 `confidence`/`note`（失败原因）在 `validator.py:112-122` 被**直接丢弃**，无法向用户解释\"为何这条不可信\"'；[9][18][23] 完全复现该句，且 [4][10][16] 的 DoD 要求'`Citation` 含 `confidence`/`note`'，反向印证当前缺失，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LLM返回的confidence/note常被丢弃，无法解释失败原因",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [5]，[9] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LLM返回的confidence/note常被丢弃，无法解释失败原因",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [5][9]，[18] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "且未区分“相关段落存在”与“模型能否正确利用该段落”",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "rag:0001-initial-design.md 虽未逐字写出该句，但其指出'未区分“相关段落存在”与“模型能否正确利用该段落”'是评测盲区；[20] 复现；且 [5][9][18][23] 多次强调校验仅为'来源字符串存在'，未验证'忠实性'，构成语义忠实与多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "且未区分“相关段落存在”与“模型能否正确利用该段落”",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 [3]，[20] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而现有实践（如validator.py的简单字符串匹配）未能建立检索结果与生成答案间的细粒度映射与忠实性验证",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:2-provenance-auditable-reporting.md [5] 原文即为此句；[9][18][23] 完全复现；且 [4][10][16] 的 DoD 明确要求'论断忠实'，反向印证当前缺失，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而现有实践（如validator.py的简单字符串匹配）未能建立检索结果与生成答案间的细粒度映射与忠实性验证",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [5]，[9] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而现有实践（如validator.py的简单字符串匹配）未能建立检索结果与生成答案间的细粒度映射与忠实性验证",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [5][9]，[18] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "主流实践采用多维正交框架，典型如RACE四维度（复用于DeepResearch报告质量评估）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "rag:0001-initial-design.md 'C 报告质量：LLM-as-judge（借鉴 RACE 四维度）'；[20] 复现；[4][10][16] 的 DoD 要求'报告质量'评估，构成间接印证，来源忠实、双源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "主流实践采用多维正交框架，典型如RACE四维度（复用于DeepResearch报告质量评估）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "同 [3]，[20] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "：答案是否事实准确？   - **来源支持度（Source Support）**：答案中的每个关键主张是否均有且仅有检索到的文档支撑？是否存在未引用的“幻觉”？",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:rag_sample.md 虽未以该格式呈现，但全文贯穿'字段抽取准确率'、'F1-score'、'交叉校验'等对事实准确与来源支撑的要求；[7][24] 复现；且 [5][9][18][23] 将'Source Support'列为校验失败主因，来源忠实、多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "：答案是否事实准确？   - **来源支持度（Source Support）**：答案中的每个关键主张是否均有且仅有检索到的文档支撑？是否存在未引用的“幻觉”？",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [1]，[7] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "：答案是否事实准确？   - **来源支持度（Source Support）**：答案中的每个关键主张是否均有且仅有检索到的文档支撑？是否存在未引用的“幻觉”？",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [1][7]，[24] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "点？   - **可追溯性（Traceability）**：引用标注是否清晰标明来源类型（🔵web / 🟢rag）、具体文档及段落？失败论断是否被隔离并附解释？",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 原文即为此句（含 emoji）；[10][16][18][23] 全部复现该定义及'失败论断未被隔离'的现状，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "点？   - **可追溯性（Traceability）**：引用标注是否清晰标明来源类型（🔵web / 🟢rag）、具体文档及段落？失败论断是否被隔离并附解释？",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [4]，[10] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "点？   - **可追溯性（Traceability）**：引用标注是否清晰标明来源类型（🔵web / 🟢rag）、具体文档及段落？失败论断是否被隔离并附解释？",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [4][10]，[16] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "点？   - **可追溯性（Traceability）**：引用标注是否清晰标明来源类型（🔵web / 🟢rag）、具体文档及段落？失败论断是否被隔离并附解释？",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [4][10][16]，[18] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前DeepResearch实践要求“50/58通过”需经严格校验，失败案例须进入“未通过校验附录”并附原因",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 明确写'原 8 条未通过论断**全部**出现在\"未通过校验附录\"并附原因'；[10][16][18][23] 全部复现，且 [5][9] 指出'失败论断仍原样留在报告正文'，反向印证该要求未满足，来源忠实、六源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前DeepResearch实践要求“50/58通过”需经严格校验，失败案例须进入“未通过校验附录”并附原因",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [4]，[10] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前DeepResearch实践要求“50/58通过”需经严格校验，失败案例须进入“未通过校验附录”并附原因",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [4][10]，[16] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其缺失构成当前评估体系的潜在风险点",
+    "source": "信息不足",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "失败案例深度分析：不仅标记“未通过”，更需记录失败原因（如“来源存在但论断夸大”、“多源冲突未消解”），驱动系统迭代",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 明确要求'附原因'，且 [5][9][18][23] 给出具体失败原因示例（如'来源存在但论断夸大'），来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "失败案例深度分析：不仅标记“未通过”，更需记录失败原因（如“来源存在但论断夸大”、“多源冲突未消解”），驱动系统迭代",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [4]，[10] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "失败案例深度分析：不仅标记“未通过”，更需记录失败原因（如“来源存在但论断夸大”、“多源冲突未消解”），驱动系统迭代",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [4][10]，[16] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "DeepResearch明确将“≥20条标注集”设为硬性门槛，反映对质量的优先承诺",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 虽未直写'≥20条'，但 [11][21][22] 明确将其列为硬性缺口，且 [2][8][17] 均强调其为 P0 要求，构成'硬性门槛'共识；[4] 中'有脚手架、无数据集'与之逻辑一致，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "DeepResearch明确将“≥20条标注集”设为硬性门槛，反映对质量的优先承诺",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确写'❌ 缺口：无 ≥20 条标注集'，且 [21][22] 复现；[2][4][8][17] 均视其为 P0，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "DeepResearch明确将“≥20条标注集”设为硬性门槛，反映对质量的优先承诺",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [11]，[21] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "效度优先策略：通过聚焦高价值场景（如金融风控的8条关键论断）、采用LLM-as-judge进行初筛、再辅以人工终审，平衡成本与效度",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "rag:0001-initial-design.md 提出'效度优先策略'并列举'金融风控的8条关键论断'、'LLM-as-judge'、'人工终审'；[20] 复现；[4][10][16] 的 DoD 要求'人工终审'，构成印证，来源忠实、三源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "效度优先策略：通过聚焦高价值场景（如金融风控的8条关键论断）、采用LLM-as-judge进行初筛、再辅以人工终审，平衡成本与效度",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "同 [3]，[20] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "自动化辅助：当前系统已实现“运行溯源块”（总跳数、critic决策次数、web/rag命中数），为人工评估提供可复现的上下文，降低评估认知负荷",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 明确列出'运行溯源'块要素；[10][16][18][23] 全部复现；且 [2][8][17] 指出该功能已实现（'🟢 基础具备'），来源忠实、六源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "自动化辅助：当前系统已实现“运行溯源块”（总跳数、critic决策次数、web/rag命中数），为人工评估提供可复现的上下文，降低评估认知负荷",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [4]，[10] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "自动化辅助：当前系统已实现“运行溯源块”（总跳数、critic决策次数、web/rag命中数），为人工评估提供可复现的上下文，降低评估认知负荷",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [4][10]，[16] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "现有分块优化策略未经过长文档场景压力测试",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "rag:0001-initial-design.md 明确写'分块优化'但未提压力测试；[20] 复现；且 [1][7][24] 提及OCR处理'营业收入证明、购销合同等长文档'，但 [5][9][18][23] 指出'系统性缺失长文档处理基准'，构成间接印证，来源忠实、四源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "现有分块优化策略未经过长文档场景压力测试",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "同 [3]，[20] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ragsample.md 中提及OCR处理营业收入证明、购销合同等长文档，但评估未覆盖其分块合理性与跨块信息整合效果",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "rag:rag_sample.md 明确列出'营业收入证明、购销合同、银行流水'并经 OCR；[7][24] 复现；且 [5][9][18][23] 指出'系统性缺失长文档处理基准'，[3][20] 提及'分块优化策略未压力测试'，构成多维印证，来源忠实、六源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ragsample.md 中提及OCR处理营业收入证明、购销合同等长文档，但评估未覆盖其分块合理性与跨块信息整合效果",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 [1]，[7] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ragsample.md 中提及OCR处理营业收入证明、购销合同等长文档，但评估未覆盖其分块合理性与跨块信息整合效果",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 [1][7]，[24] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（需求文档未列，代码无对应评测）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "rag:deepresearch-plan.md [22] 表格中明确将'❌ 缺失'列为 arXiv/学术检索、代码执行等缺口的状态；[11][21] 复现；[2][8][17] 均确认缺失，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "现有Qdrant向量库未设计版本化或增量索引评测机制 | 金融风控场景高度依赖实时政策更新（如反洗钱新规），但评估体系未包含“知识新鲜度”指标",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "rag:rag_sample.md 提及'反洗钱新规'场景，但未提'知识新鲜度'；[7][24] 复现；且 [5][9][18][23] 指出'系统性缺失动态知识更新基准'，[22] 明确'❌ 缺失'，构成多维印证，来源忠实、六源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "现有Qdrant向量库未设计版本化或增量索引评测机制 | 金融风控场景高度依赖实时政策更新（如反洗钱新规），但评估体系未包含“知识新鲜度”指标",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "同 [1]，[7] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（arXiv/学术检索工具缺失，FR3.3未实现）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:deepresearch-plan.md [11] 明确写'❌ 缺口 3：缺 arXiv/学术检索（FR3.3）'；[21][22] 复现；[2][8][17] 均列为 P0 缺口，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（arXiv/学术检索工具缺失，FR3.3未实现）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [11]，[21] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（arXiv/学术检索工具缺失，FR3.3未实现）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [11][21]，[22] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "校验逻辑仅检查“单源存在性”，未涉及多源一致性",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:rag_sample.md 虽未直述，但全文强调'多源印证'，且 [5][9][18][23] 多次指出'当前校验为单源存在性，非多源一致性'，[4][10][16] 的 DoD 明确要求'多源印证'，来源忠实、七源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "校验逻辑仅检查“单源存在性”，未涉及多源一致性",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [1]，[7] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "校验逻辑仅检查“单源存在性”，未涉及多源一致性",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [1][7]，[24] 为相同文档复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（当前校验为单源存在性，非多源一致性）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:2-provenance-auditable-reporting.md [5] 明确写'❌ 缺失（当前校验为单源存在性，非多源一致性）'；[9][18][23] 复现；[1][7][24] 强调'多源印证'要求，反向印证缺失，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（当前校验为单源存在性，非多源一致性）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [5]，[9] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（当前校验为单源存在性，非多源一致性）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [5][9]，[18] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "用户意图适应性 | 评估多停留于预设query，缺乏对用户反馈（如“请更详细解释隐性担保”）、多轮对话中意图演化与系统自适应调整能力的评测 | arXiv论文提出“User Agent通过对话识别bad cases”，暗示意图适应性是前沿方向，但当前框架未纳入",
+    "source": "https://arxiv.org/abs/2605.05991v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "12",
+    "source_type": "arxiv",
+    "confidence": 0.4,
+    "note": "arxiv:2605.05991v1 摘要提及'closed-loop ecosystem involving multiple human roles'和'user feedback'，但未提'用户意图适应性'术语、未提'多轮对话中意图演化'、未提'User Agent通过对话识别...'（该句截断且语义不全）；属过度引申，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "❌ 缺失（当前为单轮query响应，无对话状态管理）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:deepresearch-plan.md [22] 明确将'❌ 缺失'列为'当前为单轮query响应，无对话状态管理'；[2][8][17] 复现；[12] 提及'缺乏多轮对话中意图演化'，构成印证，来源忠实、四源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "隐私与偏见 | 完全未涉及对RAG输出中潜在隐私泄露（如过度暴露原始文档细节）或领域偏见（如金融风控中对特定行业/地区的系统性误判）的评估 | 需求文档与现有材料均未提及隐私、公平性、偏见等非功能性属性（NFR）",
+    "source": "信息不足",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "当前框架（如线性DAG plan→research→write→validate→END）缺乏对循环反思（conditionaledge）、状态持久化（checkpointer）和多智能体协同（Annotator/Optimizer/User Agent）的原生支持，导致评估无法覆盖系统级行为",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:deepresearch-plan.md [2] 明确写'❌ 致命缺口 1：graph.py 是纯线性 DAG...没有任何 conditional_edge'；[8][11][17][21][25] 全部复现该表述；且 [5][9][18][23] 指出'反思/停止判断藏在 while 循环里'，来源忠实、八源印证；is_meta=true 因其描述 DeepResearch 自身架构。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前框架（如线性DAG plan→research→write→validate→END）缺乏对循环反思（conditionaledge）、状态持久化（checkpointer）和多智能体协同（Annotator/Optimizer/User Agent）的原生支持，导致评估无法覆盖系统级行为",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [2]，[8] 为同一文件复现，且明确'🔴 换汤不换药：当前图是线性 DAG'，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前框架（如线性DAG plan→research→write→validate→END）缺乏对循环反思（conditionaledge）、状态持久化（checkpointer）和多智能体协同（Annotator/Optimizer/User Agent）的原生支持，导致评估无法覆盖系统级行为",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确写'❌ 缺口：无 ≥20 条标注集与量化指标表'；[21][22] 复现；[2][4][8][17] 全部指向该缺口，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前框架（如线性DAG plan→research→write→validate→END）缺乏对循环反思（conditionaledge）、状态持久化（checkpointer）和多智能体协同（Annotator/Optimizer/User Agent）的原生支持，导致评估无法覆盖系统级行为",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [2][8][11]，[17] 为同一文件复现，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前框架（如线性DAG plan→research→write→validate→END）缺乏对循环反思（conditionaledge）、状态持久化（checkpointer）和多智能体协同（Annotator/Optimizer/User Agent）的原生支持，导致评估无法覆盖系统级行为",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [11]，[21] 为同一文件复现，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前框架（如线性DAG plan→research→write→validate→END）缺乏对循环反思（conditionaledge）、状态持久化（checkpointer）和多智能体协同（Annotator/Optimizer/User Agent）的原生支持，导致评估无法覆盖系统级行为",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:1-critic-conditional-edge.md [25] 标题即为'Critic 节点化 + conditional_edge 暴露反思循环'，正文中明确'纯线性 DAG...无任何 conditional_edge'；[2][8][11][17][21] 共同印证，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "系统架构：DeepResearch 是一个基于 LangGraph 的深度研究 Agent，采用 Planner→Researcher→Writer→Validator 四节点编排的多 Agent 系统",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "rag:tmp6iq5rkl3.md 原文即为此句；[20] 复现；[2][8][11][17][21][25] 全部提及该四节点结构，且 [5][9][18][23] 指出其被错误当作研究发现引用（自指），来源忠实、八源印证；is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "系统架构：DeepResearch 是一个基于 LangGraph 的深度研究 Agent，采用 Planner→Researcher→Writer→Validator 四节点编排的多 Agent 系统",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 [3]，[20] 是 [3] 的完全复现；双源印证成立，且上下文一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "检索机制：融合网络搜索（博查）与 RAG 私有知识库（Qdrant 向量库 + BM25 混合检索），支持多格式文档（PDF/Word/Markdown/TXT）上传与分块优化",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:0001-initial-design.md 明确列出'网络搜索（博查）'、'RAG 私有知识库（Qdrant 向量库 + BM25 混合检索）'、'支持多格式文档上传'、'分块优化'；[20] 复现；[2][8][11][17][21][22] 均确认该机制存在，来源忠实、七源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "检索机制：融合网络搜索（博查）与 RAG 私有知识库（Qdrant 向量库 + BM25 混合检索），支持多格式文档（PDF/Word/Markdown/TXT）上传与分块优化",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [3]，[20] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用标注包含 sourcetype（web/rag）、confidence、note",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 明确写'Citation 含 source_type/confidence/note'；[10][16][18][23] 全部复现；且 [5][9][18][23] 指出当前'LLM 返回的 confidence/note 被丢弃'，反向印证该要求存在，来源忠实、六源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用标注包含 sourcetype（web/rag）、confidence、note",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [4]，[10] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用标注包含 sourcetype（web/rag）、confidence、note",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [4][10]，[16] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "可观测性：系统设计要求报告/CLI/Web 均呈现“运行溯源”块，包含总跳数、critic 决策次数、web/rag 各命中数、token 消耗等状态，且数值须与内部 state 严格一致",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:2-provenance-auditable-reporting.md [4] 明确列出所有要素；[10][16][18][23] 全部复现；[2][8][17] 确认该功能已实现（'🟢 基础具备'），来源忠实、六源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "可观测性：系统设计要求报告/CLI/Web 均呈现“运行溯源”块，包含总跳数、critic 决策次数、web/rag 各命中数、token 消耗等状态，且数值须与内部 state 严格一致",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [4]，[10] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "可观测性：系统设计要求报告/CLI/Web 均呈现“运行溯源”块，包含总跳数、critic 决策次数、web/rag 各命中数、token 消耗等状态，且数值须与内部 state 严格一致",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [4][10]，[16] 为同一文件复现。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "演进约束：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 conditionaledge）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:deepresearch-plan.md [2] 明确写'❌ 致命缺口 1：graph.py 是纯线性 DAG...没有任何 conditional_edge'；[8][11][17][21][25] 全部复现该表述；且 [5][9][18][23] 指出'反思/停止判断藏在 while 循环里'，来源忠实、八源印证；is_meta=true 因其描述 DeepResearch 自身架构。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "演进约束：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 conditionaledge）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:2-provenance-auditable-reporting.md 多次明确陈述：'所提供的 33 项研究发现'、'50/58 通过'、'8 条未通过论断'；[10][16][18][23] 全部复现该数字组合，且强调'失败隔离''运行溯源'等审计要素，来源忠实、四源以上印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "演进约束：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 conditionaledge）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确写'❌ 缺口：无 ≥20 条标注集与量化指标表'；[21][22] 复现；[2][4][8][17] 全部指向该缺口，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "演进约束：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 conditionaledge）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [11]，[21] 为同一文件复现，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "演进约束：当前实现存在结构性缺口，包括：图谱为纯线性 DAG（缺乏 conditionaledge）、Langfuse 未接入、无 ≥20 条标注集与量化指标表、strategic 模型未达强推理要求等",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "rag:deepresearch-plan.md [22] 表格中明确将'❌ 缺失'列为 arXiv/学术检索、代码执行等缺口的状态；[11][21] 复现；[2][8][17] 均确认缺失，来源忠实、五源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 5 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=当前仅1跳5条发现，远不足以覆盖q1-q4的四个维度：q1需…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 15 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=当前检索尚未系统覆盖q4所关注的RAG评估系统性盲区——特别…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue [gap=q4（系统性盲区）覆盖严重不足：当前发现未触及长文档处理评估…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 25 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：95/102 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 43933,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 444.0,
+ "status": "done",
+ "error": null
+}

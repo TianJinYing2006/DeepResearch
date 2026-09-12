@@ -1,0 +1,149 @@
+{
+ "q_id": "q_013",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4803,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 20,
+   "verified": 20,
+   "verified_relaxed": 20,
+   "existence_rate": 1.0,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "arxiv": {
+     "total": 10,
+     "verified": 10,
+     "verified_relaxed": 10,
+     "existence": 10
+    },
+    "rag": {
+     "total": 10,
+     "verified": 10,
+     "verified_relaxed": 10,
+     "existence": 10
+    }
+   },
+   "failed_note_distribution": {}
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "单一 supervisor 模式下，Agent 协作流程如何调度？其在高并发或任务激增时的平均响应延迟与任务吞吐量表现如何？",
+     "covered": false,
+     "reason": "检索内容多次提及单一 supervisor 模式在协作效率上‘更优’，但未描述其具体调度机制（如图结构、条件边触发逻辑、并发控制策略），也完全未提供任何量化性能指标（如平均响应延迟、吞吐量、QPS、并发数等）；所有实验性数据（如双 critic 在机器人上的吞吐量）均属于无关领域（机器人控制），非本研究的 Agent 编排系统。"
+    },
+    {
+     "subquestion": "对等网络模式中 Agent 如何自主协商任务分配与状态同步？该模式下局部故障（如单个 Agent 崩溃）是否会导致全局阻塞或级联失败？",
+     "covered": false,
+     "reason": "检索内容仅泛泛指出对等网络模式在‘故障隔离’方面‘更具优势’，但未说明协商机制（如Gossip协议、Leaderless共识、任务拍卖、心跳/租约同步等），也未描述状态同步方式（如CRDT、版本向量、日志复制）；关于局部故障影响，仅用‘故障隔离能力较强’定性表述，缺乏对阻塞、级联失败、恢复行为的具体分析或实证（如崩溃注入测试、MTTF/MTTR数据、传播路径观测）。"
+    },
+    {
+     "subquestion": "两种模式在日志聚合、链路追踪、实时状态监控等可观测性能力上分别依赖哪些基础设施组件（如 OpenTelemetry 支持程度、指标暴露方式）？",
+     "covered": false,
+     "reason": "检索内容反复提及‘可观测性’是对比维度之一，并指出对等网络模式‘更具优势’，但全文未出现任何可观测性基础设施关键词（如 OpenTelemetry、Prometheus、Jaeger、Zipkin、Metrics/Traces/Logs 采集方式、exporter 配置、span context 传播等）；未说明任一模式下如何暴露指标、打点位置、trace ID 注入机制或日志结构设计，纯属空泛断言。"
+    },
+    {
+     "subquestion": "对比实验中，相同任务集（如多跳问答、分布式数据清洗）下，两种模式在协作成功率、平均重试次数及故障恢复时间（MTTR）上的量化差异是什么？",
+     "covered": false,
+     "reason": "检索内容虽多次声明‘进行了对比实验’，但未提供任何原始实验数据：无任务集定义（未说明是否使用 MultiHop-RAG 或其他基准）、无成功率数值（如 92% vs. 85%）、无重试次数统计（如均值 1.3 vs. 4.7）、无 MTTR 测量（如 2.1s vs. 47s）；所有量化结果均来自无关场景（如机器人抓取率、SLM 能耗、CMS 触发率），与本问题要求的‘相同任务集下的协作质量指标’完全不匹配。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 6,
+   "retrieval_hit_rate": 0.6667,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "多 Agent 编排",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "supervisor 模式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "对等网络",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "协作效率",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "故障隔离",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "可观测性",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "MTTR",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 52363,
+   "total_cost": 0.0733,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

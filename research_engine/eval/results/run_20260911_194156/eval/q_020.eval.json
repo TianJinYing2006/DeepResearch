@@ -1,0 +1,162 @@
+{
+ "q_id": "q_020",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6718,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 84,
+   "verified": 65,
+   "verified_relaxed": 65,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.7738,
+   "relaxed_rate": 0.7738,
+   "by_source_type": {
+    "rag": {
+     "total": 79,
+     "verified": 65,
+     "verified_relaxed": 65,
+     "existence": 79
+    },
+    "arxiv": {
+     "total": 5,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 5
+    }
+   },
+   "failed_note_distribution": {
+    "原文[5]（rag:0001-initial-design.md）未提及'Emb": 2,
+    "来源[7]（arXiv:2512.21309v2）全文未出现'Embedding": 1,
+    "原文[1]（rag:0001-initial-design.md）确有'为什么 ": 1,
+    "同[1]，来源[11]为[1]的重复引用，内容完全一致，同样存在claim截断、": 1,
+    "同[1]，来源[24]亦为[1]的重复引用，内容一致，claim仍为截断残句且概": 1,
+    "claim结尾'执行引'明显截断，语义不全；且来源[14]（rag:2-prov": 1,
+    "来源[22]为ADR-0001摘要，通篇未提Citation模型字段扩展，更无'": 1,
+    "claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳": 3,
+    "来源[13]（deepresearch-plan.md）仅列P0-P1任务项，无": 2,
+    "来源[23]（1-critic-conditional-edge.md）描述Cr": 1,
+    "来源[7]（arXiv:2512.21309v2）讨论LLM-driven ag": 1,
+    "来源[8]（arXiv:2401.07324v3）讨论LLM agent的too": 1,
+    "来源[7]（arXiv:2512.21309v2）未提'30%用户请求相似'、'": 1,
+    "来源[7]未讨论'向量记忆相似性识别'、'自然语言表达多样性'或'嵌入距离失真'": 1,
+    "claim结尾'成为“a'明显截断；且来源[2]（deepresearch-pl": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "LLM Agent中向量记忆（如向量数据库检索）的具体实现方式及其在多轮任务中的典型应用流程是什么？",
+     "covered": false,
+     "reason": "文档提及Qdrant作为向量数据库、懒加载设计、混合检索（向量+BM25）、分块优化、RAG检索路径等，但未说明向量记忆在LLM Agent中的具体实现细节（如embedding模型选择、索引结构、查询重写、多轮中如何缓存/更新向量表示）或典型多轮应用流程（如记忆读取触发时机、与对话状态机的耦合逻辑、增量检索策略）。仅零散提到'Qdrant懒加载''混合检索'，缺乏系统性描述。"
+    },
+    {
+     "subquestion": "结构化记忆（如知识图谱、关系数据库）如何被集成到LLM Agent架构中，并支持跨轮次的语义一致性与状态追踪？",
+     "covered": false,
+     "reason": "检索结果中完全未出现知识图谱、关系数据库、图谱嵌入、SPARQL查询、实体链接、状态机建模、跨轮次语义一致性机制（如槽位填充一致性校验、图谱演化更新）等关键词或相关内容；所有技术描述聚焦于向量检索（Qdrant）、LangGraph编排、Critic节点等，无任何结构化记忆集成实践或设计说明。"
+    },
+    {
+     "subquestion": "现有实证研究中，长期记忆模块的引入对多轮任务性能（如任务完成率、响应准确性、上下文保持时长）带来哪些可量化的提升或局限？",
+     "covered": false,
+     "reason": "虽有金融风控案例（人工复核下降40%、字段准确率96%），但该案例属于RAG增强型单次信息抽取，非长期记忆支撑的多轮交互任务；未报告任何与'长期记忆模块'直接相关的A/B实验、消融研究或指标对比（如移除记忆后任务完成率下降X%、上下文衰减曲线、多轮问答准确率随轮次变化等）。所有评测指标（命中率、引用准确率、报告质量）均不针对长期记忆效能。"
+    },
+    {
+     "subquestion": "向量记忆与结构化记忆在延迟、可解释性、更新维护成本等维度上的关键权衡有哪些？",
+     "covered": false,
+     "reason": "文档未对向量记忆与结构化记忆进行任何横向对比；既无延迟数据（如Qdrant查询P99耗时 vs 图数据库遍历延迟），也无可解释性分析（如向量相似度难归因 vs SPARQL路径可追溯），更无更新维护成本讨论（如向量重嵌入开销 vs 图谱schema演进复杂度）。全文未提及结构化记忆，故无法形成权衡分析。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 0,
+   "retrieval_hit_rate": 0.0,
+   "matched_by": {
+    "keyword": 0,
+    "semantic": 0,
+    "miss": 8
+   },
+   "per_keyword": [
+    {
+     "keyword": "LLM Agent",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "长期记忆",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "向量记忆",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "结构化记忆",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多轮任务",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "知识图谱",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "向量数据库",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "记忆检索",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 43051,
+   "total_cost": 0.0603,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

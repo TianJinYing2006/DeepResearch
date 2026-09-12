@@ -1,0 +1,136 @@
+{
+ "q_id": "q_003",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6091,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 70,
+   "verified": 55,
+   "verified_relaxed": 55,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.7857,
+   "relaxed_rate": 0.7857,
+   "by_source_type": {
+    "rag": {
+     "total": 55,
+     "verified": 42,
+     "verified_relaxed": 42,
+     "existence": 55
+    },
+    "arxiv": {
+     "total": 15,
+     "verified": 13,
+     "verified_relaxed": 13,
+     "existence": 15
+    }
+   },
+   "failed_note_distribution": {
+    "原文 [1] 中该句被截断（'if depth < maxdepth and t": 3,
+    "同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存": 3,
+    "同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且": 3,
+    "来源 [1] 提及 'depth' 和 'token_budget'（非 'to": 1,
+    "同 finding_id:1 — [5] 未定义 'reflectionlog'": 1,
+    "同 finding_id:1 — [14] 是 [1] 的重复，未明确定义这些字": 1,
+    "同 finding_id:1 — [22] 是 [1] 的重复，claim 不忠": 1,
+    "来源 [8] 未提及 Langfuse，全文无 'Langfuse' 字样；cl": 1,
+    "同 finding_id:8 — [18] 是 [8] 的重复，未提 Langf": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph 的条件边与状态管理机制",
+     "covered": true,
+     "reason": "研究发现多次明确提及 LangGraph 的 conditional_edge（如'显式 Critic 节点 + LangGraph conditional_edge'）、state（如'LangGraph（state+conditional_edge+checkpointer）'）、checkpointer，并对比了当前'仅线性编排，无 conditional_edge/checkpointer'的缺陷；还说明了 state 的语义变更（如 state.findings 从原始结果变为压缩结果）、节点返回值更新共享状态的设计哲学，覆盖了条件边触发逻辑、状态更新机制与持久化意图。"
+    },
+    {
+     "subquestion": "自研 agent 框架的优劣势",
+     "covered": false,
+     "reason": "研究发现中未出现任何关于'自研 agent 框架'的描述、定义、设计或实现；所有内容均围绕 LangGraph 的使用、改造与缺口展开，提及的框架均为 LangGraph（如'LangGraph 仅线性编排'），未对比或分析一个独立存在的自研框架，也未总结其优势（如灵活性、轻量性）或劣势（如缺乏生态、维护成本）。"
+    },
+    {
+     "subquestion": "LangGraph 与自研框架在可观测性支持上的差异",
+     "covered": false,
+     "reason": "研究发现提到 LangGraph 接入 Langfuse（W3 任务：@observe 包裹节点、全链路 trace），说明其可观测性支持路径；但全文未提及任何'自研框架'，更无其可观测性能力（如日志格式、trace 结构、监控指标）的描述，因此无法构成二者差异的比较基础。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 5,
+   "hit": 3,
+   "retrieval_hit_rate": 0.6,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态管理",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "条件边",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "可观测性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "自研框架",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 34073,
+   "total_cost": 0.0477,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 3,
+   "depth": 3
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 3,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

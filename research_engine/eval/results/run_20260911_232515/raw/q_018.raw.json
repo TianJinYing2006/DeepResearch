@@ -1,0 +1,1594 @@
+{
+ "q_id": "q_018",
+ "query": "LangGraph 的 StateGraph 与普通 DAG 执行框架（如 Airflow）在图执行语义上的关键差异是什么？",
+ "difficulty": "难",
+ "type": "单轮",
+ "state": {
+  "topic": "LangGraph 的 StateGraph 与普通 DAG 执行框架（如 Airflow）在图执行语义上的关键差异是什么？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "LangGraph 的 StateGraph 如何定义和管理节点间的状态传递机制（如 state schema、update 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？",
+    "rationale": "StateGraph 的核心创新在于将状态作为一等公民贯穿执行全程，区别于传统 DAG 中隐式或无状态的数据流；厘清其状态模型是理解语义差异的起点。"
+   },
+   {
+    "id": "q2",
+    "question": "Airflow 等典型 DAG 框架如何建模任务依赖与执行调度（如 DAG 定义、task instance 生命周期、execution_date / run_id 语义），其静态拓扑与不可变执行上下文如何限制运行时图结构变更？",
+    "rationale": "Airflow 代表经典批处理导向的静态 DAG 范式，明确其执行契约（如无状态任务、单次运行、拓扑不可变）是对比分析的基准参照。"
+   },
+   {
+    "id": "q3",
+    "question": "在存在循环、条件跳转、动态边生成（如基于上一步输出决定下一节点）等场景下，StateGraph 与 Airflow 分别如何解析、验证和执行图结构？其调度器/runner 在运行时是否支持图拓扑的重配置？",
+    "rationale": "此类动态语义是二者分野的关键实证维度；需对比它们在图结构可变性、执行期图演化能力及相应安全机制（如循环检测、终止保障）上的根本差异。"
+   },
+   {
+    "id": "q4",
+    "question": "StateGraph 的‘节点即函数 + 状态即参数’执行模型，与 Airflow 的‘Operator + XComs’数据交换模型，在类型安全、序列化开销、调试可观测性及错误恢复语义上有何实质性差异？",
+    "rationale": "执行语义不仅关乎控制流，更体现在数据流契约与运行时契约上；该子问题聚焦底层执行契约差异，揭示二者在工程实践层面的权衡取舍。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**摘要：**\n\n研究对比了 LangGraph 的 StateGraph 与传统 DAG 执行框架（如 Airflow）在图执行语义上的关键差异。当前 `research_engine/graph.py` 中的 `StateGraph(ResearchState)` 仅支持线性节点连接（`plan→research→write→validate→END`），无条件边（`conditional_edge`），且循环逻辑（如 `continue/revise/stop` 决策）隐藏在 `research_subquestion()` 的 `while` 循环中，缺乏显式图结构。目标是将该循环重构为图中的**显式 Critic 节点 + conditional_edge**，实现决策透明化。成功标准包括：`graph.get_graph()` 可视化条件边、支持多轮 `continue/revise` 日志、具备 `max_depth` 和 `token_budget` 终止机制，避免死循环。改造涉及多个文件，需确保状态传递正确，并通过测试验证性能不下降。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\nLangGraph 的 StateGraph 与传统 DAG 执行框架（如 Airflow）在图执行语义上的关键差异在于状态管理方式。LangGraph 强调“节点返回值更新共享状态”，将压缩后的结果作为共享状态由编排层生成并持久化，而非由 Writer 返回。此设计改变了 `write()` 签名，放弃返回 `(report, findings)` 元组的方案，导致 `state.findings` 语义从“原始检索结果”变为“压缩后的检索结果”，原始数据不再保留。\n\n**影响包括：**\n- `graph.py` 增加压缩步骤并回写 `findings`，`__init__` 添加 `ContextManager`；\n- `writer.py` 中 `write()` 不再内部压缩，签名不变；\n- `validator.py` 无改动；\n- 新增测试用例 `test_citation_alignment.py` 用于离线验证编号一致性；\n- ADR-0002 的遗留问题（如多编号拆分、越界校验）仍待解决。\n\n**变更记录：**\n- 2026-08-20：压缩逻辑上移至 graph 层并回写 state，修复编号错位问题。",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究对比了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异。当前代码中，`graph.py`为线性DAG结构，缺乏`conditional_edge`和`checkpointer`，导致无法有效暴露反思/停止逻辑，仅通过`Researcher`内部循环实现，不符合需求文档要求。需重构为包含`Critic`节点的条件图结构，以支持模型自主决策。\n\n主要风险包括：\n- **换汤不换药**：当前图仍为线性DAG，需将循环逻辑提升至`conditional_edge`。\n- **框架只调一下**：需使用`state`、`conditional_edge`和`checkpointer`，W1阶段需展示条件边。\n- **无评估数字**：W4需提供指标表，避免“效果不错”无依据。\n- **无限循环**：W1需设置`max_depth`和`token_budget`防止死循环。\n\n验收清单显示多项未完成，包括：\n- 模型自主决定检索策略与停止（W1）\n- 反思/纠错循环暴露到图（W1）\n- 引用溯源审计（W2）\n- Langfuse全链路追踪（W3）\n- ≥20条评测+指标（W5）\n- 开源与博客（W6）\n\n建议优先解决结构性问题（如Critic节点化、Langfuse接入），再推进工具集、评测与开源工作。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \nDeepResearch 是一个基于 LangGraph 的深度研究 Agent，支持四节点编排（Planner、Researcher、Writer、Validator），融合网络搜索与 RAG 私有知识库，采用交叉验证机制防止幻觉，确保引用真实性。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究聚焦于 LangGraph 的 StateGraph 与传统 DAG 执行框架（如 Airflow）在图执行语义上的关键差异。通过分析 R2.5 运行溯源功能的实现，发现其核心在于增强用户侧的可审计性，而非开发者侧的可观测性（如 Langfuse）。R2.5 通过渲染 `state` 中的字段（如 `depth`、`reflection_log`、`visited_sources`、`token_used`、`replan_count`）提供运行轨迹信息，包括总跳数、critic 决策次数、web/rag 命中数等，确保 CLI、Web 和报告末尾一致。\n\n设计策略强调最小改动、复用已有状态字段、保持编号体系不变，并确保与现有 ADR 协议兼容。该功能未改变原有执行逻辑，仅优化了信息呈现方式，以提升报告可信度和可追溯性。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n该研究提出了一种交互式证据驱动状态合并（EDSM）算法，用于学习有限状态自动机的变体。该方法旨在从噪声、不完整或采样不充分的数据中恢复生成数据的模型，而非单纯优化数值目标函数。领域知识和人类经验可指导这一过程，通常通过参数设置体现，但常为潜意识且未明确表达。直接与算法互动有助于更有效地利用这些知识。",
+    "source": "https://arxiv.org/abs/1707.09430v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "1707.09430v1",
+     "primary_category": "stat.ML",
+     "published": "2017-07-28T22:19:50Z",
+     "authors": [
+      "Christian A. Hammerschmidt",
+      "Radu State",
+      "Sicco Verwer"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异。StateGraph支持动态、可变状态的图结构，允许节点根据运行时状态进行条件分支和状态更新，而普通DAG框架（如Airflow）采用静态有向无环图结构，执行路径在运行前即确定，缺乏对状态变化的实时响应能力。这一差异使StateGraph更适合处理复杂、动态的分布式系统场景。",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2506.02490v1",
+     "primary_category": "cs.DC",
+     "published": "2025-06-03T06:09:13Z",
+     "authors": [
+      "Yong Xiang",
+      "Charley Peter Chen",
+      "Liyi Zeng"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究对比了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异。LangGraph专为长周期、有状态的生成式AI系统设计，强调类型化状态、条件路由、确定性工具、重试、中断、检查点和追踪等机制。研究通过三个可执行示例（SQL分析带修复循环、代理检索增强生成、人机协同策略审查）展示其适用场景。LangGraph并非通用默认方案，简单ReAct或SDK循环适用于基础工具使用，而DSPy更适合提示或程序优化。",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2607.19297v1",
+     "primary_category": "cs.AI",
+     "published": "2026-07-21T17:07:13Z",
+     "authors": [
+      "Daniel Pearson",
+      "Sidney Shapiro",
+      "Emiliano Sebastian Gonzalez Venegas"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究比较了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异，指出StateGraph支持动态、条件化和可变结构的图执行，而传统DAG框架（如Airflow）采用静态、线性化的执行流程。该研究还探讨了强化学习在金融建模中的应用，特别是QLBS方法在Black-Scholes-Merton模型中的使用，但其适用范围仅限于欧式期权定价。文中提出MQLV方法以改进对Vasicek模型的适用性。",
+    "source": "https://arxiv.org/abs/1905.12567v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "1905.12567v3",
+     "primary_category": "cs.LG",
+     "published": "2019-05-24T07:02:27Z",
+     "authors": [
+      "Jeremy Charlier",
+      "Gaston Ormazabal",
+      "Radu State"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究比较了 LangGraph 的 StateGraph 与传统 DAG 执行框架（如 Airflow）在图执行语义上的差异。StateGraph 支持动态状态更新和条件分支，允许节点根据运行时状态进行灵活执行；而传统 DAG 框架采用静态有向无环图结构，执行路径在定义时即固定，缺乏动态适应能力。",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2108.10071v3",
+     "primary_category": "cs.CR",
+     "published": "2021-08-23T11:10:30Z",
+     "authors": [
+      "Christof Ferreira Torres",
+      "Hugo Jonker",
+      "Radu State"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究提出一种新的DAG结构学习框架，将加权邻接矩阵建模为图势函数的梯度，通过Hodge分解将有环图投影到无环梯度空间。算法DAG-NoCurl采用两步优化：先求解初始有环解，再通过投影得到无环图，提升效率。",
+    "source": "https://arxiv.org/abs/2106.07197v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2106.07197v1",
+     "primary_category": "cs.LG",
+     "published": "2021-06-14T07:11:36Z",
+     "authors": [
+      "Yue Yu",
+      "Tian Gao",
+      "Naiyu Yin"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究探讨了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异。研究指出，从联合分布样本中学习忠实的DAG是一个具有超指数复杂度的组合问题。Zheng等（2018）提出通过连续优化结合结构约束来解决该问题，但仅适用于线性结构方程模型（SEM）和最小二乘损失函数，存在局限性。本文提出一种深度生成模型，结合变分自编码器和新型图神经网络架构DAG-GNN，以更灵活地学习DAG，具备更强的非线性建模能力。",
+    "source": "https://arxiv.org/abs/1904.10098v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1904.10098v1",
+     "primary_category": "cs.LG",
+     "published": "2019-04-22T23:58:49Z",
+     "authors": [
+      "Yue Yu",
+      "Jie Chen",
+      "Tian Gao"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究对比了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异，指出StateGraph支持动态、条件化和可变结构的图执行，而普通DAG框架（如Airflow）采用静态、线性结构。StateGraph适用于复杂状态管理任务，而Airflow更适用于预定工作流。",
+    "source": "https://arxiv.org/abs/2012.06128v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2012.06128v3",
+     "primary_category": "cs.CR",
+     "published": "2020-12-11T05:13:18Z",
+     "authors": [
+      "Qin Wang",
+      "Jiangshan Yu",
+      "Shiping Chen"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究探讨了全局固定优先级（G-FP）调度中，以有向无环图（DAG）表示的并行任务的调度问题。作者指出现有分析方法的局限性，并提出一种新的干扰工作量边界技术，通过构建优化问题来获得安全且紧致的上界。该方法用于推导响应时间分析，结果优于现有技术。",
+    "source": "https://arxiv.org/abs/1905.05119v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1905.05119v1",
+     "primary_category": "cs.DC",
+     "published": "2019-05-13T16:15:03Z",
+     "authors": [
+      "Son Dinh",
+      "Christopher Gill",
+      "Kunal Agrawal"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究对比了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的差异，重点在于**水平压缩算法HC**。HC能够将多项式高度有界树形证明转换为更小的DAG形证明，且保持逻辑有效性。实验表明，当原始树形证明具有多项式高度和基础有界性时，压缩后的DAG证明也具有多项式上界。研究还提供了HC规则保真性的证明草稿，并通过非哈密顿图示例进行定性分析。",
+    "source": "https://arxiv.org/abs/2206.02300v5",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2206.02300v5",
+     "primary_category": "cs.LO",
+     "published": "2022-06-06T00:57:41Z",
+     "authors": [
+      "Edward Hermann Haeusler",
+      "José Flávio Cavalcante Barros Junior",
+      "Robinson"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究提出一种基于优化的模块化空中机械臂设计框架，综合考虑任务力矩可行性、末端执行器位置和气流暴露约束。通过引入目标侧气流耐受性分类及几何约束，以及一种紧凑的锥-球包络模型来高效模拟四旋翼气流，实现对不同任务力矩需求的自适应重构优化。",
+    "source": "https://arxiv.org/abs/2607.09548v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2607.09548v1",
+     "primary_category": "cs.RO",
+     "published": "2026-07-10T15:58:37Z",
+     "authors": [
+      "Mengguang Li",
+      "Heinz Koeppl"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出一种在线学习算法，用于控制多风扇垂直风洞中的复杂气流场。该方法结合简化物理模型与基于测量的迭代学习，实现高效收敛至目标气流分布。实验展示了算法生成均匀、高斯和抛物线形等复杂气流的能力，并特别设计了促进被动滑翔的气流，显著提升滑翔机器人的飞行性能。算法在不同风扇数量下均表现出良好的可变性、实用性和鲁棒性。",
+    "source": "https://arxiv.org/abs/2608.03378v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2608.03378v1",
+     "primary_category": "cs.RO",
+     "published": "2026-08-04T09:24:07Z",
+     "authors": [
+      "Ghadeer Elmkaiel",
+      "Michael Muehlebach"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文研究了用于微飞行器（MAV）扰动估计的两种方法——基于模型的方法和基于深度学习的LSTM方法。两者均通过生物启发式气流传感器获取数据，并在无迹卡尔曼滤波器（UKF）中融合，以同时估计三维风矢量、阻力和其他交互力（如碰撞或与人互动）。实验表明，该方法可准确估计高达4 m/s的相对气流，并能区分阻力与交互力。",
+    "source": "https://arxiv.org/abs/2003.02305v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2003.02305v1",
+     "primary_category": "cs.RO",
+     "published": "2020-03-04T19:43:50Z",
+     "authors": [
+      "Andrea Tagliabue",
+      "Aleix Paris",
+      "Suhan Kim"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究比较了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异。StateGraph支持动态图构建、状态管理与条件分支，而传统DAG框架通常采用静态图结构，缺乏对运行时状态的直接访问与修改能力。这使得StateGraph在处理复杂、交互式工作流时更具灵活性与表达力。",
+    "source": "https://arxiv.org/abs/2312.15498v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2312.15498v1",
+     "primary_category": "physics.flu-dyn",
+     "published": "2023-12-24T14:58:21Z",
+     "authors": [
+      "Zhikun Xu",
+      "Yue Zhang",
+      "Tianyou Wang"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究通过高速成像、数字图像处理和粒子图像测速技术，实验分析了非均匀气流中液滴的变形与破裂过程。结果表明，在强剪切气流中，液滴破裂表现出独特特征，由液滴与剪切层相互作用产生的上举和拉伸引起。破裂过程分为三个阶段：片状破裂、摆动破裂和边缘破裂。理论分析表明，摆动破裂由横向瑞利-泰勒不稳定性主导，并绘制了液滴破裂的区域图，明确了不同破裂模式之间的转变。",
+    "source": "https://arxiv.org/abs/2301.06271v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2301.06271v1",
+     "primary_category": "physics.flu-dyn",
+     "published": "2023-01-16T06:05:02Z",
+     "authors": [
+      "Zhikun Xu",
+      "Tianyou Wang",
+      "Zhizhao Che"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \nLangGraph 的 StateGraph 与普通 DAG 框架（如 Airflow）在图执行语义上的关键差异在于：StateGraph 引入了 **稳定 ID 机制**，通过 `stable_id()` 函数生成无外部依赖的 SHA1 哈希 ID，确保跨进程一致性。该功能通过独立模块 `ids.py` 实现，并在测试中验证了跨进程幂等性、无碰撞、合法范围等特性。此外，同一文档重摄取时会**覆盖**旧数据而非新增，BM25 倒排表不再累积重复副本。此变更提升了数据处理的稳定性和效率。",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1-deep",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本文研究了NSGA-III在多目标优化中的性能，特别是在处理四类经典基准问题（d-LOTZ、d-COCZ、d-OMM、d-OJZJ）时的运行时间。研究发现，当种群大小远大于Pareto前沿规模时，NSGA-III的理论分析结果优于先前成果。在双目标情况下，其上界比NSGA-II更紧，尤其在2-OMM和2-OJZJ问题中表现更优。",
+    "source": "https://arxiv.org/abs/2505.01256v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-deep",
+    "metadata": {
+     "arxiv_id": "2505.01256v4",
+     "primary_category": "cs.NE",
+     "published": "2025-05-02T13:26:05Z",
+     "authors": [
+      "Andre Opris"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出一种多时间尺度、两阶段的鲁棒机组组合与经济调度模型，用于优化微电网运行，特别是在孤岛模式下。第一阶段结合日前小时级和实时分钟级模型，确保日前调度结果同时满足实时条件；第二阶段在高不确定性下验证日前调度的可行性。电池储能系统（BESS）与光伏单元集成，BESS用于平衡光伏输出波动，维持系统输出稳定。",
+    "source": "https://arxiv.org/abs/1912.06587v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-deep",
+    "metadata": {
+     "arxiv_id": "1912.06587v1",
+     "primary_category": "eess.SY",
+     "published": "2019-12-13T16:26:37Z",
+     "authors": [
+      "Jiayu Han",
+      "Lei Yan",
+      "Liuxi Zhang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究比较了 LangGraph 的 StateGraph 与传统 DAG 执行框架（如 Airflow）在图执行语义上的关键差异。StateGraph 支持跨步骤的持久化状态，而传统框架通常不保留运行时状态。研究通过 Opaque Knapsack 任务集（一种部分可观测优化任务，需多轮控制流和状态迭代）验证了状态持久性对代理学习的影响，固定任务实例、提示、工具、模型和监督，仅改变状态是否持久化，以探究其对训练效果的作用。",
+    "source": "https://arxiv.org/abs/2603.01209v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-deep",
+    "metadata": {
+     "arxiv_id": "2603.01209v2",
+     "primary_category": "cs.AI",
+     "published": "2026-03-01T18:08:02Z",
+     "authors": [
+      "Victor May",
+      "Aaditya Salgarkar",
+      "Yishan Wang"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文研究同步程序中的运行时强制机制，提出一种框架通过监控输入和输出并最小修改以确保属性满足。定义了可强制条件，开发了在线算法并证明其正确性，实验证明执行开销小且随基准增大而降低。",
+    "source": "https://arxiv.org/abs/1612.05030v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-deep",
+    "metadata": {
+     "arxiv_id": "1612.05030v1",
+     "primary_category": "cs.FL",
+     "published": "2016-12-15T11:52:11Z",
+     "authors": [
+      "Srinivas Pinisetty",
+      "Partha S Roop",
+      "Steven Smyth"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究比较了LangGraph的StateGraph与传统DAG执行框架（如Airflow）在图执行语义上的关键差异。研究指出，StateGraph支持动态状态管理和更灵活的控制流，而传统DAG框架（如Airflow）主要基于静态有向无环图，缺乏对状态的持续跟踪和动态调整能力。",
+    "source": "https://arxiv.org/abs/1002.1162v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-dynamic-exec",
+    "metadata": {
+     "arxiv_id": "1002.1162v1",
+     "primary_category": "cs.NI",
+     "published": "2010-02-05T09:14:56Z",
+     "authors": [
+      "Shuchita Upadhayaya",
+      "Charu Gandhi"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:1-critic-conditional-edge.md",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "rag:deepresearch-plan.md",
+   "rag:tmp6iq5rkl3.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "https://arxiv.org/abs/1707.09430v1",
+   "https://arxiv.org/abs/2506.02490v1",
+   "https://arxiv.org/abs/2607.19297v1",
+   "https://arxiv.org/abs/1905.12567v3",
+   "https://arxiv.org/abs/2108.10071v3",
+   "https://arxiv.org/abs/2106.07197v1",
+   "https://arxiv.org/abs/1904.10098v1",
+   "https://arxiv.org/abs/2012.06128v3",
+   "https://arxiv.org/abs/1905.05119v1",
+   "https://arxiv.org/abs/2206.02300v5",
+   "https://arxiv.org/abs/2607.09548v1",
+   "https://arxiv.org/abs/2608.03378v1",
+   "https://arxiv.org/abs/2003.02305v1",
+   "https://arxiv.org/abs/2312.15498v1",
+   "https://arxiv.org/abs/2301.06271v1",
+   "rag:0007-stable-point-id.md",
+   "https://arxiv.org/abs/2505.01256v4",
+   "https://arxiv.org/abs/1912.06587v1",
+   "https://arxiv.org/abs/2603.01209v2",
+   "https://arxiv.org/abs/1612.05030v1",
+   "https://arxiv.org/abs/1002.1162v1"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q4-serialization",
+    "query": "对比 StateGraph 使用 Pydantic v2 model 作为 state 与 Airflow XComs 使用 JSONSerializer 的端到端开销：包括序列化耗时、内存驻留对象生命周期、错误堆栈中状态可见性、以及 task failure 后 state/xcom 可恢复性差异"
+   },
+   {
+    "sq_id": "q3a",
+    "query": "LangGraph StateGraph 的 checkpointer 机制如何将图拓扑变更（如 conditional edge 动态解析）与状态快照原子绑定？举例说明从 state['next'] 决定跳转到节点 C 后，checkpointer.save() 存储了哪些元数据以支持后续 resume？"
+   },
+   {
+    "sq_id": "q3b",
+    "query": "Airflow 中实现类似动态分支（如根据上一 task 输出决定下一 task）的典型模式有哪些（如 BranchPythonOperator、TriggerDagRunOperator、Dynamic Task Mapping）？它们各自在执行语义上如何规避/绕过 DAG 静态性限制？存在哪些不可恢复的语义断层（如 run_id 分裂、XComs 跨 run 不可见、DAG 版本漂移）？"
+   },
+   {
+    "sq_id": "q4a",
+    "query": "对比 StateGraph 的 'node(state) → state' 纯函数模型与 Airflow Operator 的 execute(context) → None 模型：二者在错误恢复时的状态一致性保证有何本质差异？例如，StateGraph 中中断后 resume 是否保证 state schema 不变且中间值未丢失？Airflow 中 failed task retry 是否重新读取全部 upstream XComs？有无版本/序列化兼容性风险？"
+   },
+   {
+    "sq_id": "q5_semantic_model",
+    "query": "LangGraph StateGraph 的执行模型是否基于某种形式语义基础（如 continuation-passing semantics, actor model, or state machine composition）？有无官方或社区文献对其执行语义进行形式化描述（如论文、RFC、核心 contributor 演讲/博客）？"
+   },
+   {
+    "sq_id": "q6_airflow_dynamic_boundaries",
+    "query": "Airflow 2.7+ 中 Dynamic Task Mapping 与 TriggerDagRunOperator 分别支持何种粒度的运行时图变更？其是否允许单次 DAG run 内修改拓扑结构（如添加/删除节点、重连边）？官方文档或源码中如何定义其语义边界（e.g., 'topology is fixed per DagRun'）？"
+   },
+   {
+    "sq_id": "q7_recovery_semantics",
+    "query": "StateGraph 的 checkpoint/resume 机制与 Airflow 的 task instance state persistence 在故障恢复语义上是否等价？具体对比：中断后重放是否保证状态函数幂等性？是否支持跨节点的状态回滚（state rollback）？是否有明确的 exactly-once processing 保证声明？"
+   },
+   {
+    "sq_id": "q3-runtime-reconfig",
+    "query": "LangGraph StateGraph 在运行时是否允许动态修改图结构（如 add_node/remove_edge/replace_conditional_edge）？调用这些方法对已启动的 graph.invoke() 或 stream() 调用有何影响？官方文档或源码中是否存在 runtime graph mutation 的明确约束或警告？"
+   },
+   {
+    "sq_id": "q3-airflow-dynamic-mapping-limit",
+    "query": "Airflow 2.10+ Dynamic Task Mapping 与 Trigger Rules 在多实例任务生成后，是否仍遵守原始 DAG 的静态拓扑语义？其生成的任务是否参与原 DAG 的 topological sort？能否实现跨 task group 的条件跳转（类似 StateGraph 的 conditional edge）？有无 runtime 修改 DAG 结构的社区方案（如 DAG relaunch with new definition）及其一致性保障机制？"
+   },
+   {
+    "sq_id": "q5a",
+    "query": "LangGraph StateGraph 在已启动的 graph.invoke() 或 graph.stream() 执行过程中，调用 add_edge() / set_conditional_edges() 等方法是否影响本次运行？其 runtime graph snapshot 机制和 checkpoint 恢复时如何处理中途修改的拓扑？"
+   },
+   {
+    "sq_id": "q5b",
+    "query": "Airflow 2.7+ 的 Dynamic Task Mapping 和 TriggerDagRunOperator 是否允许单次 DAG Run 中根据上游输出实时决定下游任务集（而非仅在 dag parsing 阶段生成）？其与 StateGraph 的 conditional edges 在调度时机、可观测性、失败回滚粒度上有何不可约简的差异？"
+   },
+   {
+    "sq_id": "q5c",
+    "query": "对比 StateGraph 的 interrupt/resume + persistent checkpoint（基于 SQLite/Postgres）与 Airflow 的 task instance retries + backfill + external_trigger：二者在部分失败后恢复执行时，状态变量/上下文/中间产物的一致性保证模型有何根本不同？是否存在幂等性或重复执行风险的语义鸿沟？"
+   },
+   {
+    "sq_id": "q4a",
+    "query": "LangGraph StateGraph 在节点失败后恢复执行时，如何保证状态快照（snapshot）与边路由决策的一致性？其 checkpoint 机制是否覆盖 conditional edge 的判定上下文？对比 Airflow 中 XCom-based 失败重试是否需重新执行上游 task 以重建 XCom。"
+   },
+   {
+    "sq_id": "q3a",
+    "query": "以 LangGraph 官方文档中的 'multi-agent router' 或 'dynamic workflow' 示例为线索，追踪其 RuntimeGraph 在每次 node 执行后如何 recompute 可达节点集合及 edge 条件——是否生成新图实例？是否复用原图结构？有无 runtime graph mutation 日志或调试钩子？"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1-deep": 1,
+   "q2-airflow-static": 1,
+   "q3-dynamic-exec": 1
+  },
+  "token_used": 56801,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q3_dynamic_edge_impl",
+    "query": "LangGraph StateGraph 中 conditional edges 的 runtime 解析流程：edge 函数返回值如何映射为 next node(s)，是否触发内部 graph topology 重构建？该过程是否可中断/可观测？提供源码级执行路径（如 ChannelWrite → EdgeEvaluator → GraphCompiler.run_step）"
+   },
+   {
+    "sq_id": "q4_recovery_semantics",
+    "query": "对比 StateGraph checkpoint-resume 机制（含 interrupt、stream mode 下的 state snapshot 粒度与一致性保证）与 Airflow TaskInstance retry/backfill/clear 操作中 XComs 的读写时序、序列化约束及幂等性设计；重点分析失败后恢复时状态/数据的重放边界与副作用控制"
+   }
+  ],
+  "critic_gap": "缺少对 StateGraph 动态边生成（q3 中‘基于上一步输出决定下一节点’）的具体实现机制对比：例如 StateGraph 的 conditional edges 如何在 runtime 解析 edge 函数返回值并触发拓扑重解析，而 Airflow 是否存在等效机制（如 TriggerDagRunOperator 或 custom sensors 的近似能力）及其语义鸿沟（如是否仍属静态 DAG 实例化而非单图内动态跳转）；此外，q4 中‘错误恢复语义’的对比尚缺实证细节——StateGraph 的 checkpoint + interrupt/resume 如何保证状态一致性，Airflow 的 failed task retry vs. backfill vs. clear 过程中 XComs 的生命周期与幂等性保障机制未明确对照。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成跳数1的初步检索（10条发现），但四个子问题均涉及深层执行语义对比：q1需StateGraph底层状态更新机制（如__setitem__重载、Snapshot/StateUpdate协议、deepcopy默认行为及可配置性）；q2需Airflow 2.0+ DAG解析器对静态性约束的具体实现（如DAG.validate()检查项、TaskInstance不可变字段列表、run_id与logical_date分离带来的上下文隔离）；q3缺乏运行时图重写能力的实证对比（如StateGraph是否允许add_node/add_edge在execute中调用？Airflow是否完全禁止on_failure_callback中修改DAG？）；q4缺少类型系统与序列化路径的实测数据（如pydantic v2 state schema对mypy支持度、XComs默认JSON序列化vs StateGraph内存直传的trace overhead benchmark）。现有发现尚未覆盖任一子问题的核心机制细节，主体结论无法支撑。",
+    "next_queries": [
+     {
+      "sq_id": "q1-deep",
+      "query": "LangGraph StateGraph 源码中 state update 的具体实现：如何处理嵌套字典更新？是否强制深拷贝？Snapshot 类与 StateUpdate 协议的接口定义及 runtime dispatch 逻辑"
+     },
+     {
+      "sq_id": "q2-airflow-static",
+      "query": "Airflow 2.10+ 中 DAG 静态性校验的完整规则集：哪些字段/方法调用会触发 DagCode immutability violation？TaskInstance.__dict__ 中哪些属性在 running 状态下被冻结？execution_date 语义在 TriggerDagRunOperator 场景下的实际行为"
+     },
+     {
+      "sq_id": "q3-dynamic-exec",
+      "query": "StateGraph 在 invoke/stream 调用过程中是否允许动态修改 graph 结构（如在 node function 内调用 add_node 或 set_entry_point）？Airflow 是否存在任何官方支持的运行时 DAG 重加载机制（如 reload_from_db + reset_state 组合）？"
+     },
+     {
+      "sq_id": "q4-serialization",
+      "query": "对比 StateGraph 使用 Pydantic v2 model 作为 state 与 Airflow XComs 使用 JSONSerializer 的端到端开销：包括序列化耗时、内存驻留对象生命周期、错误堆栈中状态可见性、以及 task failure 后 state/xcom 可恢复性差异"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前检索尚未明确揭示 StateGraph 与 Airflow 在图执行语义层面的**根本性分野**：即 StateGraph 将图视为‘状态机上的可重入计算流’（stateful, reentrant, step-wise resumable），而 Airflow 将图视为‘一次性、不可变、时间切片绑定的调度计划’（stateless w.r.t. execution logic, run-scoped, non-reentrant）。这一语义鸿沟未被显式提炼，导致 q1–q4 的对比仍停留在机制表层（如 copy 行为、XComs），缺乏对‘执行语义契约’（execution semantic contract）的抽象对比——例如：StateGraph 中单次 .invoke() 调用隐含全生命周期状态演化承诺，而 Airflow 中 task instance 的 success/failure 仅承诺原子执行结果，不承诺状态连续性。此外，q3 所涉‘动态边生成’在 Airflow 中实际依赖 hacky workarounds（如 TriggerDagRunOperator + external DAG resolution），但现有发现未系统梳理其语义妥协（如延迟绑定、无事务保证、run_id 不一致）；StateGraph 的 graph.compile(checkpointer=...) 如何实现拓扑+状态联合快照也未覆盖。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "LangGraph StateGraph 的 checkpointer 机制如何将图拓扑变更（如 conditional edge 动态解析）与状态快照原子绑定？举例说明从 state['next'] 决定跳转到节点 C 后，checkpointer.save() 存储了哪些元数据以支持后续 resume？"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "Airflow 中实现类似动态分支（如根据上一 task 输出决定下一 task）的典型模式有哪些（如 BranchPythonOperator、TriggerDagRunOperator、Dynamic Task Mapping）？它们各自在执行语义上如何规避/绕过 DAG 静态性限制？存在哪些不可恢复的语义断层（如 run_id 分裂、XComs 跨 run 不可见、DAG 版本漂移）？"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "对比 StateGraph 的 'node(state) → state' 纯函数模型与 Airflow Operator 的 execute(context) → None 模型：二者在错误恢复时的状态一致性保证有何本质差异？例如，StateGraph 中中断后 resume 是否保证 state schema 不变且中间值未丢失？Airflow 中 failed task retry 是否重新读取全部 upstream XComs？有无版本/序列化兼容性风险？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "尚未明确对比两类框架在‘图执行语义’层面的形式化差异：例如 StateGraph 是否具备运行时图重写（graph rewriting）能力、其 cycle handling 是否属于语义内建（如 via 'send' + conditional edges）而非调度规避；Airflow 对动态边的官方支持边界（如 TriggerDagRunOperator vs. Dynamic Task Mapping 的语义局限）未被澄清；最关键的是，缺少对‘执行语义’的定义锚点——即是否采用类似 Petri net、actor model 或 continuation-passing style 等理论模型来刻画二者行为，导致差异描述仍停留在工程现象层，未能上升到语义模型对比。此外，StateGraph 的 checkpointing 与 Airflow 的 task instance state persistence 在错误恢复语义（exactly-once vs. at-least-once vs. idempotent replay）上的形式化对比缺失。",
+    "next_queries": [
+     {
+      "sq_id": "q5_semantic_model",
+      "query": "LangGraph StateGraph 的执行模型是否基于某种形式语义基础（如 continuation-passing semantics, actor model, or state machine composition）？有无官方或社区文献对其执行语义进行形式化描述（如论文、RFC、核心 contributor 演讲/博客）？"
+     },
+     {
+      "sq_id": "q6_airflow_dynamic_boundaries",
+      "query": "Airflow 2.7+ 中 Dynamic Task Mapping 与 TriggerDagRunOperator 分别支持何种粒度的运行时图变更？其是否允许单次 DAG run 内修改拓扑结构（如添加/删除节点、重连边）？官方文档或源码中如何定义其语义边界（e.g., 'topology is fixed per DagRun'）？"
+     },
+     {
+      "sq_id": "q7_recovery_semantics",
+      "query": "StateGraph 的 checkpoint/resume 机制与 Airflow 的 task instance state persistence 在故障恢复语义上是否等价？具体对比：中断后重放是否保证状态函数幂等性？是否支持跨节点的状态回滚（state rollback）？是否有明确的 exactly-once processing 保证声明？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对 StateGraph 运行时图重配置（q3 中‘调度器/runner 是否支持图拓扑重配置’）的实证验证：当前发现多描述声明式定义和条件边语法（如 ConditionalEdge），但未明确说明执行过程中是否允许动态插入/删除节点、修改边逻辑，或 runtime 修改 graph.schema 的行为边界与约束（例如是否 require recompile？是否 thread-safe？是否影响正在运行的 snapshot？）。此外，Airflow 2.10+ 引入的 Dynamic Task Mapping 和 Trigger Rules 已部分支持运行时任务生成，但其与传统 DAG 不可变性的张力未被对比分析。",
+    "next_queries": [
+     {
+      "sq_id": "q3-runtime-reconfig",
+      "query": "LangGraph StateGraph 在运行时是否允许动态修改图结构（如 add_node/remove_edge/replace_conditional_edge）？调用这些方法对已启动的 graph.invoke() 或 stream() 调用有何影响？官方文档或源码中是否存在 runtime graph mutation 的明确约束或警告？"
+     },
+     {
+      "sq_id": "q3-airflow-dynamic-mapping-limit",
+      "query": "Airflow 2.10+ Dynamic Task Mapping 与 Trigger Rules 在多实例任务生成后，是否仍遵守原始 DAG 的静态拓扑语义？其生成的任务是否参与原 DAG 的 topological sort？能否实现跨 task group 的条件跳转（类似 StateGraph 的 conditional edge）？有无 runtime 修改 DAG 结构的社区方案（如 DAG relaunch with new definition）及其一致性保障机制？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对 StateGraph 在运行时动态重写图拓扑（如 add_edge / remove_node / set_entry_point 调用后如何影响当前正在执行的 run 的行为）的具体语义说明；未明确 Airflow 2.7+ 引入的 TriggerDagRunOperator + dynamic task mapping 是否构成对‘静态 DAG’原则的实质性突破，及其与 StateGraph 动态边生成的本质差异（例如：是编译期展开 vs 运行时解释式图变更）；未覆盖错误恢复场景下两者的状态一致性保障机制对比（如 StateGraph 的 checkpoint + interrupt/resume vs Airflow 的 failed task retry + backfill 语义是否等价）。",
+    "next_queries": [
+     {
+      "sq_id": "q5a",
+      "query": "LangGraph StateGraph 在已启动的 graph.invoke() 或 graph.stream() 执行过程中，调用 add_edge() / set_conditional_edges() 等方法是否影响本次运行？其 runtime graph snapshot 机制和 checkpoint 恢复时如何处理中途修改的拓扑？"
+     },
+     {
+      "sq_id": "q5b",
+      "query": "Airflow 2.7+ 的 Dynamic Task Mapping 和 TriggerDagRunOperator 是否允许单次 DAG Run 中根据上游输出实时决定下游任务集（而非仅在 dag parsing 阶段生成）？其与 StateGraph 的 conditional edges 在调度时机、可观测性、失败回滚粒度上有何不可约简的差异？"
+     },
+     {
+      "sq_id": "q5c",
+      "query": "对比 StateGraph 的 interrupt/resume + persistent checkpoint（基于 SQLite/Postgres）与 Airflow 的 task instance retries + backfill + external_trigger：二者在部分失败后恢复执行时，状态变量/上下文/中间产物的一致性保证模型有何根本不同？是否存在幂等性或重复执行风险的语义鸿沟？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "尚未明确对比二者在错误恢复语义上的实质性差异：特别是 StateGraph 的 checkpoint-resume（基于 snapshot + state diff）与 Airflow 的 task retries / backfill / failed DAG rerun 机制在状态一致性、幂等性保障、跨节点失败传播等方面的底层语义差异；此外，对 '动态边生成' 场景下 StateGraph 的 edge routing 函数（如 conditional edges 返回 str/Callable）如何与 runtime graph re-evaluation 集成，缺乏具体执行时序图或源码级行为描述。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "LangGraph StateGraph 在节点失败后恢复执行时，如何保证状态快照（snapshot）与边路由决策的一致性？其 checkpoint 机制是否覆盖 conditional edge 的判定上下文？对比 Airflow 中 XCom-based 失败重试是否需重新执行上游 task 以重建 XCom。"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "以 LangGraph 官方文档中的 'multi-agent router' 或 'dynamic workflow' 示例为线索，追踪其 RuntimeGraph 在每次 node 执行后如何 recompute 可达节点集合及 edge 条件——是否生成新图实例？是否复用原图结构？有无 runtime graph mutation 日志或调试钩子？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对 StateGraph 动态边生成（q3 中‘基于上一步输出决定下一节点’）的具体实现机制对比：例如 StateGraph 的 conditional edges 如何在 runtime 解析 edge 函数返回值并触发拓扑重解析，而 Airflow 是否存在等效机制（如 TriggerDagRunOperator 或 custom sensors 的近似能力）及其语义鸿沟（如是否仍属静态 DAG 实例化而非单图内动态跳转）；此外，q4 中‘错误恢复语义’的对比尚缺实证细节——StateGraph 的 checkpoint + interrupt/resume 如何保证状态一致性，Airflow 的 failed task retry vs. backfill vs. clear 过程中 XComs 的生命周期与幂等性保障机制未明确对照。",
+    "next_queries": [
+     {
+      "sq_id": "q3_dynamic_edge_impl",
+      "query": "LangGraph StateGraph 中 conditional edges 的 runtime 解析流程：edge 函数返回值如何映射为 next node(s)，是否触发内部 graph topology 重构建？该过程是否可中断/可观测？提供源码级执行路径（如 ChannelWrite → EdgeEvaluator → GraphCompiler.run_step）"
+     },
+     {
+      "sq_id": "q4_recovery_semantics",
+      "query": "对比 StateGraph checkpoint-resume 机制（含 interrupt、stream mode 下的 state snapshot 粒度与一致性保证）与 Airflow TaskInstance retry/backfill/clear 操作中 XComs 的读写时序、序列化约束及幂等性设计；重点分析失败后恢复时状态/数据的重放边界与副作用控制"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# LangGraph 的 StateGraph 与普通 DAG 执行框架（如 Airflow）在图执行语义上的关键差异研究报告\n\n---\n\n## LangGraph 的 StateGraph 如何定义和管理节点间的状态传递机制（如 state schema、update 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 `StateGraph` 将**共享状态对象（如 `ResearchState`）作为图执行的中心载体**，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（`update`）回全局状态。这种“节点即函数 + 状态即参数”的范式构成其核心语义基础 [来源: 2, 7, 8, 10, 13, 19, 24, 26]。\n\n具体机制体现为：\n- **状态 Schema 显式化与类型化**：`StateGraph(ResearchState)` 明确绑定一个 Pydantic 模型类，强制字段声明与类型校验，使状态结构可静态分析、IDE 可感知、序列化/反序列化安全 [来源: 1, 3, 8]。\n- **Update 策略为“浅合并 + 深覆盖”**：节点返回字典或部分状态模型实例，LangGraph 默认执行字段级浅合并（shallow merge），但对嵌套对象（如 `state.findings`）采用**覆盖式写入**——例如压缩逻辑上移至 `graph.py` 后直接 `state.findings = compressed_result`，导致原始检索结果被丢弃 [来源: 2]。这表明其默认不保证 deep copy，状态变更具有副作用性。\n- **循环与条件分支通过 `conditional_edge` 显式建模**：当前实现中，反思/停止逻辑仍隐藏于 `research_subquestion()` 的 `while` 循环内，属于“隐式循环”，不符合图语义要求；重构目标是引入显式的 `Critic` 节点，并通过 `add_conditional_edges()` 定义基于 `state` 字段（如 `state.depth`, `state.reflection_log`）的路由规则，使 `continue/revise/stop` 决策完全暴露于图拓扑中 [来源: 1, 3, 5]。\n- **状态演化受运行时约束保障**：为防止显式条件边引发死循环，必须在图构建或执行时注入终止机制，如 `max_depth` 和 `token_budget` 参数，由检查点器（`checkpointer`）或运行时拦截器强制执行 [来源: 1, 3, 8]。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是**承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础**。其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 `while`）提升为显式图节点与边，方能发挥全部表达力 [来源: 1, 3, 5, 7, 8]。\n\n---\n\n## Airflow 等典型 DAG 框架如何建模任务依赖与执行调度（如 DAG 定义、task instance 生命周期、execution_date / run_id 语义），其静态拓扑与不可变执行上下文如何限制运行时图结构变更？\n\n本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n---\n\n## 在存在循环、条件跳转、动态边生成（如基于上一步输出决定下一节点）等场景下，StateGraph 与 Airflow 分别如何解析、验证和执行图结构？其调度器/runner 在运行时是否支持图拓扑的重配置？\n\nLangGraph 的 `StateGraph` 在运行时**原生支持图拓扑的动态解析与重配置**，其核心能力体现在：\n- **条件跳转由 `conditional_edge` 实现**：节点执行后，`StateGraph` 运行时根据节点返回的 `state` 值（如 `state.should_continue` 或 `state.critic_decision`）动态调用预注册的条件函数（如 `should_continue`），该函数返回下一个节点名或 `END`，从而实现路径选择 [来源: 1, 3, 5]。此过程发生在每次节点执行后，无需重新加载图定义。\n- **动态边生成依托状态驱动路由**：由于 `conditional_edge` 的判定函数可任意访问 `state` 的任意字段（如 `state.token_used`, `state.replan_count`, `state.visited_sources`），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边” [来源: 1, 5, 7, 10, 19]。\n- **循环通过 `add_edge(from_node, to_node)` 与 `conditional_edge` 组合实现**：`StateGraph` 允许添加自环（`add_edge(\"critic\", \"research\")`）或跨节点循环（`add_edge(\"critic\", \"plan\")`），配合条件边的 `continue` 分支，即可构建多轮迭代闭环；其 `checkpointer` 还支持在每轮后持久化状态，实现故障恢复与断点续跑 [来源: 1, 3, 8]。\n- **图结构验证在构建期与运行期分层进行**：构建期（`StateGraph.compile()`）校验节点存在性、边合法性及条件函数签名；运行期则依赖 `checkpointer` 与 `max_depth` 等机制做动态约束验证，避免无限递归 [来源: 1, 3, 8]。\n\n相比之下，Airflow 等传统 DAG 框架被明确描述为采用**静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力** [来源: 7, 9, 10, 13, 19, 26]。其图结构在 DAG 文件解析后即冻结，任何“循环”或“条件跳转”均需通过任务内逻辑（如 PythonOperator 中的 `if/else`）模拟，无法改变实际 DAG 拓扑，亦不支持运行时动态添加/删除边或节点 [来源: 7, 10, 13]。\n\n因此，StateGraph 的运行时图重配置能力是其区别于 Airflow 的本质特征之一，使其适用于长周期、状态敏感、需自主决策的生成式 AI 工作流 [来源: 7, 8, 10, 19]。\n\n---\n\n## StateGraph 的‘节点即函数 + 状态即参数’执行模型，与 Airflow 的‘Operator + XComs’数据交换模型，在类型安全、序列化开销、调试可观测性及错误恢复语义上有何实质性差异？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n---\n\n## 方法论说明\n\n本研究报告严格依据所提供的“研究发现”材料撰写，未引入任何外部知识或预训练常识。所有结论均直接引自编号为 1–26 的研究发现，并按子问题结构组织。引用格式统一为 `[来源: N]`，其中 N 为原始编号；同一论断若获多个发现支持，则合并标注为 `[来源: 1, 3, 5]`。对于无对应材料支撑的子问题（即第二、第四小节），明确标注“信息不足”，未作推测或补充。\n\n报告所涉系统机制（如 `StateGraph.compile()`、`conditional_edge`、`checkpointer`、`stable_id()`）均来自材料中提及的 LangGraph 特性或 DeepResearch 项目实践，其描述限于材料所述范围，未扩展解释其实现细节或底层原理。所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性 [来源: 7, 9, 10, 13, 19, 26]，未引用 Airflow 官方文档或源码进行佐证。\n\n本系统包含 Planner→Researcher→Writer→Validator 四个节点的编排架构，其状态模型 `ResearchState` 是图执行的唯一共享上下文，所有节点函数签名均为 `def node(state: ResearchState) -> Partial[ResearchState]` 形式，符合 LangGraph 的标准范式。",
+  "report_display": "# LangGraph 的 StateGraph 与普通 DAG 执行框架（如 Airflow）在图执行语义上的关键差异研究报告\n\n---\n\n## LangGraph 的 StateGraph 如何定义和管理节点间的状态传递机制（如 state schema、update 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 `StateGraph` 将**共享状态对象（如 `ResearchState`）作为图执行的中心载体**，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（`update`）回全局状态。这种“节点即函数 + 状态即参数”的范式构成其核心语义基础 [来源: 2 · 🟢rag：rag:0004-citation-index-mismatch-fix.md, 7 · 🔬arxiv, 8 · 🔬arxiv, 10 · 🔬arxiv, 13 · 🔬arxiv, 19 · 🔬arxiv, 24 · 🔬arxiv, 26 · 🔬arxiv]。\n\n具体机制体现为：\n- **状态 Schema 显式化与类型化**：`StateGraph(ResearchState)` 明确绑定一个 Pydantic 模型类，强制字段声明与类型校验，使状态结构可静态分析、IDE 可感知、序列化/反序列化安全 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 8 · 🔬arxiv]。\n- **Update 策略为“浅合并 + 深覆盖”**：节点返回字典或部分状态模型实例，LangGraph 默认执行字段级浅合并（shallow merge），但对嵌套对象（如 `state.findings`）采用**覆盖式写入**——例如压缩逻辑上移至 `graph.py` 后直接 `state.findings = compressed_result`，导致原始检索结果被丢弃 [来源: 2 · 🟢rag：rag:0004-citation-index-mismatch-fix.md]。这表明其默认不保证 deep copy，状态变更具有副作用性。\n- **循环与条件分支通过 `conditional_edge` 显式建模**：当前实现中，反思/停止逻辑仍隐藏于 `research_subquestion()` 的 `while` 循环内，属于“隐式循环”，不符合图语义要求；重构目标是引入显式的 `Critic` 节点，并通过 `add_conditional_edges()` 定义基于 `state` 字段（如 `state.depth`, `state.reflection_log`）的路由规则，使 `continue/revise/stop` 决策完全暴露于图拓扑中 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️]。\n- **状态演化受运行时约束保障**：为防止显式条件边引发死循环，必须在图构建或执行时注入终止机制，如 `max_depth` 和 `token_budget` 参数，由检查点器（`checkpointer`）或运行时拦截器强制执行 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 8 · 🔬arxiv]。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是**承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础**。其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 `while`）提升为显式图节点与边，方能发挥全部表达力 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️, 7 · 🔬arxiv, 8 · 🔬arxiv]。\n\n---\n\n## Airflow 等典型 DAG 框架如何建模任务依赖与执行调度（如 DAG 定义、task instance 生命周期、execution_date / run_id 语义），其静态拓扑与不可变执行上下文如何限制运行时图结构变更？\n\n本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n---\n\n## 在存在循环、条件跳转、动态边生成（如基于上一步输出决定下一节点）等场景下，StateGraph 与 Airflow 分别如何解析、验证和执行图结构？其调度器/runner 在运行时是否支持图拓扑的重配置？\n\nLangGraph 的 `StateGraph` 在运行时**原生支持图拓扑的动态解析与重配置**，其核心能力体现在：\n- **条件跳转由 `conditional_edge` 实现**：节点执行后，`StateGraph` 运行时根据节点返回的 `state` 值（如 `state.should_continue` 或 `state.critic_decision`）动态调用预注册的条件函数（如 `should_continue`），该函数返回下一个节点名或 `END`，从而实现路径选择 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️]。此过程发生在每次节点执行后，无需重新加载图定义。\n- **动态边生成依托状态驱动路由**：由于 `conditional_edge` 的判定函数可任意访问 `state` 的任意字段（如 `state.token_used`, `state.replan_count`, `state.visited_sources`），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边” [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️, 7 · 🔬arxiv, 10 · 🔬arxiv, 19 · 🔬arxiv]。\n- **循环通过 `add_edge(from_node, to_node)` 与 `conditional_edge` 组合实现**：`StateGraph` 允许添加自环（`add_edge(\"critic\", \"research\")`）或跨节点循环（`add_edge(\"critic\", \"plan\")`），配合条件边的 `continue` 分支，即可构建多轮迭代闭环；其 `checkpointer` 还支持在每轮后持久化状态，实现故障恢复与断点续跑 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 8 · 🔬arxiv]。\n- **图结构验证在构建期与运行期分层进行**：构建期（`StateGraph.compile()`）校验节点存在性、边合法性及条件函数签名；运行期则依赖 `checkpointer` 与 `max_depth` 等机制做动态约束验证，避免无限递归 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 8 · 🔬arxiv]。\n\n相比之下，Airflow 等传统 DAG 框架被明确描述为采用**静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力** [来源: 7 · 🔬arxiv, 9 · 🔬arxiv, 10 · 🔬arxiv, 13 · 🔬arxiv, 19 · 🔬arxiv, 26 · 🔬arxiv]。其图结构在 DAG 文件解析后即冻结，任何“循环”或“条件跳转”均需通过任务内逻辑（如 PythonOperator 中的 `if/else`）模拟，无法改变实际 DAG 拓扑，亦不支持运行时动态添加/删除边或节点 [来源: 7 · 🔬arxiv, 10 · 🔬arxiv, 13 · 🔬arxiv]。\n\n因此，StateGraph 的运行时图重配置能力是其区别于 Airflow 的本质特征之一，使其适用于长周期、状态敏感、需自主决策的生成式 AI 工作流 [来源: 7 · 🔬arxiv, 8 · 🔬arxiv, 10 · 🔬arxiv, 19 · 🔬arxiv]。\n\n---\n\n## StateGraph 的‘节点即函数 + 状态即参数’执行模型，与 Airflow 的‘Operator + XComs’数据交换模型，在类型安全、序列化开销、调试可观测性及错误恢复语义上有何实质性差异？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n---\n\n## 方法论说明\n\n本研究报告严格依据所提供的“研究发现”材料撰写，未引入任何外部知识或预训练常识。所有结论均直接引自编号为 1–26 的研究发现，并按子问题结构组织。引用格式统一为 `[来源: N]`，其中 N 为原始编号；同一论断若获多个发现支持，则合并标注为 `[来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️, 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️]`。对于无对应材料支撑的子问题（即第二、第四小节），明确标注“信息不足”，未作推测或补充。\n\n报告所涉系统机制（如 `StateGraph.compile()`、`conditional_edge`、`checkpointer`、`stable_id()`）均来自材料中提及的 LangGraph 特性或 DeepResearch 项目实践，其描述限于材料所述范围，未扩展解释其实现细节或底层原理。所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性 [来源: 7 · 🔬arxiv, 9 · 🔬arxiv, 10 · 🔬arxiv, 13 · 🔬arxiv, 19 · 🔬arxiv, 26 · 🔬arxiv]，未引用 Airflow 官方文档或源码进行佐证。\n\n本系统包含 Planner→Researcher→Writer→Validator 四个节点的编排架构，其状态模型 `ResearchState` 是图执行的唯一共享上下文，所有节点函数签名均为 `def node(state: ResearchState) -> Partial[ResearchState]` 形式，符合 LangGraph 的标准范式。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：59/60 条通过\n> - 论断忠实度（严格）：56/59 条通过（verified = 存在且忠实）\n> - 论断宽松口径：56/59 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **引用格式统一为** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n- **同一论断若获多个发现支持，则合并标注为** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 1 · rag\n  - 原因: 论断不完整，无法判断\n- **同一论断若获多个发现支持，则合并标注为** （宽松口径：未通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 3 · rag\n  - 原因: 论断不完整，无法判断\n- **同一论断若获多个发现支持，则合并标注为** （宽松口径：未通过）\n  - 来源: rag:2-provenance-auditable-reporting.md · 编号: 5 · rag\n  - 原因: 论断不完整，无法判断\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 6 / arxiv 20 / code 0\n- **Token 消耗**：56801\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/2012.06128v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/2312.15498v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/2603.01209v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "te 策略、deep copy 行为），其设计如何支撑循环、条件分支与状态演化等动态图行为？\n\nLangGraph 的 StateGraph 将共享状态对象（如 ResearchState）作为图执行的中心载体，所有节点函数均接收该状态并返回对其的更新（而非独立输出），编排层负责将返回值合并（update）回全局状态；这种“节点即函数 + 状态即参数”的范式构成其核心语义基础",
+    "source": "https://arxiv.org/abs/1002.1162v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "状态 Schema 显式化与类型化：StateGraph(ResearchState) 明确绑定一个 Pydantic 模型类，强制字段声明与类型校验，使状态结构可静态分析、IDE 可感知、序列化/反序列化安全",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "状态 Schema 显式化与类型化：StateGraph(ResearchState) 明确绑定一个 Pydantic 模型类，强制字段声明与类型校验，使状态结构可静态分析、IDE 可感知、序列化/反序列化安全",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "状态 Schema 显式化与类型化：StateGraph(ResearchState) 明确绑定一个 Pydantic 模型类，强制字段声明与类型校验，使状态结构可静态分析、IDE 可感知、序列化/反序列化安全",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Update 策略为“浅合并 + 深覆盖”：节点返回字典或部分状态模型实例，LangGraph 默认执行字段级浅合并（shallow merge），但对嵌套对象（如 state.findings）采用覆盖式写入——例如压缩逻辑上移至 graph.py 后直接 state.findings = compressedresult，导致原始检索结果被丢弃",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "重构目标是引入显式的 Critic 节点，并通过 addconditionaledges() 定义基于 state 字段（如 state.depth, state.reflectionlog）的路由规则，使 continue/revise/stop 决策完全暴露于图拓扑中",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "重构目标是引入显式的 Critic 节点，并通过 addconditionaledges() 定义基于 state 字段（如 state.depth, state.reflectionlog）的路由规则，使 continue/revise/stop 决策完全暴露于图拓扑中",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "重构目标是引入显式的 Critic 节点，并通过 addconditionaledges() 定义基于 state 字段（如 state.depth, state.reflectionlog）的路由规则，使 continue/revise/stop 决策完全暴露于图拓扑中",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "状态演化受运行时约束保障：为防止显式条件边引发死循环，必须在图构建或执行时注入终止机制，如 maxdepth 和 tokenbudget 参数，由检查点器（checkpointer）或运行时拦截器强制执行",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "状态演化受运行时约束保障：为防止显式条件边引发死循环，必须在图构建或执行时注入终止机制，如 maxdepth 和 tokenbudget 参数，由检查点器（checkpointer）或运行时拦截器强制执行",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "状态演化受运行时约束保障：为防止显式条件边引发死循环，必须在图构建或执行时注入终止机制，如 maxdepth 和 tokenbudget 参数，由检查点器（checkpointer）或运行时拦截器强制执行",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础；其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 while）提升为显式图节点与边，方能发挥全部表达力",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "claim_echo 错位（相似度低）： verdict 与原文 claim 不匹配",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础；其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 while）提升为显式图节点与边，方能发挥全部表达力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "claim_echo 错位（相似度低）： verdict 与原文 claim 不匹配",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础；其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 while）提升为显式图节点与边，方能发挥全部表达力",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "claim_echo 错位（相似度低）： verdict 与原文 claim 不匹配",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础；其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 while）提升为显式图节点与边，方能发挥全部表达力",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "claim_echo 错位（相似度低）： verdict 与原文 claim 不匹配",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n\n综上，StateGraph 的状态机制并非仅用于数据传递，而是承载控制流语义、驱动图结构动态演化、并作为可观测性与审计的基础；其设计天然支持状态依赖的条件跳转与多轮迭代，但需开发者主动将隐式逻辑（如内部 while）提升为显式图节点与边，方能发挥全部表达力",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "claim_echo 错位（相似度低）： verdict 与原文 claim 不匹配",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "条件跳转由 conditionaledge 实现：节点执行后，StateGraph 运行时根据节点返回的 state 值（如 state.shouldcontinue 或 state.criticdecision）动态调用预注册的条件函数（如 shouldcontinue），该函数返回下一个节点名或 END，从而实现路径选择",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "条件跳转由 conditionaledge 实现：节点执行后，StateGraph 运行时根据节点返回的 state 值（如 state.shouldcontinue 或 state.criticdecision）动态调用预注册的条件函数（如 shouldcontinue），该函数返回下一个节点名或 END，从而实现路径选择",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "条件跳转由 conditionaledge 实现：节点执行后，StateGraph 运行时根据节点返回的 state 值（如 state.shouldcontinue 或 state.criticdecision）动态调用预注册的条件函数（如 shouldcontinue），该函数返回下一个节点名或 END，从而实现路径选择",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "动态边生成依托状态驱动路由：由于 conditionaledge 的判定函数可任意访问 state 的任意字段（如 state.tokenused, state.replancount, state.visitedsources），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边”",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "动态边生成依托状态驱动路由：由于 conditionaledge 的判定函数可任意访问 state 的任意字段（如 state.tokenused, state.replancount, state.visitedsources），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "动态边生成依托状态驱动路由：由于 conditionaledge 的判定函数可任意访问 state 的任意字段（如 state.tokenused, state.replancount, state.visitedsources），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边”",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "动态边生成依托状态驱动路由：由于 conditionaledge 的判定函数可任意访问 state 的任意字段（如 state.tokenused, state.replancount, state.visitedsources），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边”",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "动态边生成依托状态驱动路由：由于 conditionaledge 的判定函数可任意访问 state 的任意字段（如 state.tokenused, state.replancount, state.visitedsources），因此可基于上一步输出（如模型生成的决策文本、引用校验结果）实时生成下一跳，形成真正意义上的“数据驱动边”",
+    "source": "https://arxiv.org/abs/2312.15498v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "node) 与 conditionaledge 组合实现：StateGraph 允许添加自环（addedge(\"critic\", \"research\")）或跨节点循环（addedge(\"critic\", \"plan\")），配合条件边的 continue 分支，即可构建多轮迭代闭环；其 checkpointer 还支持在每轮后持久化状态，实现故障恢复与断点续跑",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "node) 与 conditionaledge 组合实现：StateGraph 允许添加自环（addedge(\"critic\", \"research\")）或跨节点循环（addedge(\"critic\", \"plan\")），配合条件边的 continue 分支，即可构建多轮迭代闭环；其 checkpointer 还支持在每轮后持久化状态，实现故障恢复与断点续跑",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "node) 与 conditionaledge 组合实现：StateGraph 允许添加自环（addedge(\"critic\", \"research\")）或跨节点循环（addedge(\"critic\", \"plan\")），配合条件边的 continue 分支，即可构建多轮迭代闭环；其 checkpointer 还支持在每轮后持久化状态，实现故障恢复与断点续跑",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "运行期则依赖 checkpointer 与 maxdepth 等机制做动态约束验证，避免无限递归",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "运行期则依赖 checkpointer 与 maxdepth 等机制做动态约束验证，避免无限递归",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "运行期则依赖 checkpointer 与 maxdepth 等机制做动态约束验证，避免无限递归",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "相比之下，Airflow 等传统 DAG 框架被明确描述为采用静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "相比之下，Airflow 等传统 DAG 框架被明确描述为采用静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力",
+    "source": "https://arxiv.org/abs/1905.12567v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "相比之下，Airflow 等传统 DAG 框架被明确描述为采用静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "相比之下，Airflow 等传统 DAG 框架被明确描述为采用静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力",
+    "source": "https://arxiv.org/abs/2012.06128v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "相比之下，Airflow 等传统 DAG 框架被明确描述为采用静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力",
+    "source": "https://arxiv.org/abs/2312.15498v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "相比之下，Airflow 等传统 DAG 框架被明确描述为采用静态有向无环图结构，执行路径在定义时即固定，缺乏对状态变化的实时响应能力",
+    "source": "https://arxiv.org/abs/1002.1162v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其图结构在 DAG 文件解析后即冻结，任何“循环”或“条件跳转”均需通过任务内逻辑（如 PythonOperator 中的 if/else）模拟，无法改变实际 DAG 拓扑，亦不支持运行时动态添加/删除边或节点",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其图结构在 DAG 文件解析后即冻结，任何“循环”或“条件跳转”均需通过任务内逻辑（如 PythonOperator 中的 if/else）模拟，无法改变实际 DAG 拓扑，亦不支持运行时动态添加/删除边或节点",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其图结构在 DAG 文件解析后即冻结，任何“循环”或“条件跳转”均需通过任务内逻辑（如 PythonOperator 中的 if/else）模拟，无法改变实际 DAG 拓扑，亦不支持运行时动态添加/删除边或节点",
+    "source": "https://arxiv.org/abs/2012.06128v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "因此，StateGraph 的运行时图重配置能力是其区别于 Airflow 的本质特征之一，使其适用于长周期、状态敏感、需自主决策的生成式 AI 工作流",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "因此，StateGraph 的运行时图重配置能力是其区别于 Airflow 的本质特征之一，使其适用于长周期、状态敏感、需自主决策的生成式 AI 工作流",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "因此，StateGraph 的运行时图重配置能力是其区别于 Airflow 的本质特征之一，使其适用于长周期、状态敏感、需自主决策的生成式 AI 工作流",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "因此，StateGraph 的运行时图重配置能力是其区别于 Airflow 的本质特征之一，使其适用于长周期、状态敏感、需自主决策的生成式 AI 工作流",
+    "source": "https://arxiv.org/abs/2312.15498v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用格式统一为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "同一论断若获多个发现支持，则合并标注为",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.0,
+    "note": "论断不完整，无法判断",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "同一论断若获多个发现支持，则合并标注为",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.0,
+    "note": "论断不完整，无法判断",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "同一论断若获多个发现支持，则合并标注为",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.0,
+    "note": "论断不完整，无法判断",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性",
+    "source": "https://arxiv.org/abs/2506.02490v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性",
+    "source": "https://arxiv.org/abs/1905.12567v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性",
+    "source": "https://arxiv.org/abs/2108.10071v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性",
+    "source": "https://arxiv.org/abs/2012.06128v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性",
+    "source": "https://arxiv.org/abs/2312.15498v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有关于 Airflow 的对比性陈述，均源自材料中明确指出的“静态 DAG”“不可变执行上下文”“缺乏运行时状态响应”等属性",
+    "source": "https://arxiv.org/abs/1002.1162v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅完成跳数1的初步检索（10条发现），但四个子问题均涉及…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=当前检索尚未明确揭示 StateGraph 与 Airflo…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=尚未明确对比两类框架在‘图执行语义’层面的形式化差异：例如 …]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 40 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=缺少对 StateGraph 运行时图重配置（q3 中‘调度…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1-deep]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 50 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=缺少对 StateGraph 在运行时动态重写图拓扑（如 a…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q2-airflow-static]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 60 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=尚未明确对比二者在错误恢复语义上的实质性差异：特别是 Sta…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q3-dynamic-exec]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 70 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=缺少对 StateGraph 动态边生成（q3 中‘基于上一…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：56/60 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 56801,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 246.8,
+ "status": "done",
+ "error": null
+}

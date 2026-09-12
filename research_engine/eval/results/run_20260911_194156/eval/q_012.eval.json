@@ -1,0 +1,157 @@
+{
+ "q_id": "q_012",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5157,
+   "headings": 9,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 66,
+   "verified": 62,
+   "verified_relaxed": 62,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9394,
+   "relaxed_rate": 0.9394,
+   "by_source_type": {
+    "rag": {
+     "total": 45,
+     "verified": 45,
+     "verified_relaxed": 45,
+     "existence": 45
+    },
+    "code_exec": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 1
+    },
+    "arxiv": {
+     "total": 20,
+     "verified": 17,
+     "verified_relaxed": 17,
+     "existence": 20
+    }
+   },
+   "failed_note_distribution": {
+    "原文仅提及'代码执行过程中出现语法错误，如无效字符导致的SyntaxError'": 1,
+    "原文仅称'在Zebra-CoT上微调Anole-7B可使测试集准确率提升12%'": 1,
+    "原文未提及'逻辑矛盾识别失败'或'悖论性推理链'；仅泛泛指出'在存在歧义的场景中": 1,
+    "原文摘要仅提ERA-CoT方法及GPT3.5实验，未涉及T5/FLAN-T5或e": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 4,
+   "coverage": 0.5,
+   "per_sub": [
+    {
+     "subquestion": "CoT提示在哪些具体NLP任务（如算术推理、常识推理、符号推理）中表现显著低于标准提示？",
+     "covered": false,
+     "reason": "检索到的研究发现多次提及CoT在金融风控、反欺诈、合规监测、多模态（视觉推理、图像编辑）、代码执行等场景中可能失效，但未明确指出其在标准NLP任务（如算术推理、常识推理、符号推理）中‘显著低于标准提示’的具体实证结果或对比数据；仅泛泛提及‘在需要精确推理或存在歧义的场景中可能导致错误’，缺乏任务粒度的负向性能对比（如准确率下降、统计显著性等），也未锚定到所列NLP子任务。"
+    },
+    {
+     "subquestion": "模型规模、参数量或架构类型（如decoder-only vs encoder-decoder）如何影响CoT的失效概率？",
+     "covered": false,
+     "reason": "检索内容中虽有提及‘低成本模型（qwen-turbo/plus）’和‘qwen-max’的使用选择，以及NeurIPS竞赛中16层ResNet-like结构（非LLM架构）的参数量（17.8M），但均未分析模型规模/参数量/架构类型与CoT失效概率之间的因果或相关关系；无跨模型对比实验（如Llama-3-8B vs 70B在相同CoT设置下的失败率差异），也未讨论decoder-only与encoder-decoder架构对CoT鲁棒性的差异化影响。"
+    },
+    {
+     "subquestion": "输入问题的结构特征（如歧义性、多步依赖深度、信息冗余度）与CoT负面效果之间存在何种关联？",
+     "covered": true,
+     "reason": "多份摘要明确指出CoT失效与输入结构特征相关：如‘在需要精确推理或存在歧义的场景中，CoT可能导致错误或不稳定的结果’；‘当任务涉及高度抽象或需要外部知识时，CoT性能可能显著下降’；‘金融风控中需依赖精确语义抽取与规则校验时，CoT可能导致信息偏差’；‘反欺诈中面对专业隐喻和复杂语义风险，单纯依赖CoT可能降低识别准确率’——这些均指向歧义性、抽象性（隐含多步依赖）、专业术语/隐喻（增加理解深度与上下文依赖）等结构特征与负面效果的关联，虽未量化‘信息冗余度’，但已覆盖题干所列核心特征中的歧义性与多步依赖深度。"
+    },
+    {
+     "subquestion": "是否存在特定的CoT构造方式（如人工设计vs自动生成、一步分解vs多步展开）会系统性加剧错误传播？",
+     "covered": true,
+     "reason": "研究明确指出：1）‘CoT-Valve策略通过动态控制推理链长度，按任务难度弹性调节推理过程’，暗示过长/不匹配的链长（即多步展开）可能带来额外成本与风险；2）‘Critic节点’被引入以实现‘continue|revise|stop’决策，说明默认的单向多步展开易导致错误累积，需反思机制干预；3）‘ERA-CoT’强调‘提升对实体关系的理解和多步骤推理能力’，反向表明常规CoT在多步关系建模上存在缺陷；4）多处强调‘错误传播’风险（如‘防幻觉’‘引用链路完整但用户可读性差’‘论断忠实度缺失’），而所有改进方案均围绕重构CoT流程（加critic、条件边、交错标记、三元组解耦），共同指向‘构造方式’（尤其是缺乏验证/过深展开/未解耦）是加剧错误传播的关键因素。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "思维链",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Chain-of-Thought",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "提示工程",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理失败",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "错误传播",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务特异性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "模型规模",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "输入结构",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 41210,
+   "total_cost": 0.0577,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.5
+  },
+  "raw_complete": true
+ }
+}

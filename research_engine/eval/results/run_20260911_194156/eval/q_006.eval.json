@@ -1,0 +1,142 @@
+{
+ "q_id": "q_006",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5613,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 51,
+   "verified": 46,
+   "verified_relaxed": 48,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.902,
+   "relaxed_rate": 0.9412,
+   "by_source_type": {
+    "rag": {
+     "total": 24,
+     "verified": 21,
+     "verified_relaxed": 23,
+     "existence": 24
+    },
+    "arxiv": {
+     "total": 27,
+     "verified": 25,
+     "verified_relaxed": 25,
+     "existence": 27
+    }
+   },
+   "failed_note_distribution": {
+    "原文仅说明 conditional_edge 触发 'continue/revi": 1,
+    "原文未出现该结论性断言；'Critic节点化'等改进旨在提升鲁棒性，但未直接声称": 1,
+    "[17]是关于 Focus Agent 模拟焦点小组的论文，主题无关，全文无'工": 1,
+    "[11]全文无'运维侧''日志分析''XPath'等词，属完全虚构。": 1,
+    "原文[3]明确引入 Critic 节点和 conditional_edge，但未": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 3,
+   "coverage": 0.6667,
+   "per_sub": [
+    {
+     "subquestion": "AI Agent 的核心能力与技术架构是什么？",
+     "covered": true,
+     "reason": "多份摘要明确描述了AI Agent的核心能力（如自主规划、工具使用、多跳检索、交叉验证防幻觉、反思/决策能力）和技术架构（基于LangGraph状态机编排，含Planner/Researcher/Writer/Validator等节点，融合RAG与网络搜索），并指出其演变为融合LLM、感知、规划、工具使用的模块化系统。"
+    },
+    {
+     "subquestion": "RPA 工作流自动化的典型实现方式与技术边界在哪里？",
+     "covered": false,
+     "reason": "检索结果中虽多次提及RPA（如UiPath）、对比其与AI Agent的性能（速度、可靠性、界面适应性），但未说明RPA的典型实现方式（如脚本录制、UI元素识别、流程图建模、机器人调度引擎等）；关于技术边界仅零散提及‘重复稳定环境表现更佳’‘动态界面适应性差’，缺乏系统性界定（如无法处理非结构化输入、无推理能力、依赖确定性规则等本质限制）。物理核物理领域的RPA（Random Phase Approximation）摘要属同名异义，与工作流自动化无关，不可用。"
+    },
+    {
+     "subquestion": "AI Agent 与 RPA 在决策自主性、环境适应性和学习能力上的关键差异有哪些？",
+     "covered": true,
+     "reason": "多份摘要直接对比二者：AI Agent具备‘自主规划’‘反思能力（Critic节点）’‘自然语言指令驱动’‘动态界面适应性’，而RPA被描述为在‘重复、稳定的环境’中执行、依赖预设规则；研究明确指出AI Agent可执行复杂任务、具长期交互能力，而RPA无学习能力（未提及其具备模型更新或策略优化）；‘开发时间短但易引入新风险’‘灵活性更高’等表述共同支撑了三维度差异。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 7,
+   "hit": 4,
+   "retrieval_hit_rate": 0.5714,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "AI Agent",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "RPA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "规则驱动",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "自主决策",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "流程自动化",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "智能体架构",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务泛化",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 37834,
+   "total_cost": 0.053,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.6667
+  },
+  "raw_complete": true
+ }
+}

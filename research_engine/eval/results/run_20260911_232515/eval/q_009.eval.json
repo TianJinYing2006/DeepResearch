@@ -1,0 +1,150 @@
+{
+ "q_id": "q_009",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4464,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 33,
+   "verified": 33,
+   "verified_relaxed": 33,
+   "existence_rate": 1.0,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "code_exec": {
+     "total": 9,
+     "verified": 9,
+     "verified_relaxed": 9,
+     "existence": 9
+    },
+    "arxiv": {
+     "total": 14,
+     "verified": 14,
+     "verified_relaxed": 14,
+     "existence": 14
+    },
+    "rag": {
+     "total": 10,
+     "verified": 10,
+     "verified_relaxed": 10,
+     "existence": 10
+    }
+   },
+   "failed_note_distribution": {}
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "少样本提示在小模型（如<1B参数）上的推理任务（如逻辑推理、数学推理）中效果如何？有哪些典型实证研究及量化结果？",
+     "covered": false,
+     "reason": "检索到的研究发现中虽多次提及少样本提示（few-shot prompting）与PEFT的对比目标，但未提供针对<1B参数小模型在逻辑/数学推理任务上的具体实证结果（如模型名称、参数量、数据集、准确率/F1等量化指标）。唯一接近的线索是提到'1B参数模型可能常不足'（来自医学论文评估研究），但该研究未聚焦逻辑/数学推理，也未报告少样本提示在该规模模型上的具体性能；其他条目或聚焦金融/医疗/图像等非推理任务，或未给出数值结果，或明确说明'实验结果未完整呈现'、'代码执行失败'。缺乏满足子问题要求的典型研究及量化证据。"
+    },
+    {
+     "subquestion": "参数高效微调（如LoRA、Adapter、Prefix-tuning）应用于小模型时，在相同推理任务上的性能提升幅度、训练成本与泛化性表现如何？",
+     "covered": false,
+     "reason": "检索内容中虽多次出现PEFT（含QLoRA、LoRA r=8, α=16等具体配置），但均未在统一推理任务（如GSM8K、LogiQA）上报告其相对于基线的性能提升幅度（如+5.2% accuracy）、训练成本（如GPU小时、显存占用、训练步数）或泛化性（如跨领域迁移效果、OOD鲁棒性）的量化数据。例如，QLoRA在反欺诈中F1=0.91，但未说明基线值及提升幅度；MedQA/LegalBench被提及，但原始文本因编码错误无法解析结果；其余条目仅泛泛提及'更有效'、'显著提升'而无数字支撑。因此，不足以回答该子问题。"
+    },
+    {
+     "subquestion": "是否存在直接对比少样本提示与PEFT在同一个小模型、同一推理数据集上的控制实验？其结果差异是否具有统计显著性？其结论与关键影响因素（如模型规模/数据量）是什么？",
+     "covered": false,
+     "reason": "所有检索条目均未报告符合'同一小模型、同一推理数据集、控制实验'三重约束的直接对比。多个摘要声称'比较了...效果'，但实际内容显示：或因代码失败未获结果；或对比发生在不同任务（新闻推荐 vs 医学论文评估 vs 卫星图像分割）；或模型规模不明确（如Qwen-7B为7B，非<1B）；或数据集不匹配（如CLIPSeg云分割非推理任务）；或未报告统计检验（p值、置信区间）。最关键的是，没有任何条目提供二者在相同设置下的头对头数值对比及显著性分析，亦未提炼出关于模型规模/数据量等影响因素的因果性结论。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 7,
+   "retrieval_hit_rate": 0.7778,
+   "matched_by": {
+    "keyword": 7,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "少样本提示",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数高效微调",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "PEFT",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LoRA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "小模型",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "推理能力",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "逻辑推理",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "数学推理",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "对比实验",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 60339,
+   "total_cost": 0.0845,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 9,
+   "depth": 9
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 9,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,162 @@
+{
+ "q_id": "q_013",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6084,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 43,
+   "verified": 33,
+   "verified_relaxed": 33,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.7674,
+   "relaxed_rate": 0.7674,
+   "by_source_type": {
+    "rag": {
+     "total": 34,
+     "verified": 28,
+     "verified_relaxed": 28,
+     "existence": 34
+    },
+    "arxiv": {
+     "total": 9,
+     "verified": 5,
+     "verified_relaxed": 5,
+     "existence": 9
+    }
+   },
+   "failed_note_distribution": {
+    "原文 rag:README.md 仅对比两种模式在协作效率、故障隔离与可观测性的": 1,
+    "rag:TEMPLATE.md 内容与 README.md 高度重复，仅泛泛对比": 1,
+    "rag:README.md 原文仅称‘peer-to-peer 模式在故障隔离和": 1,
+    "rag:TEMPLATE.md 同样仅作定性对比（‘协作效率较低’），未提供机制": 1,
+    "arXiv:1811.02932v2 聚焦‘执行器使能攻击下混淆监督器’，目标是": 1,
+    "arXiv:2510.13343v1 提出 AOAD-MAT 模型‘动态调整行动": 1,
+    "rag:README.md 仅指出单一 supervisor 模式存在‘单点故障": 1,
+    "rag:README.md 仅写‘对等网络模式提升了故障隔离能力与系统弹性’，但": 1,
+    "arXiv:2205.02383v2 研究对象是‘模糊监督器（fuzzy sup": 1,
+    "arXiv:cs/0205016v1 研究 ALife 模型解 N-皇后问题，全": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "单一 supervisor 模式下，Agent 协作流程如何调度？其在高并发或任务激增时的平均响应延迟与任务吞吐量表现如何？",
+     "covered": false,
+     "reason": "研究提及单一 supervisor 模式在协作效率上‘表现更优’，但未说明具体调度机制（如DAG编排、轮询、优先级队列等），也未提供任何性能指标（如响应延迟、吞吐量、并发数、负载曲线等）；所有摘要均未涉及高并发、任务激增场景下的量化实验或基准测试数据。"
+    },
+    {
+     "subquestion": "对等网络模式中 Agent 如何自主协商任务分配与状态同步？该模式下局部故障（如单个 Agent 崩溃）是否会导致全局阻塞或级联失败？",
+     "covered": false,
+     "reason": "虽指出对等网络模式‘提升了故障隔离能力与系统弹性’‘在故障隔离方面更具优势’，但未描述协商机制（如共识协议、拍卖、Gossip、心跳/租约等），也未说明状态同步方式（如CRDT、日志复制、广播更新）；关于局部故障影响，仅泛泛提及‘提升故障隔离’，未给出崩溃传播分析、阻塞条件、恢复行为或级联失败实证，缺乏‘是否导致全局阻塞’的明确判断依据。"
+    },
+    {
+     "subquestion": "两种模式在日志聚合、链路追踪、实时状态监控等可观测性能力上分别依赖哪些基础设施组件（如 OpenTelemetry 支持程度、指标暴露方式）？",
+     "covered": false,
+     "reason": "摘要多次提到‘可观测性’是对比维度之一，并关联到‘可审计’‘可追溯来源’‘决策链路记录’等需求，但未指明任何具体可观测性基础设施（如OpenTelemetry、Prometheus、Jaeger、ELK）、集成方式（如trace context propagation、metric endpoint路径）、数据格式或暴露机制（如/health、/metrics、OTLP exporter）；所有描述均为定性诉求，无技术栈或实现细节。"
+    },
+    {
+     "subquestion": "对比实验中，相同任务集（如多跳问答、分布式数据清洗）下，两种模式在协作成功率、平均重试次数及故障恢复时间（MTTR）上的量化差异是什么？",
+     "covered": false,
+     "reason": "尽管研究声称进行了‘对比实验’并聚焦于‘多跳问答’等任务（如‘大语言模型在金融风控中的应用现状与挑战’），但所有摘要均未报告任何量化结果：无协作成功率百分比、无重试次数统计（如均值/方差/P95）、无MTTR数值（秒级/毫秒级）、无对照组数据表格或显著性检验；仅出现‘33个findings’‘50/58条引用校验通过’等与子问题无关的中间指标，不构成对所问三项核心SLO的量化回答。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 6,
+   "retrieval_hit_rate": 0.6667,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 3
+   },
+   "per_keyword": [
+    {
+     "keyword": "多 Agent 编排",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "supervisor 模式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "对等网络",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "协作效率",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "故障隔离",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "可观测性",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "MTTR",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "链路追踪",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 36648,
+   "total_cost": 0.0513,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

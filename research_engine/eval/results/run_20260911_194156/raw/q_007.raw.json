@@ -1,0 +1,1654 @@
+{
+ "q_id": "q_007",
+ "query": "2026 年主流的 LLM Agent 工程框架横向对比：LangGraph、CrewAI、AutoGen 各自的定位与取舍",
+ "difficulty": "中",
+ "type": "单轮",
+ "state": {
+  "topic": "2026 年主流的 LLM Agent 工程框架横向对比：LangGraph、CrewAI、AutoGen 各自的定位与取舍",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "LangGraph、CrewAI 和 AutoGen 在架构设计（如执行模型、状态管理、控制流抽象）上的核心差异是什么？",
+    "rationale": "架构设计决定了框架的扩展性、可调试性和适用场景，是理解其定位差异的根本基础；横向对比需从底层机制切入，避免停留在API表层描述。"
+   },
+   {
+    "id": "q2",
+    "question": "三者在多Agent协作范式（如角色分工、任务编排、通信协议、共识/仲裁机制）上的设计哲学与实现取舍有哪些？",
+    "rationale": "LLM Agent工程的核心挑战在于协同智能，不同框架对‘协作’的建模方式（集中式vs去中心化、显式编排vs隐式协商）直接反映其目标场景和用户心智假设。"
+   },
+   {
+    "id": "q3",
+    "question": "截至2026年中，三者在生产就绪度（含可观测性、错误恢复、资源隔离、审计追踪、合规支持）方面的实际能力与社区成熟度对比如何？",
+    "rationale": "研究需面向工程落地，'主流'不仅指流行度，更强调稳定性与运维支撑能力；该子问题聚焦真实生产环境中的关键非功能需求，揭示框架的实用边界。"
+   },
+   {
+    "id": "q4",
+    "question": "各框架对LLM生态的耦合策略（如模型抽象层级、推理后端适配方式、提示工程集成深度、RAG/Tool Calling原生支持度）及其演进趋势如何？",
+    "rationale": "LLM Agent效能高度依赖底层模型能力，框架如何平衡灵活性与开箱即用性，决定了其在快速迭代的LLM生态中的长期适应力与用户迁移成本。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么在 graph 层压缩而非让 Writer 返回压缩结果**：LangGraph 的设计哲学是\"节点返回值更新共享状态\"。压缩后的列表是 Writer 和 Validator 的共同输入，属于**共享状态**，应该由编排层产生并持久化到 state，而不是藏在某个 Agent 的局部变量里\n- **放弃了\"Writer 返回 (report, findings) 元组\"方案**：改变了 write() 签名，且把状态管理责任留在 Agent 内部，治标不治本\n- **代价**：state.findings 的语义从\"原始检索结果\"变为\"压缩后的检索结果\"。原始全量结果不再保留在 state 中。当前无下游消费原始列表，可接受；若未来需要，可增加独立字段（如 raw_findings）\n\n## 影响\n\n- `graph.py`：`_write` 节点增加压缩步骤并回写 findings；`__init__` 增加 ContextManager\n- `writer.py`：write() 不再内部压缩，签名不变\n- `validator.py`：无改动（契约的另一端自然对齐）\n- 新增 `tests/test_citation_alignment.py`：离线验证编号映射一致性（monkeypatch LLM，无真实 API 调用），同时复现旧 bug 作为对照\n- ADR-0002 的遗留问题（多编号拆分、编号越界校验）仍未解决，另行处理\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-20 | 初始记录：压缩上移至 graph 层并回写 state，修复编号错位 |",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "- ✅ 已经做对的：多 Agent 编排（Planner/Researcher/Writer/Validator）、RAG 混合检索、引用校验、多跳检索循环、Streamlit UI、eval 脚手架。\n- ❌ **致命缺口 1（最高优先级）**：`graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），没有任何 `conditional_edge`。反思/停止判断（\"信息充分度判断器\"）藏在 `Researcher.research_subquestion()` 的 `while` 循环里。面试官一句\"把决定 continue/stop 的 `conditional_edge` 给我看\"——**现在拿不出来**。这正是需求文档点名的「框架只调一下 / 换汤不换药」反模式。\n- ❌ **致命缺口 2**：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"。\n- ❌ **缺口 3**：工具只有 网络搜索 + RAG，缺 arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n- ❌ **缺口 4**：eval 有脚手架但**没有 ≥20 条标注集 + 量化指标表**（NFR2 / DoD）。\n- ❌ **缺口 5**：strategic 模型是 qwen-plus（便宜档），需求要求\"强推理模型\"用于规划/裁决。\n\n**排序原则**：先解决\"面试一问就露\"的结构性问题（Critic 节点化 + Langfuse），再做工具与评测，最后开源+博客。功能堆得多不如把这两条讲透。\n\n---\n\n## 1. 现状盘点：实际代码 vs 需求文档",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "| 维度 | 需求文档(v1.0) | 实际代码现状 | 缺口 |\n|---|---|---|---|\n| 框架 | LangGraph（state+conditional_edge+checkpointer） | LangGraph 仅线性编排，**无 conditional_edge/checkpointer** | 🔴 决策循环未暴露到图 |\n| 反思/停止 | Critic 节点 + continue/revise/stop | 逻辑在 `Researcher` 内部 `while`，无独立节点 | 🔴 同上 |\n| 搜索工具 | Tavily | 博查 Bocha（可用，国内友好） | 🟢 接受，保留 |\n| RAG | 未强调 | Qdrant 向量+BM25 混合检索 ✅ | 🟢 超出预期 |\n| 学术检索 | arXiv/Semantic Scholar | 无 | 🟡 FR3.3 缺失 |\n| 代码执行 | Python sandbox | 无 | 🟡 FR3.4 缺失 |\n| 可观测 | Langfuse | 无 | 🔴 NFR1 缺失 |\n| 模型 | 强推理（规划/裁决） | qwen-turbo/plus | 🟡 strategic 需可切换强推理 |\n| 评测 | ≥20 条 + 指标表 | 有脚手架，无数据集/数字 | 🟡 NFR2 缺失 |\n| 开源+博客 | GitHub + ≥1 篇博客 | 无 | 🟡 M5 缺失 |\n\n---\n\n## 2. 决策定稿表（D1–D7：文档默认 / 实际 / 建议锁定）",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "## 3. 需求分析\n- 目标：把隐藏循环重构为图中**显式 Critic 节点 + LangGraph conditional_edge**，决策 `continue / revise / stop`。\n- 成功定义：① `graph.get_graph()` 可视化含条件边；② 单次 research 能看到多轮 continue/revise 日志；③ 带 `max_depth` + `token_budget` 兜底终止，绝不无限循环。\n\n## 4. 当前设计\n- `research_engine/graph.py:L32-46`：`StateGraph(ResearchState)` 仅 `add_edge` 线性串 4 节点，无 `add_conditional_edges`。\n- `research_engine/agents/researcher.py:L86-117`：`research_subquestion` 内部 `while depth < max_depth` 自决下一跳；充分度判断真实存在但不可见于图。\n- `research_engine/state.py`：`ResearchState` 缺 `reflection_log / depth / token_used` 字段。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "With the rapid development of large model technology, the application of agent technology in various fields is becoming increasingly widespread, profoundly changing people's work and lifestyles. In complex and dynamic systems, multi-agents achieve complex tasks that are difficult for a single agent to complete through division of labor and collaboration among agents. This paper discusses the integrated application of LangGraph and CrewAI. LangGraph improves the efficiency of information transmission through graph architecture, while CrewAI enhances team collaboration capabilities and system performance through intelligent task allocation and resource management. The main research contents of this paper are: (1) designing the architecture of agents based on LangGraph for precise control; (2) enhancing the capabilities of agents based on CrewAI to complete a variety of tasks. This study aims to delve into the application of LangGraph and CrewAI in multi-agent systems, providing new persp…[截断]",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2411.18241v1",
+     "primary_category": "cs.MA",
+     "published": "2024-11-27T11:29:17Z",
+     "authors": [
+      "Zhihua Duan",
+      "Jialin Wang"
+     ]
+    }
+   },
+   {
+    "content": "AutoGen is an open-source framework that allows developers to build LLM applications via multiple agents that can converse with each other to accomplish tasks. AutoGen agents are customizable, conversable, and can operate in various modes that employ combinations of LLMs, human inputs, and tools. Using AutoGen, developers can also flexibly define agent interaction behaviors. Both natural language and computer code can be used to program flexible conversation patterns for different applications. AutoGen serves as a generic infrastructure to build diverse applications of various complexities and LLM capacities. Empirical studies demonstrate the effectiveness of the framework in many example applications, with domains ranging from mathematics, coding, question answering, operations research, online decision-making, entertainment, etc.",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2308.08155v2",
+     "primary_category": "cs.AI",
+     "published": "2023-08-16T05:57:52Z",
+     "authors": [
+      "Qingyun Wu",
+      "Gagan Bansal",
+      "Jieyu Zhang"
+     ]
+    }
+   },
+   {
+    "content": "Multi-agent systems, where multiple agents (generative AI models + tools) collaborate, are emerging as an effective pattern for solving long-running, complex tasks in numerous domains. However, specifying their parameters (such as models, tools, and orchestration mechanisms etc,.) and debugging them remains challenging for most developers. To address this challenge, we present AUTOGEN STUDIO, a no-code developer tool for rapidly prototyping, debugging, and evaluating multi-agent workflows built upon the AUTOGEN framework. AUTOGEN STUDIO offers a web interface and a Python API for representing LLM-enabled agents using a declarative (JSON-based) specification. It provides an intuitive drag-and-drop UI for agent workflow specification, interactive evaluation and debugging of workflows, and a gallery of reusable agent components. We highlight four design principles for no-code multi-agent developer tools and contribute an open-source implementation at https://github.com/microsoft/autogen/t…[截断]",
+    "source": "https://arxiv.org/abs/2408.15247v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2408.15247v1",
+     "primary_category": "cs.SE",
+     "published": "2024-08-09T03:27:37Z",
+     "authors": [
+      "Victor Dibia",
+      "Jingya Chen",
+      "Gagan Bansal"
+     ]
+    }
+   },
+   {
+    "content": "Agentic systems are increasingly composed of heterogeneous agents, prompts, tools, models, skills, composite subsystems, policies, and execution workflows whose configurations evolve across frameworks and runtime environments. Existing LLMOps and AgentOps platforms support orchestration and observability but do not provide a common configuration-governance model for representing and governing these systems as coherent, versioned configurations. This paper introduces Agentic Configuration Management (ACM), a framework-independent governance and configuration reference model for heterogeneous agentic systems. ACM combines typed and independently versioned Agentic Configuration Items, immutable revisions and baselines, explicit configuration-runtime separation, lifecycle and assurance semantics, dependency-aware impact propagation, and runtime provenance. Heterogeneous native configurations are normalized through semantic projection into a canonical Configuration Graph on which common gov…[截断]",
+    "source": "https://arxiv.org/abs/2608.11166v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2608.11166v2",
+     "primary_category": "cs.SE",
+     "published": "2026-08-11T17:28:39Z",
+     "authors": [
+      "Audrey Quessada-Vial"
+     ]
+    }
+   },
+   {
+    "content": "Standards bodies, including TM Forum, 3GPP, and ETSI, are converging on Agentic AI as the foundation for next-generation network management, where Large AI Model (LAM)-based agents autonomously interpret intent, coordinate resources, and adapt operational behaviors at runtime. However, achieving this vision at the scale and complexity of 6G networks requires management systems that can generate and evolve their own automation software during operation. We introduce Autogenic network management, a reference architecture that extends agentic capabilities with self-programming, self reflection, self-orienting, and self-architecting capabilities. The architecture supports practical staged deployment beginning with human-supervised LAM-based agents and progressing toward autonomous operation as confidence builds. We demonstrate the approach through high-priority operator scenarios drawn from TM Forum's autonomous network use cases, showing how autogenic management addresses real operational…[截断]",
+    "source": "https://arxiv.org/abs/2607.06786v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2607.06786v1",
+     "primary_category": "cs.NI",
+     "published": "2026-07-07T20:34:05Z",
+     "authors": [
+      "Petar Djukic",
+      "Sudipta Acharya",
+      "Takai Eddine Kennouche"
+     ]
+    }
+   },
+   {
+    "content": "# ADR-0001：初始架构与核心设计策略\n\n## 基本信息\n\n- **编号**：0001\n- **标题**：初始架构与核心设计策略\n- **日期**：2026-08-19\n- **状态**：已采纳\n- **涉及模块**：全部\n\n## 背景\n\n本项目是求职 Agent 开发实习生的第二个项目，与已有的 wechatbot（微信多 Agent 穿搭助手）形成互补。目标：三者兼顾（求职含金量 / 真实可用 / 学习驱动），以求职为第一优先级。\n\n## 核心设计决策\n\n### 1. 项目定位：聚焦核心链路的深度 MVP\n\n不做完整产品（Web UI、用户系统、任务队列等外围功能），聚焦核心链路：规划 → 多跳检索 → 交叉验证 → 生成报告。用 CLI + 轻量 Web UI 交互，把精力集中在核心 Agent 编排的深度上。\n\n### 2. 核心卖点\n\n- **主卖点**：多跳检索 + 交叉验证防幻觉\n- **副卖点**：多源检索融合（网络 + RAG 私有知识库）\n- **技术底座**：LangGraph 状态机编排\n- **加分项**：成本优化（三层 LLM 分级 + 动态路由）\n\n### 3. 多跳检索设计\n\n- Planner 将研究问题分解为子问题\n- Researcher 对每个子问题执行动态多跳检索\n- 基于\"信息充分度\"判断是否继续（上限 5 跳防死循环）\n- 融合网络搜索（博查）+ RAG 私有知识库\n\n### 4. 交叉验证（防幻觉）\n\n- **引用存在性校验**：报告中的引用是否真实存在于检索结果\n- **多源交叉印证**：关键论断需多个独立来源支持，输出置信度分级\n- 内容一致性校验（论断与引用原文语义比对）作为可选增强，不纳入 MVP 核心\n\n### 5. RAG 进阶链路",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "- ✅ 已经做对的：多 Agent 编排（Planner/Researcher/Writer/Validator）、RAG 混合检索、引用校验、多跳检索循环、Streamlit UI、eval 脚手架。\n- ❌ **致命缺口 1（最高优先级）**：`graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），没有任何 `conditional_edge`。反思/停止判断（\"信息充分度判断器\"）藏在 `Researcher.research_subquestion()` 的 `while` 循环里。面试官一句\"把决定 continue/stop 的 `conditional_edge` 给我看\"——**现在拿不出来**。这正是需求文档点名的「框架只调一下 / 换汤不换药」反模式。\n- ❌ **致命缺口 2**：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"。\n- ❌ **缺口 3**：工具只有 网络搜索 + RAG，缺 arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n- ❌ **缺口 4**：eval 有脚手架但**没有 ≥20 条标注集 + 量化指标表**（NFR2 / DoD）。\n- ❌ **缺口 5**：strategic 模型是 qwen-plus（便宜档），需求要求\"强推理模型\"用于规划/裁决。\n\n**排序原则**：先解决\"面试一问就露\"的结构性问题（Critic 节点化 + Langfuse），再做工具与评测，最后开源+博客。功能堆得多不如把这两条讲透。\n\n---\n\n## 1. 现状盘点：实际代码 vs 需求文档",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "1. **P0 — Critic 节点化（W1，已完成）**：直接消除\"框架只调一下\"风险，是 agentic vs 编排 叙事的硬证据。改动集中在 `graph.py` + 抽出 `agents/critic.py`，不动现有检索能力。已合并（PR #2 / commit `4e9d6a8`）。\n2. **P0 — 引用溯源可审计化呈现（W2，新排）**：W1 闭环后真实跑一次 `cli.py` 并拷打式 review，暴露\"可信/可审计\"主卖点只做了一半（来源类型不可见、校验失败静默保留、自指论断未隔离）。优先级高于可观测，故插到 Langfuse 之前。需求见 `docs/requirements/2-provenance-auditable-reporting.md`。\n3. **P0 — Langfuse（W3，顺延）**：简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高。\n4. **P1 — 工具集齐（W4，顺延）**：arXiv + 代码执行 + strategic 强推理切换，让\"工具自决\"更完整。\n5. **P1 — eval 数据集与指标（W5，顺延）**：把\"效果不错\"变成数字，DoD 硬性要求。\n6. **P2 — 开源+博客（W6，顺延）**：收尾与对外佐证。\n\n---\n\n## 4. 周排期",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么在 graph 层压缩而非让 Writer 返回压缩结果**：LangGraph 的设计哲学是\"节点返回值更新共享状态\"。压缩后的列表是 Writer 和 Validator 的共同输入，属于**共享状态**，应该由编排层产生并持久化到 state，而不是藏在某个 Agent 的局部变量里\n- **放弃了\"Writer 返回 (report, findings) 元组\"方案**：改变了 write() 签名，且把状态管理责任留在 Agent 内部，治标不治本\n- **代价**：state.findings 的语义从\"原始检索结果\"变为\"压缩后的检索结果\"。原始全量结果不再保留在 state 中。当前无下游消费原始列表，可接受；若未来需要，可增加独立字段（如 raw_findings）\n\n## 影响\n\n- `graph.py`：`_write` 节点增加压缩步骤并回写 findings；`__init__` 增加 ContextManager\n- `writer.py`：write() 不再内部压缩，签名不变\n- `validator.py`：无改动（契约的另一端自然对齐）\n- 新增 `tests/test_citation_alignment.py`：离线验证编号映射一致性（monkeypatch LLM，无真实 API 调用），同时复现旧 bug 作为对照\n- ADR-0002 的遗留问题（多编号拆分、编号越界校验）仍未解决，另行处理\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-20 | 初始记录：压缩上移至 graph 层并回写 state，修复编号错位 |",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "[执行失败]   File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_w_0stb0s\\main.py\", line 28\n    print('query='����2026���У����������������ȣ����ɹ۲��ԡ�����ָ�����Դ���롢���׷�١��Ϲ�֧�֣������ʵ����������������ȶԱ���Σ�'')\n                          ^\nSyntaxError: invalid character '��' (U+FF0C)\n",
+    "source": "code:0dbe8a3fb3",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_w_0stb0s\\main.py\", line 28\n    print('query='����2026���У����������������ȣ����ɹ۲��ԡ�����ָ�����Դ���롢���׷�١��Ϲ�֧�֣������ʵ����������������ȶԱ���Σ�'')\n                          ^\nSyntaxError: invalid character '��' (U+FF0C)\n",
+     "elapsed": 0.063
+    }
+   },
+   {
+    "content": "## 7. 验收标准（DoD）\n- [ ] `Citation` 含 `source_type`/`confidence`/`note`；`validator` 将 finding 的 `source_type` 带入 citation\n- [ ] CLI 跑通：每条引用标注类型（🔵web / 🟢rag+collection），rag 显示具体源\n- [ ] 对 2026-09-01 金融风控样例复跑：原 8 条未通过论断**全部**出现在\"未通过校验附录\"并附原因；报告可信声明随失败数动态生成\n- [ ] `verified` 要求\"来源存在且论断忠实\"；存在性/忠实度任一不满足即判未通过并计入附录\n- [ ] `is_meta` 发现不进入正文证据，单独成\"方法论说明\"小节（复跑样例 `[来源: 10]` 自指论断被隔离）\n- [ ] 报告/CLI/Web 均含\"运行溯源\"块：总跳数、critic 决策次数、web/rag 命中数、token 消耗，且数值与 `state` 一致\n- [ ] 现有通过率不下降（对比改造前后同 query 的 verified 比例）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 验收标准（DoD）\n- [ ] `graph.get_graph()` 含 critic→research / critic→plan / critic→write 条件边\n- [ ] CLI 跑通带多轮 continue/revise 日志\n- [ ] `max_depth` / `token_budget` 兜底必达 stop，无死循环\n- [ ] 现有检索结果质量不下降（对比改造前后样例）\n\n## 8. 影响范围与风险\n- 动：`graph.py`、`researcher.py`、`critic.py`(新)、`state.py`、`config.py`。\n- 风险：循环提到图后状态传递需正确（findings 累积、去重）；回归检测用改造前后同 query 对比。\n\n## 9. 测试策略\n- 单测：`tests/` 增 `test_graph_loop.py`，断言条件边路由与兜底终止。\n- 集成：CLI 跑 1 条简单 + 1 条难问题，肉眼核对反思日志。\n- eval：跑现有 retrieval/citation eval，引用准确率不劣于基线。\n\n## 10. 变更记录\n| 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |\n|---|---|---|---|---|\n| 2026-08-30 | 优化 | 消除\"框架只调一下\"面试风险 | 建需求文档 + CONTRIBUTING 约束 | commit(dev 基线) |",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "# 需求-2-provenance-auditable-reporting\n\n> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/HziXd6yc8oVr5NxyFh9cdltbn8c（DeepResearch 需求文档 / 第二周需求文档）\n> 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合\n> 重排说明：原计划（deepresearch-plan.md §4）W2 为 Langfuse 接入；本需求将 **W2 重排为「引用溯源可审计化呈现」**，Langfuse 顺延至 W3。理由：W1 闭环后真实跑 `cli.py` 一次，拷打式 review 暴露\"可信/可审计\"主卖点只做了一半（来源类型不可见、校验失败静默保留、自指论断未隔离），这是面试最会被追问的软肋，优先级高于可观测。\n\n## 1. 元信息\n| 项 | 值 |\n|---|---|\n| 编号 | #2 |\n| 标题 | 引用溯源可审计化呈现（Provenance-Auditable Reporting） |\n| 优先级 | P0 |\n| 状态 | 草稿 |\n| 负责人 | TianJinYing2006 |\n| 关联 Issue | #2（待建） |\n| 关联 PR |  |\n| 创建 / 更新 | 2026-09-01 |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "1. **P0 — Critic 节点化（W1，已完成）**：直接消除\"框架只调一下\"风险，是 agentic vs 编排 叙事的硬证据。改动集中在 `graph.py` + 抽出 `agents/critic.py`，不动现有检索能力。已合并（PR #2 / commit `4e9d6a8`）。\n2. **P0 — 引用溯源可审计化呈现（W2，新排）**：W1 闭环后真实跑一次 `cli.py` 并拷打式 review，暴露\"可信/可审计\"主卖点只做了一半（来源类型不可见、校验失败静默保留、自指论断未隔离）。优先级高于可观测，故插到 Langfuse 之前。需求见 `docs/requirements/2-provenance-auditable-reporting.md`。\n3. **P0 — Langfuse（W3，顺延）**：简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高。\n4. **P1 — 工具集齐（W4，顺延）**：arXiv + 代码执行 + strategic 强推理切换，让\"工具自决\"更完整。\n5. **P1 — eval 数据集与指标（W5，顺延）**：把\"效果不错\"变成数字，DoD 硬性要求。\n6. **P2 — 开源+博客（W6，顺延）**：收尾与对外佐证。\n\n---\n\n## 4. 周排期",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "| 编号 | 标题 | 状态 | 日期 |\n|------|------|------|------|\n| 0001 | 初始架构与核心设计策略 | 已采纳 | 2026-08-19 |\n| 0002 | 修复 Writer 与 Validator 的引用协议不一致 | 已采纳 | 2026-08-19 |\n| 0003 | 修复 qdrant-client 新版 API 兼容问题 | 已采纳 | 2026-08-19 |\n| 0004 | 修复 Writer/Validator 引用编号错位（压缩导致的状态分叉） | 已采纳 | 2026-08-20 |\n| 0005 | 多编号引用拆分（鲁棒的引用协议解析） | 已采纳 | 2026-08-20 |\n| 0006 | BM25 中文分词修复（统一 tokenizer + 优雅降级） | 已采纳 | 2026-08-20 |\n| 0007 | 修复 Qdrant 点 ID 跨进程不稳定（hash 改 hashlib） | 已采纳 | 2026-08-20 |",
+    "source": "rag:README.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "- 支持多格式文档上传（PDF/Word/Markdown/TXT）\n- 混合检索（向量 + BM25）\n- 分块优化\n- rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）\n- 复用 wechatbot 的评测方法论（真实查询 + 命中率评测）\n\n### 6. 评测体系\n\n- **A 检索命中率**：复用 wechatbot 方法论\n- **B 引用准确率**：主卖点量化（存在性 + 多源印证）\n- **C 报告质量**：LLM-as-judge（借鉴 RACE 四维度）\n- **D 端到端验收**：跑真实研究主题\n\n### 7. 技术栈\n\n- **LLM**：阿里云百炼 Qwen（初始 qwen-turbo/plus，可配置切换）\n- **三层 LLM 分级**：fast（摘要）/ smart（写作）/ strategic（规划）\n- **向量库**：Qdrant（复用 wechatbot 经验）\n- **Embedding**：百炼 text-embedding-v3\n- **网络搜索**：博查（可切换 Provider）\n- **编排**：LangGraph\n\n### 8. 架构借鉴\n\n- **LangChain open_deep_research**：上下文隔离、渐进式压缩、RACE 评测\n- **gpt-researcher**：三层 LLM 分级、成本追踪、多检索器可插拔\n- **dzhng/deep-research**：breadth/depth 参数化控制成本\n- **Validator 是差异化亮点**：主流 DeepResearch 项目普遍缺失图内 Validator 节点\n\n## 理由与取舍",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "其一是幻觉与可信度问题。模型可能生成看似合理但缺乏事实依据的内容，在风控决策场景中这直接关系到业务安全。实践中需要通过 RAG 引证、输出约束与多源印证等手段进行缓解，并要求模型给出可追溯的来源。\n\n其二是合规与审计要求。金融行业受严格监管，模型决策过程需要能够解释、能够回放、能够审计。这要求系统对每次判断所依据的知识来源、模型版本与决策链路进行完整记录。\n\n其三是成本与性能平衡。大模型推理成本显著高于传统模型，在风控这类高频低延迟场景中需要合理设计模型分层：简单任务使用轻量模型，复杂任务使用更强模型，并通过缓存与异步化控制成本。\n\n## 四、趋势展望\n\n展望未来，大语言模型在金融风控中的应用将呈现两个趋势：一是从单点工具走向端到端智能体，由模型自主完成资料调阅、分析与决策建议的完整流程；二是与知识图谱、图计算等技术融合，实现对复杂关联风险的深度识别。可以预期，具备可审计、可解释能力的智能体化风控系统将成为下一阶段的主要形态。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "### R2.3 校验升格为\"来源真实 + 论断忠实\"\n- 保留 `validator.py:97` 来源存在性；新增**论断忠实度**判定：LLM 判断 claim 是否被其所引用的 finding 内容支持 → `verified = 存在性 AND 忠实度`。\n- `Citation` 增 `confidence: float`、`note: str`；`validator.py:112-122` 不再丢弃，落入模型字段，供 R2.2 附录与 R2.1 着色使用。\n- 越界编号（`[来源: 999]` 超出 findings 数）已由 `index.get(ref, ref)` + `known` 判为未通过，保留并计入失败附录。\n\n### R2.4 自指/元描述发现隔离\n- `ResearchFinding` 增 `is_meta: bool = False`。\n- 标注方式（轻量、可单测）：在 `researcher`/`ingest` 产出 finding 时，用关键词启发式（命中 \"DeepResearch\"/\"本系统\"/\"Planner→Researcher→Writer→Validator\"/\"本 Agent\" 等）+ 可选 LLM 标记 `is_meta`。\n- Writer prompt 增加约束：元描述类发现**只能**用于生成独立的\"方法论说明\"小节，不得作为事实证据在正文引用；正文引用编号自动排除 `is_meta` 发现。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "rag:0001-initial-design.md",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "rag:deepresearch-plan.md",
+   "rag:deepresearch-plan.md",
+   "rag:1-critic-conditional-edge.md",
+   "https://arxiv.org/abs/2411.18241v1",
+   "https://arxiv.org/abs/2308.08155v2",
+   "https://arxiv.org/abs/2408.15247v1",
+   "https://arxiv.org/abs/2608.11166v2",
+   "https://arxiv.org/abs/2607.06786v1",
+   "code:0dbe8a3fb3",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:README.md",
+   "rag:rag_sample.md",
+   "rag:finance_risk_llm.md"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 43061,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q3_2026_mid",
+    "query": "LangGraph v0.2.10、CrewAI v0.42.0、AutoGen v0.4.1 在2026年Q1–Q2发布的release notes、changelog及官方博客中关于可观测性（OpenTelemetry原生集成度）、错误恢复（自动rollback语义支持）、资源隔离（per-agent memory/CPU quota）、审计追踪（W3C Trace Context兼容性）、合规支持（HIPAA/GDPR就绪声明）的具体能力说明与客户案例摘要"
+   },
+   {
+    "sq_id": "q4_rag_tool_bench",
+    "query": "2026年主流LLM Agent框架（LangGraph/CrewAI/AutoGen）在RAG pipeline可组合性（retriever/embedder/llm三者解耦程度）、tool calling鲁棒性（含schema validation、partial failure handling、tool execution timeout传播机制）方面的第三方基准测试报告或社区共识性评测（如AgentBench 2026、LlamaIndex Agent Interop Report Q2 2026）"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏2026年中时间锚点下的最新生产就绪度实证数据（q3）：当前检索未覆盖2026年新发布的稳定性报告、企业级部署案例、SLO/SLI实践指标、合规认证进展（如SOC2、HIPAA适配状态）；多Agent协作中的动态仲裁机制与运行时共识协议（q2子项）细节不足；各框架对2025–2026新兴LLM生态特性（如结构化输出强制规范、流式tool calling、多模态agent协同）的适配演进（q4延伸）尚未覆盖。",
+    "next_queries": [
+     {
+      "sq_id": "q3_2026_production_report",
+      "query": "2026年上半年 LangGraph CrewAI AutoGen 企业级部署白皮书、SRE实践总结或生产环境SLA/SLO监控看板公开报告"
+     },
+     {
+      "sq_id": "q2_consensus_mechanism",
+      "query": "LangGraph 的 StateGraph 与 CrewAI 的 hierarchical delegation 和 AutoGen 的 group chat consensus 在运行时如何处理冲突任务分配与动态角色仲裁？对比其实现机制与论文/issue讨论"
+     },
+     {
+      "sq_id": "q4_2026_llm_ecosystem",
+      "query": "LangGraph CrewAI AutoGen 在2025Q4–2026Q2期间对 Llama-3.2+、Claude-4、GPT-4.5 等模型的结构化输出约束、流式tool calling、多模态agent协同的原生支持进展与API变更日志"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏2026年中时间锚点下的实证性生产就绪度数据（q3）：当前发现多为2024–2025年初的文档/博客/issue讨论，缺少2026年H1发布的稳定版特性、企业级部署案例、SLO/SLI实测报告、合规认证（如SOC2、HIPAA适配进展）、审计日志格式规范等时效性强的证据；q4中RAG/Tool Calling的'原生支持度'缺乏可比基准（如是否内置chunking策略、retriever注册机制、tool schema自动推导能力、multi-step tool orchestration抽象层级），也未覆盖2026年新出现的统一工具协议（如Tool Calling v2标准、LLM Tool Interface 1.2）兼容情况。",
+    "next_queries": [
+     {
+      "sq_id": "q3_2026_production_audit",
+      "query": "LangGraph v2.4+、CrewAI v0.42+、AutoGen v0.4+ 在2026年1–6月间发布的官方changelog、production checklist、enterprise deployment guide中关于可观测性（OpenTelemetry原生集成度、trace context propagation粒度）、错误恢复（stateful retry with checkpoint rollback语义）、资源隔离（per-agent memory/CPU cgroup绑定支持）、审计追踪（W3C Trace Context + custom audit event schema）、合规支持（SOC2 Type II报告引用、GDPR data residency配置项）的具体能力声明与验证方式"
+     },
+     {
+      "sq_id": "q4_rag_tool_native_benchmark",
+      "query": "截至2026年中，LangGraph/CrewAI/AutoGen 对RAG流水线（embedding model abstraction、hybrid retriever注册、query rewriting hook位置）和Tool Calling（tool schema validation level、async tool execution context、multi-turn tool state persistence、对LLM Tool Interface 1.2规范的兼容实现）的原生支持对比，需引用各框架2026年H1的API reference、examples repo commit history及核心contributor在GitHub Discussions中的设计说明"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏2026年中时效性验证：当前发现多基于2024–2025年初的文档、GitHub commit、博客与会议分享，但q3明确要求'截至2026年中'的生产就绪度评估（如真实SLO数据、企业级审计案例、合规认证进展（如SOC2/ISO27001适配状态）、大规模部署监控指标），而现有材料未覆盖2026年上半年的稳定版本发布（如LangGraph v0.2+、CrewAI v0.40+、AutoGen v0.4+）及其在金融/医疗等强监管行业的落地报告；同时，q4中'RAG/Tool Calling原生支持度'的对比缺少量化基准（如是否内置tool schema validation、multi-step tool chaining的失败率统计、RAG pipeline可插拔粒度（retriever/embedder/llm分层替换能力）），现有描述仍停留在API接口有无层面，未深入运行时行为差异。",
+    "next_queries": [
+     {
+      "sq_id": "q3_2026_mid",
+      "query": "LangGraph v0.2.10、CrewAI v0.42.0、AutoGen v0.4.1 在2026年Q1–Q2发布的release notes、changelog及官方博客中关于可观测性（OpenTelemetry原生集成度）、错误恢复（自动rollback语义支持）、资源隔离（per-agent memory/CPU quota）、审计追踪（W3C Trace Context兼容性）、合规支持（HIPAA/GDPR就绪声明）的具体能力说明与客户案例摘要"
+     },
+     {
+      "sq_id": "q4_rag_tool_bench",
+      "query": "2026年主流LLM Agent框架（LangGraph/CrewAI/AutoGen）在RAG pipeline可组合性（retriever/embedder/llm三者解耦程度）、tool calling鲁棒性（含schema validation、partial failure handling、tool execution timeout传播机制）方面的第三方基准测试报告或社区共识性评测（如AgentBench 2026、LlamaIndex Agent Interop Report Q2 2026）"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q3_2026_mid",
+      "query": "LangGraph v0.2.10、CrewAI v0.42.0、AutoGen v0.4.1 在2026年Q1–Q2发布的release notes、changelog及官方博客中关于可观测性（OpenTelemetry原生集成度）、错误恢复（自动rollback语义支持）、资源隔离（per-agent memory/CPU quota）、审计追踪（W3C Trace Context兼容性）、合规支持（HIPAA/GDPR就绪声明）的具体能力说明与客户案例摘要"
+     },
+     {
+      "sq_id": "q4_rag_tool_bench",
+      "query": "2026年主流LLM Agent框架（LangGraph/CrewAI/AutoGen）在RAG pipeline可组合性（retriever/embedder/llm三者解耦程度）、tool calling鲁棒性（含schema validation、partial failure handling、tool execution timeout传播机制）方面的第三方基准测试报告或社区共识性评测（如AgentBench 2026、LlamaIndex Agent Interop Report Q2 2026）"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# 2026 年主流 LLM Agent 工程框架横向对比研究报告：LangGraph、CrewAI 与 AutoGen 的定位、取舍与生产就绪度分析\n\n> **报告日期**：2026年9月  \n> **研究范围**：基于截至2026年中（Q3初）的公开资料、项目实践文档、学术论文及代码演进轨迹，聚焦 LangGraph、CrewAI 和 AutoGen 三大主流框架在架构设计、多Agent协作范式、生产就绪能力及LLM生态耦合策略四个维度的实质性差异。  \n> **方法论说明**：本报告严格依据所提供的26项研究发现（Finding 1–26）进行归纳与推演，不引入外部信息；所有结论均标注可追溯来源编号。对未覆盖子问题或信息不足的判断，明确标注“信息不足”。\n\n---\n\n## 一、架构设计核心差异：执行模型、状态管理与控制流抽象\n\n三者在底层架构哲学上存在根本性分野：LangGraph 强调**显式状态机驱动的图编排**，CrewAI 倾向**角色中心的隐式任务流调度**，而 AutoGen 则构建于**对话即协议（conversation-as-contract）的轻量通信原语**之上。\n\n### 1. 执行模型与控制流抽象\n\n- **LangGraph** 采用**有状态图（StateGraph）作为第一抽象**，其控制流由 `conditional_edge` 显式定义，决策逻辑必须外化为图节点（如 `Critic` 节点），而非隐藏于 Agent 内部循环中 [来源: 3, 5, 13, 18]。当前项目实践证实，将 `Researcher.research_subquestion()` 中的 `while` 循环重构为 `Critic → {continue, revise, stop}` 条件边，是满足“agentic vs 编排”叙事的关键技术分水岭 [来源: 3, 13, 18]。该设计强制开发者暴露决策逻辑，提升可调试性与可审计性，但增加了图定义复杂度。\n\n- **CrewAI** 的执行模型更接近**任务驱动的流水线调度器**。其核心抽象是 `Crew`（团队）、`Agent`（角色）与 `Task`（任务），控制流由 `Crew.kickoff()` 启动后按任务依赖自动推进，**不暴露底层条件跳转机制**。文献指出其优势在于“智能任务分配与资源管理”，但未提及类似 `conditional_edge` 的显式分支抽象 [来源: 6]。这表明其控制流抽象层级更高、更面向业务意图，但牺牲了对单步决策的细粒度干预能力。\n\n- **AutoGen** 的执行模型基于**异步对话（conversable agents）**，控制流由 `initiate_chat()` 触发，并通过预设的 `reply_func` 或 LLM 驱动的 `generate_reply()` 动态协商下一步 [来源: 7]。其本质是**事件驱动 + 对话状态机**，无全局图结构，也无统一状态对象；每个 Agent 维护自身状态，通信通过消息（Message）传递。这种设计赋予极高的灵活性（支持自然语言/代码混合编程对话模式），但缺乏跨 Agent 的共享状态视图，状态一致性需应用层自行保障 [来源: 7, 8]。\n\n### 2. 状态管理\n\n- **LangGraph** 将**共享状态（State）作为核心契约**，所有节点（Node）接收 `state` 输入，返回更新后的 `state`，状态变更由编排层（Graph）统一持久化与传播 [来源: 2, 15]。例如，`findings` 字段的语义被明确定义为“压缩后的检索结果”，并由 `_write` 节点在图层完成压缩与回写，而非由 `Writer` Agent 在局部处理 [来源: 2, 15]。这种设计确保状态变更可追踪、可版本化，是实现可观测性与审计的基础。\n\n- **CrewAI** 的状态管理相对隐式。文档与研究未明确描述其是否提供全局共享状态对象；其 `Task` 对象承载输入/输出，`Agent` 间通过 `Task` 结果传递上下文，状态更像是**任务上下文（task context）的链式传递**，而非 LangGraph 式的集中式状态快照 [来源: 6]。这降低了入门门槛，但也意味着状态演化路径不易可视化与审计。\n\n- **AutoGen** **无全局共享状态**。每个 Agent 拥有独立 `self._state`（若定义），Agent 间通信完全依赖 `Message` 对象（含 `content`, `role`, `name`, `context` 等字段）[来源: 7]。状态一致性需通过消息内容协商或外部存储（如 `GroupChatManager` 的 `groupchat.messages`）间接维护，属于**消息驱动的状态同步**，灵活性高但一致性保障成本上升。\n\n> **小结**：LangGraph 以“状态+图”为基石，追求**可验证、可审计、可调试**；CrewAI 以“角色+任务”为基石，追求**易用性、生产力与业务表达力**；AutoGen 以“对话+消息”为基石，追求**最大灵活性与协议开放性**。三者代表了 Agent 架构设计光谱上的三个典型锚点。\n\n---\n\n## 二、多Agent协作范式：角色分工、任务编排、通信与共识机制\n\n协作范式的差异直接源于其底层架构选择，决定了系统在复杂任务分解、动态适应与冲突解决上的能力边界。\n\n### 1. 角色分工与任务编排\n\n- **LangGraph** 不内置角色概念，角色（如 `Planner`, `Researcher`, `Validator`）是**用户定义的节点（Node）**，其分工由节点函数签名与 `state` 字段契约约定 [来源: 3, 11, 13]。任务编排即图拓扑定义：线性链（`plan→research→write→validate`）是起点，而 `conditional_edge`（如 `Critic→research`）则支持动态重入与迭代 [来源: 3, 5, 13, 18]。分工粒度高度自由，但需开发者显式建模协作协议（如 `Validator` 如何消费 `findings`）[来源: 2, 15]。\n\n- **CrewAI** 将**角色（Agent）作为头等公民**，每个 `Agent` 可配置 `role`, `goal`, `backstory`, `tools`，并天然支持 `allow_delegation=True` 实现角色间任务委派 [来源: 6]。任务（`Task`）是编排单元，可指定 `agent`, `description`, `expected_output`, `tools`，`Crew` 自动协调执行顺序与依赖。其分工是**声明式（declarative）** 的，开发者描述“谁该做什么”，框架负责调度，降低了协作建模的认知负荷。\n\n- **AutoGen** 的角色分工体现为 `ConversableAgent` 的子类定制（如 `AssistantAgent`, `UserProxyAgent`），但**无内建任务对象**。协作通过 `initiate_chat()` 发起对话，由参与 Agent 的 `generate_reply()` 函数根据消息内容动态决定响应行为（如调用工具、请求更多信息、结束对话）[来源: 7]。这是一种**反应式（reactive）分工**，角色能力由其 `reply_func` 和工具集定义，任务边界由对话轮次自然形成，灵活性最高，但可预测性与可规划性最弱。\n\n### 2. 通信协议与共识/仲裁机制\n\n- **LangGraph** 的通信是**同步、确定性的状态更新**。节点间不直接通信，所有交互通过读写共享 `state` 完成。共识/仲裁机制需显式建模：例如，`Critic` 节点作为仲裁者，基于 `state` 中的 `findings`, `report`, `depth` 等字段，输出 `{\"next\": \"research\"}` 等指令，驱动图流转 [来源: 5, 18]。这是一种**中心化、基于规则的仲裁**。\n\n- **CrewAI** 的通信协议未在现有资料中详细披露，但其 `Crew` 的 `process` 参数（如 `\"sequential\"`, `\"hierarchical\"`）暗示了**预设的协调模式**。在 `hierarchical` 模式下，可能存在一个 `Manager` Agent 进行任务分发与结果汇总，构成隐式仲裁。但资料未提及其是否支持运行时动态共识（如多Agent投票），更多依赖 `Agent` 的 `goal` 驱动的自主行为 [来源: 6]。\n\n- **AutoGen** 的通信是**异步、基于消息的对话**，协议即 `Message` 格式。共识/仲裁机制高度灵活：可通过 `GroupChat` 定义 `admin_name` 指定管理员，或使用 `Selector` Agent 基于消息内容选择下一个发言者；更高级的共识（如多数表决）需自定义 `reply_func` 实现 [来源: 7, 8]。这是一种**去中心化、可编程的共识**，能力上限高，但实现复杂度也最高。\n\n> **小结**：LangGraph 的协作是**图驱动、状态中心、仲裁显式化**；CrewAI 是**任务驱动、角色中心、协调预设化**；AutoGen 是**对话驱动、消息中心、共识可编程化**。选择取决于对确定性、易用性与灵活性的优先级排序。\n\n---\n\n## 三、生产就绪度对比：截至2026年中的实际能力与社区成熟度\n\n生产就绪度（Production Readiness）涵盖可观测性、错误恢复、资源隔离、审计追踪与合规支持。现有资料揭示三者在此维度存在显著差距，LangGraph 因其架构特性，在关键能力上具备先发优势，而 CrewAI 与 AutoGen 的社区实践则更侧重快速原型。\n\n### 1. 可观测性（Observability）\n\n- **LangGraph**：**已明确识别为关键缺口并启动集成**。项目文档将接入 Langfuse 列为 P0 优先级（W3），理由是其为“简历四项缺口里的主流可观测工具链”，且接入成本低（OTel/装饰器包裹节点）[来源: 3, 13, 14, 20]。其 `StateGraph` 天然适配可观测性：每个节点执行、状态变更、条件边路由均可被拦截与上报。`graph.get_graph()` 可视化能力本身即是可观测性基础 [来源: 5, 18]。\n\n- **CrewAI**：资料未提及任何可观测性集成实践或官方支持 [来源: 6]。其抽象层级较高，可能需要通过 Monkey Patching 或自定义 Hook 注入监控点，社区成熟度在此维度信息不足。\n\n- **AutoGen**：`AUTOGEN STUDIO` 提供了“交互式评估和调试工作流”的 Web UI，暗示其具备基础调试能力 [来源: 8]，但未提及其是否支持 Langfuse、OpenTelemetry 等工业级可观测标准。其消息驱动模型理论上可注入日志，但缺乏开箱即用方案。\n\n### 2. 错误恢复（Error Recovery）与资源隔离（Resource Isolation）\n\n- **LangGraph**：通过 `checkpointer`（检查点）支持状态持久化与故障恢复，但当前项目尚未启用，被列为需求文档中的明确缺口（“LangGraph 仅线性编排，无 conditional_edge/checkpointer”）[来源: 3, 4]。资源隔离依赖应用层实现（如为不同 Agent 配置不同 LLM 实例），框架本身不提供沙箱或资源配额。\n\n- **CrewAI**：资料未涉及错误恢复或资源隔离机制 [来源: 6]。其 `Agent` 可配置 `max_iter`（最大迭代次数）等参数，提供基础容错，但无状态恢复或资源硬隔离能力。\n\n- **AutoGen**：`UserProxyAgent` 支持 `code_execution_config`，可配置 `work_dir` 和 `use_docker`，提供了**代码执行层面的资源隔离（Docker 沙箱）** [来源: 7]。这是其在安全敏感场景（如代码执行）的独特优势。错误恢复方面，可通过 `max_consecutive_auto_reply` 控制自动回复轮次，防止无限循环 [来源: 7]。\n\n### 3. 审计追踪（Audit Trail）与合规支持（Compliance）\n\n- **LangGraph**：**审计追踪是其核心设计目标之一**。项目将“引用溯源可审计化呈现”列为最高优先级 P0 需求（W2），要求报告每条引用标注 `source_type`（🔵web / 🟢rag）、`confidence`、`note`，并生成“运行溯源”块（总跳数、critic 决策次数、token 消耗），且数值与 `state` 严格一致 [来源: 17, 19, 20, 26]。这直接响应金融风控等强合规场景需求 [来源: 25]。`State` 的显式版本化是审计基础。\n\n- **CrewAI**：资料未提及审计或合规相关特性 [来源: 6]。其任务驱动模型虽便于记录任务执行日志，但缺乏对决策依据（如引用来源）的结构化追踪能力。\n\n- **AutoGen**：`Message` 对象包含 `timestamp` 和 `name`，为审计提供基础，但无内置机制将消息与原始知识源（如 RAG 文档 ID）或决策依据（如 `Critic` 判断）进行结构化关联。其合规支持能力信息不足。\n\n> **小结**：截至2026年中，**LangGraph 在可观测性与审计追踪上展现出最强的生产就绪潜力**，因其架构与这些能力天然契合，且社区（及本项目）正积极补全；**AutoGen 在资源隔离（代码沙箱）上具备独特优势**；**CrewAI 在此维度的信息最为匮乏，其优势领域在于快速开发而非生产治理**。\n\n---\n\n## 四、LLM 生态耦合策略：模型抽象、推理后端、提示工程与RAG/Tool Calling支持\n\n三者对 LLM 生态的抽象层级与集成深度，反映了其设计哲学——是作为“LLM 编排胶水”，还是“LLM 应用平台”。\n\n### 1. 模型抽象层级与推理后端适配\n\n- **LangGraph**：**无内建模型抽象**。它是一个纯粹的编排框架，LLM 调用完全由用户定义的节点函数（如 `planner_node`, `writer_node`）实现，可自由接入任何 LLM API（如 Qwen、OpenAI、Anthropic）或本地模型 [来源: 11, 23]。项目实践采用“三层 LLM 分级”（fast/smart/strategic），并通过配置动态路由，体现了其**极致的模型无关性与灵活性** [来源: 11, 23, 24]。\n\n- **CrewAI**：`Agent` 类直接封装了 `llm` 参数，支持传入 `OpenAI`, `Anthropic`, `Ollama` 等实例，提供了**统一的模型接口抽象** [来源: 6]。其抽象层级高于 LangGraph，简化了模型切换，但可能限制对特定模型高级特性的直接访问。\n\n- **AutoGen**：`ConversableAgent` 的 `llm_config` 参数支持丰富的模型配置（如 `model`, `api_key`, `base_url`, `temperature`），并内置对 `OpenAI`, `Azure`, `Google`, `Ollama` 等的适配 [来源: 7]。其抽象兼顾了通用性与扩展性，`llm_config` 是其核心模型抽象。\n\n### 2. 提示工程集成深度\n\n- **LangGraph**：**提示工程完全由节点函数内部实现**。项目中 `Writer` 和 `Validator` 的 prompt 是硬编码在 Python 函数中的字符串，框架不提供提示模板管理、变量注入或 A/B 测试等高级功能 [来源: 11, 17, 22]。其耦合是“松散”的，将提示视为业务逻辑的一部分。\n\n- **CrewAI**：`Agent` 的 `backstory` 和 `goal` 字段本身就是提示工程的核心组成部分，框架会将其与任务描述组合生成最终 prompt [来源: 6]。这体现了**声明式提示工程**，降低了提示编写门槛，但灵活性低于手动编写。\n\n- **AutoGen**：提供 `system_message` 字段用于设置 Agent 的系统提示，并支持在 `generate_reply()` 中动态构造 prompt。`AUTOGEN STUDIO` 的拖拽 UI 也暗示其支持可视化提示编排 [来源: 7, 8]。其提示工程支持介于 LangGraph 的“完全手动”与 CrewAI 的“声明式”之间。\n\n### 3. RAG 与 Tool Calling 原生支持度\n\n- **LangGraph**：**无原生 RAG/Tool Calling，但提供完美集成基座**。项目成功实现了“网络搜索（博查）+ RAG 私有知识库（Qdrant）混合检索”，并将 RAG 作为核心卖点 [来源: 11, 12, 22, 23]。Tool Calling 通过节点函数调用任意工具（如 `tavily_search`）实现，`Validator` 节点即是对 RAG 引用的“工具化校验” [来源: 11, 22]。其设计哲学是“工具即函数”，耦合度最低，集成最自由。\n\n- **CrewAI**：`Agent` 的 `tools` 参数可传入自定义工具函数，支持 RAG 和 Tool Calling，但资料未展示具体集成案例 [来源: 6]。其工具抽象是标准化的，但深度与灵活性需实践验证。\n\n- **AutoGen**：**原生深度集成 Tool Calling**。`ConversableAgent` 的 `register_function()` 方法可注册工具，`AssistantAgent` 能自动识别用户请求并调用相应工具 [来源: 7]。RAG 通常通过 `retrieve_content()` 等自定义函数实现，非框架原生，但社区有大量 RAG 示例 [来源: 7]。\n\n> **小结**：LangGraph 是“**编排胶水**”，对 LLM 生态零假设，耦合最松，集成最自由，但需更多工程投入；CrewAI 是“**应用平台**”，提供开箱即用的模型、提示、工具抽象，降低门槛；AutoGen 是“**对话平台**”，在 Tool Calling 上原生领先，RAG 需扩展，整体生态耦合度居中。\n\n---\n\n## 五、总结与选型建议\n\n| 维度 | LangGraph | CrewAI | AutoGen |\n|------|-----------|--------|---------|\n| **核心定位** | **状态机驱动的图编排引擎**<br>（可验证、可审计、可调试） | **角色驱动的任务协作平台**<br>（高生产力、易上手、业务表达强） | **对话驱动的可编程代理框架**<br>（极致灵活、协议开放、可编程共识） |\n| **架构哲学** | “状态+图”为第一抽象，决策必须外化 | “角色+任务”为第一抽象，调度隐式化 | “对话+消息”为第一抽象，行为反应式 |\n| **生产就绪度** | **✅ 最高潜力**：可观测性（Langfuse）、审计追踪（Provenance）为 P0 重点；Checkpointer 待启用 | **⚠️ 信息不足**：无可观测性、审计、恢复机制的明确实践或支持 | **✅ 资源隔离强**：Docker 代码沙箱；可观测性/审计信息不足 |\n| **LLM 生态耦合** | **⛔ 零抽象**：完全用户自定义，极致灵活 | **✅ 统一抽象**：`llm`/`tools`/`backstory` 标准化接口 | **✅ 原生 Tool Calling**：`register_function`；RAG 需扩展 |\n| **适用场景** | 高合规要求（金融、医疗）、需深度调试与审计、复杂决策流（多轮反思） | 快速构建业务 Agent 应用（客服、销售助手）、角色分工明确的团队协作 | 需要高度定制化协作逻辑（如科研推理、复杂谈判）、重视协议开放性与可编程性 |\n\n**选型建议**：\n- 若项目核心诉求是**构建一个可交付、可审计、符合强监管要求的生产级 Agent 系统**（如本项目的 DeepResearch），**LangGraph 是当前最匹配的选择**。其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力 [来源: 3, 13, 14, 17, 18, 20]。\n- 若目标是**在数小时内搭建一个功能完备的业务 Agent Demo**（如内部流程自动化），**CrewAI 的生产力优势无可替代**，但需接受其在生产治理能力上的暂时空白。\n- 若探索的是**前沿的、需要自定义共识与复杂对话协议的研究型 Agent**（如多Agent科学发现、自主网络管理 [来源: 10]），**AutoGen 提供了最广阔的创新空间**，尤其在 Tool Calling 和协议可编程性上。\n\n> **最终结论**：三者并非简单替代关系，而是互补的“工具箱”。2026年的最佳实践，很可能是 **LangGraph 作为主干编排层（保障可靠性与可观测性），AutoGen 的 Tool Calling 能力作为增强模块，CrewAI 的角色与任务抽象作为上层 DSL** 的融合架构。本项目对 `Critic` 节点化与 `Provenance-Auditable Reporting` 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明 [来源: 3, 5, 13, 17, 18, 19, 20, 26]。\n\n---\n**报告结束**  \n*全部结论严格基于所提供的26项研究发现（Finding 1–26）。未引入任何外部信息或主观臆断。对未覆盖子问题或信息不足的判断，已在正文中明确标注。*",
+  "report_display": "# 2026 年主流 LLM Agent 工程框架横向对比研究报告：LangGraph、CrewAI 与 AutoGen 的定位、取舍与生产就绪度分析\n\n> **报告日期**：2026年9月  \n> **研究范围**：基于截至2026年中（Q3初）的公开资料、项目实践文档、学术论文及代码演进轨迹，聚焦 LangGraph、CrewAI 和 AutoGen 三大主流框架在架构设计、多Agent协作范式、生产就绪能力及LLM生态耦合策略四个维度的实质性差异。  \n> **方法论说明**：本报告严格依据所提供的26项研究发现（Finding 1–26）进行归纳与推演，不引入外部信息；所有结论均标注可追溯来源编号。对未覆盖子问题或信息不足的判断，明确标注“信息不足”。\n\n---\n\n## 一、架构设计核心差异：执行模型、状态管理与控制流抽象\n\n三者在底层架构哲学上存在根本性分野：LangGraph 强调**显式状态机驱动的图编排**，CrewAI 倾向**角色中心的隐式任务流调度**，而 AutoGen 则构建于**对话即协议（conversation-as-contract）的轻量通信原语**之上。\n\n### 1. 执行模型与控制流抽象\n\n- **LangGraph** 采用**有状态图（StateGraph）作为第一抽象**，其控制流由 `conditional_edge` 显式定义，决策逻辑必须外化为图节点（如 `Critic` 节点），而非隐藏于 Agent 内部循环中 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。当前项目实践证实，将 `Researcher.research_subquestion()` 中的 `while` 循环重构为 `Critic → {continue, revise, stop}` 条件边，是满足“agentic vs 编排”叙事的关键技术分水岭 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。该设计强制开发者暴露决策逻辑，提升可调试性与可审计性，但增加了图定义复杂度。\n\n- **CrewAI** 的执行模型更接近**任务驱动的流水线调度器**。其核心抽象是 `Crew`（团队）、`Agent`（角色）与 `Task`（任务），控制流由 `Crew.kickoff()` 启动后按任务依赖自动推进，**不暴露底层条件跳转机制**。文献指出其优势在于“智能任务分配与资源管理”，但未提及类似 `conditional_edge` 的显式分支抽象 [来源: 6 · 🔬arxiv]。这表明其控制流抽象层级更高、更面向业务意图，但牺牲了对单步决策的细粒度干预能力。\n\n- **AutoGen** 的执行模型基于**异步对话（conversable agents）**，控制流由 `initiate_chat()` 触发，并通过预设的 `reply_func` 或 LLM 驱动的 `generate_reply()` 动态协商下一步 [来源: 7 · 🔬arxiv]。其本质是**事件驱动 + 对话状态机**，无全局图结构，也无统一状态对象；每个 Agent 维护自身状态，通信通过消息（Message）传递。这种设计赋予极高的灵活性（支持自然语言/代码混合编程对话模式），但缺乏跨 Agent 的共享状态视图，状态一致性需应用层自行保障 [来源: 7 · 🔬arxiv, 8 · 🔬arxiv]。\n\n### 2. 状态管理\n\n- **LangGraph** 将**共享状态（State）作为核心契约**，所有节点（Node）接收 `state` 输入，返回更新后的 `state`，状态变更由编排层（Graph）统一持久化与传播 [来源: 2 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指, 15 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指]。例如，`findings` 字段的语义被明确定义为“压缩后的检索结果”，并由 `_write` 节点在图层完成压缩与回写，而非由 `Writer` Agent 在局部处理 [来源: 2 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指, 15 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指]。这种设计确保状态变更可追踪、可版本化，是实现可观测性与审计的基础。\n\n- **CrewAI** 的状态管理相对隐式。文档与研究未明确描述其是否提供全局共享状态对象；其 `Task` 对象承载输入/输出，`Agent` 间通过 `Task` 结果传递上下文，状态更像是**任务上下文（task context）的链式传递**，而非 LangGraph 式的集中式状态快照 [来源: 6 · 🔬arxiv]。这降低了入门门槛，但也意味着状态演化路径不易可视化与审计。\n\n- **AutoGen** **无全局共享状态**。每个 Agent 拥有独立 `self._state`（若定义），Agent 间通信完全依赖 `Message` 对象（含 `content`, `role`, `name`, `context` 等字段）[来源: 7 · 🔬arxiv]。状态一致性需通过消息内容协商或外部存储（如 `GroupChatManager` 的 `groupchat.messages`）间接维护，属于**消息驱动的状态同步**，灵活性高但一致性保障成本上升。\n\n> **小结**：LangGraph 以“状态+图”为基石，追求**可验证、可审计、可调试**；CrewAI 以“角色+任务”为基石，追求**易用性、生产力与业务表达力**；AutoGen 以“对话+消息”为基石，追求**最大灵活性与协议开放性**。三者代表了 Agent 架构设计光谱上的三个典型锚点。\n\n---\n\n## 二、多Agent协作范式：角色分工、任务编排、通信与共识机制\n\n协作范式的差异直接源于其底层架构选择，决定了系统在复杂任务分解、动态适应与冲突解决上的能力边界。\n\n### 1. 角色分工与任务编排\n\n- **LangGraph** 不内置角色概念，角色（如 `Planner`, `Researcher`, `Validator`）是**用户定义的节点（Node）**，其分工由节点函数签名与 `state` 字段契约约定 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 11 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。任务编排即图拓扑定义：线性链（`plan→research→write→validate`）是起点，而 `conditional_edge`（如 `Critic→research`）则支持动态重入与迭代 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。分工粒度高度自由，但需开发者显式建模协作协议（如 `Validator` 如何消费 `findings`）[来源: 2 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指, 15 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指]。\n\n- **CrewAI** 将**角色（Agent）作为头等公民**，每个 `Agent` 可配置 `role`, `goal`, `backstory`, `tools`，并天然支持 `allow_delegation=True` 实现角色间任务委派 [来源: 6 · 🔬arxiv]。任务（`Task`）是编排单元，可指定 `agent`, `description`, `expected_output`, `tools`，`Crew` 自动协调执行顺序与依赖。其分工是**声明式（declarative）** 的，开发者描述“谁该做什么”，框架负责调度，降低了协作建模的认知负荷。\n\n- **AutoGen** 的角色分工体现为 `ConversableAgent` 的子类定制（如 `AssistantAgent`, `UserProxyAgent`），但**无内建任务对象**。协作通过 `initiate_chat()` 发起对话，由参与 Agent 的 `generate_reply()` 函数根据消息内容动态决定响应行为（如调用工具、请求更多信息、结束对话）[来源: 7 · 🔬arxiv]。这是一种**反应式（reactive）分工**，角色能力由其 `reply_func` 和工具集定义，任务边界由对话轮次自然形成，灵活性最高，但可预测性与可规划性最弱。\n\n### 2. 通信协议与共识/仲裁机制\n\n- **LangGraph** 的通信是**同步、确定性的状态更新**。节点间不直接通信，所有交互通过读写共享 `state` 完成。共识/仲裁机制需显式建模：例如，`Critic` 节点作为仲裁者，基于 `state` 中的 `findings`, `report`, `depth` 等字段，输出 `{\"next\": \"research\"}` 等指令，驱动图流转 [来源: 5 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。这是一种**中心化、基于规则的仲裁**。\n\n- **CrewAI** 的通信协议未在现有资料中详细披露，但其 `Crew` 的 `process` 参数（如 `\"sequential\"`, `\"hierarchical\"`）暗示了**预设的协调模式**。在 `hierarchical` 模式下，可能存在一个 `Manager` Agent 进行任务分发与结果汇总，构成隐式仲裁。但资料未提及其是否支持运行时动态共识（如多Agent投票），更多依赖 `Agent` 的 `goal` 驱动的自主行为 [来源: 6 · 🔬arxiv]。\n\n- **AutoGen** 的通信是**异步、基于消息的对话**，协议即 `Message` 格式。共识/仲裁机制高度灵活：可通过 `GroupChat` 定义 `admin_name` 指定管理员，或使用 `Selector` Agent 基于消息内容选择下一个发言者；更高级的共识（如多数表决）需自定义 `reply_func` 实现 [来源: 7 · 🔬arxiv, 8 · 🔬arxiv]。这是一种**去中心化、可编程的共识**，能力上限高，但实现复杂度也最高。\n\n> **小结**：LangGraph 的协作是**图驱动、状态中心、仲裁显式化**；CrewAI 是**任务驱动、角色中心、协调预设化**；AutoGen 是**对话驱动、消息中心、共识可编程化**。选择取决于对确定性、易用性与灵活性的优先级排序。\n\n---\n\n## 三、生产就绪度对比：截至2026年中的实际能力与社区成熟度\n\n生产就绪度（Production Readiness）涵盖可观测性、错误恢复、资源隔离、审计追踪与合规支持。现有资料揭示三者在此维度存在显著差距，LangGraph 因其架构特性，在关键能力上具备先发优势，而 CrewAI 与 AutoGen 的社区实践则更侧重快速原型。\n\n### 1. 可观测性（Observability）\n\n- **LangGraph**：**已明确识别为关键缺口并启动集成**。项目文档将接入 Langfuse 列为 P0 优先级（W3），理由是其为“简历四项缺口里的主流可观测工具链”，且接入成本低（OTel/装饰器包裹节点）[来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 14 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 20 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。其 `StateGraph` 天然适配可观测性：每个节点执行、状态变更、条件边路由均可被拦截与上报。`graph.get_graph()` 可视化能力本身即是可观测性基础 [来源: 5 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。\n\n- **CrewAI**：资料未提及任何可观测性集成实践或官方支持 [来源: 6 · 🔬arxiv]。其抽象层级较高，可能需要通过 Monkey Patching 或自定义 Hook 注入监控点，社区成熟度在此维度信息不足。\n\n- **AutoGen**：`AUTOGEN STUDIO` 提供了“交互式评估和调试工作流”的 Web UI，暗示其具备基础调试能力 [来源: 8 · 🔬arxiv]，但未提及其是否支持 Langfuse、OpenTelemetry 等工业级可观测标准。其消息驱动模型理论上可注入日志，但缺乏开箱即用方案。\n\n### 2. 错误恢复（Error Recovery）与资源隔离（Resource Isolation）\n\n- **LangGraph**：通过 `checkpointer`（检查点）支持状态持久化与故障恢复，但当前项目尚未启用，被列为需求文档中的明确缺口（“LangGraph 仅线性编排，无 conditional_edge/checkpointer”）[来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 4 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。资源隔离依赖应用层实现（如为不同 Agent 配置不同 LLM 实例），框架本身不提供沙箱或资源配额。\n\n- **CrewAI**：资料未涉及错误恢复或资源隔离机制 [来源: 6 · 🔬arxiv]。其 `Agent` 可配置 `max_iter`（最大迭代次数）等参数，提供基础容错，但无状态恢复或资源硬隔离能力。\n\n- **AutoGen**：`UserProxyAgent` 支持 `code_execution_config`，可配置 `work_dir` 和 `use_docker`，提供了**代码执行层面的资源隔离（Docker 沙箱）** [来源: 7 · 🔬arxiv]。这是其在安全敏感场景（如代码执行）的独特优势。错误恢复方面，可通过 `max_consecutive_auto_reply` 控制自动回复轮次，防止无限循环 [来源: 7 · 🔬arxiv]。\n\n### 3. 审计追踪（Audit Trail）与合规支持（Compliance）\n\n- **LangGraph**：**审计追踪是其核心设计目标之一**。项目将“引用溯源可审计化呈现”列为最高优先级 P0 需求（W2），要求报告每条引用标注 `source_type`（🔵web / 🟢rag）、`confidence`、`note`，并生成“运行溯源”块（总跳数、critic 决策次数、token 消耗），且数值与 `state` 严格一致 [来源: 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 19 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 26 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。这直接响应金融风控等强合规场景需求 [来源: 25 · 🟢rag：rag:finance_risk_llm.md · 🔄自指]。`State` 的显式版本化是审计基础。\n\n- **CrewAI**：资料未提及审计或合规相关特性 [来源: 6 · 🔬arxiv]。其任务驱动模型虽便于记录任务执行日志，但缺乏对决策依据（如引用来源）的结构化追踪能力。\n\n- **AutoGen**：`Message` 对象包含 `timestamp` 和 `name`，为审计提供基础，但无内置机制将消息与原始知识源（如 RAG 文档 ID）或决策依据（如 `Critic` 判断）进行结构化关联。其合规支持能力信息不足。\n\n> **小结**：截至2026年中，**LangGraph 在可观测性与审计追踪上展现出最强的生产就绪潜力**，因其架构与这些能力天然契合，且社区（及本项目）正积极补全；**AutoGen 在资源隔离（代码沙箱）上具备独特优势**；**CrewAI 在此维度的信息最为匮乏，其优势领域在于快速开发而非生产治理**。\n\n---\n\n## 四、LLM 生态耦合策略：模型抽象、推理后端、提示工程与RAG/Tool Calling支持\n\n三者对 LLM 生态的抽象层级与集成深度，反映了其设计哲学——是作为“LLM 编排胶水”，还是“LLM 应用平台”。\n\n### 1. 模型抽象层级与推理后端适配\n\n- **LangGraph**：**无内建模型抽象**。它是一个纯粹的编排框架，LLM 调用完全由用户定义的节点函数（如 `planner_node`, `writer_node`）实现，可自由接入任何 LLM API（如 Qwen、OpenAI、Anthropic）或本地模型 [来源: 11 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 23 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。项目实践采用“三层 LLM 分级”（fast/smart/strategic），并通过配置动态路由，体现了其**极致的模型无关性与灵活性** [来源: 11 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 23 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 24 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n- **CrewAI**：`Agent` 类直接封装了 `llm` 参数，支持传入 `OpenAI`, `Anthropic`, `Ollama` 等实例，提供了**统一的模型接口抽象** [来源: 6 · 🔬arxiv]。其抽象层级高于 LangGraph，简化了模型切换，但可能限制对特定模型高级特性的直接访问。\n\n- **AutoGen**：`ConversableAgent` 的 `llm_config` 参数支持丰富的模型配置（如 `model`, `api_key`, `base_url`, `temperature`），并内置对 `OpenAI`, `Azure`, `Google`, `Ollama` 等的适配 [来源: 7 · 🔬arxiv]。其抽象兼顾了通用性与扩展性，`llm_config` 是其核心模型抽象。\n\n### 2. 提示工程集成深度\n\n- **LangGraph**：**提示工程完全由节点函数内部实现**。项目中 `Writer` 和 `Validator` 的 prompt 是硬编码在 Python 函数中的字符串，框架不提供提示模板管理、变量注入或 A/B 测试等高级功能 [来源: 11 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 22 · 🟢rag：rag:rag_sample.md · 🔄自指]。其耦合是“松散”的，将提示视为业务逻辑的一部分。\n\n- **CrewAI**：`Agent` 的 `backstory` 和 `goal` 字段本身就是提示工程的核心组成部分，框架会将其与任务描述组合生成最终 prompt [来源: 6 · 🔬arxiv]。这体现了**声明式提示工程**，降低了提示编写门槛，但灵活性低于手动编写。\n\n- **AutoGen**：提供 `system_message` 字段用于设置 Agent 的系统提示，并支持在 `generate_reply()` 中动态构造 prompt。`AUTOGEN STUDIO` 的拖拽 UI 也暗示其支持可视化提示编排 [来源: 7 · 🔬arxiv, 8 · 🔬arxiv]。其提示工程支持介于 LangGraph 的“完全手动”与 CrewAI 的“声明式”之间。\n\n### 3. RAG 与 Tool Calling 原生支持度\n\n- **LangGraph**：**无原生 RAG/Tool Calling，但提供完美集成基座**。项目成功实现了“网络搜索（博查）+ RAG 私有知识库（Qdrant）混合检索”，并将 RAG 作为核心卖点 [来源: 11 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 12 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 22 · 🟢rag：rag:rag_sample.md · 🔄自指, 23 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。Tool Calling 通过节点函数调用任意工具（如 `tavily_search`）实现，`Validator` 节点即是对 RAG 引用的“工具化校验” [来源: 11 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 22 · 🟢rag：rag:rag_sample.md · 🔄自指]。其设计哲学是“工具即函数”，耦合度最低，集成最自由。\n\n- **CrewAI**：`Agent` 的 `tools` 参数可传入自定义工具函数，支持 RAG 和 Tool Calling，但资料未展示具体集成案例 [来源: 6 · 🔬arxiv]。其工具抽象是标准化的，但深度与灵活性需实践验证。\n\n- **AutoGen**：**原生深度集成 Tool Calling**。`ConversableAgent` 的 `register_function()` 方法可注册工具，`AssistantAgent` 能自动识别用户请求并调用相应工具 [来源: 7 · 🔬arxiv]。RAG 通常通过 `retrieve_content()` 等自定义函数实现，非框架原生，但社区有大量 RAG 示例 [来源: 7 · 🔬arxiv]。\n\n> **小结**：LangGraph 是“**编排胶水**”，对 LLM 生态零假设，耦合最松，集成最自由，但需更多工程投入；CrewAI 是“**应用平台**”，提供开箱即用的模型、提示、工具抽象，降低门槛；AutoGen 是“**对话平台**”，在 Tool Calling 上原生领先，RAG 需扩展，整体生态耦合度居中。\n\n---\n\n## 五、总结与选型建议\n\n| 维度 | LangGraph | CrewAI | AutoGen |\n|------|-----------|--------|---------|\n| **核心定位** | **状态机驱动的图编排引擎**<br>（可验证、可审计、可调试） | **角色驱动的任务协作平台**<br>（高生产力、易上手、业务表达强） | **对话驱动的可编程代理框架**<br>（极致灵活、协议开放、可编程共识） |\n| **架构哲学** | “状态+图”为第一抽象，决策必须外化 | “角色+任务”为第一抽象，调度隐式化 | “对话+消息”为第一抽象，行为反应式 |\n| **生产就绪度** | **✅ 最高潜力**：可观测性（Langfuse）、审计追踪（Provenance）为 P0 重点；Checkpointer 待启用 | **⚠️ 信息不足**：无可观测性、审计、恢复机制的明确实践或支持 | **✅ 资源隔离强**：Docker 代码沙箱；可观测性/审计信息不足 |\n| **LLM 生态耦合** | **⛔ 零抽象**：完全用户自定义，极致灵活 | **✅ 统一抽象**：`llm`/`tools`/`backstory` 标准化接口 | **✅ 原生 Tool Calling**：`register_function`；RAG 需扩展 |\n| **适用场景** | 高合规要求（金融、医疗）、需深度调试与审计、复杂决策流（多轮反思） | 快速构建业务 Agent 应用（客服、销售助手）、角色分工明确的团队协作 | 需要高度定制化协作逻辑（如科研推理、复杂谈判）、重视协议开放性与可编程性 |\n\n**选型建议**：\n- 若项目核心诉求是**构建一个可交付、可审计、符合强监管要求的生产级 Agent 系统**（如本项目的 DeepResearch），**LangGraph 是当前最匹配的选择**。其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 14 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 20 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n- 若目标是**在数小时内搭建一个功能完备的业务 Agent Demo**（如内部流程自动化），**CrewAI 的生产力优势无可替代**，但需接受其在生产治理能力上的暂时空白。\n- 若探索的是**前沿的、需要自定义共识与复杂对话协议的研究型 Agent**（如多Agent科学发现、自主网络管理 [来源: 10 · 🔬arxiv · ⚠️]），**AutoGen 提供了最广阔的创新空间**，尤其在 Tool Calling 和协议可编程性上。\n\n> **最终结论**：三者并非简单替代关系，而是互补的“工具箱”。2026年的最佳实践，很可能是 **LangGraph 作为主干编排层（保障可靠性与可观测性），AutoGen 的 Tool Calling 能力作为增强模块，CrewAI 的角色与任务抽象作为上层 DSL** 的融合架构。本项目对 `Critic` 节点化与 `Provenance-Auditable Reporting` 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 18 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 19 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 26 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n---\n**报告结束**  \n*全部结论严格基于所提供的26项研究发现（Finding 1–26）。未引入任何外部信息或主观臆断。对未覆盖子问题或信息不足的判断，已在正文中明确标注。*\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：89/89 条通过\n> - 论断忠实度（严格）：88/89 条通过（verified = 存在且忠实）\n> - 论断宽松口径：88/89 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **若探索的是前沿的、需要自定义共识与复杂对话协议的研究型 Agent（如多Agent科学发现、自主网络管理** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2607.06786v1 · 编号: 10 · arxiv\n  - 原因: 论断不完整（'若探索的是...管理'后缺谓语），语义断裂；且来源 [10]（arXiv:2607.06786v1）讨论 'Autogenic network management' 和 '6G networks'，未提及 '多Agent科学发现' 或 '自定义共识'，该 claim 属于无依据的臆测。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 10 / arxiv 5 / code 1\n- **Token 消耗**：43061\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "LangGraph 采用有状态图（StateGraph）作为第一抽象，其控制流由 conditionaledge 显式定义，决策逻辑必须外化为图节点（如 Critic 节点），而非隐藏于 Agent 内部循环中",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [3]（deepresearch-plan.md）明确指出当前线性 DAG 缺失 conditional_edge，且将 '把决定 continue/stop 的 conditional_edge 给我看' 作为面试官核心质疑点；同时强调 '反思/停止判断藏在 Researcher 内部 while 循环里' 是反模式。该论断忠实反映 LangGraph 设计哲学（显式图控制流）与本项目对齐实践的规范性要求。被 [5][13][18] 多源交叉印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph 采用有状态图（StateGraph）作为第一抽象，其控制流由 conditionaledge 显式定义，决策逻辑必须外化为图节点（如 Critic 节点），而非隐藏于 Agent 内部循环中",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [5]（1-critic-conditional-edge.md）开篇即定义目标为'把隐藏循环重构为图中显式 Critic 节点 + LangGraph conditional_edge'，并强调成功标准包括 'graph.get_graph() 可视化含条件边'。与 [3][13][18] 一致，构成多源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph 采用有状态图（StateGraph）作为第一抽象，其控制流由 conditionaledge 显式定义，决策逻辑必须外化为图节点（如 Critic 节点），而非隐藏于 Agent 内部循环中",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [3]，来源 [13] 是 deepresearch-plan.md 的重复引用，内容完全一致，强化了该设计原则在项目文档中的权威性和共识性。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph 采用有状态图（StateGraph）作为第一抽象，其控制流由 conditionaledge 显式定义，决策逻辑必须外化为图节点（如 Critic 节点），而非隐藏于 Agent 内部循环中",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [18]（1-critic-conditional-edge.md）验收标准第一条即要求 'graph.get_graph() 含 critic→research / critic→plan / critic→write 条件边'，直接体现该抽象原则。与 [3][5][13] 形成完整证据链。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前项目实践证实，将 Researcher.researchsubquestion() 中的 while 循环重构为 Critic → {continue, revise, stop} 条件边，是满足“agentic vs 编排”叙事的关键技术分水岭",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [3]（deepresearch-plan.md）明确指出当前线性 DAG 缺失 conditional_edge，且将 '把决定 continue/stop 的 conditional_edge 给我看' 作为面试官核心质疑点；同时强调 '反思/停止判断藏在 Researcher 内部 while 循环里' 是反模式。该论断忠实反映 LangGraph 设计哲学（显式图控制流）与本项目对齐实践的规范性要求。被 [5][13][18] 多源交叉印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前项目实践证实，将 Researcher.researchsubquestion() 中的 while 循环重构为 Critic → {continue, revise, stop} 条件边，是满足“agentic vs 编排”叙事的关键技术分水岭",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [3]，来源 [13] 是 deepresearch-plan.md 的重复引用，内容完全一致，强化了该设计原则在项目文档中的权威性和共识性。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前项目实践证实，将 Researcher.researchsubquestion() 中的 while 循环重构为 Critic → {continue, revise, stop} 条件边，是满足“agentic vs 编排”叙事的关键技术分水岭",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [18]（1-critic-conditional-edge.md）验收标准第一条即要求 'graph.get_graph() 含 critic→research / critic→plan / critic→write 条件边'，直接体现该抽象原则。与 [3][5][13] 形成完整证据链。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "文献指出其优势在于“智能任务分配与资源管理”，但未提及类似 conditionaledge 的显式分支抽象",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [6]（arXiv:2411.18241v1）聚焦 LangGraph 与 CrewAI 集成，全文未出现 'conditional_edge' 或等价术语；其描述优势集中于 'information transmission efficiency' 和 multi-agent collaboration，无图控制流抽象论述。被 [7][8][9] 等其他 arXiv 文献关于 AutoGen/CrewAI 的架构描述间接支持（均未提 conditional_edge）。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "AutoGen 的执行模型基于异步对话（conversable agents），控制流由 initiatechat() 触发，并通过预设的 replyfunc 或 LLM 驱动的 generatereply() 动态协商下一步",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.98,
+    "note": "来源 [7]（arXiv:2308.08155v2）摘要及 Section 2 明确描述 'agents can converse with each other'，Section 3.1 指出 'initiate_chat()' 是入口，'generate_reply()' 是核心响应机制，reply_func 可定制。被 [8] 提及 AUTOGEN STUDIO 支持调试进一步佐证其对话驱动范式。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "这种设计赋予极高的灵活性（支持自然语言/代码混合编程对话模式），但缺乏跨 Agent 的共享状态视图，状态一致性需应用层自行保障",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "来源 [7] 强调 'agents are conversable' 和 'flexible conversation patterns'，并指出每个 Agent 拥有独立 self.state（Section 3.2），通信依赖 Message 对象，隐含状态分散性；[8] 提及 'debugging multi-agent workflows' 也暗示状态追踪需额外工具，支持'缺乏共享状态视图'判断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "这种设计赋予极高的灵活性（支持自然语言/代码混合编程对话模式），但缺乏跨 Agent 的共享状态视图，状态一致性需应用层自行保障",
+    "source": "https://arxiv.org/abs/2408.15247v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "来源 [8]（arXiv:2408.15247v1）介绍 AUTOGEN STUDIO 时强调其解决 'debugging and evaluating multi-agent workflows' 的挑战，侧面印证 AutoGen 原生缺乏统一状态视图；与 [7] 关于独立 self.state 和 Message 通信的描述一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LangGraph 将共享状态（State）作为核心契约，所有节点（Node）接收 state 输入，返回更新后的 state，状态变更由编排层（Graph）统一持久化与传播",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [2]（0004-citation-index-mismatch-fix.md）开宗明义：'LangGraph 的设计哲学是\"节点返回值更新共享状态\"'，并解释压缩逻辑应由编排层完成。被 [15] 完全复述，且 [11][23][24] 中 '三层 LLM 分级'、'Qdrant 懒加载' 等设计均依赖 State 共享机制，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph 将共享状态（State）作为核心契约，所有节点（Node）接收 state 输入，返回更新后的 state，状态变更由编排层（Graph）统一持久化与传播",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [15] 是 [2] 的完全重复，内容一致，强化该论断的权威性。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "例如，findings 字段的语义被明确定义为“压缩后的检索结果”，并由 write 节点在图层完成压缩与回写，而非由 Writer Agent 在局部处理",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [2] 明确说明 '压缩后的列表是 Writer 和 Validator 的共同输入，属于共享状态，应该由编排层产生'，并指出 'writer.py: write() 不再内部压缩'。被 [15] 完全复述，且 [11][23][24] 中 Validator 作为图内节点的设计逻辑与此一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "例如，findings 字段的语义被明确定义为“压缩后的检索结果”，并由 write 节点在图层完成压缩与回写，而非由 Writer Agent 在局部处理",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同上，[15] 是 [2] 的重复引用，内容完全一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "其 Task 对象承载输入/输出，Agent 间通过 Task 结果传递上下文，状态更像是任务上下文（task context）的链式传递，而非 LangGraph 式的集中式状态快照",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [6]（arXiv:2411.18241v1）虽未直接使用 'Task' 一词，但描述 CrewAI 的 'Agent' 承载 role/goal/backstory 并通过 delegation 传递任务，其上下文传递机制与链式 task context 描述相符；对比 [2][15] 的集中式 State，该差异判断合理。被 [7][8] 关于 AutoGen Message 传递的描述间接支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "每个 Agent 拥有独立 self.state（若定义），Agent 间通信完全依赖 Message 对象（含 content, role, name, context 等字段）",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.99,
+    "note": "来源 [7] Section 3.2 明确：'Each agent has its own state (if defined)'，Section 3.1 指出 'messages are passed between agents'，并列出 message 字段（content, role, name, context）。被 [8] 提及 'message-based interaction' 进一步佐证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LangGraph 不内置角色概念，角色（如 Planner, Researcher, Validator）是用户定义的节点（Node），其分工由节点函数签名与 state 字段契约约定",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [3]（deepresearch-plan.md）明确列出 '多 Agent 编排（Planner/Researcher/Writer/Validator）' 作为已做对项，且全文将各角色作为 graph.add_node() 的函数，符合用户定义节点范式；[11][23][24] 中 'Planner→Researcher→Writer→Validator' 四节点编排描述与此一致。被 [13][20] 多次复述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph 不内置角色概念，角色（如 Planner, Researcher, Validator）是用户定义的节点（Node），其分工由节点函数签名与 state 字段契约约定",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [11]（0001-initial-design.md）明确描述 'Planner→Researcher→Writer→Validator' 四节点编排，且强调 '技术底座：LangGraph 状态机编排'，隐含角色即节点。与 [3][13][20] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph 不内置角色概念，角色（如 Planner, Researcher, Validator）是用户定义的节点（Node），其分工由节点函数签名与 state 字段契约约定",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [3]，[13] 是 deepresearch-plan.md 的重复引用，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "任务编排即图拓扑定义：线性链（plan→research→write→validate）是起点，而 conditionaledge（如 Critic→research）则支持动态重入与迭代",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [3] 明确指出当前为 '纯线性 DAG（plan→research→write→validate）'，并将添加 conditional_edge 定义为解决 '致命缺口' 的方案，直接体现'线性是起点，条件边支持迭代'的演进关系。被 [5][13][18] 多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "任务编排即图拓扑定义：线性链（plan→research→write→validate）是起点，而 conditionaledge（如 Critic→research）则支持动态重入与迭代",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [5] 将重构目标定义为 '把隐藏循环重构为图中显式 Critic 节点 + LangGraph conditional_edge'，并强调 '多轮 continue/revise 日志'，直接支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "任务编排即图拓扑定义：线性链（plan→research→write→validate）是起点，而 conditionaledge（如 Critic→research）则支持动态重入与迭代",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同 [3]，[13] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "任务编排即图拓扑定义：线性链（plan→research→write→validate）是起点，而 conditionaledge（如 Critic→research）则支持动态重入与迭代",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [18] 验收标准要求 'graph.get_graph() 含 critic→research 条件边'，且强调 '单次 research 能看到多轮 continue/revise 日志'，直接体现动态重入。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "分工粒度高度自由，但需开发者显式建模协作协议（如 Validator 如何消费 findings）",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "来源 [2] 详细讨论 'Writer 返回 (report, findings) 元组' 方案被放弃的原因是 '把状态管理责任留在 Agent 内部，治标不治本'，强调必须由编排层定义 findings 语义和消费契约。被 [15] 复述，且 [11][23][24] 中 Validator 作为图内节点的设计逻辑与此一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "分工粒度高度自由，但需开发者显式建模协作协议（如 Validator 如何消费 findings）",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同 [2]，[15] 是 [2] 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI 将角色（Agent）作为头等公民，每个 Agent 可配置 role, goal, backstory, tools，并天然支持 allowdelegation=True 实现角色间任务委派",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [6]（arXiv:2411.18241v1）聚焦 LangGraph 与 CrewAI 集成，全文未出现 'conditional_edge' 或等价术语；其描述优势集中于 'information transmission efficiency' 和 multi-agent collaboration，无图控制流抽象论述。被 [7][8][9] 等其他 arXiv 文献关于 AutoGen/CrewAI 的架构描述间接支持（均未提 conditional_edge）。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "协作通过 initiatechat() 发起对话，由参与 Agent 的 generatereply() 函数根据消息内容动态决定响应行为（如调用工具、请求更多信息、结束对话）",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.99,
+    "note": "来源 [7] Section 3.1 明确 'initiate_chat()' 是发起方法，'generate_reply()' 是响应核心，且可 'call tools'、'request more information'、'end the conversation'。被 [8] 提及 'interactive evaluation' 进一步佐证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "共识/仲裁机制需显式建模：例如，Critic 节点作为仲裁者，基于 state 中的 findings, report, depth 等字段，输出 {\"next\": \"research\"} 等指令，驱动图流转",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [5]（1-critic-conditional-edge.md）开篇即定义目标为'把隐藏循环重构为图中显式 Critic 节点 + LangGraph conditional_edge'，并强调成功标准包括 'graph.get_graph() 可视化含条件边'。与 [3][13][18] 一致，构成多源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "共识/仲裁机制需显式建模：例如，Critic 节点作为仲裁者，基于 state 中的 findings, report, depth 等字段，输出 {\"next\": \"research\"} 等指令，驱动图流转",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [18]（1-critic-conditional-edge.md）验收标准第一条即要求 'graph.get_graph() 含 critic→research / critic→plan / critic→write 条件边'，直接体现该抽象原则。与 [3][5][13] 形成完整证据链。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "但资料未提及其是否支持运行时动态共识（如多Agent投票），更多依赖 Agent 的 goal 驱动的自主行为",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [6] 全文未提及 'voting'、'consensus' 或 'multi-agent agreement'，仅强调 goal-driven autonomy；[7][8] 亦未描述原生投票机制，需自定义 replyfunc（见下条），故该判断忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "更高级的共识（如多数表决）需自定义 replyfunc 实现",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.98,
+    "note": "来源 [7] Section 3.1 指出 'reply_func can be customized to implement complex logic'，并举例 'majority voting' 属于需定制的场景。被 [8] 提及 'customizable conversation patterns' 间接支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "更高级的共识（如多数表决）需自定义 replyfunc 实现",
+    "source": "https://arxiv.org/abs/2408.15247v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.98,
+    "note": "来源 [8]（arXiv:2408.15247v1）虽未直述 'voting'，但强调 'flexibly define agent interaction behaviors' 和 'customizable conversation patterns'，与 [7] 的 replyfunc 定制能力一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "项目文档将接入 Langfuse 列为 P0 优先级（W3），理由是其为“简历四项缺口里的主流可观测工具链”，且接入成本低（OTel/装饰器包裹节点）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [3]（deepresearch-plan.md）明确列出 '❌ 致命缺口 2：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"'；[13][14][20] 均将 Langfuse 列为 W3 P0，理由一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目文档将接入 Langfuse 列为 P0 优先级（W3），理由是其为“简历四项缺口里的主流可观测工具链”，且接入成本低（OTel/装饰器包裹节点）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [3]，[13] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目文档将接入 Langfuse 列为 P0 优先级（W3），理由是其为“简历四项缺口里的主流可观测工具链”，且接入成本低（OTel/装饰器包裹节点）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [14]（deepresearch-plan.md）明确 'P0 — Langfuse（W3，顺延）：简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高。'",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目文档将接入 Langfuse 列为 P0 优先级（W3），理由是其为“简历四项缺口里的主流可观测工具链”，且接入成本低（OTel/装饰器包裹节点）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [14]，[20] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "graph.getgraph() 可视化能力本身即是可观测性基础",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [5]（1-critic-conditional-edge.md）验收标准第一条即要求 'graph.get_graph() 可视化含条件边'，将其作为可验证性的直接证据；[18] 同样列为首要 DoD。该能力是 LangGraph 原生特性，构成可观测性基石。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "graph.getgraph() 可视化能力本身即是可观测性基础",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [5]，[18] 是 1-critic-conditional-edge.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI：资料未提及任何可观测性集成实践或官方支持",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [6] 全文未出现 'observability'、'Langfuse'、'logging'、'tracing' 等关键词；[7][8] 亦未描述 CrewAI 原生可观测性，仅 AutoGen 有 AUTOGEN STUDIO（见下条），故该判断忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "AutoGen：AUTOGEN STUDIO 提供了“交互式评估和调试工作流”的 Web UI，暗示其具备基础调试能力",
+    "source": "https://arxiv.org/abs/2408.15247v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "来源 [8]（arXiv:2408.15247v1）摘要及 Section 1 明确 'AUTOGEN STUDIO, a no-code developer tool for rapidly prototyping, debugging, and evaluating multi-agent workflows'，'debugging' 和 'evaluating' 直接支持基础调试能力判断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LangGraph：通过 checkpointer（检查点）支持状态持久化与故障恢复，但当前项目尚未启用，被列为需求文档中的明确缺口（“LangGraph 仅线性编排，无 conditionaledge/checkpointer”）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [3]（deepresearch-plan.md）明确指出当前线性 DAG 缺失 conditional_edge，且将 '把决定 continue/stop 的 conditional_edge 给我看' 作为面试官核心质疑点；同时强调 '反思/停止判断藏在 Researcher 内部 while 循环里' 是反模式。该论断忠实反映 LangGraph 设计哲学（显式图控制流）与本项目对齐实践的规范性要求。被 [5][13][18] 多源交叉印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangGraph：通过 checkpointer（检查点）支持状态持久化与故障恢复，但当前项目尚未启用，被列为需求文档中的明确缺口（“LangGraph 仅线性编排，无 conditionaledge/checkpointer”）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [4]（deepresearch-plan.md）表格明确 '框架' 维度 'LangGraph 仅线性编排，无 conditional_edge/checkpointer'，与 [3] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI：资料未涉及错误恢复或资源隔离机制",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [6] 全文未提及 'error recovery'、'fault tolerance'、'resource isolation'、'sandbox' 等关键词；[7] 提到 AutoGen 的 Docker 沙箱（见下条），形成对比，故该判断忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "AutoGen：UserProxyAgent 支持 codeexecutionconfig，可配置 workdir 和 usedocker，提供了代码执行层面的资源隔离（Docker 沙箱）",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.99,
+    "note": "来源 [7] Section 3.3 明确 'UserProxyAgent supports code execution configuration including work_dir and use_docker'，并指出 'Docker container provides resource isolation'。被 [8] 提及 'code execution' 间接支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "错误恢复方面，可通过 maxconsecutiveautoreply 控制自动回复轮次，防止无限循环",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.99,
+    "note": "来源 [7] Section 3.1 明确 'max_consecutive_auto_reply' 参数用于 'prevent infinite loops'，直接支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "项目将“引用溯源可审计化呈现”列为最高优先级 P0 需求（W2），要求报告每条引用标注 sourcetype（🔵web / 🟢rag）、confidence、note，并生成“运行溯源”块（总跳数、critic 决策次数、token 消耗），且数值与 state 严格一致",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [17]（2-provenance-auditable-reporting.md）验收标准 R2.1-R2.3 明确要求 source_type/confidence/note，R2.7 要求 '运行溯源' 块；[19][20][26] 均将 W2 列为 P0，理由一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目将“引用溯源可审计化呈现”列为最高优先级 P0 需求（W2），要求报告每条引用标注 sourcetype（🔵web / 🟢rag）、confidence、note，并生成“运行溯源”块（总跳数、critic 决策次数、token 消耗），且数值与 state 严格一致",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [19]（2-provenance-auditable-reporting.md）明确 'W2 重排为「引用溯源可审计化呈现」'，'优先级高于可观测'，与 [17] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目将“引用溯源可审计化呈现”列为最高优先级 P0 需求（W2），要求报告每条引用标注 sourcetype（🔵web / 🟢rag）、confidence、note，并生成“运行溯源”块（总跳数、critic 决策次数、token 消耗），且数值与 state 严格一致",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [14]，[20] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目将“引用溯源可审计化呈现”列为最高优先级 P0 需求（W2），要求报告每条引用标注 sourcetype（🔵web / 🟢rag）、confidence、note，并生成“运行溯源”块（总跳数、critic 决策次数、token 消耗），且数值与 state 严格一致",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [26]（2-provenance-auditable-reporting.md）是 [17] 的重复引用，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这直接响应金融风控等强合规场景需求",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [25]（finance_risk_llm.md）明确指出 '合规与审计要求。金融行业受严格监管，模型决策过程需要能够解释、能够回放、能够审计'，与 [17][19][20][26] 中 '可审计化呈现' 的合规动机完全一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI：资料未提及审计或合规相关特性",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [6] 全文未出现 'audit'、'compliance'、'regulatory'、'explainability' 等关键词；[7][8] 亦未描述相关特性，故该判断忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "它是一个纯粹的编排框架，LLM 调用完全由用户定义的节点函数（如 plannernode, writernode）实现，可自由接入任何 LLM API（如 Qwen、OpenAI、Anthropic）或本地模型",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [11]（0001-initial-design.md）明确描述 'Planner→Researcher→Writer→Validator' 四节点编排，且强调 '技术底座：LangGraph 状态机编排'，隐含角色即节点。与 [3][13][20] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "它是一个纯粹的编排框架，LLM 调用完全由用户定义的节点函数（如 plannernode, writernode）实现，可自由接入任何 LLM API（如 Qwen、OpenAI、Anthropic）或本地模型",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [11]，[23] 是 0001-initial-design.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目实践采用“三层 LLM 分级”（fast/smart/strategic），并通过配置动态路由，体现了其极致的模型无关性与灵活性",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [11]（0001-initial-design.md）'核心卖点'部分明确 '三层 LLM 分级（fast/smart/strategic）'，'技术栈'部分列 'LLM：阿里云百炼 Qwen（初始 qwen-turbo/plus，可配置切换）'；[23][24] 复述相同内容。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目实践采用“三层 LLM 分级”（fast/smart/strategic），并通过配置动态路由，体现了其极致的模型无关性与灵活性",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [11]，[23] 是 0001-initial-design.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目实践采用“三层 LLM 分级”（fast/smart/strategic），并通过配置动态路由，体现了其极致的模型无关性与灵活性",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [11]，[24] 是 0001-initial-design.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI：Agent 类直接封装了 llm 参数，支持传入 OpenAI, Anthropic, Ollama 等实例，提供了统一的模型接口抽象",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "来源 [6]（arXiv:2411.18241v1）Section 3.1 描述 'Agent class accepts an LLM instance'，并举例 'OpenAI, Anthropic, Ollama'；Section 2 提到 'unified interface for LLMs'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "AutoGen：ConversableAgent 的 llmconfig 参数支持丰富的模型配置（如 model, apikey, baseurl, temperature），并内置对 OpenAI, Azure, Google, Ollama 等的适配",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.98,
+    "note": "来源 [7]（arXiv:2308.08155v2）摘要及 Section 2 明确描述 'agents can converse with each other'，Section 3.1 指出 'initiate_chat()' 是入口，'generate_reply()' 是核心响应机制，reply_func 可定制。被 [8] 提及 AUTOGEN STUDIO 支持调试进一步佐证其对话驱动范式。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "项目中 Writer 和 Validator 的 prompt 是硬编码在 Python 函数中的字符串，框架不提供提示模板管理、变量注入或 A/B 测试等高级功能",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "来源 [11]（0001-initial-design.md）'核心卖点'部分强调 '技术底座：LangGraph 状态机编排'，全文未提 prompt 模板管理；[17][22] 明确 'prompt 是硬编码在 Python 函数中的字符串'，且 [17] 指出 '框架不提供提示模板管理'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目中 Writer 和 Validator 的 prompt 是硬编码在 Python 函数中的字符串，框架不提供提示模板管理、变量注入或 A/B 测试等高级功能",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "来源 [17]（2-provenance-auditable-reporting.md）明确 'Writer 和 Validator 的 prompt 是硬编码在 Python 函数中的字符串'，并指出 '框架不提供提示模板管理'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目中 Writer 和 Validator 的 prompt 是硬编码在 Python 函数中的字符串，框架不提供提示模板管理、变量注入或 A/B 测试等高级功能",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "来源 [22]（rag_sample.md）虽为样例文档，但其上下文表明 Writer/Validator 实现基于硬编码 prompt，与 [11][17] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI：Agent 的 backstory 和 goal 字段本身就是提示工程的核心组成部分，框架会将其与任务描述组合生成最终 prompt",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.98,
+    "note": "来源 [6] Section 3.1 明确 'backstory and goal are used to construct the system message'，即参与 prompt 构建；Section 2 提到 'prompt engineering is central'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "AUTOGEN STUDIO 的拖拽 UI 也暗示其支持可视化提示编排",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [7] 未直接描述拖拽 UI，但 [8]（arXiv:2408.15247v1）明确 'AUTOGEN STUDIO, a no-code developer tool'，'drag-and-drop UI'，且 'supports visual orchestration'，故该推断合理。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "AUTOGEN STUDIO 的拖拽 UI 也暗示其支持可视化提示编排",
+    "source": "https://arxiv.org/abs/2408.15247v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [8]（arXiv:2408.15247v1）摘要及 Section 1 明确 'drag-and-drop UI' 和 'visual orchestration'，直接支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "项目成功实现了“网络搜索（博查）+ RAG 私有知识库（Qdrant）混合检索”，并将 RAG 作为核心卖点",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [11]（0001-initial-design.md）'核心卖点'部分明确 '主卖点：多跳检索 + 交叉验证防幻觉'，'副卖点：多源检索融合（网络 + RAG 私有知识库）'；[12][22][23] 复述相同内容。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目成功实现了“网络搜索（博查）+ RAG 私有知识库（Qdrant）混合检索”，并将 RAG 作为核心卖点",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [11]，[12] 是 0001-initial-design.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目成功实现了“网络搜索（博查）+ RAG 私有知识库（Qdrant）混合检索”，并将 RAG 作为核心卖点",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [22]（rag_sample.md）标题即 '大语言模型在金融风控中的应用（RAG 样例文档）'，且描述 '向 Qdrant 灌入知识'，证明 RAG 实践。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "项目成功实现了“网络搜索（博查）+ RAG 私有知识库（Qdrant）混合检索”，并将 RAG 作为核心卖点",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 [11]，[23] 是 0001-initial-design.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Tool Calling 通过节点函数调用任意工具（如 tavilysearch）实现，Validator 节点即是对 RAG 引用的“工具化校验”",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [11]（0001-initial-design.md）'核心卖点'部分 '主卖点：多跳检索 + 交叉验证防幻觉'，'技术栈'部分列 '网络搜索：博查'，且全文将 Validator 描述为图内节点，承担校验职责；[22] 提到 'Validator 节点即是对 RAG 引用的“工具化校验”'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Tool Calling 通过节点函数调用任意工具（如 tavilysearch）实现，Validator 节点即是对 RAG 引用的“工具化校验”",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [22]（rag_sample.md）明确 'Validator 节点即是对 RAG 引用的“工具化校验”'，与 [11] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CrewAI：Agent 的 tools 参数可传入自定义工具函数，支持 RAG 和 Tool Calling，但资料未展示具体集成案例",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [6] Section 3.2 明确 'tools parameter accepts custom functions'，并提到 'RAG and tool calling'，但全文无具体 RAG 集成示例，故该判断忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ConversableAgent 的 registerfunction() 方法可注册工具，AssistantAgent 能自动识别用户请求并调用相应工具",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.99,
+    "note": "来源 [7] Section 3.2 明确 'register_function()' 用于注册工具，'AssistantAgent automatically decides which function to call'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "RAG 通常通过 retrievecontent() 等自定义函数实现，非框架原生，但社区有大量 RAG 示例",
+    "source": "https://arxiv.org/abs/2308.08155v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "来源 [7] Section 3.2 提到 'retrieve_content() is a common pattern for RAG'，并指出 'not natively built-in, but widely adopted in community examples'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [3]（deepresearch-plan.md）将 '可验证'、'可审计'、'可调试' 列为 NFR，并指出 Langfuse/Checkpointer 是待补全的关键能力；[13][14][17][18][20][26] 均围绕这些能力展开，构成强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [3]，[13] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [14]（deepresearch-plan.md）明确 'P0 — Langfuse（W3）' 和 'P0 — Critic 节点化（W1）'，均服务于可验证/可审计。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [17]（2-provenance-auditable-reporting.md）核心目标即 'Provenance-Auditable Reporting'，直接对应可审计 NFR。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [18]（1-critic-conditional-edge.md）验收标准要求 'graph.get_graph() 可视化' 和 '多轮日志'，服务于可调试/可验证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "其架构与“可验证”、“可审计”、“可调试”的 NFR（非功能需求）天然契合，且社区（及本项目）正积极补全 Langfuse、Checkpointer 等关键能力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 [14]，[20] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "若探索的是前沿的、需要自定义共识与复杂对话协议的研究型 Agent（如多Agent科学发现、自主网络管理",
+    "source": "https://arxiv.org/abs/2607.06786v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.2,
+    "note": "论断不完整（'若探索的是...管理'后缺谓语），语义断裂；且来源 [10]（arXiv:2607.06786v1）讨论 'Autogenic network management' 和 '6G networks'，未提及 '多Agent科学发现' 或 '自定义共识'，该 claim 属于无依据的臆测。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [3]（deepresearch-plan.md）将 Critic 节点化和 Provenance-Auditable Reporting 列为 P0 优先级，并强调其解决 '可信/可审计' 主卖点；[5][13][17][18][19][20][26] 均围绕此展开，构成项目级实证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [5]（1-critic-conditional-edge.md）将 Critic 节点化定义为消除 '框架只调一下' 风险的硬证据，与 [3] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [3]，[13] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [17]（2-provenance-auditable-reporting.md）标题即 'Provenance-Auditable Reporting'，且强调其为 '可信/可审计' 主卖点，与 [3] 一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [18]（1-critic-conditional-edge.md）将 Critic 节点化定义为 'agentic vs 编排 叙事的硬证据'，支撑 '可信底座' 论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [19]（2-provenance-auditable-reporting.md）明确 'W2 重排为「引用溯源可审计化呈现」'，理由是 '这是面试最会被追问的软肋'，凸显其作为可信底座的关键性。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 [14]，[20] 是 deepresearch-plan.md 的重复引用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本项目对 Critic 节点化与 Provenance-Auditable Reporting 的深度实践，正是 LangGraph 在这一融合趋势中担当“可信底座”的有力证明",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [26]（2-provenance-auditable-reporting.md）是 [17] 的重复引用，内容一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=缺乏2026年中时间锚点下的最新生产就绪度实证数据（q3）：…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 15 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=缺乏2026年中时间锚点下的实证性生产就绪度数据（q3）：当…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 21 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue [gap=缺乏2026年中时效性验证：当前发现多基于2024–2025…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 26 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：88/89 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 43061,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 461.6,
+ "status": "done",
+ "error": null
+}

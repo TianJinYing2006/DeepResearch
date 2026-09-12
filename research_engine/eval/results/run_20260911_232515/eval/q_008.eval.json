@@ -1,0 +1,153 @@
+{
+ "q_id": "q_008",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 3746,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 18,
+   "verified": 17,
+   "verified_relaxed": 17,
+   "existence_rate": 0.9444,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "arxiv": {
+     "total": 6,
+     "verified": 6,
+     "verified_relaxed": 6,
+     "existence": 6
+    },
+    "rag": {
+     "total": 11,
+     "verified": 11,
+     "verified_relaxed": 11,
+     "existence": 11
+    },
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "目前RAG系统主流的公开评测基准有哪些（如BEIR、RAGBench、RECALL等）？各自的设计目标和覆盖场景是什么？",
+     "covered": false,
+     "reason": "检索到的内容多次提及'主流评测基准'，但未明确列出具体基准名称（如BEIR、RAGBench、RECALL等），也未说明其设计目标或覆盖场景；仅泛泛提及'评测体系'含Hit Rate、引用准确率等维度，或混入非RAG专用基准（如SemEval-2015 Task 3、ASAP-SAS），缺乏针对性和结构性描述。"
+    },
+    {
+     "subquestion": "RAG系统评估中常用的自动化指标有哪些（如ROUGE、BLEU、F1、EM、Faithfulness、Answer Relevance等）？其计算逻辑和适用边界是什么？",
+     "covered": false,
+     "reason": "虽列举了部分指标名称（如Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency、Hit Rate、MRR、F1），但未说明任一指标的计算逻辑（如Faithfulness如何分解原子事实并验证）、未区分ROUGE/ BLEU/ EM等经典文本生成指标是否适用及为何受限，也未讨论适用边界（如ROUGE在长答案中的失效、F1对粒度敏感等）；仅零散提及'精确性vs召回率'问题，属原则性观察，非指标定义与边界分析。"
+    },
+    {
+     "subquestion": "人工评估在RAG系统评测中的典型实践包括哪些维度（如答案正确性、事实一致性、相关性、简洁性）？评估流程与标注规范如何设计？",
+     "covered": true,
+     "reason": "多处摘要明确指出人工评估维度：如'RACE四维度'（对应答案正确性、事实一致性、相关性、简洁性等常见维度）、'报告质量（LLM-as-judge，借鉴RACE四维度）'；并提及'人工复核工作量减少40%'、'通过Amazon Mechanical Turk进行大规模标注'、'强制隔离未通过校验的论断并附原因'、'显式标注来源类型（web/rag）及具体源'等，体现了评估流程（如校验-隔离-标注）与标注规范（来源标注、失败归因、分类型标记）的关键设计要素。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 5,
+   "retrieval_hit_rate": 0.5556,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 1,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG评估",
+     "matched": true,
+     "matched_by": "semantic",
+     "semantic_sim": 0.7741
+    },
+    {
+     "keyword": "评测基准",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Faithfulness",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Answer Relevance",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "BEIR",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "RAGBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "人工评估",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "事实一致性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "事实一致性",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 39488,
+   "total_cost": 0.0553,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,146 @@
+{
+ "q_id": "q_016",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 3732,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 22,
+   "verified": 20,
+   "verified_relaxed": 20,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9091,
+   "relaxed_rate": 0.9091,
+   "by_source_type": {
+    "arxiv": {
+     "total": 7,
+     "verified": 6,
+     "verified_relaxed": 6,
+     "existence": 7
+    },
+    "rag": {
+     "total": 15,
+     "verified": 14,
+     "verified_relaxed": 14,
+     "existence": 15
+    }
+   },
+   "failed_note_distribution": {
+    "论断不完整，未提供完整信息": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "RAG与微调在哪些任务类型（如开放域问答、事实核查、长尾知识检索）上表现出显著性能差异？",
+     "covered": true,
+     "reason": "多份研究明确指出RAG在开放域问答（如金融风控中的OCR字段抽取、多源印证）、事实核查（如校验失败论断隔离、引用校验、多源验证）、长尾知识检索（如低资源语言翻译、表格语料库跨表检索、日本医疗诉讼中按时间匹配外部知识）等任务中表现更优；同时指出微调在数据充足且任务固定时更具优势（如反欺诈舆情识别中QLoRA微调提升F1）。实证覆盖了所列全部任务类型。"
+    },
+    {
+     "subquestion": "影响RAG优于微调的关键因素有哪些（如数据规模、领域更新频率、标注成本、推理延迟）？",
+     "covered": true,
+     "reason": "研究明确提及：RAG在数据稀缺、任务动态变化（如金融风控需持续接入新监管规则）、标注成本高（避免大规模人工标注）、领域更新频繁（如法律/合规场景需实时知识）时更优；而微调依赖充足标注数据且不适应快速迭代。另指出RAG在可解释性、可审计性、事实可信度（满足金融合规）和成本灵活性（模型分层）方面具优势，间接涵盖推理可控性与部署成本。虽未直接量化‘推理延迟’，但‘Qdrant懒加载’‘轻量模型处理简单任务’等实现细节隐含对延迟/资源的考量。"
+    },
+    {
+     "subquestion": "2023–2024年权威会议（如ACL、EMNLP、ICLR）中对比RAG与微调的实证研究主要结论是什么？",
+     "covered": false,
+     "reason": "所有检索结果均未提及具体会议名称（ACL/EMNLP/ICLR）、论文出处、发表年份（仅泛称‘2023–2024年’）、作者或会议接收信息；也未引用或总结任何权威会议论文的实证结论。内容均为技术报告、系统设计文档或内部研究摘要，缺乏学术会议来源的明确证据。"
+    },
+    {
+     "subquestion": "是否存在RAG与微调的混合范式（如RAG+轻量微调），其边界适用条件如何界定？",
+     "covered": true,
+     "reason": "明确提到‘结合使用RAG与微调的开源LLM以提升系统性能’（私有企业文档问答任务）；‘QLoRA微调Qwen-7B用于反欺诈’与RAG并存于同一金融风控体系；‘RAG-Star’融合检索与LLM内部树状推理（隐含对基础模型能力的利用）；‘图内验证机制’中Validator节点与RAG链路协同防幻觉，体现混合设计思想。适用条件被界定为：RAG保障知识新鲜度与可审计性，微调适配领域语言/隐喻（如专业舆情），混合用于平衡可靠性、定制化与成本。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数微调",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "实证比较",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "适用边界",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "检索增强生成",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "大语言模型适配",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "知识更新时效性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "标注数据稀缺",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 43372,
+   "total_cost": 0.0607,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

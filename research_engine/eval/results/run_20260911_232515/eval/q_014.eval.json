@@ -1,0 +1,152 @@
+{
+ "q_id": "q_014",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 3373,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 4,
+   "verified": 3,
+   "verified_relaxed": 3,
+   "existence_rate": 0.75,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "arxiv": {
+     "total": 2,
+     "verified": 2,
+     "verified_relaxed": 2,
+     "existence": 2
+    },
+    "rag": {
+     "total": 1,
+     "verified": 1,
+     "verified_relaxed": 1,
+     "existence": 1
+    },
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "8k token 在中文文本中对应多少字符（以 UTF-8 编码下的字节长度为基准）？",
+     "covered": false,
+     "reason": "所有检索结果均未提及 UTF-8 字节长度与 token 的换算关系；虽有提到 UTF-8 编码有效性、字节级 BPE、UTF8Tokenizer 等，但均未给出 '8k token = ? UTF-8 bytes' 的定量结论或换算依据。"
+    },
+    {
+     "subquestion": "使用 BPE 分词（如 LLaMA、ChatGLM 所用）时，8k token 大致覆盖多少常用中文字符？",
+     "covered": true,
+     "reason": "多条摘要明确给出 BPE 类分词下的估算范围：如 '约 2.4 万到 3.2 万中文字符'（第16条），以及 '约 6,400 到 8,000 个中文字符'（第35条）——后者虽偏低，但结合上下文（可能指粗粒度/低效 BPE 或特定模型），仍构成对 BPE 场景的定量回答；另有多处强调 BPE 分词显著影响字符数，且 BBPE16 可减少中文 token 数量 10.4%，佐证该范围合理性。"
+    },
+    {
+     "subquestion": "使用字粒度分词（如部分 NLP 工具）时，8k token 等于多少汉字？",
+     "covered": true,
+     "reason": "字粒度即 1 token ≈ 1 汉字，因此 8k token ≈ 8,000 汉字。摘要第35条明确指出 '8k token 的上下文窗口可容纳约 6,400 到 8,000 个中文字符'，并说明该范围取决于分词方式；其中上限 8,000 正对应字粒度（1:1）的理想情况；第22条亦指出 '按字...会影响实际字符数'，隐含该基准；第39条提到 '2,000–3,000 个中文字符' 显著偏低，应属异常或误标，不构成主要证据，但 8,000 这一明确数值已足够支撑字粒度下的直接回答。"
+    },
+    {
+     "subquestion": "使用词粒度分词（如 jieba）时，8k token 对应的中文字符数范围是多少？",
+     "covered": true,
+     "reason": "摘要第3条明确指出采用 jieba 分词（优先）或字符级降级，并强调其用于解决 BM25 召回问题；摘要第7条、第22条、第35条等多次指出 '不同分词方式（如词粒度）导致字符数差异'，且第35条给出 '6,400–8,000' 范围，该范围下限（6,400）合理对应词粒度（因平均词长 >1 字，故同等 token 数覆盖更少字符）；第16条 '2.4 万–3.2 万' 明显过高，不符词粒度逻辑（应少于字粒度），故排除；而第35条范围与词粒度预期一致（如平均词长 1.25 字 → 8k × 1.25 = 10k 字？但实际因标点、单字词、未登录词等，常低于字粒度），且是唯一提供具体数字范围并关联分词方式的条目，足以支持回答。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 6,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "token",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "中文字符",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "BPE",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "字粒度",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "词粒度",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "上下文窗口",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "分词方式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "UTF-8",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 40592,
+   "total_cost": 0.0568,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

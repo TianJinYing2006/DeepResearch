@@ -1,0 +1,104 @@
+{
+ "generated_at": "2026-09-12T17:44:47",
+ "mode": "formal",
+ "judges": [
+  "qwen-plus"
+ ],
+ "arms": {
+  "arm0_baseline": "run_20260911_194156"
+ },
+ "original": {
+  "arm0_baseline": {
+   "total": 269,
+   "existence": 260,
+   "verified": 197,
+   "existence_rate": 0.966542750929368,
+   "fidelity_rate": 0.7576923076923077,
+   "end_to_end": 0.7323420074349443
+  }
+ },
+ "cells": {
+  "arm0_baseline|qwen-plus": {
+   "valid_q": 6,
+   "failed_q": 0,
+   "total_refs": 269,
+   "existence": 260,
+   "passed": 205,
+   "passed_fallback": 218,
+   "no_verdict": 13,
+   "existence_rate": 0.966542750929368,
+   "rejudge_fidelity": 0.7884615384615384,
+   "end_to_end_pass_rate": 0.7620817843866171,
+   "end_to_end_pass_rate_fallback": 0.8104089219330854,
+   "passed_refs_per_report": 34.166666666666664,
+   "total_refs_per_report": 44.833333333333336,
+   "no_verdict_rate": 0.05,
+   "llm_failed_rate": 0.0
+  }
+ },
+ "per_question": {
+  "arm0_baseline|qwen-plus": {
+   "q_001": {
+    "total": 29,
+    "existence": 27,
+    "passed": 25,
+    "passed_fallback": 25,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   },
+   "q_002": {
+    "total": 55,
+    "existence": 48,
+    "passed": 36,
+    "passed_fallback": 36,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   },
+   "q_005": {
+    "total": 10,
+    "existence": 10,
+    "passed": 9,
+    "passed_fallback": 9,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   },
+   "q_003": {
+    "total": 70,
+    "existence": 70,
+    "passed": 55,
+    "passed_fallback": 68,
+    "no_verdict": 13,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   },
+   "q_004": {
+    "total": 54,
+    "existence": 54,
+    "passed": 41,
+    "passed_fallback": 41,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   },
+   "q_006": {
+    "total": 51,
+    "existence": 51,
+    "passed": 39,
+    "passed_fallback": 39,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   }
+  }
+ },
+ "elapsed_s": 573.0
+}

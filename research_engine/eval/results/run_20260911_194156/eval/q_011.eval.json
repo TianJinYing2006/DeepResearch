@@ -1,0 +1,151 @@
+{
+ "q_id": "q_011",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 8963,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 68,
+   "verified": 54,
+   "verified_relaxed": 54,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.7941,
+   "relaxed_rate": 0.7941,
+   "by_source_type": {
+    "arxiv": {
+     "total": 19,
+     "verified": 8,
+     "verified_relaxed": 8,
+     "existence": 19
+    },
+    "rag": {
+     "total": 49,
+     "verified": 46,
+     "verified_relaxed": 46,
+     "existence": 49
+    }
+   },
+   "failed_note_distribution": {
+    "原文（arXiv:2608.12812v1）未提及 HNSW 是 Milvus ": 1,
+    "原文（arXiv:2608.12812v1）未讨论一致性模型（如强一致性 vs ": 1,
+    "原文未以表格形式对比扩展模式；未提及'Milvus 的 Segment'，亦未将": 1,
+    "原文明确说明其 benchmark 数据来自'controlled experi": 1,
+    "原文未给出任何容量规模量化指标（如 PB/TB/百万级），仅称'evaluate": 1,
+    "rag:0001-initial-design.md 仅泛称'混合检索（向量 +": 1,
+    "同 [1]，属同一文档错误复述；Qdrant 开源版确实支持 hybrid se": 1,
+    "同 [1]/[9]，无新依据；混淆开源能力与商业产品特性，违背 faithful": 1,
+    "该 claim 仅为不完整标题片段（'## 3. 性能特征对比（基于'），无实质": 1,
+    "原文未提及'单二进制文件<50MB'或'<512MB 内存占用'，亦未讨论车载/": 1,
+    "原文 Table 2 给出具体 latency 数值（如 Qdrant 10M@": 1,
+    "原文称'GitHub Star > 25k'，但截至 2024 年 Qdrant": 1,
+    "原文未提'35k'（实际 ~32k）、'开源领域第一'（FAISS/Milvus": 1,
+    "该 claim 截断不完整（'如'后无内容），且原文（arXiv:2608.12": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "向量数据库的核心概念、基本原理及与传统数据库的关键区别是什么？",
+     "covered": false,
+     "reason": "检索到的内容中仅零星提及'Vector databases have emerged as critical infrastructure for modern artificial intelligence applications...'，但未解释核心概念（如向量、嵌入、相似性搜索）、基本原理（如索引结构ANN、HNSW、IVF等）或与传统数据库（关系型/SQL）在数据模型、查询范式、ACID、schema等方面的系统性区别。缺乏定义性、原理性描述。"
+    },
+    {
+     "subquestion": "Milvus、Qdrant、Pinecone 三者在架构设计（如是否开源、存储引擎、分布式能力）上的主要差异有哪些？",
+     "covered": false,
+     "reason": "检索内容中仅出现'Qdrant'（多次，涉及懒加载、client兼容、ID生成、RAG集成）和'Pinecone'（仅在一篇环境科学论文标题中作为原料名'pinecone powder'出现，属同名歧义，非数据库产品），完全未提'Milvus'；无任何关于三者开源状态、存储引擎（如Qdrant用Roaring Bitmaps+ RocksDB、Milvus用Delta Lake/ETCD等）、分布式架构（分片、副本、一致性协议）的对比信息。"
+    },
+    {
+     "subquestion": "这三种向量数据库各自支持的典型应用场景（如推荐系统、RAG、图像检索）及对应的技术适配优势是什么？在性能指标（如吞吐量、延迟、可扩展性）、运维复杂度和商业化支持方面，三者的对比情况如何？",
+     "covered": false,
+     "reason": "虽有少量上下文提及RAG、语义搜索、推荐系统为向量数据库的通用场景（如'particularly retrieval-augmented generation (RAG), semantic search, and recommendation systems'），但未将这些场景与Milvus/Qdrant/Pinecone任一具体产品绑定分析其适配优势；全文未出现任何性能指标（吞吐量、P99延迟、水平扩展能力）、运维复杂度（部署难度、监控、备份恢复）或商业化支持（SaaS vs self-hosted、企业版功能、SLA、技术支持）相关内容。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 7,
+   "hit": 3,
+   "retrieval_hit_rate": 0.4286,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "向量数据库",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Milvus",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Qdrant",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Pinecone",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "相似性搜索",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "嵌入向量",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "ANN",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 40751,
+   "total_cost": 0.0571,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

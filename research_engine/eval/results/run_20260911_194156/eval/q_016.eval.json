@@ -1,0 +1,151 @@
+{
+ "q_id": "q_016",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 6083,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 46,
+   "verified": 41,
+   "verified_relaxed": 41,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.8913,
+   "relaxed_rate": 0.8913,
+   "by_source_type": {
+    "arxiv": {
+     "total": 24,
+     "verified": 20,
+     "verified_relaxed": 20,
+     "existence": 24
+    },
+    "rag": {
+     "total": 22,
+     "verified": 21,
+     "verified_relaxed": 21,
+     "existence": 22
+    }
+   },
+   "failed_note_distribution": {
+    "来源[8]（arXiv:2402.07483v2）摘要仅泛述'在数据量小、领域知": 2,
+    "来源[7]摘要未出现该引语；其表述为'当任务涉及多步骤推理且内部知识不足时，RA": 1,
+    "来源[8]摘要未出现'无监督文档问答'或'基础可用性'表述；其讨论的是'私有企业": 1,
+    "'增量微调技术尚不成熟'在[4]中无依据；后半句'RAG是唯一满足……技术路径'": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "RAG与微调在哪些任务类型（如开放域问答、事实核查、长尾知识检索）上表现出显著性能差异？",
+     "covered": true,
+     "reason": "多份摘要明确区分了任务类型与性能差异：金融风控场景（信贷审批、反欺诈、合规监测）指出RAG在需溯源/合规/多源印证任务中更优，而微调在舆情识别等标注充分、领域聚焦任务中F1更高；医疗诉讼强调RAG在需严格外部知识引用和时效性约束的任务中不可替代；MultiHop-RAG和RAG-Star研究指出RAG在多跳查询、复杂推理任务中更具优势，而微调在‘数据充足、任务简单’时更优；T-RAG指出RAG在跨表知识整合的表格查询中占优。这些覆盖了开放域问答（医疗/金融问答）、事实核查（合规STR、引用校验）、长尾知识检索（私有文档、多表语料）等子类型。"
+    },
+    {
+     "subquestion": "影响RAG优于微调的关键因素有哪些（如数据规模、领域更新频率、标注成本、推理延迟）？",
+     "covered": true,
+     "reason": "摘要中多次提及关键影响因素：arXiv:2402.07483v2明确指出‘数据量小、领域知识复杂、需高准确性’时微调更优，而‘数据丰富、需动态更新、资源受限’时RAG更优；金融风控摘要强调RAG在‘可解释性、可审计性、事实可信度’及‘成本控制灵活性’上的优势；医疗诉讼摘要强调‘禁止使用私有知识’‘需时间戳对齐’等合规约束推动RAG选择；RAG-Star和MultiHop-RAG隐含推理延迟未被优化（因多跳/树搜索增加开销），但突出了知识新鲜度（动态更新）和标注成本（RAG免监督微调）为RAG优势来源。数据规模、领域更新频率、标注成本均有直接或强间接支持；推理延迟虽未量化对比，但多处提及RAG架构对实时性/低延迟的适配（如券商反欺诈用微调实现‘实时风险预警’，反衬RAG在该场景非首选），构成负向证据，仍属‘足以回答’范畴。"
+    },
+    {
+     "subquestion": "2023–2024年权威会议（如ACL、EMNLP、ICLR）中对比RAG与微调的实证研究主要结论是什么？",
+     "covered": false,
+     "reason": "所有摘要均未提及任何具体会议名称（ACL/EMNLP/ICLR）、论文发表信息、会议年份或审稿标识；仅有一处提到‘arXiv:2402.07483v2’（预印本平台，非会议），其余均为无出处的技术报告或系统设计摘要。缺乏权威会议来源的实证结论，无法回答该子问题。"
+    },
+    {
+     "subquestion": "是否存在RAG与微调的混合范式（如RAG+轻量微调），其边界适用条件如何界定？",
+     "covered": true,
+     "reason": "摘要中明确存在混合范式证据：arXiv:2402.07483v2提到‘结合RAG与微调开源LLM，探索两者在不同场景下的优势’；金融风控案例中Qwen-7B经QLoRA微调用于舆情识别，同时系统整体采用‘检索增强+引用溯源’架构，体现RAG主干+轻量微调组件的协同；RAG-Star将检索信息与LLM内在知识（需模型具备一定微调后知识）融合进行树搜索；DeepResearch Agent同时接入网络搜索与RAG私有库，并通过交叉验证防幻觉，其Validator节点可能基于微调模型。适用边界亦被界定：如‘数据量小/领域复杂/高准确性需求→微调主导；数据丰富/需动态更新/资源受限→RAG主导’，混合方案自然适用于中间地带（如需兼顾私有知识适配与外部知识泛化）。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "参数微调",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "实证比较",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "适用边界",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "检索增强生成",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "大语言模型适配",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "知识更新时效性",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "标注数据稀缺",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 34145,
+   "total_cost": 0.0478,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

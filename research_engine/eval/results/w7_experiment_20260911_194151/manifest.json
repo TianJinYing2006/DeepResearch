@@ -1,0 +1,142 @@
+{
+ "started_at": "2026-09-11T19:41:51.022841",
+ "arms": [
+  "arm0_baseline",
+  "arm1_critic_gap",
+  "arm3_validator_fixes",
+  "arm4_writer_sectioned",
+  "arm5_validator_trim",
+  "arm6_validator_turbo"
+ ],
+ "runs_per_arm": 3,
+ "concurrency": 3,
+ "timeout_s": 900,
+ "notes": [
+  "QDRANT_URL=http://127.0.0.1:6333（真实 Qdrant，RAG 检索可用）",
+  "区块配对设计：3 blocks × 5 arms，每 block 内所有 arm 紧挨着跑，",
+  "同一 block 内 arm 间可比（控制检索漂移 / API 质量随时间波动）",
+  "Block 0: 开始于 2026-09-11T19:41:51.022841"
+ ],
+ "runs": [
+  {
+   "arm": "arm0_baseline",
+   "run_index": 0,
+   "block": 0,
+   "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260911_194156",
+   "metrics": {
+    "completion_rate": 1.0,
+    "citation_accuracy": 0.7601,
+    "citation_accuracy_relaxed": 0.7682,
+    "existence_rate": 0.966,
+    "coverage": 0.3417,
+    "retrieval_hit_rate": 0.4375,
+    "avg_steps": 3.85,
+    "reflection_critic_stop_rate": 0.05,
+    "cost_yuan": 0.8637,
+    "cost_phase1_tokens": 743752,
+    "cost_phase2_tokens": 70358
+   },
+   "status": "done"
+  },
+  {
+   "arm": "arm1_critic_gap",
+   "run_index": 0,
+   "block": 0,
+   "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260911_202638",
+   "metrics": {
+    "completion_rate": 1.0,
+    "citation_accuracy": 0.6318,
+    "citation_accuracy_relaxed": 0.6416,
+    "existence_rate": 0.9714,
+    "coverage": 0.425,
+    "retrieval_hit_rate": 0.578,
+    "avg_steps": 8.1,
+    "reflection_critic_stop_rate": 0.9,
+    "cost_yuan": 1.1217,
+    "cost_phase1_tokens": 1199430,
+    "cost_phase2_tokens": 81180
+   },
+   "status": "done"
+  },
+  {
+   "arm": "arm3_validator_fixes",
+   "run_index": 0,
+   "block": 0,
+   "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260911_212259",
+   "metrics": {
+    "completion_rate": 1.0,
+    "citation_accuracy": 0.7458,
+    "citation_accuracy_relaxed": 0.7534,
+    "existence_rate": 0.9611,
+    "coverage": 0.3792,
+    "retrieval_hit_rate": 0.401,
+    "avg_steps": 3.85,
+    "reflection_critic_stop_rate": 0.05,
+    "cost_yuan": 0.9216,
+    "cost_phase1_tokens": 762596,
+    "cost_phase2_tokens": 74062
+   },
+   "status": "done"
+  },
+  {
+   "arm": "arm4_writer_sectioned",
+   "run_index": 0,
+   "block": 0,
+   "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260911_220854",
+   "metrics": {
+    "completion_rate": 1.0,
+    "citation_accuracy": 0.7439,
+    "citation_accuracy_relaxed": 0.757,
+    "existence_rate": 0.9471,
+    "coverage": 0.3833,
+    "retrieval_hit_rate": 0.4077,
+    "avg_steps": 3.85,
+    "reflection_critic_stop_rate": 0.05,
+    "cost_yuan": 0.6194,
+    "cost_phase1_tokens": 609382,
+    "cost_phase2_tokens": 71661
+   },
+   "status": "done"
+  },
+  {
+   "arm": "arm5_validator_trim",
+   "run_index": 0,
+   "block": 0,
+   "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260911_224011",
+   "metrics": {
+    "completion_rate": 1.0,
+    "citation_accuracy": 0.723,
+    "citation_accuracy_relaxed": 0.7331,
+    "existence_rate": 0.9595,
+    "coverage": 0.3542,
+    "retrieval_hit_rate": 0.4491,
+    "avg_steps": 3.85,
+    "reflection_critic_stop_rate": 0.05,
+    "cost_yuan": 0.8438,
+    "cost_phase1_tokens": 728065,
+    "cost_phase2_tokens": 69456
+   },
+   "status": "done"
+  },
+  {
+   "arm": "arm6_validator_turbo",
+   "run_index": 0,
+   "block": 0,
+   "run_dir": "D:\\项目\\DeepResearch\\research_engine\\eval\\results\\run_20260911_232515",
+   "metrics": {
+    "completion_rate": 1.0,
+    "citation_accuracy": 0.9777,
+    "citation_accuracy_relaxed": 0.9777,
+    "existence_rate": 0.962,
+    "coverage": 0.425,
+    "retrieval_hit_rate": 0.5843,
+    "avg_steps": 8.1,
+    "reflection_critic_stop_rate": 0.95,
+    "cost_yuan": 0.7274,
+    "cost_phase1_tokens": 1067359,
+    "cost_phase2_tokens": 82407
+   },
+   "status": "done"
+  }
+ ]
+}

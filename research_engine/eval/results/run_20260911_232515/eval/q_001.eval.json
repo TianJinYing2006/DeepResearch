@@ -1,0 +1,129 @@
+{
+ "q_id": "q_001",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4759,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 8,
+   "verified": 8,
+   "verified_relaxed": 8,
+   "existence_rate": 1.0,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "arxiv": {
+     "total": 6,
+     "verified": 6,
+     "verified_relaxed": 6,
+     "existence": 6
+    },
+    "code_exec": {
+     "total": 2,
+     "verified": 2,
+     "verified_relaxed": 2,
+     "existence": 2
+    }
+   },
+   "failed_note_distribution": {}
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 3,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "Transformer 的自注意力复杂度公式是什么",
+     "covered": true,
+     "reason": "多处摘要明确指出 Transformer 的计算复杂度为 O(L²) 或 O(n²)，其中 L/n 表示序列长度，这是自注意力机制的标准时间复杂度公式（源于 QK^T 矩阵乘法），且有摘要进一步说明 'Transformer 具有二次计算复杂度'，足以回答该子问题。"
+    },
+    {
+     "subquestion": "Mamba 的状态空间模型复杂度公式是什么",
+     "covered": true,
+     "reason": "多份摘要一致指出 Mamba 的复杂度为 O(L) 或 O(n)（线性复杂度），并解释其源于选择性状态空间层（selective SSM）、硬件感知并行扫描等机制；另有摘要明确称 'Mamba 采用线性时间序列建模'，且强调 '计算主要来自 state space block' 并列出关键参数（d_model, d_state, d_conv, L），虽未给出完整闭式 FLOPs 公式，但 O(L) 是其核心渐近复杂度公式，符合子问题所求。"
+    },
+    {
+     "subquestion": "8k 序列长度下两者的 FLOPs 数量级对比",
+     "covered": true,
+     "reason": "多个独立摘要提供了具体数值：一处给出 Transformer ≈ 1.2×10¹⁴ vs Mamba ≈ 3.5×10¹³ → 同属 10¹³–10¹⁴ 量级，前者约高 3.4×；另一处称 Transformer ≈ 64B (6.4×10¹⁰) vs Mamba ≈ 8k (8×10³) ——该组数量级矛盾，但前者更合理（因 8k 长度下自注意力 FLOPs 至少为 O(L²d²) ≈ (8e3)²×(1e3)² = 6.4e13），且多份摘要一致强调 'Transformer FLOPs 显著高于 Mamba'、'约 10 倍以上'、'O(L²) vs O(L)'，足以支撑数量级对比结论（即 Transformer 为 10¹³–10¹⁴，Mamba 为 10¹³）。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 6,
+   "hit": 5,
+   "retrieval_hit_rate": 0.8333,
+   "matched_by": {
+    "keyword": 5,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "自注意力",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "O(L^2)",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Mamba",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态空间",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "FLOPs",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "线性复杂度",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 44082,
+   "total_cost": 0.0617,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": false,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

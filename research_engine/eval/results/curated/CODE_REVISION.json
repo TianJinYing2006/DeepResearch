@@ -1,0 +1,46 @@
+{
+ "purpose": "钉死本次 W7 对照实验实际执行的代码修订，保证结论可复现",
+ "recorded_at": "2026-09-12T16:09:00+08:00",
+ "base_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "base_commit_subject": "docs(W6): mark DoD 8/8 + 博客发布完成，W6 收官",
+ "branch": "dev",
+ "worktree_state": "dirty（W7 全部改动未提交）",
+ "worktree_diff_hash": "aa4bb45276976b67772a95bd95b7bc97e13b6778",
+ "worktree_diff_patch": "research_engine/eval/results/curated/w7_revision_aa4bb452.patch",
+ "diff_stat": "20 files changed, 1958 insertions(+), 116 deletions(-)",
+ "changed_files": [
+  "README.md",
+  "cli.py",
+  "config.py",
+  "docs/eval-report.md",
+  "docs/requirements/6-open-source.md",
+  "research_engine/agents/validator.py",
+  "research_engine/agents/writer.py",
+  "research_engine/context/manager.py",
+  "research_engine/critic.py",
+  "research_engine/eval/metrics.py",
+  "research_engine/eval/results/history.json",
+  "research_engine/eval/run.py",
+  "research_engine/graph.py",
+  "research_engine/render.py",
+  "research_engine/state.py",
+  "tests/test_citation_alignment.py",
+  "tests/test_citation_audit.py",
+  "tests/test_eval_metrics.py",
+  "tests/test_graph_loop.py",
+  "web/app.py"
+ ],
+ "important_note": "eval summary 里记录的 git_commit=95adb77 只是 HEAD，并非实际执行代码；实际执行的是上述未提交的 W7 工作树。复现时需应用 w7_revision_aa4bb452.patch。",
+ "verified": {
+  "source_unchanged_during_run": true,
+  "window": "2026-09-11T19:41 ~ 2026-09-12T00:31",
+  "method": "find *.py -newermt '2026-09-11 19:41' ! -newermt '2026-09-12 00:35' 结果为空"
+ },
+ "artifact_hygiene": {
+  "discarded_run": "run_20260912_000027 → run_20260912_000027_DISCARDED",
+  "reason": "Block 1 首个 arm 跑到 00:31 被 kill，无 summary.json，不可作为数据"
+ },
+ "worktree_diff_patch_sha256": "86033285baff8c6c42e2e2aced0ac09aa9664bf37289b6b6b5f7cabb4c5a6c9e",
+ "curated_relocated_at": "2026-09-12",
+ "curated_note": "本文件为 curated 副本：原引用 .workbuddy/w7_revision_aa4bb452.patch 位于被 .gitignore 忽略的目录，普通提交无法覆盖，故将补丁移位至本目录并改写引用。原始未改写版本仍在 w7_experiment_20260911_194151/CODE_REVISION.json。"
+}

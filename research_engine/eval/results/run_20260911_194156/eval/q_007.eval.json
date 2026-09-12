@@ -1,0 +1,143 @@
+{
+ "q_id": "q_007",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 9456,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 89,
+   "verified": 88,
+   "verified_relaxed": 88,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9888,
+   "relaxed_rate": 0.9888,
+   "by_source_type": {
+    "rag": {
+     "total": 63,
+     "verified": 63,
+     "verified_relaxed": 63,
+     "existence": 63
+    },
+    "arxiv": {
+     "total": 26,
+     "verified": 25,
+     "verified_relaxed": 25,
+     "existence": 26
+    }
+   },
+   "failed_note_distribution": {
+    "论断不完整（'若探索的是...管理'后缺谓语），语义断裂；且来源 [10]（ar": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph、CrewAI、AutoGen 在2026年最新稳定版本中支持的核心架构范式（如状态机、角色协作、多Agent编排）有何本质差异？",
+     "covered": false,
+     "reason": "检索内容仅聚焦于本项目所用的 LangGraph 实践（如 StateGraph、conditional_edge、checkpointer 缺失与补全），提及 AutoGen 仅有一句泛泛定义（'conversable agents'），完全未涉及 CrewAI；无任何关于三者架构范式对比的描述，更无2026年最新稳定版本的官方特性引用或横向分析。"
+    },
+    {
+     "subquestion": "三者在生产环境部署关键指标上的实测对比：包括内存占用、推理延迟、分布式扩展能力及可观测性支持程度",
+     "covered": false,
+     "reason": "检索内容中未出现任何性能指标数据（如内存、延迟、吞吐、扩展性测试结果），也未提及分布式部署实践；可观测性仅模糊提到 'Langfuse 顺延至 W3' 和 '可审计化呈现'，但属于本项目定制需求，非对 LangGraph/CrewAI/AutoGen 三方可观测性能力的实测或设计对比。"
+    },
+    {
+     "subquestion": "各框架对LLM调用抽象层的设计哲学差异（如工具调用封装方式、记忆管理机制、错误恢复策略）及其对开发效率与系统鲁棒性的影响",
+     "covered": false,
+     "reason": "检索内容仅反映本项目在 LangGraph 下的局部设计选择（如'节点返回值更新共享状态'、'压缩放在 graph 层而非 Writer 内部'、'Validator 作为图内节点防幻觉'），属于单一框架的工程权衡；未提及其他框架（CrewAI/AutoGen）的工具抽象、记忆管理或错误恢复机制，更无跨框架设计哲学对比或对开发效率/鲁棒性的系统性影响分析。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "CrewAI",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "AutoGen",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LLM Agent框架",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "状态图",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多智能体编排",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "生产就绪",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色驱动",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 43061,
+   "total_cost": 0.0603,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

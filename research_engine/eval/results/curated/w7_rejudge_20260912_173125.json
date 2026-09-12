@@ -1,0 +1,755 @@
+{
+ "generated_at": "2026-09-12T17:34:28",
+ "mode": "diagnostic",
+ "judges": [
+  "qwen-plus",
+  "qwen-turbo"
+ ],
+ "arms": {
+  "arm0_baseline": "run_20260911_194156",
+  "arm6_validator_turbo": "run_20260911_232515"
+ },
+ "original": {
+  "arm0_baseline": {
+   "total": 1168,
+   "existence": 1139,
+   "verified": 934,
+   "existence_rate": 0.9751712328767124,
+   "fidelity_rate": 0.820017559262511,
+   "end_to_end": 0.7996575342465754
+  },
+  "arm6_validator_turbo": {
+   "total": 611,
+   "existence": 593,
+   "verified": 579,
+   "existence_rate": 0.9705400981996727,
+   "fidelity_rate": 0.9763912310286678,
+   "end_to_end": 0.9476268412438625
+  }
+ },
+ "cells": {
+  "arm0_baseline|qwen-plus": {
+   "valid_q": 20,
+   "failed_q": 0,
+   "total_refs": 1168,
+   "existence": 1139,
+   "passed": 981,
+   "passed_fallback": 981,
+   "no_verdict": 0,
+   "existence_rate": 0.9751712328767124,
+   "rejudge_fidelity": 0.8612818261633012,
+   "end_to_end_pass_rate": 0.8398972602739726,
+   "end_to_end_pass_rate_fallback": 0.8398972602739726,
+   "passed_refs_per_report": 49.05,
+   "total_refs_per_report": 58.4,
+   "no_verdict_rate": 0.0,
+   "llm_failed_rate": 0.0
+  },
+  "arm0_baseline|qwen-turbo": {
+   "valid_q": 20,
+   "failed_q": 0,
+   "total_refs": 1168,
+   "existence": 1139,
+   "passed": 1069,
+   "passed_fallback": 1069,
+   "no_verdict": 0,
+   "existence_rate": 0.9751712328767124,
+   "rejudge_fidelity": 0.9385425812115891,
+   "end_to_end_pass_rate": 0.9152397260273972,
+   "end_to_end_pass_rate_fallback": 0.9152397260273972,
+   "passed_refs_per_report": 53.45,
+   "total_refs_per_report": 58.4,
+   "no_verdict_rate": 0.0,
+   "llm_failed_rate": 0.0
+  },
+  "arm6_validator_turbo|qwen-plus": {
+   "valid_q": 20,
+   "failed_q": 0,
+   "total_refs": 611,
+   "existence": 593,
+   "passed": 554,
+   "passed_fallback": 554,
+   "no_verdict": 0,
+   "existence_rate": 0.9705400981996727,
+   "rejudge_fidelity": 0.9342327150084317,
+   "end_to_end_pass_rate": 0.9067103109656302,
+   "end_to_end_pass_rate_fallback": 0.9067103109656302,
+   "passed_refs_per_report": 27.7,
+   "total_refs_per_report": 30.55,
+   "no_verdict_rate": 0.0,
+   "llm_failed_rate": 0.0
+  },
+  "arm6_validator_turbo|qwen-turbo": {
+   "valid_q": 20,
+   "failed_q": 0,
+   "total_refs": 611,
+   "existence": 593,
+   "passed": 538,
+   "passed_fallback": 538,
+   "no_verdict": 0,
+   "existence_rate": 0.9705400981996727,
+   "rejudge_fidelity": 0.9072512647554806,
+   "end_to_end_pass_rate": 0.8805237315875614,
+   "end_to_end_pass_rate_fallback": 0.8805237315875614,
+   "passed_refs_per_report": 26.9,
+   "total_refs_per_report": 30.55,
+   "no_verdict_rate": 0.0,
+   "llm_failed_rate": 0.0
+  }
+ },
+ "per_question": {
+  "arm0_baseline|qwen-turbo": {
+   "q_002": {
+    "total": 55,
+    "existence": 48,
+    "passed": 48,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_001": {
+    "total": 29,
+    "existence": 27,
+    "passed": 24,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_003": {
+    "total": 70,
+    "existence": 70,
+    "passed": 57,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_004": {
+    "total": 54,
+    "existence": 54,
+    "passed": 52,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_005": {
+    "total": 10,
+    "existence": 10,
+    "passed": 10,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_006": {
+    "total": 51,
+    "existence": 51,
+    "passed": 51,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_007": {
+    "total": 89,
+    "existence": 89,
+    "passed": 89,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_008": {
+    "total": 102,
+    "existence": 100,
+    "passed": 92,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_009": {
+    "total": 41,
+    "existence": 36,
+    "passed": 30,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_010": {
+    "total": 40,
+    "existence": 36,
+    "passed": 21,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_011": {
+    "total": 68,
+    "existence": 68,
+    "passed": 53,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_012": {
+    "total": 66,
+    "existence": 66,
+    "passed": 66,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_013": {
+    "total": 43,
+    "existence": 43,
+    "passed": 43,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_014": {
+    "total": 30,
+    "existence": 30,
+    "passed": 23,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_015": {
+    "total": 86,
+    "existence": 85,
+    "passed": 85,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_016": {
+    "total": 46,
+    "existence": 46,
+    "passed": 46,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_017": {
+    "total": 68,
+    "existence": 63,
+    "passed": 63,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_018": {
+    "total": 117,
+    "existence": 117,
+    "passed": 117,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_019": {
+    "total": 19,
+    "existence": 16,
+    "passed": 15,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_020": {
+    "total": 84,
+    "existence": 84,
+    "passed": 84,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   }
+  },
+  "arm0_baseline|qwen-plus": {
+   "q_001": {
+    "total": 29,
+    "existence": 27,
+    "passed": 23,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_005": {
+    "total": 10,
+    "existence": 10,
+    "passed": 9,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_009": {
+    "total": 41,
+    "existence": 36,
+    "passed": 34,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_010": {
+    "total": 40,
+    "existence": 36,
+    "passed": 26,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_011": {
+    "total": 68,
+    "existence": 68,
+    "passed": 38,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_014": {
+    "total": 30,
+    "existence": 30,
+    "passed": 8,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_013": {
+    "total": 43,
+    "existence": 43,
+    "passed": 36,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_016": {
+    "total": 46,
+    "existence": 46,
+    "passed": 36,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_019": {
+    "total": 19,
+    "existence": 16,
+    "passed": 12,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_017": {
+    "total": 68,
+    "existence": 63,
+    "passed": 55,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_004": {
+    "total": 54,
+    "existence": 54,
+    "passed": 39,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_003": {
+    "total": 70,
+    "existence": 70,
+    "passed": 57,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_002": {
+    "total": 55,
+    "existence": 48,
+    "passed": 43,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_006": {
+    "total": 51,
+    "existence": 51,
+    "passed": 44,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_007": {
+    "total": 89,
+    "existence": 89,
+    "passed": 82,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_008": {
+    "total": 102,
+    "existence": 100,
+    "passed": 98,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_012": {
+    "total": 66,
+    "existence": 66,
+    "passed": 62,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_015": {
+    "total": 86,
+    "existence": 85,
+    "passed": 85,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_018": {
+    "total": 117,
+    "existence": 117,
+    "passed": 117,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_020": {
+    "total": 84,
+    "existence": 84,
+    "passed": 77,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   }
+  },
+  "arm6_validator_turbo|qwen-plus": {
+   "q_001": {
+    "total": 8,
+    "existence": 8,
+    "passed": 8,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_002": {
+    "total": 44,
+    "existence": 41,
+    "passed": 40,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_004": {
+    "total": 19,
+    "existence": 18,
+    "passed": 17,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_003": {
+    "total": 47,
+    "existence": 46,
+    "passed": 46,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_005": {
+    "total": 28,
+    "existence": 26,
+    "passed": 26,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_006": {
+    "total": 33,
+    "existence": 33,
+    "passed": 31,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_008": {
+    "total": 18,
+    "existence": 17,
+    "passed": 16,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_010": {
+    "total": 3,
+    "existence": 3,
+    "passed": 2,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_007": {
+    "total": 41,
+    "existence": 40,
+    "passed": 32,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_009": {
+    "total": 33,
+    "existence": 33,
+    "passed": 33,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_011": {
+    "total": 29,
+    "existence": 27,
+    "passed": 27,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_014": {
+    "total": 4,
+    "existence": 3,
+    "passed": 3,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_013": {
+    "total": 20,
+    "existence": 20,
+    "passed": 18,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_012": {
+    "total": 44,
+    "existence": 42,
+    "passed": 38,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_015": {
+    "total": 31,
+    "existence": 29,
+    "passed": 23,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_016": {
+    "total": 22,
+    "existence": 22,
+    "passed": 19,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_017": {
+    "total": 50,
+    "existence": 49,
+    "passed": 48,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_019": {
+    "total": 44,
+    "existence": 44,
+    "passed": 43,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_020": {
+    "total": 33,
+    "existence": 33,
+    "passed": 28,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_018": {
+    "total": 60,
+    "existence": 59,
+    "passed": 56,
+    "passed_fallback": 56,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   }
+  },
+  "arm6_validator_turbo|qwen-turbo": {
+   "q_001": {
+    "total": 8,
+    "existence": 8,
+    "passed": 8,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_002": {
+    "total": 44,
+    "existence": 41,
+    "passed": 41,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_003": {
+    "total": 47,
+    "existence": 46,
+    "passed": 41,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_004": {
+    "total": 19,
+    "existence": 18,
+    "passed": 9,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_005": {
+    "total": 28,
+    "existence": 26,
+    "passed": 26,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_006": {
+    "total": 33,
+    "existence": 33,
+    "passed": 33,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_007": {
+    "total": 41,
+    "existence": 40,
+    "passed": 40,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_008": {
+    "total": 18,
+    "existence": 17,
+    "passed": 17,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_009": {
+    "total": 33,
+    "existence": 33,
+    "passed": 21,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_010": {
+    "total": 3,
+    "existence": 3,
+    "passed": 3,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_011": {
+    "total": 29,
+    "existence": 27,
+    "passed": 25,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_012": {
+    "total": 44,
+    "existence": 42,
+    "passed": 42,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_013": {
+    "total": 20,
+    "existence": 20,
+    "passed": 20,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_014": {
+    "total": 4,
+    "existence": 3,
+    "passed": 3,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_015": {
+    "total": 31,
+    "existence": 29,
+    "passed": 25,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_016": {
+    "total": 22,
+    "existence": 22,
+    "passed": 22,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_017": {
+    "total": 50,
+    "existence": 49,
+    "passed": 49,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_018": {
+    "total": 60,
+    "existence": 59,
+    "passed": 59,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_020": {
+    "total": 33,
+    "existence": 33,
+    "passed": 33,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "error": null
+   },
+   "q_019": {
+    "total": 44,
+    "existence": 44,
+    "passed": 21,
+    "passed_fallback": 21,
+    "no_verdict": 0,
+    "llm_failed": false,
+    "retry_rounds": 1,
+    "error": null
+   }
+  }
+ },
+ "elapsed_s": 183.2
+}

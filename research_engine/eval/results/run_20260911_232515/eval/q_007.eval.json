@@ -1,0 +1,153 @@
+{
+ "q_id": "q_007",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4833,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 41,
+   "verified": 40,
+   "verified_relaxed": 40,
+   "existence_rate": 0.9756,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "rag": {
+     "total": 20,
+     "verified": 20,
+     "verified_relaxed": 20,
+     "existence": 20
+    },
+    "arxiv": {
+     "total": 17,
+     "verified": 17,
+     "verified_relaxed": 17,
+     "existence": 17
+    },
+    "code_exec": {
+     "total": 3,
+     "verified": 3,
+     "verified_relaxed": 3,
+     "existence": 3
+    },
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "LangGraph、CrewAI、AutoGen 在2026年最新稳定版本中支持的核心架构范式（如状态机、角色协作、多Agent编排）有何本质差异？",
+     "covered": true,
+     "reason": "多份摘要明确指出三者定位与设计取舍的差异：LangGraph强调图结构（状态机/conditional_edge）、CrewAI强调智能任务分配与角色协作（'团队协作'、'资源管理'）、AutoGen强调可对话代理间的灵活交互与声明式配置（'可对话性'、'自然语言或代码编程对话模式'、'AutoGen Studio拖拽式UI'）。尤其LangGraph的'节点返回值更新共享状态'哲学、CrewAI的'任务分配'、AutoGen的'代理可定制性与对话模式'构成架构范式层面的本质区分。"
+    },
+    {
+     "subquestion": "三者在生产环境部署关键指标上的实测对比：包括内存占用、推理延迟、分布式扩展能力及可观测性支持程度",
+     "covered": false,
+     "reason": "检索结果中虽提及SLO、APM（Datadog/New Relic）、K8s Operator、KV缓存压缩（YouZhi-LLM）、能耗与资源消耗（SLM测试），但所有指标均未按框架（LangGraph/CrewAI/AutoGen）做横向实测对比；提及的性能数据（如Qwen字段抽取准确率、F1-score）属于应用层效果，非框架自身部署指标；'分布式扩展能力'和'可观测性支持程度'无任何具体描述或对比数据。"
+    },
+    {
+     "subquestion": "各框架对LLM调用抽象层的设计哲学差异（如工具调用封装方式、记忆管理机制、错误恢复策略）及其对开发效率与系统鲁棒性的影响",
+     "covered": false,
+     "reason": "检索结果包含部分相关线索（如LangGraph的'共享状态更新'影响`write()`签名、引用校验机制、`max_depth`/`token_budget`防循环），但未明确揭示三者在'工具调用封装方式'（如是否统一ToolCall接口）、'记忆管理机制'（如短期/长期记忆分层、向量vs.结构化存储）、'错误恢复策略'（如重试逻辑、回滚、降级）上的设计哲学；更未分析这些设计如何量化影响'开发效率'（如代码行数、调试周期）或'系统鲁棒性'（如失败率、平均恢复时间）。所有讨论停留在功能实现层面，缺乏抽象层设计哲学提炼与影响归因。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 4,
+   "retrieval_hit_rate": 0.5,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "LangGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "CrewAI",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "AutoGen",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LLM Agent框架",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态图",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "多智能体编排",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "生产就绪",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色驱动",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 55118,
+   "total_cost": 0.0772,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

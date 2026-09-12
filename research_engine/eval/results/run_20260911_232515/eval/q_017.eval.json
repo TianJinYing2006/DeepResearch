@@ -1,0 +1,153 @@
+{
+ "q_id": "q_017",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5232,
+   "headings": 9,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 50,
+   "verified": 49,
+   "verified_relaxed": 49,
+   "existence_rate": 0.98,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "unknown": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    },
+    "arxiv": {
+     "total": 29,
+     "verified": 29,
+     "verified_relaxed": 29,
+     "existence": 29
+    },
+    "rag": {
+     "total": 19,
+     "verified": 19,
+     "verified_relaxed": 19,
+     "existence": 19
+    },
+    "code_exec": {
+     "total": 1,
+     "verified": 1,
+     "verified_relaxed": 1,
+     "existence": 1
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 3,
+   "coverage": 0.6667,
+   "per_sub": [
+    {
+     "subquestion": "当前有哪些专门用于评测LLM Agent工具调用能力的公开数据集（如ToolBench、APIBench、MMMLU-Tools等）及其核心设计特点？",
+     "covered": true,
+     "reason": "检索结果中明确提到了多个专用数据集：ToolBench（通过ChatGPT自动生成，含16,464个RapidAPI API，覆盖49类，三阶段构建）、CLI-Tool-Bench（结构无关、94个真实仓库、黑盒差异测试）、MCP-Universe（用于HyperTool评估）、ToolPrivBench（聚焦权限选择风险，覆盖8领域5风险模式）、SchemaNet（企业多表匹配基准）、GLOCON Gold Standard Corpus（抗议事件检测标注语料）。虽未提及APIBench和MMMLU-Tools，但ToolBench、CLI-Tool-Bench、ToolPrivBench、MCP-Universe均为明确面向工具调用能力评测的公开/构造数据集，且均描述了其核心设计特点（如构建方式、覆盖范围、评测目标、方法论），足以回答该子问题。"
+    },
+    {
+     "subquestion": "评测工具调用可靠性时常用的关键指标有哪些（除Pass@k外，是否包含ToolCall Accuracy、Success Rate、Error Type Distribution等）？各指标具体定义与计算方式是什么？Pass@k在工具调用场景下的具体含义、适用条件及典型取值（如k=1/3/5）与局限性是什么？",
+     "covered": false,
+     "reason": "检索结果多次提及Pass@k（如'Pass@k'、'Coordinated Pass@$K$ Policy Optimization'、'Pass@k在大规模采样下可能误导性地反映模型的真实推理能力'、'k=4'等），并指出其局限性（如随k增大而虚高、不反映真实推理边界），还引出新指标Cover@tau；但全文未明确定义或出现'ToolCall Accuracy'、'Success Rate'、'Error Type Distribution'等术语，也未给出任何指标（包括Pass@k）在工具调用场景下的具体计算公式（如是否要求完整工具调用链正确、是否允许部分成功、是否需验证参数/格式/执行结果等）；所列其他指标如'完成率'、'引用准确率'、'信息覆盖度'、'检索命中率'、'API误用过滤率'等均属任务级或子模块指标，非通用工具调用可靠性指标，且无明确定义。因此，无法充分回答该子问题。"
+    },
+    {
+     "subquestion": "工业界与学术界在工具调用失败分析中采用哪些系统化实践（如错误归因框架、日志追踪方法、典型失败模式分类）？",
+     "covered": true,
+     "reason": "检索结果提供了多项系统化失败分析实践：1）ToolPrivBench揭示'过度权限选择'这一典型失败模式，并归纳5种风险模式、8个领域；2）Decision Event Schema (DES) 提出JSON Schema规范，通过六组顶层字段统一记录ML推理、规则评估、系统耦合和治理元数据，解决'碎片化追踪问题'，属于标准化日志/证据追踪框架；3）GPTAid提出基于执行反馈+代码差分的API误用归因方法，将失败归因为APSRs违反，并动态执行违规代码定位错误；4）研究摘要中多次强调'失败原因未被隔离'、'校验机制仅检查来源存在性，忽略论断忠实度和失败原因'、'自指类发现未隔离'，反向印证了工业界对失败归因与隔离的实践需求；5）多项修复日志（如qdrant-client兼容性、编码错误、引用协议不一致）体现真实工业调试中的错误归类与根因定位。这些内容共同构成错误归因框架、日志结构化方法和典型失败模式分类的实证，足以回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "工具调用可靠性",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Pass@k",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "ToolBench",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "APIBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "ToolCall Accuracy",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "失败归因",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "错误类型分析",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "MMMLU-Tools",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 57039,
+   "total_cost": 0.0799,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.6667
+  },
+  "raw_complete": true
+ }
+}

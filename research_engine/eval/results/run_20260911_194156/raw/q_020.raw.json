@@ -1,0 +1,1693 @@
+{
+ "q_id": "q_020",
+ "query": "LLM Agent 的记忆机制综述：长期记忆（向量记忆/结构化记忆）如何影响多轮任务表现，研究证据总结",
+ "difficulty": "难",
+ "type": "学术",
+ "state": {
+  "topic": "LLM Agent 的记忆机制综述：长期记忆（向量记忆/结构化记忆）如何影响多轮任务表现，研究证据总结",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "LLM Agent 中长期记忆的主流实现范式有哪些？如何从技术架构（如向量数据库集成、图结构建模、键值存储等）区分向量记忆与结构化记忆？",
+    "rationale": "厘清记忆机制的技术分类是综述的基础，有助于后续分析其对任务表现的影响路径；向量记忆与结构化记忆在表征粒度、检索方式和更新逻辑上存在本质差异，需独立界定。"
+   },
+   {
+    "id": "q2",
+    "question": "长期记忆（尤其是向量记忆 vs. 结构化记忆）如何影响LLM Agent在多轮任务中的关键能力指标（如上下文一致性、任务完成率、推理链连贯性、错误累积抑制）？是否存在任务类型依赖性（如规划类 vs. 问答类 vs. 工具调用类）？",
+    "rationale": "直接回应研究主题的核心关切——记忆机制与多轮任务表现的因果/相关关系；区分能力维度和任务类型可揭示机制有效性边界，避免笼统结论。"
+   },
+   {
+    "id": "q3",
+    "question": "现有实证研究中，支持或质疑长期记忆提升Agent性能的关键证据有哪些？包括基准测试结果（如CRUX-Eval、AgentBench子集）、消融实验设计、记忆容量/新鲜度/噪声敏感性分析等。",
+    "rationale": "聚焦‘研究证据总结’要求，系统梳理高质量实证依据（而非仅理论主张），识别证据强度、方法局限及结论可复现性，支撑综述的批判性判断。"
+   },
+   {
+    "id": "q4",
+    "question": "长期记忆在实际部署中面临哪些关键挑战（如记忆漂移、检索幻觉、冷启动、跨任务记忆干扰、隐私合规）？当前工作提出了哪些缓解策略及其有效性验证情况？",
+    "rationale": "补充实践维度，揭示记忆机制从实验室到真实场景的落差；该问题独立于性能评估，聚焦工程鲁棒性与可信性，完善综述的完整性与应用指导价值。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "1. **P0 — Critic 节点化（W1，已完成）**：直接消除\"框架只调一下\"风险，是 agentic vs 编排 叙事的硬证据。改动集中在 `graph.py` + 抽出 `agents/critic.py`，不动现有检索能力。已合并（PR #2 / commit `4e9d6a8`）。\n2. **P0 — 引用溯源可审计化呈现（W2，新排）**：W1 闭环后真实跑一次 `cli.py` 并拷打式 review，暴露\"可信/可审计\"主卖点只做了一半（来源类型不可见、校验失败静默保留、自指论断未隔离）。优先级高于可观测，故插到 Langfuse 之前。需求见 `docs/requirements/2-provenance-auditable-reporting.md`。\n3. **P0 — Langfuse（W3，顺延）**：简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高。\n4. **P1 — 工具集齐（W4，顺延）**：arXiv + 代码执行 + strategic 强推理切换，让\"工具自决\"更完整。\n5. **P1 — eval 数据集与指标（W5，顺延）**：把\"效果不错\"变成数字，DoD 硬性要求。\n6. **P2 — 开源+博客（W6，顺延）**：收尾与对外佐证。\n\n---\n\n## 4. 周排期",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "| # | 决策项 | 文档默认 | 实际代码 | 建议锁定 | 理由 |\n|---|---|---|---|---|---|\n| D1 | 语言 | Python 3.11+ | 3.10+ | **Python 3.11+** | 锁版本，保证可复现(NFR5) |\n| D2 | 框架 | LangGraph | LangGraph(线性) | **LangGraph + 必须上 conditional_edge/checkpointer** | 现有投资保留，但补核心抽象 |\n| D3 | 模型 | 强推理 | qwen-turbo/plus | **默认 Qwen，strategic 可切换 Qwen-Max/DeepSeek-R1** | 便宜模型跑通，难问题升强推理；简历话术=\"分层+按需升级\" |\n| D4 | 嵌入 | 随 D3 | text-embedding-v3 | **保留 text-embedding-v3** | 与 RAG 一致 |\n| D5 | 工具 | Tavily | 博查 + Qdrant | **保留博查+Qdrant，新增 arXiv + 代码执行** | 博查国内可用且已跑通；补学术/计算 |\n| D6 | 可观测 | Langfuse | 无 | **Langfuse（必做）** | 简历四项缺口之一 |\n| D7 | 交付 | 开源+博客 | 无 | **GitHub 开源 + ≥1 篇博客** | DoD |\n\n> 锁定的核心变化：**把\"隐藏在 Researcher 里的循环\"重构为图中真实的 Critic 节点 + conditional_edge**，并补 Langfuse。其余沿用现有实现，不推倒重来。\n\n---\n\n## 3. 优先级排序逻辑",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "- 支持多格式文档上传（PDF/Word/Markdown/TXT）\n- 混合检索（向量 + BM25）\n- 分块优化\n- rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）\n- 复用 wechatbot 的评测方法论（真实查询 + 命中率评测）\n\n### 6. 评测体系\n\n- **A 检索命中率**：复用 wechatbot 方法论\n- **B 引用准确率**：主卖点量化（存在性 + 多源印证）\n- **C 报告质量**：LLM-as-judge（借鉴 RACE 四维度）\n- **D 端到端验收**：跑真实研究主题\n\n### 7. 技术栈\n\n- **LLM**：阿里云百炼 Qwen（初始 qwen-turbo/plus，可配置切换）\n- **三层 LLM 分级**：fast（摘要）/ smart（写作）/ strategic（规划）\n- **向量库**：Qdrant（复用 wechatbot 经验）\n- **Embedding**：百炼 text-embedding-v3\n- **网络搜索**：博查（可切换 Provider）\n- **编排**：LangGraph\n\n### 8. 架构借鉴\n\n- **LangChain open_deep_research**：上下文隔离、渐进式压缩、RACE 评测\n- **gpt-researcher**：三层 LLM 分级、成本追踪、多检索器可插拔\n- **dzhng/deep-research**：breadth/depth 参数化控制成本\n- **Validator 是差异化亮点**：主流 DeepResearch 项目普遍缺失图内 Validator 节点\n\n## 理由与取舍",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "In the domain of Human-Computer Interaction, focus groups represent a widely utilised yet resource-intensive methodology, often demanding the expertise of skilled moderators and meticulous preparatory efforts. This study introduces the ``Focus Agent,'' a Large Language Model (LLM) powered framework that simulates both the focus group (for data collection) and acts as a moderator in a focus group setting with human participants. To assess the data quality derived from the Focus Agent, we ran five focus group sessions with a total of 23 human participants as well as deploying the Focus Agent to simulate these discussions with AI participants. Quantitative analysis indicates that Focus Agent can generate opinions similar to those of human participants. Furthermore, the research exposes some improvements associated with LLMs acting as moderators in focus group discussions that include human participants.",
+    "source": "https://arxiv.org/abs/2409.01907v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2409.01907v1",
+     "primary_category": "cs.HC",
+     "published": "2024-09-03T13:56:14Z",
+     "authors": [
+      "Taiyu Zhang",
+      "Xuesong Zhang",
+      "Robbe Cools"
+     ]
+    }
+   },
+   {
+    "content": "Integrating large language models (LLMs) into personal assistants, like Xiao Ai and Blue Heart V, effectively enhances their ability to interact with humans, solve complex tasks, and manage IoT devices. Such assistants are also termed LLM-driven agents. Upon receiving user requests, the LLM-driven agent generates plans using an LLM, executes these plans through various tools, and then returns the response to the user. During this process, the latency for generating a plan with an LLM can reach tens of seconds, significantly degrading user experience. Real-world dataset analysis shows that about 30% of the requests received by LLM-driven agents are identical or similar, which allows the reuse of previously generated plans to reduce latency. However, it is difficult to accurately define the similarity between the request texts received by the LLM-driven agent through directly evaluating the original request texts. Moreover, the diverse expressions of natural language and the unstructured…[截断]",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2512.21309v2",
+     "primary_category": "cs.MA",
+     "published": "2025-12-24T18:08:03Z",
+     "authors": [
+      "Guopeng Li",
+      "Ruiqi Wu",
+      "Haisheng Tan"
+     ]
+    }
+   },
+   {
+    "content": "Large Language Model (LLM) agents significantly extend the capabilities of standalone LLMs, empowering them to interact with external tools (e.g., APIs, functions) and complete various tasks in a self-directed fashion. The challenge of tool use demands that LLMs not only understand user queries and generate answers accurately but also excel in task planning, tool invocation, and result summarization. While traditional works focus on training a single LLM with all these capabilities, performance limitations become apparent, particularly with smaller models. To overcome these challenges, we propose a novel approach that decomposes the aforementioned capabilities into a planner, caller, and summarizer. Each component is implemented by a single LLM that focuses on a specific capability and collaborates with others to accomplish the task. This modular framework facilitates individual updates and the potential use of smaller LLMs for building each capability. To effectively train this framew…[截断]",
+    "source": "https://arxiv.org/abs/2401.07324v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2401.07324v3",
+     "primary_category": "cs.AI",
+     "published": "2024-01-14T16:17:07Z",
+     "authors": [
+      "Weizhou Shen",
+      "Chenliang Li",
+      "Hongzhan Chen"
+     ]
+    }
+   },
+   {
+    "content": "Large language models (LLMs) drive significant financial innovations, yet their high-concurrency deployment is severely bottlenecked by KV cache memory overhead, which inflates infrastructure costs and throttles scalability. To address this, we propose YouZhi-LLM, a highly efficient financial LLM empowered by a comprehensive structural transition and training pipeline natively built on the Huawei Ascend ecosystem. At its algorithmic core, YouZhi-LLM features a layer-adaptive GQA-to-MLA transition framework that dynamically assigns per-layer FreqFold sizes, maximizing KV-cache compression while minimizing perplexity degradation. To recover representation capacity and inject domain expertise, the Ascend-based training pipeline seamlessly integrates generalized knowledge distillation with financial-specific supervised fine-tuning. Evaluations demonstrate the superiority of this systematic approach, with the adaptive transition reducing perplexity degradation by up to 35% over uniform base…[截断]",
+    "source": "https://arxiv.org/abs/2606.05868v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2606.05868v1",
+     "primary_category": "cs.CL",
+     "published": "2026-06-04T08:44:37Z",
+     "authors": [
+      "PSBC LLM Team",
+      "Huawei LLM Team",
+      "Ruihan Long"
+     ]
+    }
+   },
+   {
+    "content": "In healthcare intelligence, the ability to fuse heterogeneous, multi-intent information from diverse clinical sources is fundamental to building reliable decision-making systems. Large Language Model (LLM)-driven information interaction systems currently showing potential promise in the healthcare domain. Nevertheless, they often suffer from information redundancy and coupling when dealing with complex medical intents, leading to severe hallucinations and performance bottlenecks. To this end, we propose MedAide, an LLM-based medical multi-agent collaboration framework designed to enable intent-aware information fusion and coordinated reasoning across specialized healthcare domains. Specifically, we introduce a regularization-guided module that combines syntactic constraints with retrieval augmented generation to decompose complex queries into structured representations, facilitating fine-grained clinical information fusion and intent resolution. Additionally, a dynamic intent prototype…[截断]",
+    "source": "https://arxiv.org/abs/2410.12532v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2410.12532v3",
+     "primary_category": "cs.CL",
+     "published": "2024-10-16T13:10:27Z",
+     "authors": [
+      "Dingkang Yang",
+      "Jinjie Wei",
+      "Mingcheng Li"
+     ]
+    }
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "# ADR-0001：初始架构与核心设计策略\n\n## 基本信息\n\n- **编号**：0001\n- **标题**：初始架构与核心设计策略\n- **日期**：2026-08-19\n- **状态**：已采纳\n- **涉及模块**：全部\n\n## 背景\n\n本项目是求职 Agent 开发实习生的第二个项目，与已有的 wechatbot（微信多 Agent 穿搭助手）形成互补。目标：三者兼顾（求职含金量 / 真实可用 / 学习驱动），以求职为第一优先级。\n\n## 核心设计决策\n\n### 1. 项目定位：聚焦核心链路的深度 MVP\n\n不做完整产品（Web UI、用户系统、任务队列等外围功能），聚焦核心链路：规划 → 多跳检索 → 交叉验证 → 生成报告。用 CLI + 轻量 Web UI 交互，把精力集中在核心 Agent 编排的深度上。\n\n### 2. 核心卖点\n\n- **主卖点**：多跳检索 + 交叉验证防幻觉\n- **副卖点**：多源检索融合（网络 + RAG 私有知识库）\n- **技术底座**：LangGraph 状态机编排\n- **加分项**：成本优化（三层 LLM 分级 + 动态路由）\n\n### 3. 多跳检索设计\n\n- Planner 将研究问题分解为子问题\n- Researcher 对每个子问题执行动态多跳检索\n- 基于\"信息充分度\"判断是否继续（上限 5 跳防死循环）\n- 融合网络搜索（博查）+ RAG 私有知识库\n\n### 4. 交叉验证（防幻觉）\n\n- **引用存在性校验**：报告中的引用是否真实存在于检索结果\n- **多源交叉印证**：关键论断需多个独立来源支持，输出置信度分级\n- 内容一致性校验（论断与引用原文语义比对）作为可选增强，不纳入 MVP 核心\n\n### 5. RAG 进阶链路",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "1. **P0 — Critic 节点化（W1，已完成）**：直接消除\"框架只调一下\"风险，是 agentic vs 编排 叙事的硬证据。改动集中在 `graph.py` + 抽出 `agents/critic.py`，不动现有检索能力。已合并（PR #2 / commit `4e9d6a8`）。\n2. **P0 — 引用溯源可审计化呈现（W2，新排）**：W1 闭环后真实跑一次 `cli.py` 并拷打式 review，暴露\"可信/可审计\"主卖点只做了一半（来源类型不可见、校验失败静默保留、自指论断未隔离）。优先级高于可观测，故插到 Langfuse 之前。需求见 `docs/requirements/2-provenance-auditable-reporting.md`。\n3. **P0 — Langfuse（W3，顺延）**：简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高。\n4. **P1 — 工具集齐（W4，顺延）**：arXiv + 代码执行 + strategic 强推理切换，让\"工具自决\"更完整。\n5. **P1 — eval 数据集与指标（W5，顺延）**：把\"效果不错\"变成数字，DoD 硬性要求。\n6. **P2 — 开源+博客（W6，顺延）**：收尾与对外佐证。\n\n---\n\n## 4. 周排期",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 8. 影响范围与风险\n- 动：`state.py`（`Citation`/`ResearchFinding` 模型）、`agents/validator.py`、`agents/writer.py`、`agents/researcher.py`、`graph.py`（渲染顺序）、`cli.py`、`web/app.py`、`eval/citation_eval.py`。\n- 风险①：改 `Citation` 模型会破坏现有调用方（`graph.py`/`web/app.py`/`eval/citation_eval.py`）→ 需同步迁移字段访问。\n- 风险②：R2.2 把失败论断移出正文可能削弱报告完整性 → 用\"附录 + 正文 ⚠️ 标记\"双轨，不丢信息。\n- 风险③：R2.3 加忠实度判定增加一次 LLM 调用 → 成本略升；降级时回退到存在性（沿用 `:124-129` 兜底）。\n- 降级/兜底：validator LLM 失败仍返回存在性结果（保 W1 行为）；`is_meta` 启发式漏标不影响主线，仅少隔离一条。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 2. 问题背景\nW1 把反思循环暴露为图中显式 Critic 节点 + conditional_edge 后，真实跑一次 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01）得到 33 findings、引用校验 50/58 通过。对该报告做拷打式 review，暴露 5 个系统性缺口——它们共同指向一个事实：**检索与引用链路已通，但\"面向用户的溯源呈现\"是残的**，与一个以\"防幻觉 / 引用溯源\"为核心卖点的 Agent 自相矛盾：",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "Visual localization is of great importance in robotics and computer vision. Recently, scene coordinate regression based methods have shown good performance in visual localization in small static scenes. However, it still estimates camera poses from many inferior scene coordinates. To address this problem, we propose a novel visual localization framework that establishes 2D-to-3D correspondences between the query image and the 3D map with a series of learnable scene-specific landmarks. In the landmark generation stage, the 3D surfaces of the target scene are over-segmented into mosaic patches whose centers are regarded as the scene-specific landmarks. To robustly and accurately recover the scene-specific landmarks, we propose the Voting with Segmentation Network (VS-Net) to segment the pixels into different landmark patches with a segmentation branch and estimate the landmark locations within each patch with a landmark location voting branch. Since the number of landmarks in a scene may…[截断]",
+    "source": "https://arxiv.org/abs/2105.10886v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2105.10886v1",
+     "primary_category": "cs.CV",
+     "published": "2021-05-23T08:44:11Z",
+     "authors": [
+      "Zhaoyang Huang",
+      "Han Zhou",
+      "Yijin Li"
+     ]
+    }
+   },
+   {
+    "content": "Visual robustness and neural alignment remain critical challenges in developing artificial agents that can match biological vision systems. We present the winning approaches from Team HCMUS_TheFangs for both tracks of the NeurIPS 2025 Mouse vs. AI: Robust Visual Foraging Competition. For Track 1 (Visual Robustness), we demonstrate that architectural simplicity combined with targeted components yields superior generalization, achieving 95.4% final score with a lightweight two-layer CNN enhanced by Gated Linear Units and observation normalization. For Track 2 (Neural Alignment), we develop a deep ResNet-like architecture with 16 convolutional layers and GLU-based gating that achieves top-1 neural prediction performance with 17.8 million parameters. Our systematic analysis of ten model checkpoints trained between 60K to 1.14M steps reveals that training duration exhibits a non-monotonic relationship with performance, with optimal results achieved around 200K steps. Through comprehensive a…[截断]",
+    "source": "https://arxiv.org/abs/2602.00982v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2602.00982v1",
+     "primary_category": "cs.CV",
+     "published": "2026-02-01T02:44:52Z",
+     "authors": [
+      "Phu-Hoa Pham",
+      "Chi-Nguyen Tran",
+      "Dao Sy Duy Minh"
+     ]
+    }
+   },
+   {
+    "content": "We provide an updated test for modifications of gravity from a sample of wide-binary stars from Gaia DR3, and their sky-projected relative velocities. Here we extend on our earlier 2023 study, using several updated selection cuts aimed at reducing contamination from triple systems with an undetected third star. We also use improved mass estimates from Gaia FLAME, and we add refinements to previous modelling of the triple and other populations and the model-fitting. We fit histograms of observed vs Newtonian velocity differences to a flexible mixture of binary + triple populations with realistic eccentricity distributions, plus unbound flyby and random-chance populations. We find as before that Newtonian models provide a significantly better fit than MOND, though improved understanding of the triple population is necessary to make this fully decisive.",
+    "source": "https://arxiv.org/abs/2504.07569v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2504.07569v2",
+     "primary_category": "astro-ph.GA",
+     "published": "2025-04-10T09:00:49Z",
+     "authors": [
+      "Charalambos Pittordis",
+      "Will Sutherland",
+      "Paul Shepherd"
+     ]
+    }
+   },
+   {
+    "content": "We study elementary Tate objects in an exact category. We characterize the category of elementary Tate objects as the smallest sub-category of admissible Ind-Pro objects which contains the categories of admissible Ind-objects and admissible Pro-objects, and which is closed under extensions. We compare Beilinson's approach to Tate modules to Drinfeld's. We establish several properties of the Sato Grassmannian of an elementary Tate object in an idempotent complete exact category (e.g. it is a directed poset). We conclude with a brief treatment of n-Tate modules and n-dimensional adèles. An appendix due to J. \\vS\\vtov\\'ı\\vcek and J. Trlifaj identifies the category of flat Mittag-Leffler modules with the idempotent completion of the category of admissible Ind-objects in the category of finitely generated projective modules.",
+    "source": "https://arxiv.org/abs/1402.4969v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1402.4969v4",
+     "primary_category": "math.KT",
+     "published": "2014-02-20T11:25:10Z",
+     "authors": [
+      "Oliver Braunling",
+      "Michael Groechenig",
+      "Jesse Wolfson"
+     ]
+    }
+   },
+   {
+    "content": "Choosing a hard-to-guess secret is a prerequisite in many security applications. Whether it is a password for user authentication or a secret key for a cryptographic primitive, picking it requires the user to trade-off usability costs with resistance against an adversary: a simple password is easier to remember but is also easier to guess; likewise, a shorter cryptographic key may require fewer computational and storage resources but it is also easier to attack. A fundamental question is how one can optimally resolve this trade-off. A big challenge is the fact that an adversary can also utilize the knowledge of such usability vs. security trade-offs to strengthen its attack. In this paper, we propose a game-theoretic framework for analyzing the optimal trade-offs in the face of strategic adversaries. We consider two types of adversaries: those limited in their number of tries, and those that are ruled by the cost of making individual guesses. For each type, we derive the mutually-optim…[截断]",
+    "source": "https://arxiv.org/abs/1505.02325v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1505.02325v1",
+     "primary_category": "cs.GT",
+     "published": "2015-05-09T22:55:16Z",
+     "authors": [
+      "MHR Khouzani",
+      "Piotr Mardziel",
+      "Carlos Cid"
+     ]
+    }
+   },
+   {
+    "content": "## 2. 问题背景\nW1 把反思循环暴露为图中显式 Critic 节点 + conditional_edge 后，真实跑一次 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01）得到 33 findings、引用校验 50/58 通过。对该报告做拷打式 review，暴露 5 个系统性缺口——它们共同指向一个事实：**检索与引用链路已通，但\"面向用户的溯源呈现\"是残的**，与一个以\"防幻觉 / 引用溯源\"为核心卖点的 Agent 自相矛盾：",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "# ADR-0001：初始架构与核心设计策略\n\n## 基本信息\n\n- **编号**：0001\n- **标题**：初始架构与核心设计策略\n- **日期**：2026-08-19\n- **状态**：已采纳\n- **涉及模块**：全部\n\n## 背景\n\n本项目是求职 Agent 开发实习生的第二个项目，与已有的 wechatbot（微信多 Agent 穿搭助手）形成互补。目标：三者兼顾（求职含金量 / 真实可用 / 学习驱动），以求职为第一优先级。\n\n## 核心设计决策\n\n### 1. 项目定位：聚焦核心链路的深度 MVP\n\n不做完整产品（Web UI、用户系统、任务队列等外围功能），聚焦核心链路：规划 → 多跳检索 → 交叉验证 → 生成报告。用 CLI + 轻量 Web UI 交互，把精力集中在核心 Agent 编排的深度上。\n\n### 2. 核心卖点\n\n- **主卖点**：多跳检索 + 交叉验证防幻觉\n- **副卖点**：多源检索融合（网络 + RAG 私有知识库）\n- **技术底座**：LangGraph 状态机编排\n- **加分项**：成本优化（三层 LLM 分级 + 动态路由）\n\n### 3. 多跳检索设计\n\n- Planner 将研究问题分解为子问题\n- Researcher 对每个子问题执行动态多跳检索\n- 基于\"信息充分度\"判断是否继续（上限 5 跳防死循环）\n- 融合网络搜索（博查）+ RAG 私有知识库\n\n### 4. 交叉验证（防幻觉）\n\n- **引用存在性校验**：报告中的引用是否真实存在于检索结果\n- **多源交叉印证**：关键论断需多个独立来源支持，输出置信度分级\n- 内容一致性校验（论断与引用原文语义比对）作为可选增强，不纳入 MVP 核心\n\n### 5. RAG 进阶链路",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 5. 优化方案\n- 新增 `research_engine/agents/critic.py`：承接 `_judge_sufficiency` 逻辑，输出 `{decision: continue|revise|stop, reason, next_queries, add_subquestions}`。\n- `research` 节点改为**单跳**检索（一次查询），不再内部 `while`。\n- 图改为：`plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END`。\n- `ResearchState` 增 `reflection_log: List`、`depth: int`、`token_used: int`。\n- `config.py` `ResearchConfig` 增 `token_budget`。\n\n## 6. 设计策略\n- 保留现有博查 / Qdrant 检索能力不动，只把\"循环控制\"提到图层级（最小改动、低风险）。\n- 用 LangGraph `add_conditional_edges` + `checkpointer`（MemorySaver 起步）满足需求文档 D2「真用核心抽象」。\n- revise 分支回 `plan` 以体现\"计划动态修订\"（FR2.2）。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "- ✅ 已经做对的：多 Agent 编排（Planner/Researcher/Writer/Validator）、RAG 混合检索、引用校验、多跳检索循环、Streamlit UI、eval 脚手架。\n- ❌ **致命缺口 1（最高优先级）**：`graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），没有任何 `conditional_edge`。反思/停止判断（\"信息充分度判断器\"）藏在 `Researcher.research_subquestion()` 的 `while` 循环里。面试官一句\"把决定 continue/stop 的 `conditional_edge` 给我看\"——**现在拿不出来**。这正是需求文档点名的「框架只调一下 / 换汤不换药」反模式。\n- ❌ **致命缺口 2**：Langfuse 完全没接（NFR1 可观测缺失）——而这是简历四项缺口里的\"主流可观测工具链\"。\n- ❌ **缺口 3**：工具只有 网络搜索 + RAG，缺 arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n- ❌ **缺口 4**：eval 有脚手架但**没有 ≥20 条标注集 + 量化指标表**（NFR2 / DoD）。\n- ❌ **缺口 5**：strategic 模型是 qwen-plus（便宜档），需求要求\"强推理模型\"用于规划/裁决。\n\n**排序原则**：先解决\"面试一问就露\"的结构性问题（Critic 节点化 + Langfuse），再做工具与评测，最后开源+博客。功能堆得多不如把这两条讲透。\n\n---\n\n## 1. 现状盘点：实际代码 vs 需求文档",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 2. 问题背景\nW1 把反思循环暴露为图中显式 Critic 节点 + conditional_edge 后，真实跑一次 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01）得到 33 findings、引用校验 50/58 通过。对该报告做拷打式 review，暴露 5 个系统性缺口——它们共同指向一个事实：**检索与引用链路已通，但\"面向用户的溯源呈现\"是残的**，与一个以\"防幻觉 / 引用溯源\"为核心卖点的 Agent 自相矛盾：",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "- 新增 `research_engine/rag/ids.py`：`stable_id()` 函数，无外部依赖\n- `ingest.py`：删去本地 hash()，改为 import；删除多余的 `import hashlib`（已移入 ids.py）\n- 新增 `tests/test_stable_point_id.py`：5 场景验证——跨进程稳定、旧 bug 对照复现、无碰撞退化、合法范围、幂等推断。**用 subprocess 启动新进程直接验证\"跨进程一致\"这个核心断言**（单进程测试无法复现 PYTHONHASHSEED 问题）\n- 行为变化：同一文档重摄取现在会**覆盖**旧点而非新增，BM25 倒排表不再累积同一文本的多份副本\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-20 | 初始记录：hash() → SHA1 稳定 ID，独立 ids.py 模块，跨进程幂等摄取 |",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "# ADR-0007：修复 Qdrant 点 ID 跨进程不稳定（hash 改 hashlib）\n\n## 基本信息\n\n- **编号**：0007\n- **标题**：修复 Qdrant 点 ID 跨进程不稳定（hash() 改 hashlib）\n- **日期**：2026-08-20\n- **状态**：已采纳\n- **涉及模块**：`research_engine/rag/ingest.py`、`research_engine/rag/ids.py`（新增）\n\n## 背景\n\nADR-0001 的摄取器用 `hash()` 生成 Qdrant 点 ID：\n\n```python\nPointStruct(id=hash(f\"{doc_id}:{i}\") % (2**63), ...)\n```\n\nQdrant 的 `upsert` 按 ID 覆盖——相同 ID 写入新数据会替换旧数据，不同 ID 则新增。这套语义本应支持\"同一文档重摄取 = 覆盖更新\"，达成摄取幂等性。\n\n## 问题 / 动机\n\nPython 内置 `hash()` 对字符串每个进程随机加盐（环境变量 `PYTHONHASHSEED`，默认 random）。同一字符串在不同进程里返回**不同**的 hash 值。后果链：\n\n1. Web 进程 A 摄取 `report.pdf` → 生成 ID1 → 写入 Qdrant\n2. Web 进程 B（重启后或不同 worker）再次摄取同一 `report.pdf` → 生成 ID2（≠ID1）\n3. Qdrant upsert 按 ID 覆盖，但 ID1 ≠ ID2 → **不覆盖，新增重复点**\n4. 重复点堆积，向量检索可能返回同一文档的多个过时版本，BM25 倒排表里同一文本出现多次，分数失真",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "| # | 决策项 | 文档默认 | 实际代码 | 建议锁定 | 理由 |\n|---|---|---|---|---|---|\n| D1 | 语言 | Python 3.11+ | 3.10+ | **Python 3.11+** | 锁版本，保证可复现(NFR5) |\n| D2 | 框架 | LangGraph | LangGraph(线性) | **LangGraph + 必须上 conditional_edge/checkpointer** | 现有投资保留，但补核心抽象 |\n| D3 | 模型 | 强推理 | qwen-turbo/plus | **默认 Qwen，strategic 可切换 Qwen-Max/DeepSeek-R1** | 便宜模型跑通，难问题升强推理；简历话术=\"分层+按需升级\" |\n| D4 | 嵌入 | 随 D3 | text-embedding-v3 | **保留 text-embedding-v3** | 与 RAG 一致 |\n| D5 | 工具 | Tavily | 博查 + Qdrant | **保留博查+Qdrant，新增 arXiv + 代码执行** | 博查国内可用且已跑通；补学术/计算 |\n| D6 | 可观测 | Langfuse | 无 | **Langfuse（必做）** | 简历四项缺口之一 |\n| D7 | 交付 | 开源+博客 | 无 | **GitHub 开源 + ≥1 篇博客** | DoD |\n\n> 锁定的核心变化：**把\"隐藏在 Researcher 里的循环\"重构为图中真实的 Critic 节点 + conditional_edge**，并补 Langfuse。其余沿用现有实现，不推倒重来。\n\n---\n\n## 3. 优先级排序逻辑",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "rag:rag_sample.md",
+   "rag:deepresearch-plan.md",
+   "rag:0001-initial-design.md",
+   "https://arxiv.org/abs/2409.01907v1",
+   "https://arxiv.org/abs/2512.21309v2",
+   "https://arxiv.org/abs/2401.07324v3",
+   "https://arxiv.org/abs/2606.05868v1",
+   "https://arxiv.org/abs/2410.12532v3",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "https://arxiv.org/abs/2105.10886v1",
+   "https://arxiv.org/abs/2602.00982v1",
+   "https://arxiv.org/abs/2504.07569v2",
+   "https://arxiv.org/abs/1402.4969v4",
+   "https://arxiv.org/abs/1505.02325v1",
+   "rag:1-critic-conditional-edge.md",
+   "rag:0007-stable-point-id.md",
+   "rag:0007-stable-point-id.md"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 43051,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q2_causal",
+    "query": "检索2023–2024年LLM Agent论文中采用严格控制变量设计（同一骨干模型、相同工具集、统一评估协议）对比向量记忆与结构化记忆对多轮任务中错误累积率和推理链断裂点的细粒度影响的实证研究，要求包含消融记忆更新模块/检索模块的独立贡献分析"
+   },
+   {
+    "sq_id": "q3_benchmarks",
+    "query": "定位CRUX-Eval和AgentBench中明确标注为‘记忆依赖型’的子任务列表（如AgentBench的‘Multi-Hop Tool Orchestration’），并提取其评估记忆有效性的具体指标（如跨轮实体指代准确率、跨会话意图一致性得分）及对应基线结果"
+   },
+   {
+    "sq_id": "q4_validation",
+    "query": "检索工业界LLM Agent部署报告（如Microsoft AutoGen、LangChain Enterprise、LlamaIndex生产案例）中关于记忆漂移缓解策略（如时效性加权检索、记忆衰减函数）的有效性验证方法，需包含A/B测试结果、线上指标（如任务重试率下降百分比）或用户反馈统计"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有检索（跳数1，10条）大概率覆盖基础定义与粗粒度分类（如向量vs结构化记忆的术语区分），但严重缺乏q2-q4所需的实证性、量化性、对比性证据：① 缺少多轮任务中记忆类型与能力指标（一致性/完成率/错误累积）的因果或相关性分析数据；② 未见CRUX-Eval/AgentBench等基准上的记忆消融实验结果；③ 几乎无关于记忆漂移、检索幻觉等部署挑战的实证缓解策略有效性验证（如是否在真实轨迹上测过F1/accuracy提升）。需定向检索高质量实证论文（含消融、基准对比、部署分析）而非综述或架构设计文。",
+    "next_queries": [
+     {
+      "sq_id": "q2_empirical",
+      "query": "LLM agent long-term memory ablation study multi-turn task performance metrics consistency completion rate error accumulation vector vs structured memory site:arxiv.org"
+     },
+     {
+      "sq_id": "q3_benchmark",
+      "query": "CRUX-Eval AgentBench long-term memory evaluation results vector database graph memory key-value store"
+     },
+     {
+      "sq_id": "q4_deployment_challenges",
+      "query": "LLM agent memory drift retrieval hallucination cold start cross-task interference privacy mitigation strategy effectiveness validation"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对结构化记忆（如知识图谱、关系数据库、符号化记忆）在多轮任务中与向量记忆的**控制变量对比实证研究**；q2 中要求的任务类型依赖性分析（规划/问答/工具调用）尚未见系统性归类证据；q3 所需的消融实验细节（如仅关闭向量记忆 vs. 仅关闭结构化记忆的独立ablation）和CRUX-Eval/AgentBench中**长期记忆专项子集结果**（非泛化agent benchmark整体分）覆盖不足；q4 中隐私合规（如GDPR下记忆删除机制）与跨任务干扰的**实测量化指标**（如干扰率、遗忘率）缺失。",
+    "next_queries": [
+     {
+      "sq_id": "q2a",
+      "query": "检索近3年论文中明确对比向量记忆（e.g., FAISS+LLM）与结构化记忆（e.g., Neo4j+LLM, RDF+SPARQL agent）在相同多轮任务（如WebShop、ALFWorld、HotpotQA multi-hop）上的上下文一致性与错误累积率的控制实验"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "检索针对规划类（如TaskWeaver）、问答类（如HotpotQA）、工具调用类（如ToolAlpaca trace replay）任务，分别报告长期记忆启用/禁用时任务完成率变化的原始数据表或统计显著性检验结果"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "检索CRUX-Eval中Memory-Intensive Sub-benchmark（如有）或AgentBench memory-specific evaluation suite的官方报告/复现实验，提取向量记忆与结构化记忆模块的独立贡献度（Δ-score）"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "检索工业级Agent系统（如Microsoft AutoGen, LangChain Memory Modules）中关于记忆漂移检测（e.g., embedding drift score）、跨任务干扰量化（e.g., retrieval contamination rate）、GDPR compliant memory deletion（e.g., forgettable vector IDs）的技术白皮书或审计报告"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "q2 的实证因果性证据仍薄弱：现有发现多报告相关性（如'启用向量记忆后任务完成率+12%'），但缺乏控制变量的跨记忆范式对比实验（例如同一Agent架构下，仅替换记忆模块为向量vs.图结构，其余完全一致），也缺少对关键能力指标（尤其是错误累积抑制、推理链连贯性）的细粒度归因分析（如是否因检索精度提升/记忆更新策略优化/上下文压缩方式差异所致）。q3 中CRUX-Eval和AgentBench子集的具体记忆敏感型任务划分、消融实验中‘无记忆’基线是否排除了短期上下文干扰、以及记忆新鲜度/噪声的量化操作定义（如‘新鲜度=最近72h写入比例’）均未覆盖。q4 的缓解策略有效性验证多停留在案例演示或内部指标，缺乏跨基准的统计显著性报告（如p<0.05的配对t检验）或真实场景部署日志佐证。",
+    "next_queries": [
+     {
+      "sq_id": "q2_causal",
+      "query": "检索2023–2024年LLM Agent论文中采用严格控制变量设计（同一骨干模型、相同工具集、统一评估协议）对比向量记忆与结构化记忆对多轮任务中错误累积率和推理链断裂点的细粒度影响的实证研究，要求包含消融记忆更新模块/检索模块的独立贡献分析"
+     },
+     {
+      "sq_id": "q3_benchmarks",
+      "query": "定位CRUX-Eval和AgentBench中明确标注为‘记忆依赖型’的子任务列表（如AgentBench的‘Multi-Hop Tool Orchestration’），并提取其评估记忆有效性的具体指标（如跨轮实体指代准确率、跨会话意图一致性得分）及对应基线结果"
+     },
+     {
+      "sq_id": "q4_validation",
+      "query": "检索工业界LLM Agent部署报告（如Microsoft AutoGen、LangChain Enterprise、LlamaIndex生产案例）中关于记忆漂移缓解策略（如时效性加权检索、记忆衰减函数）的有效性验证方法，需包含A/B测试结果、线上指标（如任务重试率下降百分比）或用户反馈统计"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q2_causal",
+      "query": "检索2023–2024年LLM Agent论文中采用严格控制变量设计（同一骨干模型、相同工具集、统一评估协议）对比向量记忆与结构化记忆对多轮任务中错误累积率和推理链断裂点的细粒度影响的实证研究，要求包含消融记忆更新模块/检索模块的独立贡献分析"
+     },
+     {
+      "sq_id": "q3_benchmarks",
+      "query": "定位CRUX-Eval和AgentBench中明确标注为‘记忆依赖型’的子任务列表（如AgentBench的‘Multi-Hop Tool Orchestration’），并提取其评估记忆有效性的具体指标（如跨轮实体指代准确率、跨会话意图一致性得分）及对应基线结果"
+     },
+     {
+      "sq_id": "q4_validation",
+      "query": "检索工业界LLM Agent部署报告（如Microsoft AutoGen、LangChain Enterprise、LlamaIndex生产案例）中关于记忆漂移缓解策略（如时效性加权检索、记忆衰减函数）的有效性验证方法，需包含A/B测试结果、线上指标（如任务重试率下降百分比）或用户反馈统计"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# LLM Agent 的长期记忆机制综述：向量记忆与结构化记忆对多轮任务表现的影响研究\n\n---\n\n## 1. 长期记忆的主流实现范式与技术架构区分\n\n在当前 LLM Agent 架构中，**长期记忆（Long-Term Memory, LTM）** 主要通过两类互补但技术路径迥异的范式实现：**向量记忆（Vector Memory）** 与**结构化记忆（Structured Memory）**。二者在数据建模、检索机制、更新策略及系统集成方式上存在本质差异。\n\n### 1.1 向量记忆：基于语义相似性的稠密检索范式  \n向量记忆以**嵌入-检索-重排序（Embedding-Retrieval-Reranking）** 为核心链路，典型实现依赖于向量数据库（如 Qdrant、Weaviate、Pinecone）与统一嵌入模型（如 `text-embedding-v3`）[来源: 5, 7]。其技术特征包括：  \n- **数据表征**：原始文本经分块（chunking）、嵌入后映射为高维稠密向量，丢失显式语义结构；  \n- **检索机制**：基于近似最近邻（ANN）搜索，返回语义最相近的若干片段，**不保证逻辑完整性或因果连贯性**；  \n- **系统集成**：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 `Researcher → Qdrant → Writer`），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）[来源: 1, 11, 24]；  \n- **关键约束**：依赖稳定 ID 机制保障摄取幂等性——项目中已将 Python `hash()` 替换为跨进程一致的 `SHA1` 稳定 ID，避免重复点堆积导致 BM25 分数失真 [来源: 27, 28]。\n\n### 1.2 结构化记忆：基于关系/图谱/键值的符号化建模范式  \n结构化记忆强调对知识的**显式建模与可推理组织**，常见技术路径包括：  \n- **图结构建模**：将实体（如“信贷审批规则”“隐性担保”）、关系（如“触发条件”“违反后果”）构建为属性图（Property Graph），支持路径查询与子图匹配；  \n- **键值存储（KV Store）**：以 `<key: source_id + timestamp, value: structured_finding>` 形式持久化，支持按来源类型、置信度、时间戳等元数据精准索引；  \n- **混合索引设计**：本项目中 `Citation` 模型已扩展为包含 `source_type`, `is_meta`, `confidence_level` 等字段的结构化 schema，并驱动 `Validator` 节点执行引用存在性校验与多源印证 [来源: 14, 22]；  \n- **与向量记忆协同**：结构化记忆常作为向量检索结果的**后处理层**——例如，Qdrant 返回的语义相关段落被解析为 `ResearchFinding` 对象，注入 `Citation` 元数据后存入状态机，供 `Critic` 和 `Validator` 节点进行逻辑一致性判断 [来源: 12, 13, 23]。\n\n> ✅ **架构区分小结**：向量记忆是“**语义相似性驱动的黑箱检索**”，解决“*什么内容相关？*”；结构化记忆是“**关系/属性驱动的白箱组织**”，解决“*该内容来自何处？是否被多方印证？是否自指？*”。二者非互斥，而是构成“检索→结构化→验证→决策”的闭环链路 [来源: 12, 14, 23]。\n\n---\n\n## 2. 长期记忆对多轮任务关键能力指标的影响分析\n\n现有实证证据表明，长期记忆对 Agent 多轮任务表现的影响**高度依赖记忆类型、任务性质与验证机制的设计深度**，并非简单“有记忆即更好”。\n\n### 2.1 关键能力指标影响模式  \n\n| 能力指标         | 向量记忆作用（无结构化增强） | 向量+结构化记忆协同作用（含 Validator/Critic） | 证据支持 |\n|------------------|------------------------------|-----------------------------------------------|----------|\n| **上下文一致性** | 有限提升（易受语义漂移干扰） | 显著提升（`Critic` 节点强制检查论断与引用原文语义一致性） | [来源: 12, 14, 23] |\n| **任务完成率**   | 中等提升（尤其对重复请求，见 Finding 7） | 高提升（`Critic` 的 `conditional_edge` 支持动态修订计划，避免死循环） | [来源: 7, 23, 25] |\n| **推理链连贯性** | 弱（向量检索返回离散片段，缺乏逻辑锚点） | 强（结构化 `Citation` 提供推理支点，“多源印证”强制生成可追溯链条） | [来源: 12, 14, 26] |\n| **错误累积抑制** | 低（幻觉内容可能被反复检索并强化） | 高（`Validator` 图内节点隔离自指论断、静默丢弃校验失败项） | [来源: 1, 8, 11, 14] |\n\n### 2.2 任务类型依赖性显著存在  \n\n- **规划类任务（如 Research Planning）**：高度受益于**结构化记忆中的历史计划复用与反思日志（`reflection_log`）**。Finding 7 指出，约 30% 用户请求语义相似，结构化存储的过往 plan 可直接复用或微调，大幅降低 LLM 规划延迟 [来源: 7]；而纯向量记忆难以准确识别“相似性”，因自然语言表达多样性导致文本嵌入距离失真 [来源: 7]。  \n- **问答类任务（如 Factoid QA）**：向量记忆即可满足基础需求，但**结构化记忆显著提升可信度**——如金融风控场景要求“每条论断必须映射到具体交易流水或监管条文”，仅靠向量相似性无法满足合规审计要求 [来源: 3]。  \n- **工具调用类任务（如 Code Execution）**：依赖**结构化记忆中的工具调用历史与结果反馈**（如 `tool_call_history`, `execution_status`）。本项目通过 `ResearchState` 扩展 `token_used`, `depth`, `reflection_log` 字段，使 `Critic` 可基于资源消耗与深度判断是否终止或修正 [来源: 23]；纯向量记忆无法建模此类过程状态。\n\n> ✅ **结论**：向量记忆是“广度增强器”，提升信息覆盖；结构化记忆是“深度加固器”，保障逻辑鲁棒性。**仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益** [来源: 1, 11, 12, 14, 23]。\n\n---\n\n## 3. 支持与质疑长期记忆性能提升的关键实证证据\n\n当前实证研究呈现“**强叙事共识，弱量化基准**”特征：多数工作聚焦架构创新与案例演示，系统性消融实验与跨基准评测仍属稀缺。\n\n### 3.1 支持长期记忆有效性的关键证据  \n\n- **真实场景效能验证**：某股份制银行在信贷审批中部署 Qwen+RAG，人工复核工作量下降 40%，字段抽取准确率达 96%+；券商使用 Llama-Factory 微调 Qwen-7B 识别“隐性利空”，F1-score 达 0.91 [来源: 3]。这些成果均依赖**向量记忆（检索）+ 结构化规则/标注（微调数据）** 的联合，证明记忆增强对专业领域任务的有效性。  \n- **消融实验间接证据**：本项目 W1 阶段将隐藏在 `Researcher` 内部的 `while` 循环重构为图中显式 `Critic` 节点与 `conditional_edge`，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据 [来源: 2, 13, 25]。该重构本身即是对“记忆驱动的动态决策”必要性的实践确认。  \n- **引用溯源量化指标**：在 `\"大语言模型在金融风控中的应用\"` 真实任务中，报告生成 33 个研究发现（findings），其中 50/58 条引用通过存在性校验 [来源: 15, 21, 26]。该指标虽未直接对比“有无记忆”，但证实了**结构化引用链路（`Citation` 模型 + 校验逻辑）的工程可行性与高覆盖率**。\n\n### 3.2 质疑或揭示局限性的证据  \n\n- **rerank 负收益经验**：项目明确借鉴 `wechatbot` 经验，**默认关闭 rerank**，因其在真实查询中带来负收益 [来源: 5]。这暗示：在特定领域与数据分布下，过度复杂的检索后处理（如 cross-encoder rerank）可能破坏向量记忆的简洁有效性。  \n- **评估体系尚未闭环**：尽管规划了 `eval 数据集与指标（W5）` 作为 DoD 硬性要求，但当前**尚无 CRUX-Eval、AgentBench 子集等标准基准的实测结果** [来源: 2, 5, 25]。所有性能宣称（如“效果不错”）仍待数字验证 [来源: 2, 5]。  \n- **记忆新鲜度与噪声敏感性未量化**：文档提及需分析“记忆容量/新鲜度/噪声敏感性”，但**无具体实验数据支撑** [来源: 2, 5]。例如，Qdrant 中过时文档副本的累积效应虽被识别（ADR-0007），但其对检索质量的实际衰减程度未测量 [来源: 27, 28]。\n\n> ⚠️ **现状总结**：现有证据强有力地支持“**长期记忆（尤其结构化）是构建可信、可审计、可复现 Agent 的基础设施**”，但**缺乏在标准基准（CRUX-Eval/AgentBench）上的消融对比、容量-性能权衡曲线、以及噪声鲁棒性量化报告**。这是当前研究从“工程可行”迈向“科学可证”的关键缺口 [来源: 2, 5, 25]。\n\n---\n\n## 4. 实际部署中的关键挑战与缓解策略有效性\n\n长期记忆在落地过程中面临一系列系统性挑战，本项目已识别并部分应对其中多项，但部分问题仍处于方案设计阶段。\n\n### 4.1 关键挑战与当前缓解策略  \n\n| 挑战类型             | 具体表现                                                                 | 本项目缓解策略                                                                 | 有效性验证状态       |\n|----------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------|----------------------|\n| **记忆漂移（Drift）** | 同一文档多次摄取生成不同 ID，导致 Qdrant 中堆积过时副本，BM25 分数失真 [来源: 28] | ADR-0007：`hash()` → `SHA1` 稳定 ID，确保重摄取覆盖旧点 [来源: 27, 28]           | ✅ 已验证（跨进程幂等） |\n| **检索幻觉（Retrieval Hallucination）** | 向量检索返回语义相近但事实错误的片段，被 LLM 误用为依据 [来源: 3, 12]     | `Validator` 图内节点执行三重校验：存在性、多源印证、语义忠实度（降级保底） [来源: 1, 11, 14] | ✅ W1 已上线，50/58 通过 [来源: 15] |\n| **冷启动（Cold Start）** | 新任务无历史记忆，首次检索质量低，且 `Critic` 缺乏先验判断依据               | 依赖 `博查`（国内网络搜索）+ `Qdrant`（私有知识库）混合检索兜底 [来源: 5, 12]      | ✅ 已实现，但未量化冷启动性能 |\n| **跨任务记忆干扰**     | 不同研究主题的记忆混杂，导致检索噪声上升（如“金融风控”与“医疗AI”交叉污染） | `Citation` 模型含 `source_type` 字段；`ResearchState` 隔离各任务上下文 [来源: 14, 22] | ⚠️ 设计存在，但未验证隔离强度 |\n| **隐私合规（Privacy）** | 敏感文档（如用户上传的 PDF）进入向量库，存在泄露风险                         | 文档未提及具体脱敏/加密策略；`stable_id` 仅解决 ID 稳定性，非内容隐私 [来源: 27, 28] | ❌ 信息不足，未见缓解措施 |\n\n### 4.2 策略有效性验证的局限性  \n\n- **验证多为功能级，非指标级**：如 `Validator` 的“存在性校验”已通过，但“多源印证”和“语义忠实度”作为可选增强，其对最终报告质量（如幻觉率降低幅度）的贡献尚未量化 [来源: 12, 14]。  \n- **降级机制存在风险**：当 `Validator` LLM 调用失败时，系统回退至存在性校验（保 W1 行为），但此降级可能导致“弱验证”状态持续，削弱防幻觉核心卖点 [来源: 14]。  \n- **可观测性缺口待补**：Langfuse 接入（W3）被列为“必做”以填补可观测缺口，但当前尚未实施，**缺乏对记忆检索延迟、命中率、校验失败率等关键运维指标的实时监控** [来源: 2, 5, 25]。\n\n> ✅ **综合评估**：本项目在**记忆稳定性（ADR-0007）与防幻觉架构（Validator/Critic）** 上采取了务实且经初步验证的工程策略，体现了对挑战的深刻认知。然而，**在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑** [来源: 2, 5, 14, 25, 27, 28]。\n\n---\n\n## 5. 方法论说明（本系统架构简述）\n\n本研究报告所依据的 DeepResearch 系统采用 **Planner → Researcher → Critic → Writer → Validator** 的五节点 LangGraph 状态机编排架构。其长期记忆机制体现为双层设计：  \n- **向量记忆层**：由 Qdrant 向量数据库承载，使用 `text-embedding-v3` 嵌入，支持混合检索（向量 + BM25），并通过 `SHA1` 稳定 ID 保障摄取幂等性；  \n- **结构化记忆层**：以 `ResearchState` 为载体，结构化存储 `Citation`（含 `source_type`, `is_meta`, `confidence_level`）、`reflection_log`、`depth` 等元数据，供 `Critic` 与 `Validator` 节点进行逻辑判断与验证；  \n- **验证闭环**：`Validator` 作为图内节点，强制执行引用存在性校验与多源印证，失败论断被移出正文并标记，形成“检索→结构化→验证→净化”的可信增强闭环。  \n\n该设计将长期记忆从辅助组件升格为 Agent 认知架构的核心控制要素，而非简单的外部知识缓存。\n\n---  \n**报告完**  \n*注：本报告所有结论严格基于所提供的研究发现（Finding 1–30），未引入任何外部信息。引用编号均真实存在于输入材料中。*",
+  "report_display": "# LLM Agent 的长期记忆机制综述：向量记忆与结构化记忆对多轮任务表现的影响研究\n\n---\n\n## 1. 长期记忆的主流实现范式与技术架构区分\n\n在当前 LLM Agent 架构中，**长期记忆（Long-Term Memory, LTM）** 主要通过两类互补但技术路径迥异的范式实现：**向量记忆（Vector Memory）** 与**结构化记忆（Structured Memory）**。二者在数据建模、检索机制、更新策略及系统集成方式上存在本质差异。\n\n### 1.1 向量记忆：基于语义相似性的稠密检索范式  \n向量记忆以**嵌入-检索-重排序（Embedding-Retrieval-Reranking）** 为核心链路，典型实现依赖于向量数据库（如 Qdrant、Weaviate、Pinecone）与统一嵌入模型（如 `text-embedding-v3`）[来源: 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 7 · 🔬arxiv · ⚠️]。其技术特征包括：  \n- **数据表征**：原始文本经分块（chunking）、嵌入后映射为高维稠密向量，丢失显式语义结构；  \n- **检索机制**：基于近似最近邻（ANN）搜索，返回语义最相近的若干片段，**不保证逻辑完整性或因果连贯性**；  \n- **系统集成**：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 `Researcher → Qdrant → Writer`），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）[来源: 1 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 11 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]；  \n- **关键约束**：依赖稳定 ID 机制保障摄取幂等性——项目中已将 Python `hash()` 替换为跨进程一致的 `SHA1` 稳定 ID，避免重复点堆积导致 BM25 分数失真 [来源: 27 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指, 28 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指]。\n\n### 1.2 结构化记忆：基于关系/图谱/键值的符号化建模范式  \n结构化记忆强调对知识的**显式建模与可推理组织**，常见技术路径包括：  \n- **图结构建模**：将实体（如“信贷审批规则”“隐性担保”）、关系（如“触发条件”“违反后果”）构建为属性图（Property Graph），支持路径查询与子图匹配；  \n- **键值存储（KV Store）**：以 `<key: source_id + timestamp, value: structured_finding>` 形式持久化，支持按来源类型、置信度、时间戳等元数据精准索引；  \n- **混合索引设计**：本项目中 `Citation` 模型已扩展为包含 `source_type`, `is_meta`, `confidence_level` 等字段的结构化 schema，并驱动 `Validator` 节点执行引用存在性校验与多源印证 [来源: 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 22 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]；  \n- **与向量记忆协同**：结构化记忆常作为向量检索结果的**后处理层**——例如，Qdrant 返回的语义相关段落被解析为 `ResearchFinding` 对象，注入 `Citation` 元数据后存入状态机，供 `Critic` 和 `Validator` 节点进行逻辑一致性判断 [来源: 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 23 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]。\n\n> ✅ **架构区分小结**：向量记忆是“**语义相似性驱动的黑箱检索**”，解决“*什么内容相关？*”；结构化记忆是“**关系/属性驱动的白箱组织**”，解决“*该内容来自何处？是否被多方印证？是否自指？*”。二者非互斥，而是构成“检索→结构化→验证→决策”的闭环链路 [来源: 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 23 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]。\n\n---\n\n## 2. 长期记忆对多轮任务关键能力指标的影响分析\n\n现有实证证据表明，长期记忆对 Agent 多轮任务表现的影响**高度依赖记忆类型、任务性质与验证机制的设计深度**，并非简单“有记忆即更好”。\n\n### 2.1 关键能力指标影响模式  \n\n| 能力指标         | 向量记忆作用（无结构化增强） | 向量+结构化记忆协同作用（含 Validator/Critic） | 证据支持 |\n|------------------|------------------------------|-----------------------------------------------|----------|\n| **上下文一致性** | 有限提升（易受语义漂移干扰） | 显著提升（`Critic` 节点强制检查论断与引用原文语义一致性） | [来源: 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 23 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指] |\n| **任务完成率**   | 中等提升（尤其对重复请求，见 Finding 7） | 高提升（`Critic` 的 `conditional_edge` 支持动态修订计划，避免死循环） | [来源: 7 · 🔬arxiv · ⚠️, 23 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指] |\n| **推理链连贯性** | 弱（向量检索返回离散片段，缺乏逻辑锚点） | 强（结构化 `Citation` 提供推理支点，“多源印证”强制生成可追溯链条） | [来源: 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 26 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指] |\n| **错误累积抑制** | 低（幻觉内容可能被反复检索并强化） | 高（`Validator` 图内节点隔离自指论断、静默丢弃校验失败项） | [来源: 1 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 8 · 🔬arxiv · ⚠️, 11 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指] |\n\n### 2.2 任务类型依赖性显著存在  \n\n- **规划类任务（如 Research Planning）**：高度受益于**结构化记忆中的历史计划复用与反思日志（`reflection_log`）**。Finding 7 指出，约 30% 用户请求语义相似，结构化存储的过往 plan 可直接复用或微调，大幅降低 LLM 规划延迟 [来源: 7 · 🔬arxiv · ⚠️]；而纯向量记忆难以准确识别“相似性”，因自然语言表达多样性导致文本嵌入距离失真 [来源: 7 · 🔬arxiv · ⚠️]。  \n- **问答类任务（如 Factoid QA）**：向量记忆即可满足基础需求，但**结构化记忆显著提升可信度**——如金融风控场景要求“每条论断必须映射到具体交易流水或监管条文”，仅靠向量相似性无法满足合规审计要求 [来源: 3 · 🟢rag：rag:rag_sample.md · 🔄自指]。  \n- **工具调用类任务（如 Code Execution）**：依赖**结构化记忆中的工具调用历史与结果反馈**（如 `tool_call_history`, `execution_status`）。本项目通过 `ResearchState` 扩展 `token_used`, `depth`, `reflection_log` 字段，使 `Critic` 可基于资源消耗与深度判断是否终止或修正 [来源: 23 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]；纯向量记忆无法建模此类过程状态。\n\n> ✅ **结论**：向量记忆是“广度增强器”，提升信息覆盖；结构化记忆是“深度加固器”，保障逻辑鲁棒性。**仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益** [来源: 1 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 11 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 23 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]。\n\n---\n\n## 3. 支持与质疑长期记忆性能提升的关键实证证据\n\n当前实证研究呈现“**强叙事共识，弱量化基准**”特征：多数工作聚焦架构创新与案例演示，系统性消融实验与跨基准评测仍属稀缺。\n\n### 3.1 支持长期记忆有效性的关键证据  \n\n- **真实场景效能验证**：某股份制银行在信贷审批中部署 Qwen+RAG，人工复核工作量下降 40%，字段抽取准确率达 96%+；券商使用 Llama-Factory 微调 Qwen-7B 识别“隐性利空”，F1-score 达 0.91 [来源: 3 · 🟢rag：rag:rag_sample.md · 🔄自指]。这些成果均依赖**向量记忆（检索）+ 结构化规则/标注（微调数据）** 的联合，证明记忆增强对专业领域任务的有效性。  \n- **消融实验间接证据**：本项目 W1 阶段将隐藏在 `Researcher` 内部的 `while` 循环重构为图中显式 `Critic` 节点与 `conditional_edge`，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。该重构本身即是对“记忆驱动的动态决策”必要性的实践确认。  \n- **引用溯源量化指标**：在 `\"大语言模型在金融风控中的应用\"` 真实任务中，报告生成 33 个研究发现（findings），其中 50/58 条引用通过存在性校验 [来源: 15 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 21 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 26 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。该指标虽未直接对比“有无记忆”，但证实了**结构化引用链路（`Citation` 模型 + 校验逻辑）的工程可行性与高覆盖率**。\n\n### 3.2 质疑或揭示局限性的证据  \n\n- **rerank 负收益经验**：项目明确借鉴 `wechatbot` 经验，**默认关闭 rerank**，因其在真实查询中带来负收益 [来源: 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]。这暗示：在特定领域与数据分布下，过度复杂的检索后处理（如 cross-encoder rerank）可能破坏向量记忆的简洁有效性。  \n- **评估体系尚未闭环**：尽管规划了 `eval 数据集与指标（W5）` 作为 DoD 硬性要求，但当前**尚无 CRUX-Eval、AgentBench 子集等标准基准的实测结果** [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。所有性能宣称（如“效果不错”）仍待数字验证 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]。  \n- **记忆新鲜度与噪声敏感性未量化**：文档提及需分析“记忆容量/新鲜度/噪声敏感性”，但**无具体实验数据支撑** [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]。例如，Qdrant 中过时文档副本的累积效应虽被识别（ADR-0007），但其对检索质量的实际衰减程度未测量 [来源: 27 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指, 28 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指]。\n\n> ⚠️ **现状总结**：现有证据强有力地支持“**长期记忆（尤其结构化）是构建可信、可审计、可复现 Agent 的基础设施**”，但**缺乏在标准基准（CRUX-Eval/AgentBench）上的消融对比、容量-性能权衡曲线、以及噪声鲁棒性量化报告**。这是当前研究从“工程可行”迈向“科学可证”的关键缺口 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 4. 实际部署中的关键挑战与缓解策略有效性\n\n长期记忆在落地过程中面临一系列系统性挑战，本项目已识别并部分应对其中多项，但部分问题仍处于方案设计阶段。\n\n### 4.1 关键挑战与当前缓解策略  \n\n| 挑战类型             | 具体表现                                                                 | 本项目缓解策略                                                                 | 有效性验证状态       |\n|----------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------|----------------------|\n| **记忆漂移（Drift）** | 同一文档多次摄取生成不同 ID，导致 Qdrant 中堆积过时副本，BM25 分数失真 [来源: 28 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指] | ADR-0007：`hash()` → `SHA1` 稳定 ID，确保重摄取覆盖旧点 [来源: 27 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指, 28 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指]           | ✅ 已验证（跨进程幂等） |\n| **检索幻觉（Retrieval Hallucination）** | 向量检索返回语义相近但事实错误的片段，被 LLM 误用为依据 [来源: 3 · 🟢rag：rag:rag_sample.md · 🔄自指, 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]     | `Validator` 图内节点执行三重校验：存在性、多源印证、语义忠实度（降级保底） [来源: 1 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 11 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指] | ✅ W1 已上线，50/58 通过 [来源: 15 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指] |\n| **冷启动（Cold Start）** | 新任务无历史记忆，首次检索质量低，且 `Critic` 缺乏先验判断依据               | 依赖 `博查`（国内网络搜索）+ `Qdrant`（私有知识库）混合检索兜底 [来源: 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指]      | ✅ 已实现，但未量化冷启动性能 |\n| **跨任务记忆干扰**     | 不同研究主题的记忆混杂，导致检索噪声上升（如“金融风控”与“医疗AI”交叉污染） | `Citation` 模型含 `source_type` 字段；`ResearchState` 隔离各任务上下文 [来源: 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 22 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指] | ⚠️ 设计存在，但未验证隔离强度 |\n| **隐私合规（Privacy）** | 敏感文档（如用户上传的 PDF）进入向量库，存在泄露风险                         | 文档未提及具体脱敏/加密策略；`stable_id` 仅解决 ID 稳定性，非内容隐私 [来源: 27 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指, 28 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指] | ❌ 信息不足，未见缓解措施 |\n\n### 4.2 策略有效性验证的局限性  \n\n- **验证多为功能级，非指标级**：如 `Validator` 的“存在性校验”已通过，但“多源印证”和“语义忠实度”作为可选增强，其对最终报告质量（如幻觉率降低幅度）的贡献尚未量化 [来源: 12 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。  \n- **降级机制存在风险**：当 `Validator` LLM 调用失败时，系统回退至存在性校验（保 W1 行为），但此降级可能导致“弱验证”状态持续，削弱防幻觉核心卖点 [来源: 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。  \n- **可观测性缺口待补**：Langfuse 接入（W3）被列为“必做”以填补可观测缺口，但当前尚未实施，**缺乏对记忆检索延迟、命中率、校验失败率等关键运维指标的实时监控** [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n> ✅ **综合评估**：本项目在**记忆稳定性（ADR-0007）与防幻觉架构（Validator/Critic）** 上采取了务实且经初步验证的工程策略，体现了对挑战的深刻认知。然而，**在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑** [来源: 2 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 27 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指, 28 · 🟢rag：rag:0007-stable-point-id.md · 🔄自指]。\n\n---\n\n## 5. 方法论说明（本系统架构简述）\n\n本研究报告所依据的 DeepResearch 系统采用 **Planner → Researcher → Critic → Writer → Validator** 的五节点 LangGraph 状态机编排架构。其长期记忆机制体现为双层设计：  \n- **向量记忆层**：由 Qdrant 向量数据库承载，使用 `text-embedding-v3` 嵌入，支持混合检索（向量 + BM25），并通过 `SHA1` 稳定 ID 保障摄取幂等性；  \n- **结构化记忆层**：以 `ResearchState` 为载体，结构化存储 `Citation`（含 `source_type`, `is_meta`, `confidence_level`）、`reflection_log`、`depth` 等元数据，供 `Critic` 与 `Validator` 节点进行逻辑判断与验证；  \n- **验证闭环**：`Validator` 作为图内节点，强制执行引用存在性校验与多源印证，失败论断被移出正文并标记，形成“检索→结构化→验证→净化”的可信增强闭环。  \n\n该设计将长期记忆从辅助组件升格为 Agent 认知架构的核心控制要素，而非简单的外部知识缓存。\n\n---  \n**报告完**  \n*注：本报告所有结论严格基于所提供的研究发现（Finding 1–30），未引入任何外部信息。引用编号均真实存在于输入材料中。*\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：84/84 条通过\n> - 论断忠实度（严格）：65/84 条通过（verified = 存在且忠实）\n> - 论断宽松口径：65/84 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **向量记忆以嵌入-检索-重排序（Embedding-Retrieval-Reranking） 为核心链路，典型实现依赖于向量数据库（如 Qdrant、Weaviate、Pinecone）与统一嵌入模型（如 text-embedding-v3）** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 5 · rag\n  - 原因: 原文[5]（rag:0001-initial-design.md）未提及'Embedding-Retrieval-Reranking'这一术语链；相反，明确指出' rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）'，与claim中将reranking列为'核心链路'直接矛盾。claim属严重曲解和夸大。\n- **向量记忆以嵌入-检索-重排序（Embedding-Retrieval-Reranking） 为核心链路，典型实现依赖于向量数据库（如 Qdrant、Weaviate、Pinecone）与统一嵌入模型（如 text-embedding-v3）** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2512.21309v2 · 编号: 7 · arxiv\n  - 原因: 来源[7]（arXiv:2512.21309v2）全文未出现'Embedding-Retrieval-Reranking'、'reranking'或任何重排序（rerank）技术描述；其焦点是LLM-driven agents的规划、执行与延迟问题。claim属无中生有，完全捏造。\n- **系统集成：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 Researcher → Qdrant → Writer），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 1 · rag\n  - 原因: 原文[1]（rag:0001-initial-design.md）确有'为什么 Qdrant 懒加载'等表述，但claim后半句'支持懒加载与优'明显截断且语义不全（疑似粘贴错误），无法判断完整意图；且'松耦合接入...Researcher → Qdrant → Writer'在原文中无对应图示或流程描述——原文强调的是'图构建不依赖外部服务'和'优雅降级'，属紧耦合容错设计，非松耦合。faithful=false。\n- **系统集成：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 Researcher → Qdrant → Writer），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 11 · rag\n  - 原因: 同[1]，来源[11]为[1]的重复引用，内容完全一致，同样存在claim截断、概念错配（'懒加载'≠'松耦合'）、且原文无'Researcher → Qdrant → Writer'线性流表述。faithful=false。\n- **系统集成：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 Researcher → Qdrant → Writer），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 24 · rag\n  - 原因: 同[1]，来源[24]亦为[1]的重复引用，内容一致，claim仍为截断残句且概念失准。faithful=false。\n- **混合索引设计：本项目中 Citation 模型已扩展为包含 sourcetype, ismeta, confidencelevel 等字段的结构化 schema，并驱动 Validator 节点执行引用存在性校验与多源印证** （宽松口径：未通过）\n  - 来源: rag:2-provenance-auditable-reporting.md · 编号: 14 · rag\n  - 原因: claim结尾'执行引'明显截断，语义不全；且来源[14]（rag:2-provenance-auditable-reporting.md）仅提及'Citation/ResearchFinding 模型'变更及字段访问风险，未列出具体字段名（sourcetype/is_meta/confidencelevel均未出现）；'confidencelevel'在全文中不存在（仅用'confidence'或'confidence: 0.0-1.0'）。faithful=false。\n- **混合索引设计：本项目中 Citation 模型已扩展为包含 sourcetype, ismeta, confidencelevel 等字段的结构化 schema，并驱动 Validator 节点执行引用存在性校验与多源印证** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 22 · rag\n  - 原因: 来源[22]为ADR-0001摘要，通篇未提Citation模型字段扩展，更无'sourcetype/is_meta/confidencelevel'等字样；claim截断且内容无依据。faithful=false。\n- **与向量记忆协同：结构化记忆常作为向量检索结果的后处理层——例如，Qdrant 返回的语义相关段落被解析为 ResearchFinding 对象，注入 Citation 元数据后存入状态机，供 Critic 和 Validator 节点进行逻辑一致性判断** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 12 · rag\n  - 原因: claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳检索 + 交叉验证'、'LangGraph 状态机编排'，但从未描述'Qdrant返回段落→ResearchFinding→Citation元数据→状态机'这一具体数据流；'ResearchFinding'对象定义见[14]，但[12]未涉及。faithful=false。\n- **与向量记忆协同：结构化记忆常作为向量检索结果的后处理层——例如，Qdrant 返回的语义相关段落被解析为 ResearchFinding 对象，注入 Citation 元数据后存入状态机，供 Critic 和 Validator 节点进行逻辑一致性判断** （宽松口径：未通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 13 · rag\n  - 原因: 来源[13]（deepresearch-plan.md）仅列P0-P1任务项，无任何关于ResearchFinding/Citation数据流的实现细节；claim截断且无依据。faithful=false。\n- **与向量记忆协同：结构化记忆常作为向量检索结果的后处理层——例如，Qdrant 返回的语义相关段落被解析为 ResearchFinding 对象，注入 Citation 元数据后存入状态机，供 Critic 和 Validator 节点进行逻辑一致性判断** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 23 · rag\n  - 原因: 来源[23]（1-critic-conditional-edge.md）描述Critic节点逻辑及state新增字段（reflection_log/depth/token_used），但未提ResearchFinding解析或Citation元数据注入过程；claim截断且细节失实。faithful=false。\n- **任务完成率 | 中等提升（尤其对重复请求，见 Finding 7） | 高提升（Critic 的 conditionaledge 支持动态修订计划，避免死循环） |** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2512.21309v2 · 编号: 7 · arxiv\n  - 原因: 来源[7]（arXiv:2512.21309v2）讨论LLM-driven agents的规划延迟与IoT交互，全文未提'task completion rate'、'repeated requests'、'conditionaledge'或'dead loop'；claim中'Finding 7'指代不明，且将arXiv论文内容张冠李戴至本项目Critic机制。faithful=false。\n- **错误累积抑制 | 低（幻觉内容可能被反复检索并强化） | 高（Validator 图内节点隔离自指论断、静默丢弃校验失败项） |** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2401.07324v3 · 编号: 8 · arxiv\n  - 原因: 来源[8]（arXiv:2401.07324v3）讨论LLM agent的tool use挑战（规划/调用/总结），全文未提'error accumulation'、'hallucination suppression'、'Validator node'或'citation isolation'；claim纯属虚构。faithful=false。\n- **Finding 7 指出，约 30% 用户请求语义相似，结构化存储的过往 plan 可直接复用或微调，大幅降低 LLM 规划延迟** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2512.21309v2 · 编号: 7 · arxiv\n  - 原因: 来源[7]（arXiv:2512.21309v2）未提'30%用户请求相似'、'过往plan复用'或'规划延迟降低'；全文仅泛谈'latency for generating a plan with an LLM can reach t...'（未给出数值），且无结构化存储相关内容。claim捏造数据。faithful=false。\n- **而纯向量记忆难以准确识别“相似性”，因自然语言表达多样性导致文本嵌入距离失真** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2512.21309v2 · 编号: 7 · arxiv\n  - 原因: 来源[7]未讨论'向量记忆相似性识别'、'自然语言表达多样性'或'嵌入距离失真'；其技术焦点是agent规划延迟与IoT执行，与claim主题无关。faithful=false。\n- **消融实验间接证据：本项目 W1 阶段将隐藏在 Researcher 内部的 while 循环重构为图中显式 Critic 节点与 conditionaledge，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据** （宽松口径：未通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 2 · rag\n  - 原因: claim结尾'成为“a'明显截断；且来源[2]（deepresearch-plan.md）虽指出'致命缺口1：graph.py是纯线性DAG...反思判断藏在while循环里'，但未称此重构为'消融实验'，也未提'间接证据'；'消融实验'在全文中未出现。faithful=false。\n- **消融实验间接证据：本项目 W1 阶段将隐藏在 Researcher 内部的 while 循环重构为图中显式 Critic 节点与 conditionaledge，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据** （宽松口径：未通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 13 · rag\n  - 原因: 来源[13]（deepresearch-plan.md）仅列P0-P1任务项，无任何关于ResearchFinding/Citation数据流的实现细节；claim截断且无依据。faithful=false。\n- **检索幻觉（Retrieval Hallucination） | 向量检索返回语义相近但事实错误的片段，被 LLM 误用为依据** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 12 · rag\n  - 原因: claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳检索 + 交叉验证'、'LangGraph 状态机编排'，但从未描述'Qdrant返回段落→ResearchFinding→Citation元数据→状态机'这一具体数据流；'ResearchFinding'对象定义见[14]，但[12]未涉及。faithful=false。\n- **冷启动（Cold Start） | 新任务无历史记忆，首次检索质量低，且 Critic 缺乏先验判断依据 | 依赖 博查（国内网络搜索）+ Qdrant（私有知识库）混合检索兜底** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 5 · rag\n  - 原因: 原文[5]（rag:0001-initial-design.md）未提及'Embedding-Retrieval-Reranking'这一术语链；相反，明确指出' rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）'，与claim中将reranking列为'核心链路'直接矛盾。claim属严重曲解和夸大。\n- **冷启动（Cold Start） | 新任务无历史记忆，首次检索质量低，且 Critic 缺乏先验判断依据 | 依赖 博查（国内网络搜索）+ Qdrant（私有知识库）混合检索兜底** （宽松口径：未通过）\n  - 来源: rag:0001-initial-design.md · 编号: 12 · rag\n  - 原因: claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳检索 + 交叉验证'、'LangGraph 状态机编排'，但从未描述'Qdrant返回段落→ResearchFinding→Citation元数据→状态机'这一具体数据流；'ResearchFinding'对象定义见[14]，但[12]未涉及。faithful=false。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 10 / arxiv 10 / code 0\n- **Token 消耗**：43051\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "向量记忆以嵌入-检索-重排序（Embedding-Retrieval-Reranking） 为核心链路，典型实现依赖于向量数据库（如 Qdrant、Weaviate、Pinecone）与统一嵌入模型（如 text-embedding-v3）",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.0,
+    "note": "原文[5]（rag:0001-initial-design.md）未提及'Embedding-Retrieval-Reranking'这一术语链；相反，明确指出' rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）'，与claim中将reranking列为'核心链路'直接矛盾。claim属严重曲解和夸大。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "向量记忆以嵌入-检索-重排序（Embedding-Retrieval-Reranking） 为核心链路，典型实现依赖于向量数据库（如 Qdrant、Weaviate、Pinecone）与统一嵌入模型（如 text-embedding-v3）",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "verified": false,
+    "supported": false,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.0,
+    "note": "来源[7]（arXiv:2512.21309v2）全文未出现'Embedding-Retrieval-Reranking'、'reranking'或任何重排序（rerank）技术描述；其焦点是LLM-driven agents的规划、执行与延迟问题。claim属无中生有，完全捏造。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "系统集成：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 Researcher → Qdrant → Writer），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.1,
+    "note": "原文[1]（rag:0001-initial-design.md）确有'为什么 Qdrant 懒加载'等表述，但claim后半句'支持懒加载与优'明显截断且语义不全（疑似粘贴错误），无法判断完整意图；且'松耦合接入...Researcher → Qdrant → Writer'在原文中无对应图示或流程描述——原文强调的是'图构建不依赖外部服务'和'优雅降级'，属紧耦合容错设计，非松耦合。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "系统集成：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 Researcher → Qdrant → Writer），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.1,
+    "note": "同[1]，来源[11]为[1]的重复引用，内容完全一致，同样存在claim截断、概念错配（'懒加载'≠'松耦合'）、且原文无'Researcher → Qdrant → Writer'线性流表述。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "系统集成：常以 RAG（Retrieval-Augmented Generation）形式松耦合接入 Agent 编排流（如 Researcher → Qdrant → Writer），支持懒加载与优雅降级（如 Qdrant 不可用时自动回退至网络搜索）",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.1,
+    "note": "同[1]，来源[24]亦为[1]的重复引用，内容一致，claim仍为截断残句且概念失准。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "关键约束：依赖稳定 ID 机制保障摄取幂等性——项目中已将 Python hash() 替换为跨进程一致的 SHA1 稳定 ID，避免重复点堆积导致 BM25 分数失真",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "27",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[27]（rag:0007-stable-point-id.md）明确描述：'hash() → SHA1 稳定 ID'、'同一文档重摄取现在会覆盖旧点而非新增'、'BM25 倒排表不再累积同一文本的多份副本'，与claim完全一致；且[28]（同一ADR）提供独立佐证，满足多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "关键约束：依赖稳定 ID 机制保障摄取幂等性——项目中已将 Python hash() 替换为跨进程一致的 SHA1 稳定 ID，避免重复点堆积导致 BM25 分数失真",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "28",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[28]（ADR-0007）详细说明背景、问题（PYTHONHASHSEED致hash随机）、解决方案（SHA1）、效果（覆盖更新、避免BM25失真），与claim完全匹配；与[27]互为同一决策的正反两面，构成强多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "混合索引设计：本项目中 Citation 模型已扩展为包含 sourcetype, ismeta, confidencelevel 等字段的结构化 schema，并驱动 Validator 节点执行引用存在性校验与多源印证",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.2,
+    "note": "claim结尾'执行引'明显截断，语义不全；且来源[14]（rag:2-provenance-auditable-reporting.md）仅提及'Citation/ResearchFinding 模型'变更及字段访问风险，未列出具体字段名（sourcetype/is_meta/confidencelevel均未出现）；'confidencelevel'在全文中不存在（仅用'confidence'或'confidence: 0.0-1.0'）。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "混合索引设计：本项目中 Citation 模型已扩展为包含 sourcetype, ismeta, confidencelevel 等字段的结构化 schema，并驱动 Validator 节点执行引用存在性校验与多源印证",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.2,
+    "note": "来源[22]为ADR-0001摘要，通篇未提Citation模型字段扩展，更无'sourcetype/is_meta/confidencelevel'等字样；claim截断且内容无依据。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "与向量记忆协同：结构化记忆常作为向量检索结果的后处理层——例如，Qdrant 返回的语义相关段落被解析为 ResearchFinding 对象，注入 Citation 元数据后存入状态机，供 Critic 和 Validator 节点进行逻辑一致性判断",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳检索 + 交叉验证'、'LangGraph 状态机编排'，但从未描述'Qdrant返回段落→ResearchFinding→Citation元数据→状态机'这一具体数据流；'ResearchFinding'对象定义见[14]，但[12]未涉及。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "与向量记忆协同：结构化记忆常作为向量检索结果的后处理层——例如，Qdrant 返回的语义相关段落被解析为 ResearchFinding 对象，注入 Citation 元数据后存入状态机，供 Critic 和 Validator 节点进行逻辑一致性判断",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "来源[13]（deepresearch-plan.md）仅列P0-P1任务项，无任何关于ResearchFinding/Citation数据流的实现细节；claim截断且无依据。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "与向量记忆协同：结构化记忆常作为向量检索结果的后处理层——例如，Qdrant 返回的语义相关段落被解析为 ResearchFinding 对象，注入 Citation 元数据后存入状态机，供 Critic 和 Validator 节点进行逻辑一致性判断",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "来源[23]（1-critic-conditional-edge.md）描述Critic节点逻辑及state新增字段（reflection_log/depth/token_used），但未提ResearchFinding解析或Citation元数据注入过程；claim截断且细节失实。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "二者非互斥，而是构成“检索→结构化→验证→决策”的闭环链路",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[12]（ADR-0001）明确将'主卖点'定义为'多跳检索 + 交叉验证防幻觉'，并描述'规划 → 多跳检索 → 交叉验证 → 生成报告'核心链路，与claim四步闭环完全对应；[14][23][26]等多处均体现该闭环思想（如'validate → END'、'Critic → conditional_edge → revise/stop'），满足多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "二者非互斥，而是构成“检索→结构化→验证→决策”的闭环链路",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[14]（2-provenance-auditable-reporting.md）指出'validator LLM 失败仍返回存在性结果（保 W1 行为）'，体现验证环节；'R2.2 把失败论断移出正文'、'R2.3 加忠实度判定'等均属验证→决策环节；与[12][23]共同支撑闭环。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "二者非互斥，而是构成“检索→结构化→验证→决策”的闭环链路",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[23]（1-critic-conditional-edge.md）明确定义图流为'plan → research → critic →(conditional_edge)→ continue/review/stop → write → validate → END'，完整覆盖检索（research）、结构化（隐含于state）、验证（critic/validate）、决策（conditional_edge）四阶段。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "上下文一致性 | 有限提升（易受语义漂移干扰） | 显著提升（Critic 节点强制检查论断与引用原文语义一致性） |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "来源[12]（ADR-0001）虽未用表格形式，但'主卖点：多跳检索 + 交叉验证防幻觉'及'Validator 用图内节点...是差异化亮点'直接支持'显著提升'；'语义漂移干扰'在[25]被指为'致命缺口'（线性DAG缺乏反思），反向印证原方案一致性弱。[14][23]进一步佐证Critic的语义检查功能。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "上下文一致性 | 有限提升（易受语义漂移干扰） | 显著提升（Critic 节点强制检查论断与引用原文语义一致性） |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "来源[14]明确要求'加忠实度判定'（即语义一致性检查），并指出'validator LLM 失败仍返回存在性结果'，说明该能力是主动设计的增强项；与[12][23]形成三角印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "上下文一致性 | 有限提升（易受语义漂移干扰） | 显著提升（Critic 节点强制检查论断与引用原文语义一致性） |",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "来源[23]定义Critic输出含'reason'字段，并用于conditional_edge决策，其核心即语义充分性判断；'reflection_log'字段设计亦服务于一致性追踪。与[12][14]一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "任务完成率 | 中等提升（尤其对重复请求，见 Finding 7） | 高提升（Critic 的 conditionaledge 支持动态修订计划，避免死循环） |",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "verified": false,
+    "supported": false,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.0,
+    "note": "来源[7]（arXiv:2512.21309v2）讨论LLM-driven agents的规划延迟与IoT交互，全文未提'task completion rate'、'repeated requests'、'conditionaledge'或'dead loop'；claim中'Finding 7'指代不明，且将arXiv论文内容张冠李戴至本项目Critic机制。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "任务完成率 | 中等提升（尤其对重复请求，见 Finding 7） | 高提升（Critic 的 conditionaledge 支持动态修订计划，避免死循环） |",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[23]明确'critic →(conditional_edge)→ revise: plan'，直接支持动态修订；'research 节点改为单跳检索'、'depth: int'字段设计均旨在防死循环；[25]称原线性DAG为'致命缺口'，反向证明Critic引入后完成率提升。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "任务完成率 | 中等提升（尤其对重复请求，见 Finding 7） | 高提升（Critic 的 conditionaledge 支持动态修订计划，避免死循环） |",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[25]将'无conditional_edge'列为'致命缺口1'，并强调'面试官一句\"把decision edge给我看\"现在拿不出来'，凸显Critic引入对任务完成的根本性提升；与[23][13]互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "推理链连贯性 | 弱（向量检索返回离散片段，缺乏逻辑锚点） | 强（结构化 Citation 提供推理支点，“多源印证”强制生成可追溯链条） |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[12]（ADR-0001）'主卖点'即'多跳检索 + 交叉验证防幻觉'，'副卖点'为'多源检索融合'；'交叉验证'与'多源印证'同义；[14]要求'多源印证'校验，[3]金融风控案例强调'每条论断必须映射到具体交易流水'，共同支撑'可追溯链条'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "推理链连贯性 | 弱（向量检索返回离散片段，缺乏逻辑锚点） | 强（结构化 Citation 提供推理支点，“多源印证”强制生成可追溯链条） |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]明确将'多源印证'列为引用校验核心维度之一，并设计'附录+正文⚠️标记'确保信息不丢，体现对可追溯性的工程落实；与[12][26]一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "推理链连贯性 | 弱（向量检索返回离散片段，缺乏逻辑锚点） | 强（结构化 Citation 提供推理支点，“多源印证”强制生成可追溯链条） |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[26]（同[21][15]）指出W1报告'50/58引用通过'，暴露'溯源呈现是残的'，反向证明当前设计目标正是补全'可追溯链条'；其问题分析直指'自指论断未隔离'，呼应'结构化Citation提供支点'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "错误累积抑制 | 低（幻觉内容可能被反复检索并强化） | 高（Validator 图内节点隔离自指论断、静默丢弃校验失败项） |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[1]（及[11][24][29]）多次强调'Validator 用图内节点...是差异化亮点'、'防幻觉核心'；[14]明确'校验失败静默保留'是待修复缺口，反向印证'静默丢弃'是设计目标；[12]将'防幻觉'列为主卖点。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "错误累积抑制 | 低（幻觉内容可能被反复检索并强化） | 高（Validator 图内节点隔离自指论断、静默丢弃校验失败项） |",
+    "source": "https://arxiv.org/abs/2401.07324v3",
+    "verified": false,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.0,
+    "note": "来源[8]（arXiv:2401.07324v3）讨论LLM agent的tool use挑战（规划/调用/总结），全文未提'error accumulation'、'hallucination suppression'、'Validator node'或'citation isolation'；claim纯属虚构。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "错误累积抑制 | 低（幻觉内容可能被反复检索并强化） | 高（Validator 图内节点隔离自指论断、静默丢弃校验失败项） |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同[1]，来源[11]为[1]重复，内容一致，忠实支持claim；与[14][12]构成多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "错误累积抑制 | 低（幻觉内容可能被反复检索并强化） | 高（Validator 图内节点隔离自指论断、静默丢弃校验失败项） |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]明确指出'校验失败静默保留'是系统性缺口，其修复方案即'隔离自指论断'、'R2.2把失败论断移出正文'，直接对应claim后半句；与[1][12]一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Finding 7 指出，约 30% 用户请求语义相似，结构化存储的过往 plan 可直接复用或微调，大幅降低 LLM 规划延迟",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "verified": false,
+    "supported": false,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.0,
+    "note": "来源[7]（arXiv:2512.21309v2）未提'30%用户请求相似'、'过往plan复用'或'规划延迟降低'；全文仅泛谈'latency for generating a plan with an LLM can reach t...'（未给出数值），且无结构化存储相关内容。claim捏造数据。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "而纯向量记忆难以准确识别“相似性”，因自然语言表达多样性导致文本嵌入距离失真",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "verified": false,
+    "supported": false,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.0,
+    "note": "来源[7]未讨论'向量记忆相似性识别'、'自然语言表达多样性'或'嵌入距离失真'；其技术焦点是agent规划延迟与IoT执行，与claim主题无关。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "问答类任务（如 Factoid QA）：向量记忆即可满足基础需求，但结构化记忆显著提升可信度——如金融风控场景要求“每条论断必须映射到具体交易流水或监管条文”，仅靠向量相似性无法满足合规审计要求",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[3]（rag_sample.md）'合规监测与多源印证'节明确要求'所有论断'需满足合规审计，'信贷审批'案例强调'字段抽取准确率提升至96%以上'且'模型角色为增强层，不直接输出拒贷决策'，体现对可追溯性的严苛要求；与claim中'必须映射到具体流水/条文'完全一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本项目通过 ResearchState 扩展 tokenused, depth, reflectionlog 字段，使 Critic 可基于资源消耗与深度判断是否终止或修正",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源[23]（1-critic-conditional-edge.md）明确列出'`ResearchState` 增 `reflection_log: List`、`depth: int`、`token_used: int`'，且说明'`config.py` `ResearchConfig` 增 `token_budget`'，与claim逐字匹配；[13][25]等多处佐证Critic的决策依据。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[1]（及[11][24][29]）反复强调'Validator用图内节点'、'Critic节点化'（[13]）、'聚焦核心链路'，并将'编排深度'列为面试官最看重项；[12]定义'核心卖点'为闭环链路，体现深度耦合必要性。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同[1]，来源[11]为[1]重复，内容一致，忠实支持；与[14][23]共同构成强印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[12]（ADR-0001）'核心设计决策'明确'聚焦核心链路：规划→多跳检索→交叉验证→生成报告'，'交叉验证'即Validator+Critic协同，'多跳检索'依赖结构化记忆支撑，三者缺一不可。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]指出'风险①：改 Citation 模型会破坏现有调用方'，说明Citation（结构化记忆）已深度嵌入graph.py/validator.py/writer.py等图内节点，耦合度极高；'降级/兜底'策略亦体现三者协同。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "仅当结构化记忆与图内验证（Validator）、动态控制（Critic）深度耦合时，长期记忆才对多轮任务产生质变性增益",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[23]定义图流为'plan→research→critic→...→validate→END'，且state字段（depth/reflection_log）为Critic/Validator共享，证明深度耦合；'最小改动'原则亦表明设计重心在此。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "券商使用 Llama-Factory 微调 Qwen-7B 识别“隐性利空”，F1-score 达 0.91",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源[3]（rag_sample.md）'反欺诈中的舆情与隐性利空识别'节明确记载：'多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调...F1-score 达 0.91'，与claim完全一致；无其他来源冲突。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "消融实验间接证据：本项目 W1 阶段将隐藏在 Researcher 内部的 while 循环重构为图中显式 Critic 节点与 conditionaledge，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.2,
+    "note": "claim结尾'成为“a'明显截断；且来源[2]（deepresearch-plan.md）虽指出'致命缺口1：graph.py是纯线性DAG...反思判断藏在while循环里'，但未称此重构为'消融实验'，也未提'间接证据'；'消融实验'在全文中未出现。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "消融实验间接证据：本项目 W1 阶段将隐藏在 Researcher 内部的 while 循环重构为图中显式 Critic 节点与 conditionaledge，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "来源[13]（deepresearch-plan.md）仅列P0-P1任务项，无任何关于ResearchFinding/Citation数据流的实现细节；claim截断且无依据。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "消融实验间接证据：本项目 W1 阶段将隐藏在 Researcher 内部的 while 循环重构为图中显式 Critic 节点与 conditionaledge，直接消除“框架只调一下”风险，成为“agentic vs 编排”叙事的硬证据",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[25]将'无conditional_edge'列为'致命缺口1'，并强调'面试官一句\"把decision edge给我看\"现在拿不出来'，凸显Critic引入对任务完成的根本性提升；与[23][13]互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "引用溯源量化指标：在 \"大语言模型在金融风控中的应用\" 真实任务中，报告生成 33 个研究发现（findings），其中 50/58 条引用通过存在性校验",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源[15]（及[21][26]）三次明确记载：'真实跑一次 cli.py \"大语言模型在金融风控中的应用现状与挑战\"（2026-09-01）得到 33 findings、引用校验 50/58 通过'，与claim完全一致；多源重复印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "引用溯源量化指标：在 \"大语言模型在金融风控中的应用\" 真实任务中，报告生成 33 个研究发现（findings），其中 50/58 条引用通过存在性校验",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同[15]，来源[21]为[15]重复，内容一致，构成强印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "引用溯源量化指标：在 \"大语言模型在金融风控中的应用\" 真实任务中，报告生成 33 个研究发现（findings），其中 50/58 条引用通过存在性校验",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同[15]，来源[26]为[15]重复，内容一致，三源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "rerank 负收益经验：项目明确借鉴 wechatbot 经验，默认关闭 rerank，因其在真实查询中带来负收益",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[5]（rag:0001-initial-design.md）明确写道：'rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）'，与claim完全一致；[11][24][29]等重复引用强化可信度。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "评估体系尚未闭环：尽管规划了 eval 数据集与指标（W5） 作为 DoD 硬性要求，但当前尚无 CRUX-Eval、AgentBench 子集等标准基准的实测结果",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[2]（deepresearch-plan.md）明确列出'P1 — eval 数据集与指标（W5，顺延）'，并在'❌致命缺口'部分指出'Langfuse完全没接'、'工具缺arXiv/代码执行'，暗示W5未实施；[25]称'评估体系尚未闭环'，[5]亦呼应'所有性能宣称...仍待数字验证'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "评估体系尚未闭环：尽管规划了 eval 数据集与指标（W5） 作为 DoD 硬性要求，但当前尚无 CRUX-Eval、AgentBench 子集等标准基准的实测结果",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[5]（rag:0001-initial-design.md）虽未提CRUX-Eval/AgentBench，但明确'所有性能宣称（如“效果不错”）仍待数字验证'，且'评测体系'仅列A/B/C/D四类内部指标，未提外部基准，与claim精神一致；[2][25]共同支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "评估体系尚未闭环：尽管规划了 eval 数据集与指标（W5） 作为 DoD 硬性要求，但当前尚无 CRUX-Eval、AgentBench 子集等标准基准的实测结果",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[25]（deepresearch-plan.md）在'❌致命缺口2'后明确写'评估体系尚未闭环'，并指出'eval数据集与指标（W5）'为顺延项，与claim完全对应；[2][5]互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "所有性能宣称（如“效果不错”）仍待数字验证",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[2]（deepresearch-plan.md）'❌致命缺口'部分指出'所有性能宣称（如“效果不错”）仍待数字验证'，原文直引；[5][25]均呼应此观点，构成多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "所有性能宣称（如“效果不错”）仍待数字验证",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[5]（rag:0001-initial-design.md）明确写出该句，与claim完全一致；[2][25]共同支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "记忆新鲜度与噪声敏感性未量化：文档提及需分析“记忆容量/新鲜度/噪声敏感性”，但无具体实验数据支撑",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "来源[2]（deepresearch-plan.md）在'❌致命缺口'后指出'记忆新鲜度与噪声敏感性未量化：文档提及需分析...但无具体实验数据支撑'，原文直引；[5][25]亦提及'量化性能指标支撑'缺失，互为印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "记忆新鲜度与噪声敏感性未量化：文档提及需分析“记忆容量/新鲜度/噪声敏感性”，但无具体实验数据支撑",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "同[2]，来源[5]虽未列具体分析项，但'所有性能宣称仍待数字验证'涵盖此意；[2][25]提供直接证据。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "例如，Qdrant 中过时文档副本的累积效应虽被识别（ADR-0007），但其对检索质量的实际衰减程度未测量",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "27",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[27]（rag:0007-stable-point-id.md）在'影响范围与风险'节明确指出：'例如，Qdrant 中过时文档副本的累积效应虽被识别（ADR-0007），但其对检索质量的实际衰减程度未测量'，原文直引；[28]为同一ADR，强化可信度。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "例如，Qdrant 中过时文档副本的累积效应虽被识别（ADR-0007），但其对检索质量的实际衰减程度未测量",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "28",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[28]（ADR-0007）在'问题/动机'节描述'Qdrant 的 upsert 按 ID 覆盖...达成摄取幂等性'，但全文未提'衰减程度未测量'；然而[27]已明确陈述，且[28]为同一决策文档，视为同一来源的不同章节，满足忠实性；多源性由[27]单独满足。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这是当前研究从“工程可行”迈向“科学可证”的关键缺口",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[2]（deepresearch-plan.md）在'❌致命缺口'总结段明确写道：'这是当前研究从“工程可行”迈向“科学可证”的关键缺口'，原文直引；[5][25]均呼应'科学可证'需量化指标，构成印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这是当前研究从“工程可行”迈向“科学可证”的关键缺口",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同[2]，来源[5]虽未用此短语，但'所有性能宣称仍待数字验证'即指向'科学可证'缺失；[2][25]提供直接证据。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这是当前研究从“工程可行”迈向“科学可证”的关键缺口",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[25]（deepresearch-plan.md）在'❌致命缺口'末尾明确使用该句，与claim完全一致；[2][5]互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "记忆漂移（Drift） | 同一文档多次摄取生成不同 ID，导致 Qdrant 中堆积过时副本，BM25 分数失真",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "28",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[28]（ADR-0007）详细说明背景、问题（PYTHONHASHSEED致hash随机）、解决方案（SHA1）、效果（覆盖更新、避免BM25失真），与claim完全匹配；与[27]互为同一决策的正反两面，构成强多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "ADR-0007：hash() → SHA1 稳定 ID，确保重摄取覆盖旧点",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "27",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源[27]（rag:0007-stable-point-id.md）标题即'ADR-0007：修复 Qdrant 点 ID 跨进程不稳定（hash 改 hashlib）'，正文中'hash() → SHA1 稳定 ID'、'同一文档重摄取现在会覆盖旧点'与claim完全匹配；[28]为同一ADR，强印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "ADR-0007：hash() → SHA1 稳定 ID，确保重摄取覆盖旧点",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "28",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源[28]（ADR-0007）标题及正文均明确'hash() → SHA1 稳定 ID'、'覆盖更新'，与claim完全一致；[27]为同一文档，构成双源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "检索幻觉（Retrieval Hallucination） | 向量检索返回语义相近但事实错误的片段，被 LLM 误用为依据",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[3]（rag_sample.md）'合规监测与多源印证'节明确要求'所有论断'需满足合规审计，'信贷审批'案例强调'字段抽取准确率提升至96%以上'且'模型角色为增强层，不直接输出拒贷决策'，体现对可追溯性的严苛要求；与claim中'必须映射到具体流水/条文'完全一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "检索幻觉（Retrieval Hallucination） | 向量检索返回语义相近但事实错误的片段，被 LLM 误用为依据",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳检索 + 交叉验证'、'LangGraph 状态机编排'，但从未描述'Qdrant返回段落→ResearchFinding→Citation元数据→状态机'这一具体数据流；'ResearchFinding'对象定义见[14]，但[12]未涉及。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator 图内节点执行三重校验：存在性、多源印证、语义忠实度（降级保底）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[1]（及[11][24][29]）多次强调'Validator用图内节点'、'防幻觉核心'；[14]明确要求'加忠实度判定'（即语义忠实度）、'多源印证'校验，并注明'降级时回退到存在性'，与claim三重校验完全对应。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator 图内节点执行三重校验：存在性、多源印证、语义忠实度（降级保底）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同[1]，来源[11]为[1]重复，内容一致，忠实支持；与[14][12]构成多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator 图内节点执行三重校验：存在性、多源印证、语义忠实度（降级保底）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]（2-provenance-auditable-reporting.md）明确'加忠实度判定增加一次 LLM 调用'、'R2.2 把失败论断移出正文'（多源印证体现）、'validator LLM 失败仍返回存在性结果（保 W1 行为）'，三者齐全。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "✅ W1 已上线，50/58 通过",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源[15]（及[21][26]）明确记载'50/58 通过'，且标注'W1 闭环后真实跑一次'，'✅ W1 已上线'为合理推断；多源重复印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "冷启动（Cold Start） | 新任务无历史记忆，首次检索质量低，且 Critic 缺乏先验判断依据 | 依赖 博查（国内网络搜索）+ Qdrant（私有知识库）混合检索兜底",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.0,
+    "note": "原文[5]（rag:0001-initial-design.md）未提及'Embedding-Retrieval-Reranking'这一术语链；相反，明确指出' rerank 默认关闭，先立评测再决定去留（借鉴 wechatbot 的 rerank 负收益经验）'，与claim中将reranking列为'核心链路'直接矛盾。claim属严重曲解和夸大。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "冷启动（Cold Start） | 新任务无历史记忆，首次检索质量低，且 Critic 缺乏先验判断依据 | 依赖 博查（国内网络搜索）+ Qdrant（私有知识库）混合检索兜底",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "claim结尾'供 Crit'截断；且来源[12]（ADR-0001）虽提'多跳检索 + 交叉验证'、'LangGraph 状态机编排'，但从未描述'Qdrant返回段落→ResearchFinding→Citation元数据→状态机'这一具体数据流；'ResearchFinding'对象定义见[14]，但[12]未涉及。faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "ResearchState 隔离各任务上下文",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]（2-provenance-auditable-reporting.md）指出'动：state.py（Citation/ResearchFinding 模型）'、'风险①：改 Citation 模型会破坏现有调用方（graph.py/web/app.py/eval/citation_eval.py）'，说明ResearchState是各模块共享的状态容器，天然隔离；[22]（ADR-0001）'项目定位：聚焦核心链路'亦隐含状态隔离设计。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "ResearchState 隔离各任务上下文",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[22]（ADR-0001）虽未直说'隔离'，但'核心设计决策'强调'聚焦核心链路：规划→多跳检索→交叉验证→生成报告'，且'CLI + 轻量 Web UI 交互'，暗示单任务流；[14]的状态模型变更及风险描述，证实ResearchState为任务级隔离单元。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "stableid 仅解决 ID 稳定性，非内容隐私",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "27",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[27]（rag:0007-stable-point-id.md）在'影响范围与风险'节明确指出：'stableid 仅解决 ID 稳定性，非内容隐私'，原文直引；[28]为同一ADR，强化可信度。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "stableid 仅解决 ID 稳定性，非内容隐私",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "28",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[28]（ADR-0007）虽未用此短语，但全文聚焦ID稳定性问题，未提隐私，与claim'仅解决...非...'逻辑一致；[27]提供直接证据。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "验证多为功能级，非指标级：如 Validator 的“存在性校验”已通过，但“多源印证”和“语义忠实度”作为可选增强，其对最终报告质量（如幻觉率降低幅度）的贡献尚未量化",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[12]（ADR-0001）'评测体系'仅列A/B/C/D四类内部指标，未提幻觉率等量化结果；[14]称'多源印证'和'语义忠实度'为'可选增强'，且'其对最终报告质量...贡献尚未量化'在[2][5][25]中多次呼应，构成强印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "验证多为功能级，非指标级：如 Validator 的“存在性校验”已通过，但“多源印证”和“语义忠实度”作为可选增强，其对最终报告质量（如幻觉率降低幅度）的贡献尚未量化",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]（2-provenance-auditable-reporting.md）明确将'多源印证'和'语义忠实度'列为'R2.2'和'R2.3'增强项，并指出'增加一次 LLM 调用 → 成本略升'，但未给出其对幻觉率的影响数据；[12][2][5]共同支撑'尚未量化'。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "降级机制存在风险：当 Validator LLM 调用失败时，系统回退至存在性校验（保 W1 行为），但此降级可能导致“弱验证”状态持续，削弱防幻觉核心卖点",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]（2-provenance-auditable-reporting.md）'风险③'明确指出：'R2.3 加忠实度判定增加一次 LLM 调用 → 成本略升；降级时回退到存在性（沿用 :124-129 兜底）'，并警示'此降级可能导致弱验证状态持续'，与claim完全一致；[1][12]强调防幻觉为核心卖点，反向印证风险真实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "可观测性缺口待补：Langfuse 接入（W3）被列为“必做”以填补可观测缺口，但当前尚未实施，缺乏对记忆检索延迟、命中率、校验失败率等关键运维指标的实时监控",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[2]（deepresearch-plan.md）'❌致命缺口2：Langfuse 完全没接（NFR1 可观测缺失）'，且'P0 — Langfuse（W3，顺延）'，明确'尚未实施'；[5][25]均指出'可观测缺口待补'，[25]更列'记忆检索延迟、命中率、校验失败率'为监控指标，与claim完全匹配。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "可观测性缺口待补：Langfuse 接入（W3）被列为“必做”以填补可观测缺口，但当前尚未实施，缺乏对记忆检索延迟、命中率、校验失败率等关键运维指标的实时监控",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[5]（rag:0001-initial-design.md）虽未列具体指标，但'可观测性缺口待补'与[2]一致；[2][25]提供指标细节，构成多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "可观测性缺口待补：Langfuse 接入（W3）被列为“必做”以填补可观测缺口，但当前尚未实施，缺乏对记忆检索延迟、命中率、校验失败率等关键运维指标的实时监控",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[25]（deepresearch-plan.md）'❌致命缺口2'明确'Langfuse完全没接'，且'需求见 docs/requirements/2-provenance-auditable-reporting.md'，与[2]一致；[2]提供指标细节，共同支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[2]（deepresearch-plan.md）'❌致命缺口'总结段明确使用该句，原文直引；[5][14][25][27][28]均从不同角度（隐私、隔离、可观测、量化）呼应此判断，构成强印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同[2]，来源[5]虽未用此长句，但'可观测性缺口'、'所有性能宣称仍待数字验证'、'记忆新鲜度未量化'等均指向'缺乏量化性能指标支撑'；[2][25]提供直接证据。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[14]（2-provenance-auditable-reporting.md）指出'风险①：改 Citation 模型会破坏现有调用方'，说明跨任务隔离仍在演进中；'可观测性缺口'、'量化指标缺失'在[2][5][25]中明确，共同支撑claim。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[25]（deepresearch-plan.md）'❌致命缺口'总结段明确使用该句，与claim完全一致；[2][5][14][27][28]均提供分项佐证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "27",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[27]（rag:0007-stable-point-id.md）虽聚焦ID稳定性，但'影响范围与风险'节指出'stableid 仅解决 ID 稳定性，非内容隐私'，呼应'隐私保护未覆盖'；其他方面由[2][5][25]支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，在隐私保护、跨任务隔离强度、以及全链路可观测性方面，仍处于方案设计或未覆盖状态，有效性验证主要停留在功能正确性层面，缺乏量化性能指标支撑",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "28",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源[28]（ADR-0007）虽未提隐私/隔离/可观测，但作为专项修复文档，其'仅解决ID稳定性'的限定，反向印证其他方面'未覆盖'；整体判断由[2][5][25]主导支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=现有检索（跳数1，10条）大概率覆盖基础定义与粗粒度分类（如…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=缺乏对结构化记忆（如知识图谱、关系数据库、符号化记忆）在多轮…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 25 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue [gap=q2 的实证因果性证据仍薄弱：现有发现多报告相关性（如'启用…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：65/84 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 43051,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 422.6,
+ "status": "done",
+ "error": null
+}

@@ -1,0 +1,167 @@
+{
+ "q_id": "q_009",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4043,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 41,
+   "verified": 21,
+   "verified_relaxed": 25,
+   "existence_rate": 0.878,
+   "fidelity_rate": 0.5833,
+   "relaxed_rate": 0.6944,
+   "by_source_type": {
+    "unknown": {
+     "total": 5,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    },
+    "rag": {
+     "total": 32,
+     "verified": 17,
+     "verified_relaxed": 21,
+     "existence": 32
+    },
+    "code_exec": {
+     "total": 4,
+     "verified": 4,
+     "verified_relaxed": 4,
+     "existence": 4
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 5,
+    "claim 截断不完整，仅为不闭合的 Markdown 列表项开头（'> - '": 1,
+    "claim 以孤立右括号'）'开头，语法残缺，无主语、无谓语，无法构成可验证论断": 1,
+    "claim 截断为'F1-sco'，缺失关键数值'0.91'及比较结论（'显著优": 2,
+    "同上，claim 截断为'F1-sco'，而 source [8] 完整原文为'": 2,
+    "claim 声称 source [3] '明确'写出'显著优于原有 BERT 类": 1,
+    "同上，source [8] 同样存在句末截断（'F1-score 达 0.91，": 1,
+    "claim 截断为'（La'，明显不完整（应为'（LangGraph）'或类似）": 1,
+    "同上，claim 截断，但主干流程在 source [9]（rag:1-crit": 1,
+    "同上，source [12]（rag:deepresearch-plan.md）": 1,
+    "同上，source [21]（rag:deepresearch-plan.md）": 1,
+    "claim 截断为'（如'，无后续示例，无法验证；source [5] 确实定义": 1,
+    "source [3] 是 RAG 样例文档（金融风控应用），全文无任何关于'自指": 1,
+    "同上，source [8] 与 [3] 内容完全一致，同为 RAG 样例文档，不": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "少样本提示在小模型（如<1B参数）上的推理任务（如逻辑推理、数学推理）中效果如何？有哪些典型实证研究及量化结果？",
+     "covered": false,
+     "reason": "检索到的研究发现全部围绕大语言模型在金融风控中的应用（如信贷审批、反欺诈）、系统工程实践（如Citation模型变更、Critic节点设计、Qdrant集成、RAG验证）以及项目管理决策（如W1/W2优先级、成本模型选择），未包含任何关于小模型（<1B参数）、少样本提示（few-shot prompting）、逻辑/数学推理任务的实证研究、性能数据或量化结果。"
+    },
+    {
+     "subquestion": "参数高效微调（如LoRA、Adapter、Prefix-tuning）应用于小模型时，在相同推理任务上的性能提升幅度、训练成本与泛化性表现如何？",
+     "covered": false,
+     "reason": "检索内容中未提及LoRA、Adapter、Prefix-tuning等参数高效微调（PEFT）方法，也未涉及小模型微调实验、训练成本对比（如GPU小时、显存占用）、性能提升幅度（如准确率增量）或泛化性评估（如跨数据集迁移结果）。所有技术讨论均聚焦于金融场景部署、系统架构与验证流程，而非模型优化方法论。"
+    },
+    {
+     "subquestion": "是否存在直接对比少样本提示与PEFT在同一个小模型、同一推理数据集上的控制实验？其结果差异是否具有统计显著性？其结论与关键影响因素（如模型规模/数据量）是什么？",
+     "covered": false,
+     "reason": "检索结果中完全缺失此类控制实验：既无‘同一小模型+同一推理数据集’的设定，也无少样本提示与PEFT的并列对比，更无统计显著性检验（如p值、置信区间）或对模型规模、数据量等影响因素的分析。所有内容与该子问题的研究范式和核心要素无关。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 9,
+   "hit": 2,
+   "retrieval_hit_rate": 0.2222,
+   "matched_by": {
+    "keyword": 2,
+    "semantic": 0,
+    "miss": 7
+   },
+   "per_keyword": [
+    {
+     "keyword": "少样本提示",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "参数高效微调",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "PEFT",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "LoRA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "小模型",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理能力",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "逻辑推理",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "数学推理",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "对比实验",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 26989,
+   "total_cost": 0.0378,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

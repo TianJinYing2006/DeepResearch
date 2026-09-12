@@ -1,0 +1,163 @@
+{
+ "q_id": "q_010",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7325,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 40,
+   "verified": 21,
+   "verified_relaxed": 21,
+   "existence_rate": 0.9,
+   "fidelity_rate": 0.5833,
+   "relaxed_rate": 0.5833,
+   "by_source_type": {
+    "rag": {
+     "total": 35,
+     "verified": 21,
+     "verified_relaxed": 21,
+     "existence": 35
+    },
+    "unknown": {
+     "total": 4,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    },
+    "arxiv": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 1
+    }
+   },
+   "failed_note_distribution": {
+    "原文未提供任何具体数值（如2300–2600 tokens）、统计依据或实测数据": 2,
+    "原文 rag:0001-initial-design.md 明确使用 'Qdra": 1,
+    "claim 截断不完整（'可结合'后无宾语），语义残缺，无法判断所指；且原文 [": 1,
+    "claim 截断不完整（'该范围与'后无内容），语义缺失；原文 [1] 中无此表": 1,
+    "rag:0005-multi-number-citation-split.md ": 1,
+    "来源不存在于研究发现（编号越界或来源未命中）": 4,
+    "rag:deepresearch-plan.md 写'模型：默认使用Qwen'、": 1,
+    "rag:0001-initial-design.md 写'阿里云百炼Qwen（q": 1,
+    "claim 截断不完整（'与'后无内容），语义缺失；source [10] 中无": 1,
+    "同上，截断且 source [11] 中无此表述。": 1,
+    "rag:2-provenance-auditable-reporting.md ": 1,
+    "claim 截断且虚构：rag:deepresearch-plan.md 未提 ": 1,
+    "claim 截断且矛盾：rag:0001-initial-design.md 明": 1,
+    "claim 截断且 source [5]（arxiv:2503.09202v1）": 1,
+    "claim 截断；rag:deepresearch-plan.md 未出现'4.": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 3,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "单份2000字中文文档经主流中文嵌入模型（如bge-zh、m3e）向量化后产生的token数及对应API调用成本（含输入/输出）",
+     "covered": false,
+     "reason": "所有检索结果均未提及具体嵌入模型（如bge-zh、m3e）的token映射关系、输入/输出token计数、或API调用单价；仅泛泛提及'向量化'和'token成本'，但无模型级细节、无实测或估算数据（如2000字→多少input tokens、embedding维度隐含的output token等），也未区分不同模型差异。"
+    },
+    {
+     "subquestion": "在1万份文档构成的向量库中，执行单次语义检索（Top-K=5）的平均墙钟延迟（含向量查询生成、相似度计算、结果排序），考虑不同向量数据库（如Milvus、Qdrant、FAISS）的典型性能",
+     "covered": false,
+     "reason": "虽多次提到'1万份文档'和'墙钟延迟'，但所有摘要均未提供任何实测或基准延迟数值（如ms/s）、未分解各阶段耗时（查询生成/相似度计算/排序）、未对比Milvus/Qdrant/FAISS等不同向量库的性能差异；唯一提及Qdrant是作为技术栈组件，无性能数据支撑。"
+    },
+    {
+     "subquestion": "RAG系统单轮完整流程（文档分块→嵌入→存储→查询嵌入→检索→上下文拼接）的端到端token消耗构成（含分块提示、嵌入输入、检索后prompt组装）",
+     "covered": false,
+     "reason": "摘要反复强调'token成本'和'端到端'，但从未拆解各环节的token消耗：未说明分块使用的提示模板及token开销、未给出嵌入输入的具体长度（如2000字经jieba后多少token）、未量化检索后context拼接的prompt模板长度（如system/user message模板）、也未区分LLM调用与嵌入调用的token归属。所有描述均为笼统断言，无构成性数据。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 4,
+   "retrieval_hit_rate": 0.5,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "RAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "向量化",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "语义检索",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "token成本",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "墙钟延迟",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "bge-zh",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Milvus",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "FAISS",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 35834,
+   "total_cost": 0.0502,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

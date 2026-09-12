@@ -1,0 +1,160 @@
+{
+ "q_id": "q_014",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5408,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 30,
+   "verified": 6,
+   "verified_relaxed": 6,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.2,
+   "relaxed_rate": 0.2,
+   "by_source_type": {
+    "arxiv": {
+     "total": 26,
+     "verified": 5,
+     "verified_relaxed": 5,
+     "existence": 26
+    },
+    "rag": {
+     "total": 4,
+     "verified": 1,
+     "verified_relaxed": 1,
+     "existence": 4
+    }
+   },
+   "failed_note_distribution": {
+    "来源[5]（arXiv:2511.05578v1）摘要仅提及子词分词中代码点 v": 3,
+    "来源[7]（arXiv:2010.03090v5）摘要仅提及UTF-8存储、SI": 3,
+    "来源[13]（arXiv:2507.06543v2）摘要明确给出三类分词方式下的": 6,
+    "来源[10]（rag:rag_sample.md）摘要仅描述金融风控应用案例（Q": 2,
+    "来源[5]摘要未提'中英混排'或'3,600字'。其讨论的是UTF-8编码方案选": 1,
+    "来源[7]摘要仅提SIMD UTF-8验证加速，**未涉及混排场景或任何字符数估": 1,
+    "来源[13]摘要给出三类分词的纯中文字符数（2,000–2,500；1,000–": 1,
+    "来源[20]（arXiv:2609.00378v1）摘要讨论印欧语系token冗": 2,
+    "来源[19]（arXiv:2608.26449v1）摘要聚焦音节文字（如泰语、藏": 1,
+    "来源[14]（arXiv:2503.09202v1）摘要仅提'通过非均匀损失权重": 1,
+    "来源[1]（rag:0007-stable-point-id.md）摘要明确：'": 1,
+    "来源[13]摘要给出BPE分词下'500–800个汉字'，字符级'2,000–2": 1,
+    "该claim描述DeepResearch系统内部工作流（Writer节点行为），": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "8k token 在中文文本中对应多少字符（以 UTF-8 编码下的字节长度为基准）？",
+     "covered": false,
+     "reason": "所有检索结果均未提供 UTF-8 字节长度与 8k token 的定量映射关系；虽多次提及 UTF-8 编码（如 'UTF-8 验证'、'字节级分词'、'UTF8Tokenizer'），但未给出 '1 token ≈ X 字节' 或 '8k token ≈ Y UTF-8 字节' 的估算，也未说明中文字符在 UTF-8 下平均字节数（如常用汉字为 3 字节）并据此换算。因此无法回答该子问题。"
+    },
+    {
+     "subquestion": "使用 BPE 分词（如 LLaMA、ChatGLM 所用）时，8k token 大致覆盖多少常用中文字符？",
+     "covered": true,
+     "reason": "最后一条摘要明确指出：'按子词（如BPE）分割时则约为500-800个汉字'。LLaMA 和 ChatGLM 均采用 BPE 或其变体（如 ChatGLM 的 GLM-BPE），且'汉字'在此上下文中即指常用中文字符（非字节、非词）。该范围（500–800）直接回答了子问题。"
+    },
+    {
+     "subquestion": "使用字粒度分词（如部分 NLP 工具）时，8k token 等于多少汉字？",
+     "covered": true,
+     "reason": "倒数第二条摘要明确给出：'按字分割时约可容纳2,000-2,500个汉字'。'按字分割'即字粒度分词，且'汉字'即所问的'多少汉字'，范围清晰，可直接作答。"
+    },
+    {
+     "subquestion": "使用词粒度分词（如 jieba）时，8k token 对应的中文字符数范围是多少？",
+     "covered": true,
+     "reason": "同一条摘要（倒数第二条）明确指出：'按词分割时约为1,000-1,500个汉字'；且另一摘要明确说明研究中'采用 jieba 分词'作为词粒度代表，并将其与'字符级切分（单字）'对比。'汉字'在此语境下即中文字符，因此该范围（1,000–1,500）直接回答子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 6,
+   "retrieval_hit_rate": 0.75,
+   "matched_by": {
+    "keyword": 6,
+    "semantic": 0,
+    "miss": 2
+   },
+   "per_keyword": [
+    {
+     "keyword": "token",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "中文字符",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "BPE",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "字粒度",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "词粒度",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "上下文窗口",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "分词方式",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "UTF-8",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 35627,
+   "total_cost": 0.0499,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

@@ -1,0 +1,2701 @@
+diff --git a/README.md b/README.md
+index 690bcd7..0497f1a 100644
+--- a/README.md
++++ b/README.md
+@@ -218,6 +218,12 @@ plan → research → critic ──(conditional_edge)──┐
+ - **rerank 先评测再定**：默认关闭，先立评测再决定是否引入（借鉴 wechatbot 的 rerank 负收益经验）
+ - **Validator 是差异化亮点**：主流 DeepResearch 项目普遍缺失图内 Validator 节点，本项目将其作为防幻觉核心
+ 
++## 相关文章
++
++- **《agentic loop 设计与 Critic 节点化踩坑》**
++  - 掘金：https://juejin.cn/post/7647054707223511059
++  - 知乎：https://zhuanlan.zhihu.com/p/2080442055638127641
++
+ ## 项目记忆（设计决策记录）
+ 
+ 本项目建立**设计决策记录（ADR）机制**作为项目记忆，见 [docs/decisions/README.md](docs/decisions/README.md)。
+diff --git a/cli.py b/cli.py
+index 820fde8..d5669f0 100644
+--- a/cli.py
++++ b/cli.py
+@@ -51,8 +51,10 @@ def main():
+         total = len(citations)
+         existence = sum(1 for c in citations if c.existence)
+         faithful = sum(1 for c in citations if c.verified)
++        relaxed = sum(1 for c in citations if c.verified_relaxed)
+         print(f"\n引用校验（双口径）：存在性 {existence}/{total} 条通过；"
+-              f"忠实度 {faithful}/{existence} 条通过（存在性通过子集上判定）")
++              f"严格忠实度 {faithful}/{existence} 条通过；"
++              f"宽松口径 {relaxed}/{existence} 条通过（存在且（忠实或多源印证））")
+ 
+     # W3（Q6）：成本展示（精确 token + 保守上界，人民币为主）
+     print(format_cost_report(result.token_used))
+diff --git a/config.py b/config.py
+index 731ed32..5940934 100644
+--- a/config.py
++++ b/config.py
+@@ -32,6 +32,8 @@ class LLMConfig:
+     # W4 Q7：分档。优先各自 env，未设回落 STRATEGIC_MODEL（向后兼容单档配置）
+     planner_model: str = field(default_factory=lambda: _env("PLANNER_MODEL", _env("STRATEGIC_MODEL", "qwen-plus")))
+     critic_model: str = field(default_factory=lambda: _env("CRITIC_MODEL", _env("STRATEGIC_MODEL", "qwen-plus")))
++    # W7 TBD-7 C：validator 可独立降档，默认回落 smart_model（未设时等价 qwen-plus）
++    validator_model: str = field(default_factory=lambda: _env("VALIDATOR_MODEL", _env("SMART_MODEL", "qwen-plus")))
+     # 兼容别名（W4 Q7）：strategic_model 语义 = planner_model，env 读 STRATEGIC_MODEL
+     strategic_model: str = field(default_factory=lambda: _env("STRATEGIC_MODEL", "qwen-plus"))
+ 
+@@ -114,6 +116,24 @@ class LangfuseConfig:
+     truncate_len: int = 4000  # Q7：常量级配置（策略进代码，不见开关）
+ 
+ 
++@dataclass
++class ExperimentConfig:
++    """W7 TBD-8 受控单变量实验开关。默认全开 = 保持当前行为；全关 = v1.1 基线。"""
++
++    critic_gap_enabled: bool = field(
++        default_factory=lambda: _env("CRITIC_GAP_ENABLED", "true").lower() == "true"
++    )
++    validator_fixes_enabled: bool = field(
++        default_factory=lambda: _env("VALIDATOR_FIXES_ENABLED", "true").lower() == "true"
++    )
++    writer_sectioned_feed_enabled: bool = field(
++        default_factory=lambda: _env("WRITER_SECTIONED_FEED_ENABLED", "true").lower() == "true"
++    )
++    validator_trim_enabled: bool = field(
++        default_factory=lambda: _env("VALIDATOR_TRIM_ENABLED", "true").lower() == "true"
++    )
++
++
+ @dataclass
+ class Config:
+     llm: LLMConfig = field(default_factory=LLMConfig)
+@@ -122,6 +142,7 @@ class Config:
+     research: ResearchConfig = field(default_factory=ResearchConfig)
+     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
+     code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
++    experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
+ 
+ 
+ config = Config()
+diff --git a/docs/eval-report.md b/docs/eval-report.md
+index 50e84c6..99c0d5e 100644
+--- a/docs/eval-report.md
++++ b/docs/eval-report.md
+@@ -1,26 +1,28 @@
+-# eval 报告（run_20260907_001658）
++# eval 报告（run_20260911_232515）
+ 
+ ## 1. 数据集说明
+-- version: unknown / created_at: unknown
+-- anchor_samples: []
++- version: 1.1 / created_at: 2026-09-06
++- anchor_samples: ['q_001']
+ - 标注方法学: ai_draft + human_calibration
+ 
+ ## 2. 运行环境与双锚
+-- git commit: 22e0d731ab9daee48c146e84126762a6de0d7d63 / dataset version: unknown
+-- 墙钟/并发/统计: 3 条，并发 3，生成于 2026-09-07T00:24:43
++- git commit: 95adb77f31f535d07368f487ceb98fa4e32ea3bf / dataset version: 1.1
++- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-12T00:00:20
+ 
+ ## 3. 指标表（7 项，Q8 含检索命中率）
+ | 指标 | 目标 | 本轮 | 达标 |
+ |---|---|---|---|
+-| completion_rate | ≥90% | 100.0% | ✅ || citation_accuracy | ≥85%（忠实度口径） | 59.7% | ⚠️ || coverage | ≥90% | 27.8% | ⚠️ || retrieval_hit_rate | 记录基线 | 67.6% | ✅ || avg_steps | 记录基线 | 3.3 轮 | ✅ || reflection_critic_stop_rate | ≥90% | 66.7% | ⚠️ |
+-💰 总 token（Phase1 研究）：91715，成本：¥0.1133（Phase2 judge 另计 11271 token）
+-  - 模型名桶：qwen-plus: 79772tok ¥0.1088, qwen-turbo: 11943tok ¥0.0045
+-  - 职责桶：planner: 3232tok, critic: 4101tok, compress: 11943tok, smart: 24075tok, validator: 48364tok
++| completion_rate | ≥90% | 100.0% | ✅ || citation_accuracy | ≥85%（忠实度口径） | 97.8% | ✅ || coverage | ≥90% | 42.5% | ⚠️ || retrieval_hit_rate | 记录基线 | 58.4% | ✅ || avg_steps | 记录基线 | 8.1 轮 | ✅ || reflection_critic_stop_rate | ≥90% | 95.0% | ✅ |
++💰 总 token（Phase1 研究）：1067359，成本：¥0.7274（Phase2 judge 另计 82407 token）
++  - 模型名桶：qwen-plus: 370847tok ¥0.4684, qwen-turbo: 696512tok ¥0.2590
++  - 职责桶：planner: 20168tok, critic: 174069tok, smart: 176610tok, compress: 506501tok, validator: 190011tok
+ 
+ 
+ ## 4. 失败与异常附录
+-- 完整 3 / 部分 0 / 失败 0
+-- 无
++- 完整 20 / 部分 0 / 失败 0
++- q_009 [ok] 60339tok ¥0.0845
++- q_010 [ok] 112386tok ¥0.1573
++- q_012 [ok] 87921tok ¥0.1231
+ 
+ ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
+ - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
+@@ -29,22 +31,8 @@
+ - [ ] 锚点桶人工复核 6~8 条（确认"真回归 vs 数据漂移"）
+ - （跑完 v0 后在此填写逐条 verdict）
+ 
+-## 6. 可复现性（3 条重跑 Δ，2026-09-07）
+-
+-**执行**：选 易/中/难 各 1 条（q_002 / q_007 / q_013）用 v1.1 标注完整重跑（run_20260907_001658），与 v1.1 原跑对比。
+-
+-| q_id | 引用准确率 原→新 | 覆盖度 原→新 | 检索命中率 原→新 | Δ最大 |
+-|---|---|---|---|---|
+-| q_002（易） | 0.50 → 0.21 | 0.50 → 0.50 | 0.75 → 0.75 | **0.29** |
+-| q_007（中） | 0.98 → 0.61 | 0.33 → 0.33 | 0.62 → 0.50 | **0.37** |
+-| q_013（难） | 0.98 → 0.97 | 0.00 → 0.00 | 0.89 → 0.78 | **0.11** |
+-
+-**均值 \|Δ\| = 0.257 —— 远超容忍线（单条 ≤0.10 / 均值 ≤0.05），判定：未通过（如实记录，不判失败）**
+-
+-**归因**：
+-- 覆盖度在 3 条中**完全稳定**（0.50/0.33/0.00）——LLM judge 对"主题是否被提到"的判定对检索细节不敏感；
+-- 引用忠实度/命中率波动大——**真实 API 检索结果两次运行不同**（博查结果集变化）→ findings 不同 → 报告 claim 不同 → validator 对查结果大幅漂移；
+-- **结论：单轮 eval 数字是"量级参考"而非精确值；跨版本系统对比必须多次重跑取均值（建议 ≥3 次）才能区分真实差异与噪声**。这是真实 API 评估的固有属性，已在 §8 局限声明。
++## 6. 可复现性（3 条重跑 Δ）
++- 待完成：选 易/中/难 各 1 条重跑 1 次，记录单条 Δ（目标 ≤10%）与均值 Δ（≤5%）
+ 
+ ## 7. 指标演进趋势（自 v0，pp 口径）
+ | 运行 | 完成率 | 引用准确率 | 覆盖度 | 检索命中率 | vs 上轮(pp) |
+@@ -52,6 +40,64 @@
+ | run_20260906_184156 | 100.0% | 71.9% | 57.1% | 59.2% | — |
+ | run_v11_compare | 100.0% | 71.9% | 55.4% | 59.7% | completion_rate:+0.0, citation_accuracy:+0.0, coverage:-1.7, retrieval_hit_rate:+0.6 |
+ | run_20260907_001658 | 100.0% | 59.7% | 27.8% | 67.6% | completion_rate:+0.0, citation_accuracy:-12.3, coverage:-27.6, retrieval_hit_rate:+7.8 |
++| run_20260909_155504 | 100.0% | 47.6% | 83.3% | 79.2% | completion_rate:+0.0, citation_accuracy:-12.0, coverage:+55.6, retrieval_hit_rate:+11.6 |
++| run_20260909_160122 | 100.0% | 81.4% | 58.3% | 79.2% | completion_rate:+0.0, citation_accuracy:+33.8, coverage:-25.0, retrieval_hit_rate:+0.0 |
++| run_20260909_160737 | 100.0% | 61.8% | 57.9% | 62.1% | completion_rate:+0.0, citation_accuracy:-19.6, coverage:-0.4, retrieval_hit_rate:-17.1 |
++| run_20260909_164934 | 100.0% | 60.9% | 55.8% | 61.5% | completion_rate:+0.0, citation_accuracy:-0.9, coverage:-2.1, retrieval_hit_rate:-0.6 |
++| run_20260909_173229 | 100.0% | 67.1% | 56.2% | 63.6% | completion_rate:+0.0, citation_accuracy:+6.2, coverage:+0.4, retrieval_hit_rate:+2.2 |
++| run_20260909_185458 | 100.0% | 76.5% | 63.3% | 67.6% | completion_rate:+0.0, citation_accuracy:+9.4, coverage:+7.1, retrieval_hit_rate:+4.0 |
++| run_20260909_194138 | 100.0% | 64.1% | 62.5% | 71.5% | completion_rate:+0.0, citation_accuracy:-12.4, coverage:-0.8, retrieval_hit_rate:+3.9 |
++| run_20260909_202751 | 100.0% | 81.2% | 61.7% | 66.0% | completion_rate:+0.0, citation_accuracy:+17.1, coverage:-0.8, retrieval_hit_rate:-5.6 |
++| run_20260909_211614 | 100.0% | 74.2% | 66.2% | 67.2% | completion_rate:+0.0, citation_accuracy:-7.0, coverage:+4.6, retrieval_hit_rate:+1.2 |
++| run_20260909_220233 | 100.0% | 70.8% | 44.6% | 51.4% | completion_rate:+0.0, citation_accuracy:-3.4, coverage:-21.7, retrieval_hit_rate:-15.9 |
++| run_20260909_224409 | 100.0% | 71.2% | 40.8% | 45.9% | completion_rate:+0.0, citation_accuracy:+0.4, coverage:-3.7, retrieval_hit_rate:-5.4 |
++| run_20260909_232719 | 100.0% | 86.7% | 40.8% | 42.8% | completion_rate:+0.0, citation_accuracy:+15.6, coverage:+0.0, retrieval_hit_rate:-3.1 |
++| run_20260910_003024 | 100.0% | 65.1% | 47.1% | 45.4% | completion_rate:+0.0, citation_accuracy:-21.6, coverage:+6.2, retrieval_hit_rate:+2.6 |
++| run_20260910_010952 | 100.0% | 53.6% | 23.3% | 34.6% | completion_rate:+0.0, citation_accuracy:-11.5, coverage:-23.8, retrieval_hit_rate:-10.9 |
++| run_20260910_014747 | 100.0% | 82.3% | 32.5% | 43.1% | completion_rate:+0.0, citation_accuracy:+28.7, coverage:+9.2, retrieval_hit_rate:+8.6 |
++| run_20260910_022817 | 100.0% | 32.6% | 40.0% | 47.6% | completion_rate:+0.0, citation_accuracy:-49.7, coverage:+7.5, retrieval_hit_rate:+4.4 |
++| run_20260910_025125 | 100.0% | 59.3% | 31.2% | 46.8% | completion_rate:+0.0, citation_accuracy:+26.8, coverage:-8.8, retrieval_hit_rate:-0.8 |
++| run_20260910_033127 | 100.0% | 62.0% | 34.6% | 43.6% | completion_rate:+0.0, citation_accuracy:+2.6, coverage:+3.3, retrieval_hit_rate:-3.1 |
++| run_20260910_040911 | 100.0% | 69.0% | 36.2% | 46.9% | completion_rate:+0.0, citation_accuracy:+7.0, coverage:+1.7, retrieval_hit_rate:+3.2 |
++| run_20260910_044716 | 100.0% | 85.6% | 37.5% | 47.5% | completion_rate:+0.0, citation_accuracy:+16.6, coverage:+1.3, retrieval_hit_rate:+0.6 |
++| run_20260910_052555 | 100.0% | 40.9% | 39.6% | 46.2% | completion_rate:+0.0, citation_accuracy:-44.7, coverage:+2.1, retrieval_hit_rate:-1.3 |
++| run_20260910_054957 | 100.0% | 65.3% | 37.1% | 44.3% | completion_rate:+0.0, citation_accuracy:+24.4, coverage:-2.5, retrieval_hit_rate:-1.9 |
++| run_20260910_062843 | 100.0% | 69.1% | 39.6% | 46.2% | completion_rate:+0.0, citation_accuracy:+3.8, coverage:+2.5, retrieval_hit_rate:+1.9 |
++| run_20260910_071031 | 100.0% | 64.1% | 40.8% | 42.7% | completion_rate:+0.0, citation_accuracy:-5.0, coverage:+1.3, retrieval_hit_rate:-3.5 |
++| run_20260910_075007 | 100.0% | 88.5% | 40.8% | 46.8% | completion_rate:+0.0, citation_accuracy:+24.4, coverage:+0.0, retrieval_hit_rate:+4.1 |
++| run_20260910_083020 | 100.0% | 37.7% | 21.2% | 31.3% | completion_rate:+0.0, citation_accuracy:-50.8, coverage:-19.6, retrieval_hit_rate:-15.5 |
++| run_20260910_085259 | 100.0% | 63.3% | 33.3% | 47.6% | completion_rate:+0.0, citation_accuracy:+25.7, coverage:+12.1, retrieval_hit_rate:+16.2 |
++| run_20260910_100400 | 100.0% | 68.7% | 9.6% | 22.4% | completion_rate:+0.0, citation_accuracy:+5.4, coverage:-23.8, retrieval_hit_rate:-25.2 |
++| run_20260910_105637 | 100.0% | 47.0% | 30.0% | 36.9% | completion_rate:+0.0, citation_accuracy:-21.7, coverage:+20.4, retrieval_hit_rate:+14.5 |
++| run_20260910_114009 | 100.0% | 77.1% | 32.1% | 40.5% | completion_rate:+0.0, citation_accuracy:+30.1, coverage:+2.1, retrieval_hit_rate:+3.6 |
++| run_20260910_121649 | 100.0% | 67.2% | 30.8% | 43.8% | completion_rate:+0.0, citation_accuracy:-9.9, coverage:-1.2, retrieval_hit_rate:+3.2 |
++| run_20260910_125628 | 100.0% | 84.4% | 32.1% | 38.6% | completion_rate:+0.0, citation_accuracy:+17.2, coverage:+1.2, retrieval_hit_rate:-5.1 |
++| run_20260910_133606 | 100.0% | 63.9% | 30.0% | 45.1% | completion_rate:+0.0, citation_accuracy:-20.5, coverage:-2.1, retrieval_hit_rate:+6.5 |
++| run_20260910_141315 | 100.0% | 81.8% | 35.4% | 44.4% | completion_rate:+0.0, citation_accuracy:+17.9, coverage:+5.4, retrieval_hit_rate:-0.8 |
++| run_20260910_154319 | 100.0% | 65.7% | 36.7% | 41.0% | completion_rate:+0.0, citation_accuracy:-16.1, coverage:+1.3, retrieval_hit_rate:-3.3 |
++| run_20260910_162529 | 90.0% | 30.0% | 5.0% | 12.3% | completion_rate:-10.0, citation_accuracy:-35.7, coverage:-31.7, retrieval_hit_rate:-28.7 |
++| run_20260910_165016 | 100.0% | 27.5% | 17.1% | 17.8% | completion_rate:+10.0, citation_accuracy:-2.5, coverage:+12.1, retrieval_hit_rate:+5.5 |
++| run_20260910_171054 | 100.0% | 77.6% | 0.0% | 46.6% | completion_rate:+0.0, citation_accuracy:+50.0, coverage:-17.1, retrieval_hit_rate:+28.8 |
++| run_20260910_173540 | 0.0% | 0.0% | 0.0% | 10.4% | completion_rate:-100.0, citation_accuracy:-77.6, coverage:+0.0, retrieval_hit_rate:-36.2 |
++| run_20260910_175208 | 100.0% | 72.8% | 35.4% | 42.4% | completion_rate:+100.0, citation_accuracy:+72.8, coverage:+35.4, retrieval_hit_rate:+32.0 |
++| run_20260910_183310 | 100.0% | 72.7% | 38.3% | 41.3% | completion_rate:+0.0, citation_accuracy:-0.1, coverage:+2.9, retrieval_hit_rate:-1.0 |
++| run_20260910_191547 | 100.0% | 58.8% | 39.6% | 47.0% | completion_rate:+0.0, citation_accuracy:-13.9, coverage:+1.3, retrieval_hit_rate:+5.7 |
++| run_20260910_194445 | 100.0% | 61.9% | 30.0% | 41.2% | completion_rate:+0.0, citation_accuracy:+3.1, coverage:-9.6, retrieval_hit_rate:-5.8 |
++| run_20260910_202318 | 100.0% | 80.9% | 36.7% | 41.4% | completion_rate:+0.0, citation_accuracy:+19.0, coverage:+6.7, retrieval_hit_rate:+0.2 |
++| run_20260910_210646 | 100.0% | 72.0% | 35.0% | 42.6% | completion_rate:+0.0, citation_accuracy:-8.9, coverage:-1.7, retrieval_hit_rate:+1.3 |
++| run_20260910_214830 | 100.0% | 45.8% | 35.0% | 42.9% | completion_rate:+0.0, citation_accuracy:-26.2, coverage:+0.0, retrieval_hit_rate:+0.3 |
++| run_20260910_221911 | 100.0% | 65.3% | 37.1% | 45.0% | completion_rate:+0.0, citation_accuracy:+19.5, coverage:+2.1, retrieval_hit_rate:+2.1 |
++| run_20260910_225634 | 100.0% | 58.0% | 42.5% | 44.2% | completion_rate:+0.0, citation_accuracy:-7.3, coverage:+5.4, retrieval_hit_rate:-0.8 |
++| run_20260910_233617 | 100.0% | 70.3% | 46.7% | 45.3% | completion_rate:+0.0, citation_accuracy:+12.3, coverage:+4.2, retrieval_hit_rate:+1.1 |
++| run_20260911_001417 | 100.0% | 43.6% | 40.4% | 41.0% | completion_rate:+0.0, citation_accuracy:-26.8, coverage:-6.2, retrieval_hit_rate:-4.2 |
++| run_20260911_004201 | 100.0% | 63.5% | 33.8% | 39.9% | completion_rate:+0.0, citation_accuracy:+20.0, coverage:-6.7, retrieval_hit_rate:-1.2 |
++| run_20260911_150715 | 100.0% | 71.2% | 40.4% | 45.2% | completion_rate:+0.0, citation_accuracy:+7.6, coverage:+6.7, retrieval_hit_rate:+5.3 |
++| run_20260911_194156 | 100.0% | 76.0% | 34.2% | 43.8% | completion_rate:+0.0, citation_accuracy:+4.8, coverage:-6.2, retrieval_hit_rate:-1.4 |
++| run_20260911_202638 | 100.0% | 63.2% | 42.5% | 57.8% | completion_rate:+0.0, citation_accuracy:-12.8, coverage:+8.3, retrieval_hit_rate:+14.0 |
++| run_20260911_212259 | 100.0% | 74.6% | 37.9% | 40.1% | completion_rate:+0.0, citation_accuracy:+11.4, coverage:-4.6, retrieval_hit_rate:-17.7 |
++| run_20260911_220854 | 100.0% | 74.4% | 38.3% | 40.8% | completion_rate:+0.0, citation_accuracy:-0.2, coverage:+0.4, retrieval_hit_rate:+0.7 |
++| run_20260911_224011 | 100.0% | 72.3% | 35.4% | 44.9% | completion_rate:+0.0, citation_accuracy:-2.1, coverage:-2.9, retrieval_hit_rate:+4.1 |
++| run_20260911_232515 | 100.0% | 97.8% | 42.5% | 58.4% | completion_rate:+0.0, citation_accuracy:+25.5, coverage:+7.1, retrieval_hit_rate:+13.5 |
+ 
+ 
+ ## 8. 已知局限
+diff --git a/docs/requirements/6-open-source.md b/docs/requirements/6-open-source.md
+index b09b295..ba0e1f1 100644
+--- a/docs/requirements/6-open-source.md
++++ b/docs/requirements/6-open-source.md
+@@ -92,7 +92,10 @@
+ - [x] LICENSE（MIT）生效 ✓ commit 6a31e5e
+ - [x] 密钥/路径脱敏终审零泄漏（TBD-8 A' 全清：路径相对化/措辞中性化/占位符 `<your-...>` 形态/历史 0 命中已实测）✓ commit 6a31e5e
+ - [x] v0.1.0 tag + Release notes（W1~W6 里程碑 + 诚实指标口径）✓ https://github.com/TianJinYing2006/DeepResearch/releases/tag/v0.1.0
+-- [x] 博客 ≥1 篇发布（掘金①必发 + 知乎镜像①，用户已于 2026-09-07 发布；草稿 docs/blog/ 双推仓库）✓
++- [x] 博客 ≥1 篇发布（掘金①必发 + 知乎镜像①，用户已于 2026-09-07 发布）✓
++  - 《agentic loop 设计与 Critic 节点化踩坑》
++    - 掘金：https://juejin.cn/post/7647054707223511059
++    - 知乎：https://zhuanlan.zhihu.com/p/2080442055638127641
+ 
+ **W6 DoD 全达成（8/8 + 博客发布）**：CI 自动轨 + Job Object/Windows 单测 + README 设计要点 + LICENSE + 脱敏 + 仓库公开(GitHub 主/Gitee 镜像) + v0.1.0 Release + 博客，2026-09-07 收官。后续演进见 plan.md W6 待办（技术债/博客② Langfuse 可缓篇）。
+ 
+diff --git a/research_engine/agents/validator.py b/research_engine/agents/validator.py
+index 2a7090c..2ca0e1d 100644
+--- a/research_engine/agents/validator.py
++++ b/research_engine/agents/validator.py
+@@ -29,7 +29,8 @@ from config import config
+ from research_engine.llm.client import LLMClient
+ from research_engine.state import Citation, ResearchFinding
+ 
+-VALIDATOR_SYSTEM = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
++# W7 Arm3：validator 修复关闭时（TBD-8 基线对照）回退到 v1.1 提示与行为
++VALIDATOR_SYSTEM_LEGACY = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
+ 
+ 请以 JSON 格式输出校验结果：
+ {{
+@@ -54,12 +55,41 @@ VALIDATOR_SYSTEM = """你是研究事实核查员。你的任务是校验报告
+ - note: 说明；faithful=false 时必须给出具体原因
+ """
+ 
++VALIDATOR_SYSTEM = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
++
++请以 JSON 格式输出校验结果：
++{{
++  "citations": [
++    {{
++      "finding_id": "引用编号（对应输入中的编号，非数字来源传空字符串）",
++      "claim": "论断原文",
++      "claim_echo": "逐字回显输入中该条目的 claim 原文（word-by-word，不可改写或缩写）",
++      "faithful": true/false,
++      "supported": true/false,
++      "confidence": 0.0-1.0,
++      "is_meta": true/false,
++      "note": "说明"
++    }}
++  ]
++}}
++
++判定规则：
++- faithful: 论断是否能**直接由该 finding 内容推断**（不夸大、不曲解、不张冠李戴；包含明确数值/日期/名称的算术推断视为忠实）
++- supported: 论断是否被至少 {min_sources} 个独立来源支持（多源印证）
++- is_meta: 该论断/来源是否在描述 DeepResearch 系统自身（自指/元描述，如"本系统""本Agent""Planner→Researcher→Writer→Validator"四节点编排等）——是则 true
++- confidence: 综合置信度 0-1
++- note: 说明；faithful=false 时必须给出具体原因
++
++重要：输出中的 `claim_echo` 必须逐字回显输入里对应条目的 claim 原文（word-by-word），用于本地核对；不要改写或缩写。
++"""
++
+ 
+ class CitationVerdictItem(BaseModel):
+     """单条引用的 LLM 校验 verdict（Q3=A 按 finding_id 对齐，Q5=A 增 is_meta 复核）。"""
+ 
+     finding_id: str = Field(description="引用编号；非数字来源可传空字符串")
+     claim: str = Field(description="论断原文")
++    claim_echo: str = Field(default="", description="W7 回显字段：必须逐字回显原 claim（word-by-word），本地核对用")
+     faithful: bool = Field(description="论断是否忠实于该 finding 内容")
+     supported: bool = Field(default=False, description="是否通过多源印证")
+     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="校验置信度 0-1")
+@@ -84,29 +114,104 @@ class Validator:
+         """建立编号 -> (真实来源, 来源类型) 映射（Q2=A：带出 source_type，编号供 finding_id 锚定）。"""
+         return {str(i): (f.source, f.source_type) for i, f in enumerate(findings, 1)}
+ 
++    @staticmethod
++    def _build_findings_text(
++        findings: List[ResearchFinding], to_check: List[Dict[str, Any]]
++    ) -> tuple[str, bool]:
++        """W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号。
++
++        返回 (text, trimmed)。
++        三条硬约束：
++        1. 阶段 1 存在性校验仍基于全量 index（本函数不改变 index）。
++        2. 编号保留原编号（用 enumerate(findings, 1) 的原始 i 过滤，不对子集重排）。
++        3. 安全阀：to_check 非空但 used_ids 与 findings 编号无交集 → 降级全量并 warn。
++        """
++        import warnings
++
++        # W7 Arm5：喂料裁剪可通过 VALIDATOR_TRIM_ENABLED 关闭（TBD-8 基线对照）
++        if not config.experiment.validator_trim_enabled:
++            lines = [
++                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
++                for i, f in enumerate(findings, 1)
++            ]
++            return "\n".join(lines), False
++
++        # Bug-5 修复：URL 格式引用的 finding_id 为空，通过 source 字段反查 finding 编号
++        # 设计-3 修复：同 source 多 findings（RAG 同 URL 多分块）时收集所有编号
++        source_to_ids: Dict[str, List[str]] = {}
++        for i, f in enumerate(findings, 1):
++            source_to_ids.setdefault(f.source, []).append(str(i))
++        used_ids = set()
++        for r in to_check:
++            fid = r.get("finding_id")
++            if fid:
++                used_ids.add(str(fid))
++            elif r.get("source"):
++                # URL 格式引用：通过 source 字段反查所有对应编号
++                for mapped in source_to_ids.get(r["source"], []):
++                    used_ids.add(mapped)
++        trimmed = bool(used_ids)
++
++        if trimmed:
++            lines = [
++                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
++                for i, f in enumerate(findings, 1)
++                if str(i) in used_ids
++            ]
++            if lines:
++                return "\n".join(lines), True
++            # 安全阀：used_ids 非空但与 findings 编号无交集（理论上不发生）→ 降级全量
++            warnings.warn(
++                "Validator feed trim: used_ids 与 findings 编号无交集，降级为全量喂料",
++                stacklevel=2,
++            )
++
++        # 未触发裁剪或触发安全阀：回退全量
++        lines = [
++            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
++            for i, f in enumerate(findings, 1)
++        ]
++        return "\n".join(lines), False
++
+     _CLAIM_SEP = "。！？；\n"          # 句子边界字符（W2.1）
+     _CLAIM_MAX = 200                  # 引用前最多取 200 字符的窗口（W2.1）
+ 
+-    def _claim_text(self, report: str, end: int) -> str:
+-        """取引用前的一段文本做 claim（W2.1 待办：清理 markdown 残留、按句子边界截断）。
++    def _claim_text(self, report: str, end: int, start: int = 0) -> str:
++        """取引用前的一段文本做 claim（W2.1 待办 + W7 F4：保留上下文/主语兜底）。
+ 
++        - start 用于隔离多个引用：只取上一个引用结束位置到当前引用之间的文本；
+         - 优先对齐最近句子边界（。！？；\n），避免从单词中间硬截断；
++        - 若最近句子边界切出的片段以"其/该/此/这"等代词开头，
++          前补前一句完整内容，使论断自包含（RAGAS "self-contained" 精神，W7 F4）；
+         - 退化为 200 字符窗口；再退化 80 字符（保原行为兜底）；
+         - 清理行内 markdown 残留（** ` # 行首 - | 等），纯展示层，不影响校验。
+         """
+-        window = report[max(0, end - self._CLAIM_MAX):end]
++        window_start = max(start, end - self._CLAIM_MAX)
++        window = report[window_start:end]
+         rel = max(window.rfind(c) for c in self._CLAIM_SEP)
++        # claim 在 report 中的真实起始位置，用于 F4 主语兜底时精确截取前一句
++        claim_start_in_report = window_start + rel + 1 if rel >= 0 else window_start
+         claim = window[rel + 1:] if rel >= 0 else window
+-        claim = re.sub(r"[*_`#]{1,3}", "", claim)                                  # ** 加粗/`代码`/# 标题
++        claim = re.sub(r"[*_`]{1,3}", "", claim)                                   # ** 加粗/_斜体_/`代码`
++        claim = re.sub(r"^\s*#\s*", "", claim, flags=re.M)                          # 行首 # 标题（Bug-12：不删行内 #）
+         claim = re.sub(r"^\s*[-|]\s*", "", claim, flags=re.M)                      # 行首 - 列表 / | 表格碎片
+         claim = re.sub(r"\s{2,}", " ", claim).strip().replace("\n", " ")
++        # W7 F4：主语兜底（以"其/该/此/这"开头时，前补前一句完整内容，使代词指代明确）
++        _PRONOUN_PREFIXES = ("其", "该", "此", "这")
++        if config.experiment.validator_fixes_enabled and claim and claim[0] in _PRONOUN_PREFIXES:
++            before = report[window_start:claim_start_in_report]
++            last_sent = before.strip().rstrip("。！？；").strip()
++            if last_sent:
++                # Bug-12 同步：清理补回文本中的行内 markdown 残留
++                last_sent = re.sub(r"[*_`]{1,3}", "", last_sent)
++                claim = f"{last_sent}；{claim}"
+         if not claim.strip():  # 边界切分到空（窗口尾恰为句号等）才退回 80 字符硬截断兜底
+-            start = max(0, end - 80)
+-            claim = report[start:end].strip().replace("\n", " ")
++            fallback_start = max(start, end - 80)
++            claim = report[fallback_start:end].strip().replace("\n", " ")
+         return claim
+ 
+     def _extract_citations(self, report: str) -> List[dict]:
+-        """从报告中提取 [来源: N] 形式的引用。
++        """从报告中提取 [来源: N] 形式的引用（W7 F3：过滤非论断句）。
+ 
+         支持多编号引用：[来源: 5, 72, 77] 会被拆分为 3 条独立引用，
+         每条单独校验（见 ADR-0005）。仅当引用内容全部为数字 token 时
+@@ -115,25 +220,65 @@ class Validator:
+         """
+         citations = []
+         pattern = r"\[来源:\s*([^\]]+)\]"
++        last_end = 0
++        fixes_enabled = config.experiment.validator_fixes_enabled
+         for m in re.finditer(pattern, report):
+             # 取论断（引用前的一段文本，W2.1 按句子边界 + 清理 markdown）
+-            claim = self._claim_text(report, m.start())
++            # W7 F3：start=last_end 隔离多个引用，避免后一个 claim 混入前一个引用标记
++            claim = self._claim_text(report, m.start(), last_end)
++            last_end = m.end()
++            if fixes_enabled and not self._is_assertive(claim):
++                continue  # W7 F3：非论断句/元话语/表格残片不进校验通道
+             for ref in self._split_ref(m.group(1)):
+                 citations.append({"claim": claim, "source": ref})
+         return citations
+ 
++    @staticmethod
++    def _is_assertive(claim: str) -> bool:
++        """W7 F3：判断 claim 是否为可校验的论断句（而非元话语/过渡句/表格残片）。
++
++        规则（纯启发式，零 LLM）：
++        - 长度 >= 8（过滤碎片）
++        - 不含 markdown 表格列分隔 `|`
++        - 非纯标题/列表项（以 # 开头）
++        - 不是典型元话语开头（本节/本章/综上所述/如图/下面/接下来）
++        - 设计-2 修复：移除"因此/首先/其次/最后/总之/由此可见"等论断引导词过滤
++          ——这些是有效论断的常见开头，不应被静默丢弃
++        """
++        if "|" in claim:
++            return False
++        meta_prefixes = (
++            "本节", "本章", "综上所述", "如图", "表 ", "下面", "接下来",
++        )
++        stripped = claim.strip()
++        if stripped.startswith("#") or stripped.startswith("-"):
++            return False
++        for prefix in meta_prefixes:
++            if stripped.startswith(prefix):
++                return False
++        return True
++
+     @staticmethod
+     def _split_ref(ref: str) -> List[str]:
+         """拆分多编号引用：'5, 72, 77' -> ['5', '72', '77']。
+ 
+         LLM 实际输出中常见 [来源: 5, 72, 77]、[来源: 5、8]、[来源: 3和7]
+         等变体，统一按分隔符拆分。分隔符覆盖中英文逗号、顿号、分号、
+-        斜杠、空格及"和"字。只有当拆出的所有 token 都是纯数字时才视为
+-        多编号引用，否则整体作为单一来源字符串返回（兼容 URL 协议）。
++        斜杠、空格及"和"字。
++
++        P0 引用协议统一：
++        - 先 strip 每个 token 的 '#' 前缀（兼容 LLM 输出的 #1, #2 格式）
++        - 只有当拆出的所有 token 都是纯数字时才视为多编号引用
++        - 否则整体作为单一来源字符串返回（兼容 URL 协议）
+         """
+-        tokens = [t for t in re.split(r"[,，、;；/和\s]+", ref.strip()) if t]
++        raw_tokens = [t for t in re.split(r"[#,\u3001\uFF0c\uFF1B\u3001/\u548c\s;]+", ref.strip()) if t]
++        tokens = [t.strip().lstrip("#").strip() for t in raw_tokens]
++        tokens = [t for t in tokens if t]
+         if len(tokens) > 1 and all(re.fullmatch(r"\d+", t) for t in tokens):
+             return tokens
++        # 单一 token 时，如果 strip # 后是纯数字，也返回数字编号
++        if len(tokens) == 1 and re.fullmatch(r"\d+", tokens[0]):
++            return tokens
+         return [ref.strip()]
+ 
+     def validate(self, report: str, findings: List[ResearchFinding], state: Any = None) -> List[Citation]:
+@@ -176,38 +321,52 @@ class Validator:
+ 
+         # ---- 阶段 2：LLM 忠实度判定（仅存在性 True 的引用；Q3=A 短路）----
+         to_check = [r for r in local_results if r["existence"]]
+-        # Q3=A：全量 findings 进 LLM（废 [:20] 截断），保证编号 21-30 的引用也能判忠实度
+-        findings_text = "\n".join(
+-            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:300]}"
+-            for i, f in enumerate(findings, 1)
+-        )
++        # W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号；存在性校验仍用全量 index
++        findings_text, _ = self._build_findings_text(findings, to_check)
++        # W7 F1：claim 不再截断；F2：LLM 输出需 claim_echo 回显原文
++        fixes_enabled = config.experiment.validator_fixes_enabled
++        if fixes_enabled:
++            claim_field = "claim"
++        else:
++            # 基线对照：恢复 v1.1 的 100 字符截断（W7 F1 修复关闭）
++            claim_field = "claim_truncated"
++            for r in to_check:
++                r["claim_truncated"] = r["claim"][:100]
+         citations_json = "\n".join(
+-            f"- finding_id: {r['finding_id']} | claim: {r['claim'][:100]} | source: {r['source']}"
++            f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
+             for r in to_check
+         )
+-        user = f"研究发现：\n{findings_text}\n\n待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n请输出校验结果。"
++        system_prompt = VALIDATOR_SYSTEM if fixes_enabled else VALIDATOR_SYSTEM_LEGACY
++        user = (
++            f"研究发现：\n{findings_text}\n\n"
++            f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
++            "请输出校验结果。"
++        )
++        if fixes_enabled:
++            user += "对每条引用，`claim_echo` 字段必须逐字回显上面的 claim 原文。"
+ 
+-        verdicts: Dict[str, Dict[str, Any]] = {}
++        verdicts: Dict[str, List[Dict[str, Any]]] = {}
+         unused_verdicts: List[Dict[str, Any]] = []
+         llm_failed = False
+         if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
+             try:
+                 # 与 critic.py 同款：Pydantic schema + 纠错重试，防漏 key 静默默认
+                 # W5（Q2）：role="validator" 进职责桶（直建实例不传 state 的漏计由类级差值补全）
+-                client = LLMClient(model=config.llm.smart_model, role="validator")
++                client = LLMClient(model=config.llm.validator_model, role="validator")
+                 data = client.chat_json(
+                     [
+-                        {"role": "system", "content": VALIDATOR_SYSTEM.format(min_sources=config_min_sources())},
++                        {"role": "system", "content": system_prompt.format(min_sources=config_min_sources())},
+                         {"role": "user", "content": user},
+                     ],
+                     state=state,
+                     schema=CitationVerdict,
+                 )
+                 # Q3=A：按 finding_id 对齐，不再按序 zip
++                # Bug-7 修复：同编号多论断共享同一 verdict → 改用 list 存储，按 claim 匹配
+                 for item in data.get("citations", []):
+                     fid = item.get("finding_id", "")
+                     if fid and fid in {r["finding_id"] for r in to_check}:
+-                        verdicts[fid] = item
++                        verdicts.setdefault(fid, []).append(item)
+                     else:
+                         unused_verdicts.append(item)
+             except Exception:  # noqa: BLE001
+@@ -223,10 +382,20 @@ class Validator:
+                     verified=False, supported=False,
+                     finding_id=r["finding_id"], source_type=r["source_type"],
+                     confidence=0.0, note=r["note"], existence=False,
++                    verified_relaxed=False,
+                 ))
+                 continue
+ 
+-            verdict = verdicts.get(r["finding_id"])
++            verdict = None
++            candidates = verdicts.get(r["finding_id"], [])
++            if candidates:
++                # Bug-7 修复：按 claim 文本精确匹配，避免同编号论断共享 verdict
++                for v in candidates:
++                    if v.get("claim", "").strip() == r["claim"].strip():
++                        verdict = v
++                        break
++                if verdict is None:
++                    verdict = candidates[0]
+             if verdict is None:
+                 # 空 finding_id（URL 协议）或 LLM 未按 id 返回：用未消费 verdict 按 claim 兜底匹配
+                 for j, item in enumerate(unused_verdicts):
+@@ -235,28 +404,54 @@ class Validator:
+                         unused_verdicts.pop(j)
+                         break
+ 
++            unreliable = False
+             if llm_failed:
+                 # 整体降级：忠实度未知，按存在性通过（保 W1 行为）
+-                verified, confidence, note = True, 0.5, "LLM 校验失败，降级为存在性判定"
++                verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "LLM 校验失败，降级为存在性判定"
+             elif verdict is not None:
+-                faithful = bool(verdict.get("faithful", True))
++                fixes_enabled = config.experiment.validator_fixes_enabled
++                # W7 F2：claim_echo 回显对齐；不一致标 unreliable 并降级通过
++                echo = verdict.get("claim_echo", "") or verdict.get("claim", "")
++                if fixes_enabled and echo and self._claim_similarity(echo, r["claim"]) < 0.6:
++                    unreliable = True
++                    faithful = False
++                    supported_flag = bool(verdict.get("supported", False))
++                    confidence = float(verdict.get("confidence", 0.5))
++                    note = f"claim_echo 错位（相似度低）：{verdict.get('note', '') or ' verdict 与原文 claim 不匹配'}".strip()
++                else:
++                    faithful = bool(verdict.get("faithful", True))
++                    supported_flag = bool(verdict.get("supported", False))
++                    confidence = float(verdict.get("confidence", 0.5))
++                    note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
+                 verified = faithful
+-                confidence = float(verdict.get("confidence", 0.5))
+-                note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
++                if unreliable:
++                    verified = True  # 降级为保守通过，但 note 留痕
+             else:
+                 # 单条缺失：来源存在但未获 LLM 反馈 → 保守通过 + 提示（贴近 W1 行为）
+-                verified, confidence, note = True, 0.5, "忠实度未获 LLM 反馈（按存在性通过）"
++                verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "忠实度未获 LLM 反馈（按存在性通过）"
++
++            # W7 TBD-5：宽松口径 = 存在性 AND (忠实 OR 多源印证 OR 保守通过)
++            verified_relaxed = True and (faithful or supported_flag or verified)
+ 
+             result.append(Citation(
+                 claim=r["claim"], source=r["source"],
+                 verified=verified,
+-                supported=bool(verdict.get("supported", False)) if verdict is not None else False,
++                supported=supported_flag,
+                 finding_id=r["finding_id"], source_type=r["source_type"],
+                 confidence=confidence, note=note, existence=True,
++                verified_relaxed=verified_relaxed,
+                 is_meta=bool(verdict.get("is_meta", False)) if verdict is not None else False,
+             ))
+         return result
+ 
++    @staticmethod
++    def _claim_similarity(a: str, b: str) -> float:
++        """W7 F2：基于 difflib 的字符级相似度，用于 claim_echo 回显核对。"""
++        if not a or not b:
++            return 0.0
++        from difflib import SequenceMatcher
++        return SequenceMatcher(None, a.strip(), b.strip()).ratio()
++
+ 
+ def config_min_sources() -> int:
+     return config.research.min_sources_for_crosscheck
+\ No newline at end of file
+diff --git a/research_engine/agents/writer.py b/research_engine/agents/writer.py
+index 4c2b0ac..70366af 100644
+--- a/research_engine/agents/writer.py
++++ b/research_engine/agents/writer.py
+@@ -1,21 +1,25 @@
+ """Writer Agent：基于研究发现生成带引用的研究报告。
+ 
+ 使用 smart 层 LLM 写作，输出 Markdown 报告，每个论断标注引用来源编号。
++W7 Arm4：按子问题分节喂料 + 信息不足标注纪律 + 系统级兜底。
+ """
+ from __future__ import annotations
+ 
++import re
+ from typing import Any, List
+ 
++from config import config
+ from research_engine.context.manager import ContextManager
+ from research_engine.llm.router import get_router
+-from research_engine.state import ResearchFinding
++from research_engine.state import ResearchFinding, SubQuestion
+ 
+-WRITER_SYSTEM = """你是一位专业的研究报告撰写者。基于给定的研究发现，撰写一份结构清晰、内容详实的研究报告。
++# W7 Arm4：分节喂料关闭时（TBD-8 基线对照）回退到 v1.1 提示
++WRITER_SYSTEM_LEGACY = """你是一位专业的研究报告撰写者。基于给定的研究发现，撰写一份结构清晰、内容详实的研究报告。
+ 
+ 要求：
+ 1. 使用 Markdown 格式，包含标题、小节
+-2. 每个关键论断后必须标注引用来源，格式为 [来源: N]，其中 N 是研究发现列表中的编号（如 [来源: 3]）；多编号用 [来源: 5, 72, 77] 形式
+-3. 只能引用研究发现列表中真实存在的编号，禁止编造编号
++2. 每个关键论断后必须标注引用来源，格式为 [来源: N]，其中 N 是研究发现编号（如 [来源: 3]）；多编号用 [来源: 5, 72, 77] 形式
++3. 只能引用研究发现中真实存在的编号，禁止编造编号
+ 4. 忠实于研究发现，不编造事实
+ 5. 对信息不足的部分明确标注"信息不足"
+ 6. 报告应覆盖所有子问题
+@@ -23,6 +27,24 @@ WRITER_SYSTEM = """你是一位专业的研究报告撰写者。基于给定的
+ 8. 不要在报告末尾写"全部结论严格基于...""未引入外部信息"这类绝对可信声明——引用统计信息由系统在报告末尾自动标注
+ 9. "方法论说明"小节使用陈述句客观描述系统机制（如"本系统包含 Planner→Researcher→Writer→Validator 四个节点"），不使用"严格遵循""唯一正确""确保最先进"等绝对化或自我标榜式表述，并与正文事实部分明确分隔"""
+ 
++WRITER_SYSTEM = """你是一位专业的研究报告撰写者。基于给定的研究发现，撰写一份结构清晰、内容详实的研究报告。
++
++核心约束（必须遵守）：
++1. 只能使用"研究发现"中列出的材料，禁止使用外部知识或预训练知识补充内容。
++2. 必须按"子问题清单"分节撰写；每个子问题一节。若该节无材料或材料不足，请在该节正文明确写"信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。"，不要为求完整而编造。
++3. 每个关键论断后必须标注引用来源，格式为 [来源: N]，其中 N 是研究发现编号；多编号用 [来源: 5, 72, 77] 形式。
++4. 只能引用发现中真实存在的编号，禁止编造编号；引用编号必须在可用范围内。
++5. 忠实于研究发现，不夸大、不推断、不编造事实。
++6. 报告应覆盖所有子问题；无材料小节仍保留二级标题并写"信息不足"。
++7. 标注为"自指/方法论"的研究发现（描述 DeepResearch/本系统/本 Agent 自身架构或机制）只能用于独立的"方法论说明"小节，不得作为事实证据在正文中引用。
++8. 不要在报告末尾写"全部结论严格基于...""未引入外部信息"这类绝对可信声明——引用统计信息由系统在报告末尾自动标注。
++9. "方法论说明"小节使用陈述句客观描述系统机制（如"本系统包含 Planner→Researcher→Writer→Validator 四个节点"），不使用"严格遵循""唯一正确""确保最先进"等绝对化或自我标榜式表述，并与正文事实部分明确分隔。
++
++输出格式：
++- 使用 Markdown，一级标题为研究主题。
++- 每个子问题使用二级标题。
++- 无材料小节仍保留二级标题并写"信息不足"。"""
++
+ 
+ class Writer:
+     """报告撰写器。
+@@ -36,13 +58,112 @@ class Writer:
+         self.router = get_router()
+         self.context = ContextManager()
+ 
+-    def write(self, topic: str, subquestions: List, findings: List[ResearchFinding], state: Any = None) -> str:
+-        context_text = self.context.format_for_writer(findings)
++    def write(
++        self,
++        topic: str,
++        subquestions: List[SubQuestion],
++        findings: List[ResearchFinding],
++        state: Any = None,
++    ) -> str:
++        # W7 Arm4：分节喂料开关
++        sectioned = config.experiment.writer_sectioned_feed_enabled
++        context_text = self.context.format_for_writer(findings, subquestions)
+ 
+         subq_text = "\n".join(f"- {s.question}" for s in subquestions)
+-        user = f"研究主题：{topic}\n\n子问题：\n{subq_text}\n\n研究发现：\n{context_text}\n\n请撰写研究报告。"
++        if sectioned:
++            system = WRITER_SYSTEM
++            user = (
++                f"研究主题：{topic}\n\n"
++                f"子问题清单：\n{subq_text}\n\n"
++                f"研究发现（按子问题分节，每条以 Finding N: 开头，N 为编号）：\n{context_text}\n\n"
++                "请严格按子问题分节撰写研究报告。"
++            )
++        else:
++            system = WRITER_SYSTEM_LEGACY
++            user = (
++                f"研究主题：{topic}\n\n"
++                f"子问题：\n{subq_text}\n\n"
++                f"研究发现：\n{context_text}\n\n"
++                "请撰写研究报告。"
++            )
+ 
+         try:
+-            return self.router.smart_chat(WRITER_SYSTEM, user, state=state)
++            report = self.router.smart_chat(system, user, state=state)
+         except Exception:  # noqa: BLE001
+-            return f"# {topic}\n\n（报告生成失败，请检查 LLM 配置）"
++            report = self._fallback_report(topic, subquestions)
++
++        if sectioned:
++            return self._ensure_sections(report, subquestions, findings)
++        return report
++
++    def _fallback_report(self, topic: str, subquestions: List[SubQuestion]) -> str:
++        """LLM 调用失败时的系统级兜底：每个子问题都写信息不足。"""
++        lines = [f"# {topic}", "", "（报告生成遇到异常，以下为系统兜底输出）"]
++        for s in subquestions:
++            lines.extend([f"\n## {s.question}", "信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。"])
++        return "\n".join(lines)
++
++    def _ensure_sections(
++        self,
++        report: str,
++        subquestions: List[SubQuestion],
++        findings: List[ResearchFinding],
++    ) -> str:
++        """G4 系统级兜底：1）替换越界引用；2）为缺失的子问题补信息不足小节。"""
++        max_n = len(findings)
++
++        def _extract_nums(inner: str) -> List[str]:
++            """从引用内部提取数字编号，兼容 # 前缀和多种分隔符。"""
++            raw_tokens = [t for t in re.split(r"[,，、;；/和\s]+", inner.strip()) if t]
++            tokens = [t.lstrip("#").strip() for t in raw_tokens]
++            return [t for t in tokens if t.isdigit()]
++
++        def _replace_citation(match: re.Match) -> str:
++            inner = match.group(1)
++            nums = _extract_nums(inner)
++            if not nums:
++                return match.group(0)
++            # Bug-3 修复：只裁掉越界编号，保留有效编号，不整条替换
++            valid_nums = [n for n in nums if 1 <= int(n) <= max_n]
++            if not valid_nums:
++                return "[来源: 信息不足]"
++            if len(valid_nums) < len(nums):
++                return f"[来源: {', '.join(valid_nums)}]"
++            return match.group(0)
++
++        # P0 引用协议统一：匹配 [来源: N] 和 [来源: #N] 格式
++        report = re.sub(r"\[来源:\s*([#\d\s,，、;；/和]+)\]", _replace_citation, report)
++
++        # P0 引用协议统一：裸 [#N] / [N] 归一化为 [来源: N]
++        # 排除 markdown 链接 [...](...) 和已处理的 [来源: ...]
++        def _normalize_bare(match: re.Match) -> str:
++            inner = match.group(1)
++            nums = _extract_nums(inner)
++            if not nums:
++                return match.group(0)
++            valid_nums = [n for n in nums if 1 <= int(n) <= max_n]
++            if not valid_nums:
++                # 设计-4 修复：与 _replace_citation 一致，越界返回信息不足
++                return "[来源: 信息不足]"
++            return f"[来源: {', '.join(valid_nums)}]"
++
++        # P0/Bug-8 引用协议统一：裸 [#N] / [N] 归一化为 [来源: N]
++        # Bug-8 修复：要求前面是句末标点或空白，避免匹配"实验[1]"等行文括号
++        report = re.sub(
++            r"(?:(?<=[。！？；\n\s])|(?<=^))\[(#?\d[#\d\s,，、;；/和]*)\](?!\()",
++            _normalize_bare,
++            report,
++        )
++
++        missing: List[str] = []
++        for s in subquestions:
++            # 设计-6 修复：用标题行精确匹配替代朴素子串匹配，避免短问题文本误判
++            heading_pattern = re.compile(r"^##+\s*" + re.escape(s.question), re.M)
++            if not heading_pattern.search(report):
++                missing.append(
++                    f"## {s.question}\n\n"
++                    "信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。"
++                )
++        if missing:
++            report += "\n\n---\n\n" + "\n\n".join(missing)
++        return report
+diff --git a/research_engine/context/manager.py b/research_engine/context/manager.py
+index 942e1e4..9efd0ef 100644
+--- a/research_engine/context/manager.py
++++ b/research_engine/context/manager.py
+@@ -7,8 +7,9 @@ from __future__ import annotations
+ 
+ from typing import Any, List
+ 
++from config import config
+ from research_engine.llm.router import get_router
+-from research_engine.state import ResearchFinding
++from research_engine.state import ResearchFinding, SubQuestion
+ 
+ 
+ class ContextManager:
+@@ -57,6 +58,8 @@ class ContextManager:
+                             meta[k] = meta.get(k, []) + v
+                         else:
+                             meta.setdefault(k, v)
++                # Bug-3 修复：压缩后 sq_id 取所有子问题中首个非空值（非 group[0]，防跨子问题合并时归属丢失）
++                merged_sq_id = next((f.sq_id for f in group if f.sq_id), group[0].sq_id)
+                 compressed.append(
+                     ResearchFinding(
+                         content=summary,
+@@ -64,6 +67,7 @@ class ContextManager:
+                         source_type=group[0].source_type,
+                         confidence=max(f.confidence for f in group),
+                         is_meta=any(f.is_meta for f in group),  # R2.4 Q5=A：压缩后不透传会丢标
++                        sq_id=merged_sq_id,
+                         metadata=meta,  # W4 Q5：metadata 不透传会丢 citation_count/retry_history
+                     )
+                 )
+@@ -72,14 +76,42 @@ class ContextManager:
+ 
+         return compressed
+ 
+-    def format_for_writer(self, findings: List[ResearchFinding]) -> str:
+-        """将研究发现格式化为 Writer 可用的上下文文本。
++    def format_for_writer(
++        self,
++        findings: List[ResearchFinding],
++        subquestions: List[SubQuestion] | None = None,
++    ) -> str:
++        """将研究发现格式化为 Writer 可用的上下文文本（W7 Arm4 G2：按子问题分节）。
+ 
+-        每个发现分配一个编号 [N]，Writer 用 [来源: N] 引用，Validator 再映射回真实来源。
++        每个发现以 "Finding N:" 标记编号，Writer 用 [来源: N] 引用，Validator 再映射回真实来源。
++        关键约束：编号顺序与 ``findings`` 列表完全一致，禁止重排/删除，否则引用编号会错位。
+         """
+-        lines = []
++        subquestions = subquestions or []
++        sq_map = {s.id: s.question for s in subquestions}
++
++        # W7 Arm4：分节喂料可通过 WRITER_SECTIONED_FEED_ENABLED 关闭（TBD-8 基线对照）
++        sectioned = config.experiment.writer_sectioned_feed_enabled
++
++        lines: List[str] = []
++        current_sq: str | None = None
+         for i, f in enumerate(findings, 1):
++            if sectioned and f.sq_id != current_sq:
++                header = sq_map.get(f.sq_id, f.sq_id or "未分类材料")
++                lines.append(f"\n--- 子问题：{header} ---")
++                current_sq = f.sq_id
+             meta = "，自指/方法论" if f.is_meta else ""  # R2.4：is_meta 仅用于方法论说明小节
+-            lines.append(f"[{i}] 来源: {f.source} (类型: {f.source_type}, 置信度: {f.confidence:.2f}{meta})")
++            # P0 引用协议统一：用 Finding N: 编号，彻底避免 #、[] 等符号被 LLM 模仿到引用中
++            lines.append(f"Finding {i}: 来源: {f.source} (类型: {f.source_type}, 置信度: {f.confidence:.2f}{meta})")
+             lines.append(f"    {f.content}")
++
++        # G4 系统级兜底：无材料的子问题显式列出，强制 writer 看到"信息不足"义务
++        if sectioned:
++            found_sq = {f.sq_id for f in findings}
++            missing = [s for s in subquestions if s.id not in found_sq]
++            if missing:
++                lines.append("\n--- 以下子问题暂无研究发现 ---")
++                for s in missing:
++                    lines.append(f"--- 子问题：{s.question} ---")
++                    lines.append("（暂无研究发现）")
++
+         return "\n".join(lines)
+diff --git a/research_engine/critic.py b/research_engine/critic.py
+index ace7bad..163e44f 100644
+--- a/research_engine/critic.py
++++ b/research_engine/critic.py
+@@ -20,12 +20,19 @@ from research_engine.state import ResearchState
+ 
+ Signal = str  # "continue" | "revise" | "stop"
+ 
++# W7 Arm1 TBD-1b：gap 反思轮次专用封顶（不复用 max_total_hops=20）
++MAX_GAP_REFLECTIONS = 6
++
+ 
+ class CriticVerdict(BaseModel):
+     """critic LLM 裁决的结构化 schema（防模型漏 key 被静默默认值误判）。"""
+ 
+     sufficient: bool = Field(description="研究是否已充分支撑报告")
+     needs_replan: bool = Field(default=False, description="方向是否跑偏需重分解")
++    knowledge_gap: str = Field(
++        default="",
++        description="W7 Arm1：若研究充分但仍有未补缺口，说明缺失知识；否则留空",
++    )
+     next_queries: List[Dict[str, Any]] = Field(
+         default_factory=list,
+         description="换角度的新查询 [{sq_id, query}]，回填 frontier",
+@@ -35,11 +42,13 @@ class CriticVerdict(BaseModel):
+ def hard_gate(state: ResearchState, cfg=config) -> Optional[Signal]:
+     """确定性硬闸。触发任一上限即返回 "stop"，否则 None（继续走 LLM 裁决）。
+ 
+-    四维度（grill Q3/Q4/Q5/Q6）：
++    P1 max_replan 语义修正：replan_count 不再是全局停止条件，
++    只在 needs_replan=True 时限制重规划次数（在 _resolve_signal 中检查）。
++
++    三维度：
+       - frontier 空            → 没有待检索查询，循环终止
+-      - depth ≥ max_total_hops → 全局跳数预算耗尽（与旧 max_depth×max_subquestions 等价）
+-      - token_used ≥ token_budget → LLM token 预算耗尽（Q6-B）
+-      - replan_count ≥ max_replan  → replan 兜底次数耗尽，防空转（Q2-B）
++      - depth ≥ max_total_hops → 全局跳数预算耗尽
++      - token_used ≥ token_budget → LLM token 预算耗尽
+     """
+     rc = cfg.research
+     if not state.frontier:
+@@ -48,15 +57,16 @@ def hard_gate(state: ResearchState, cfg=config) -> Optional[Signal]:
+         return "stop"
+     if state.token_used >= rc.token_budget:
+         return "stop"
+-    if state.replan_count >= rc.max_replan:
+-        return "stop"
+     return None
+ 
+ 
+ def route_critic(state: ResearchState) -> Signal:
+-    """纯函数路由：读取 critic 节点写入的 critic_signal，映射到条件边。"""
++    """纯函数路由：读取 critic 节点写入的 critic_signal，映射到条件边。
++
++    P1 frontier 闭环修复：新增 "augment" 信号（gap 查询回填 frontier）。
++    """
+     signal = state.critic_signal
+-    if signal in ("continue", "revise", "stop"):
++    if signal in ("continue", "revise", "stop", "augment"):
+         return signal
+     # 兜底：基于 verdict 字段推导（decide 已写 signal，理论上不会到这）
+     if state.sufficient:
+@@ -77,15 +87,75 @@ class Critic:
+         gate = hard_gate(state, cfg)
+         if gate == "stop":
+             state.critic_signal = "stop"
++            state.critic_stop_reason = "hard_stop"
++            state.critic_gap = ""
+             return "stop"
+         verdict = self._verdict(state)
+-        # verdict: {sufficient, needs_replan, next_queries}
++        # verdict: {sufficient, needs_replan, knowledge_gap, next_queries}
+         state.sufficient = bool(verdict.get("sufficient", False))
+         state.needs_replan = bool(verdict.get("needs_replan", False))
++        state.critic_gap = str(verdict.get("knowledge_gap", "")).strip()
+         state.next_queries = list(verdict.get("next_queries", []))
+-        state.critic_signal = route_critic(state)
++        state.critic_signal, state.critic_stop_reason = self._resolve_signal(state)
+         return state.critic_signal
+ 
++    def _resolve_signal(self, state: ResearchState) -> tuple[Signal, str]:
++        """W7 Arm1：gap 硬规则 + N=6 封顶。返回 (signal, stop_reason)。
++
++        P1 frontier 闭环修复：
++        - "augment" = gap 查询回填 frontier（走 revise 节点的 Q2-A 路径）
++        - "continue" = 使用现有 frontier 继续（不追加新查询）
++        - "revise" = 方向跑偏，需要重规划
++        - "stop" = 终止
++        """
++        # 方向跑偏优先走 revise（与 gap 规则互不覆盖）
++        # P1 max_replan 语义修正：replan 达到上限时不再重规划，转为 stop
++        if state.needs_replan:
++            from config import config as _cfg_rc
++            if state.replan_count >= _cfg_rc.research.max_replan:
++                return "stop", "replan_exhausted"
++            return "revise", "revise"
++
++        # W7 Arm1：gap 硬规则可通过 CRITIC_GAP_ENABLED 关闭（TBD-8 基线对照）
++        from config import config as _cfg
++
++        if not _cfg.experiment.critic_gap_enabled:
++            if state.sufficient:
++                return "stop", "critic_stop"
++            return "continue", "continue"
++
++        # Bug-4 修复：gap 硬规则在 sufficient=True 和 sufficient=False 时都可达
++        gap = state.critic_gap
++        has_queries = bool(state.next_queries)
++        reflection_count = len(state.reflection_log)
++
++        if state.sufficient:
++            # sufficient=True：gap 非空 + next_queries 非空 → 强制回填（防 LLM 早停）
++            if not gap or not has_queries:
++                if gap and not has_queries:
++                    return "stop", "gap_unresolved"
++                if not has_queries:
++                    return "stop", "no_next_queries"
++                return "stop", "critic_stop"
++            # gap 非空且 next_queries 非空
++            if reflection_count < MAX_GAP_REFLECTIONS:
++                return "augment", "gap_continue"
++            return "stop", "critic_stop"
++        else:
++            # sufficient=False：模型说"不充分"
++            # Bug-4 修复：如果模型没填 gap 和 next_queries 就说"不充分"，
++            # 说明模型没指出具体缺口——仍走 continue，但标记为 lazy_continue
++            if not gap and not has_queries:
++                return "continue", "lazy_continue"
++            # Bug-10 修复：有 gap 但无 next_queries → 无法回填 frontier，走 continue
++            if gap and not has_queries:
++                return "continue", "gap_unresolved_continue"
++            # 有 next_queries → 回填 frontier
++            # 设计-1 修复：sufficient=False 时也受 MAX_GAP_REFLECTIONS 封顶
++            if reflection_count < MAX_GAP_REFLECTIONS:
++                return "augment", "gap_continue"
++            return "continue", "gap_reflection_cap"
++
+     def _verdict(self, state: ResearchState) -> Dict[str, Any]:
+         """拿 critic 的结构化裁决。llm_fn 注入时直接用（测试）；否则走真实 LLM。"""
+         if self.llm_fn is not None:
+@@ -93,17 +163,31 @@ class Critic:
+         # 真实 LLM 裁决（生产路径；token 累加由 router 在 Q6 完成）。
+         from research_engine.llm.client import LLMClient
+ 
++        from config import config as _cfg
++        gap_extra = ""
++        if _cfg.experiment.critic_gap_enabled:
++            gap_extra = (
++                "Bug-4 修复补充：判断 sufficient 时使用'基本充分'标准——如果已有发现能支撑报告"
++                "的主体结论，仅有少量细节缺口，应判 sufficient=true 并在 knowledge_gap 中说明缺口；"
++                "只有当主体结论缺乏支撑时才判 sufficient=false。无论 sufficient 取何值，"
++                "只要存在知识缺口就应填写 knowledge_gap 和 next_queries。"
++            )
+         system = (
+-            "你是深度研究 Agent 的质量 critic。基于已有发现判断某子问题的研究是否充分，"
++            "你是深度研究 Agent 的质量 critic。基于已有发现判断研究是否充分，"
+             "或是否需要换角度重新检索，或方向是否彻底跑偏需要重分解。"
+-            "只输出 JSON：{\"sufficient\": bool, \"needs_replan\": bool, \"next_queries\": [{\"sq_id\": str, \"query\": str}]}。"
++            "W7 新增：若判为充分但仍有未补上的知识缺口，请在 knowledge_gap 中说明，"
++            "并给出 next_queries 弥补；若缺口已被补全或无法给出查询，knowledge_gap 留空。"
++            + gap_extra +
++            "只输出 JSON：{\"sufficient\": bool, \"needs_replan\": bool, \"knowledge_gap\": str, \"next_queries\": [{\"sq_id\": str, \"query\": str}]}。"
+         )
+         subs = "; ".join(f"{sq.id}: {sq.question}" for sq in state.subquestions)
++        reflection_round = len(state.reflection_log) + 1
+         user = (
+             f"研究主题：{state.topic}\n"
+             f"子问题集合：{subs}\n"
+             f"当前已检索跳数：{state.depth}，发现条数：{len(state.findings)}\n"
+-            f"请判断：发现是否已充分支撑报告？若需换角度，给出 next_queries（带 sq_id）；"
++            f"这是第 {reflection_round}/{MAX_GAP_REFLECTIONS} 轮反思。\n"
++            f"请判断：发现是否已充分支撑报告？若仍有知识缺口，在 knowledge_gap 中说明并给出 next_queries（带 sq_id）；"
+             f"若方向跑偏，needs_replan=true。"
+         )
+         # W4 Q7：裁决归位 critic_model（修复 W3 前硬编码 smart_model 的现状 bug——裁决属 strategic 层）
+diff --git a/research_engine/eval/metrics.py b/research_engine/eval/metrics.py
+index b6ef8b7..403d54c 100644
+--- a/research_engine/eval/metrics.py
++++ b/research_engine/eval/metrics.py
+@@ -69,17 +69,20 @@ def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
+     """基于主链路校验产物统计（Q2/Q8：不再重跑 validator——那是又一次 LLM 对查）。
+ 
+     口径对齐 W2：verified = 存在且忠实；existence 单独统计；by_source_type 拆分。
++    W7 TBD-5 新增：verified_relaxed = existence AND (faithful OR supported)，仅作解释性附注。
+     """
+     total = len(citations)
+     verified = sum(1 for c in citations if c.get("verified"))
++    verified_relaxed = sum(1 for c in citations if c.get("verified_relaxed"))
+     existence = sum(1 for c in citations if c.get("existence"))
+     by_type: Dict[str, Dict[str, int]] = {}
+     failed_notes: Dict[str, int] = {}
+     for c in citations:
+         t = c.get("source_type") or "unknown"
+-        bucket = by_type.setdefault(t, {"total": 0, "verified": 0, "existence": 0})
++        bucket = by_type.setdefault(t, {"total": 0, "verified": 0, "verified_relaxed": 0, "existence": 0})
+         bucket["total"] += 1
+         bucket["verified"] += 1 if c.get("verified") else 0
++        bucket["verified_relaxed"] += 1 if c.get("verified_relaxed") else 0
+         bucket["existence"] += 1 if c.get("existence") else 0
+         if not c.get("verified"):
+             key = (c.get("note") or "未说明")[:40]
+@@ -87,8 +90,10 @@ def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
+     return {
+         "total_citations": total,
+         "verified": verified,
++        "verified_relaxed": verified_relaxed,
+         "existence_rate": round(existence / total, 4) if total else 0,
+         "fidelity_rate": round(verified / existence, 4) if existence else 0,  # W2 忠实度口径
++        "relaxed_rate": round(verified_relaxed / existence, 4) if existence else 0,  # W7 宽松口径
+         "by_source_type": by_type,
+         "failed_note_distribution": failed_notes,
+     }
+@@ -281,22 +286,26 @@ def compute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
+ def compute_reflection(state: Dict[str, Any], coverage: float) -> Dict[str, Any]:
+     """结构性口径 + 交叉信号（Q2/TBD-8 拍板，不标期望跳数）。
+ 
+-    - hard_stop：终态任一硬闸触顶（depth / token_used / replan_count）
++    - hard_stop：终态任一硬闸触顶（frontier 空 / depth / token_used）
+     - critic_stop：未触顶且 critic_signal == "stop"
+     - 早停候选：critic_stop ∧ 覆盖度 < 90%；晚停候选：critic_stop ∧ 轮数 > 5
++
++    P1 Bug-6 修复：增加 frontier_empty 到 hard_stop 判定，
++    与 critic.py 的 hard_gate() 保持一致。replan_count 不再
++    作为全局 hard_stop（P1 max_replan 语义修正）。
+     """
+     rc = config.research
+     depth = state.get("depth", 0)
+     token_used = state.get("token_used", 0)
+-    replan_count = state.get("replan_count", 0)
+     signal = state.get("critic_signal", "")
+     hard_reasons: List[str] = []
++    frontier = state.get("frontier") or []
++    if not frontier:
++        hard_reasons.append("frontier_empty")
+     if depth >= rc.max_total_hops:
+         hard_reasons.append("max_total_hops")
+     if token_used >= rc.token_budget:
+         hard_reasons.append("token_budget")
+-    if replan_count >= rc.max_replan:
+-        hard_reasons.append("max_replan")
+     is_hard = bool(hard_reasons)
+     is_critic = (not is_hard) and signal == "stop"
+     reflection_log = state.get("reflection_log") or []
+diff --git a/research_engine/eval/results/history.json b/research_engine/eval/results/history.json
+index 028c309..bfa2407 100644
+--- a/research_engine/eval/results/history.json
++++ b/research_engine/eval/results/history.json
+@@ -56,5 +56,1281 @@
+   },
+   "status": "PASS",
+   "generated_at": "2026-09-07T00:24:44"
++ },
++ {
++  "run_id": "run_20260909_155504",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.4762,
++   "citation_accuracy_relaxed": 0.4762,
++   "existence_rate": 0.9487,
++   "coverage": 0.8334,
++   "retrieval_hit_rate": 0.7916,
++   "avg_steps": 3.0,
++   "reflection_critic_stop_rate": 0.5
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -12.0,
++   "coverage": 55.6,
++   "retrieval_hit_rate": 11.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T16:00:55"
++ },
++ {
++  "run_id": "run_20260909_160122",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8143,
++   "citation_accuracy_relaxed": 0.8143,
++   "existence_rate": 0.9484,
++   "coverage": 0.5834,
++   "retrieval_hit_rate": 0.7916,
++   "avg_steps": 3.0,
++   "reflection_critic_stop_rate": 0.5
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 33.8,
++   "coverage": -25.0,
++   "retrieval_hit_rate": 0.0
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T16:06:53"
++ },
++ {
++  "run_id": "run_20260909_160737",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6179,
++   "citation_accuracy_relaxed": 0.6269,
++   "existence_rate": 0.9328,
++   "coverage": 0.5792,
++   "retrieval_hit_rate": 0.6205,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -19.6,
++   "coverage": -0.4,
++   "retrieval_hit_rate": -17.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T16:49:31"
++ },
++ {
++  "run_id": "run_20260909_164934",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6089,
++   "citation_accuracy_relaxed": 0.6263,
++   "existence_rate": 0.9707,
++   "coverage": 0.5583,
++   "retrieval_hit_rate": 0.6145,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -0.9,
++   "coverage": -2.1,
++   "retrieval_hit_rate": -0.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T17:32:27"
++ },
++ {
++  "run_id": "run_20260909_173229",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.671,
++   "citation_accuracy_relaxed": 0.6735,
++   "existence_rate": 0.8897,
++   "coverage": 0.5625,
++   "retrieval_hit_rate": 0.6365,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 6.2,
++   "coverage": 0.4,
++   "retrieval_hit_rate": 2.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T18:15:03"
++ },
++ {
++  "run_id": "run_20260909_185458",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.765,
++   "citation_accuracy_relaxed": 0.8004,
++   "existence_rate": 0.9802,
++   "coverage": 0.6333,
++   "retrieval_hit_rate": 0.6764,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 9.4,
++   "coverage": 7.1,
++   "retrieval_hit_rate": 4.0
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T19:41:33"
++ },
++ {
++  "run_id": "run_20260909_194138",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6407,
++   "citation_accuracy_relaxed": 0.6482,
++   "existence_rate": 0.8424,
++   "coverage": 0.625,
++   "retrieval_hit_rate": 0.7155,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -12.4,
++   "coverage": -0.8,
++   "retrieval_hit_rate": 3.9
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T20:27:48"
++ },
++ {
++  "run_id": "run_20260909_202751",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8119,
++   "citation_accuracy_relaxed": 0.8483,
++   "existence_rate": 0.9873,
++   "coverage": 0.6167,
++   "retrieval_hit_rate": 0.6599,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 17.1,
++   "coverage": -0.8,
++   "retrieval_hit_rate": -5.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T21:16:10"
++ },
++ {
++  "run_id": "run_20260909_211614",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7419,
++   "citation_accuracy_relaxed": 0.7537,
++   "existence_rate": 0.9755,
++   "coverage": 0.6625,
++   "retrieval_hit_rate": 0.6722,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -7.0,
++   "coverage": 4.6,
++   "retrieval_hit_rate": 1.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T22:02:28"
++ },
++ {
++  "run_id": "run_20260909_220233",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7077,
++   "citation_accuracy_relaxed": 0.7217,
++   "existence_rate": 0.9679,
++   "coverage": 0.4458,
++   "retrieval_hit_rate": 0.5136,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -3.4,
++   "coverage": -21.7,
++   "retrieval_hit_rate": -15.9
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T22:44:06"
++ },
++ {
++  "run_id": "run_20260909_224409",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7116,
++   "citation_accuracy_relaxed": 0.7171,
++   "existence_rate": 0.93,
++   "coverage": 0.4083,
++   "retrieval_hit_rate": 0.4592,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 0.4,
++   "coverage": -3.7,
++   "retrieval_hit_rate": -5.4
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-09T23:27:15"
++ },
++ {
++  "run_id": "run_20260909_232719",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8674,
++   "citation_accuracy_relaxed": 0.6372,
++   "existence_rate": 0.9563,
++   "coverage": 0.4083,
++   "retrieval_hit_rate": 0.4282,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 15.6,
++   "coverage": 0.0,
++   "retrieval_hit_rate": -3.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T00:06:16"
++ },
++ {
++  "run_id": "run_20260910_003024",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6514,
++   "citation_accuracy_relaxed": 0.6761,
++   "existence_rate": 0.9614,
++   "coverage": 0.4708,
++   "retrieval_hit_rate": 0.4543,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -21.6,
++   "coverage": 6.2,
++   "retrieval_hit_rate": 2.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T01:09:49"
++ },
++ {
++  "run_id": "run_20260910_010952",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.5364,
++   "citation_accuracy_relaxed": 0.5364,
++   "existence_rate": 0.881,
++   "coverage": 0.2333,
++   "retrieval_hit_rate": 0.3457,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -11.5,
++   "coverage": -23.8,
++   "retrieval_hit_rate": -10.9
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T01:47:44"
++ },
++ {
++  "run_id": "run_20260910_014747",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.823,
++   "citation_accuracy_relaxed": 0.6017,
++   "existence_rate": 0.9084,
++   "coverage": 0.325,
++   "retrieval_hit_rate": 0.4315,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 28.7,
++   "coverage": 9.2,
++   "retrieval_hit_rate": 8.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T02:28:14"
++ },
++ {
++  "run_id": "run_20260910_022817",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.3259,
++   "citation_accuracy_relaxed": 0.3259,
++   "existence_rate": 0.4837,
++   "coverage": 0.4,
++   "retrieval_hit_rate": 0.476,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -49.7,
++   "coverage": 7.5,
++   "retrieval_hit_rate": 4.4
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T02:51:22"
++ },
++ {
++  "run_id": "run_20260910_025125",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.5934,
++   "citation_accuracy_relaxed": 0.6059,
++   "existence_rate": 0.9167,
++   "coverage": 0.3125,
++   "retrieval_hit_rate": 0.4678,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 26.8,
++   "coverage": -8.8,
++   "retrieval_hit_rate": -0.8
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T03:31:25"
++ },
++ {
++  "run_id": "run_20260910_033127",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6198,
++   "citation_accuracy_relaxed": 0.6422,
++   "existence_rate": 0.9126,
++   "coverage": 0.3458,
++   "retrieval_hit_rate": 0.4364,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 2.6,
++   "coverage": 3.3,
++   "retrieval_hit_rate": -3.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T04:09:08"
++ },
++ {
++  "run_id": "run_20260910_040911",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6902,
++   "citation_accuracy_relaxed": 0.6902,
++   "existence_rate": 0.9202,
++   "coverage": 0.3625,
++   "retrieval_hit_rate": 0.4689,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 7.0,
++   "coverage": 1.7,
++   "retrieval_hit_rate": 3.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T04:47:13"
++ },
++ {
++  "run_id": "run_20260910_044716",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8559,
++   "citation_accuracy_relaxed": 0.6085,
++   "existence_rate": 0.9777,
++   "coverage": 0.375,
++   "retrieval_hit_rate": 0.4753,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 16.6,
++   "coverage": 1.3,
++   "retrieval_hit_rate": 0.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T05:25:52"
++ },
++ {
++  "run_id": "run_20260910_052555",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.409,
++   "citation_accuracy_relaxed": 0.4118,
++   "existence_rate": 0.6622,
++   "coverage": 0.3958,
++   "retrieval_hit_rate": 0.4621,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -44.7,
++   "coverage": 2.1,
++   "retrieval_hit_rate": -1.3
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T05:49:55"
++ },
++ {
++  "run_id": "run_20260910_054957",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6531,
++   "citation_accuracy_relaxed": 0.6531,
++   "existence_rate": 0.8822,
++   "coverage": 0.3708,
++   "retrieval_hit_rate": 0.4433,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 24.4,
++   "coverage": -2.5,
++   "retrieval_hit_rate": -1.9
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T06:28:40"
++ },
++ {
++  "run_id": "run_20260910_062843",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6909,
++   "citation_accuracy_relaxed": 0.6909,
++   "existence_rate": 0.9231,
++   "coverage": 0.3958,
++   "retrieval_hit_rate": 0.4622,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 3.8,
++   "coverage": 2.5,
++   "retrieval_hit_rate": 1.9
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T07:10:28"
++ },
++ {
++  "run_id": "run_20260910_071031",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.641,
++   "citation_accuracy_relaxed": 0.641,
++   "existence_rate": 0.925,
++   "coverage": 0.4083,
++   "retrieval_hit_rate": 0.4267,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -5.0,
++   "coverage": 1.3,
++   "retrieval_hit_rate": -3.5
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T07:50:04"
++ },
++ {
++  "run_id": "run_20260910_075007",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8849,
++   "citation_accuracy_relaxed": 0.6174,
++   "existence_rate": 0.9798,
++   "coverage": 0.4083,
++   "retrieval_hit_rate": 0.4682,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 24.4,
++   "coverage": 0.0,
++   "retrieval_hit_rate": 4.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T08:30:17"
++ },
++ {
++  "run_id": "run_20260910_083020",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.3766,
++   "citation_accuracy_relaxed": 0.3866,
++   "existence_rate": 0.6155,
++   "coverage": 0.2125,
++   "retrieval_hit_rate": 0.3134,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -50.8,
++   "coverage": -19.6,
++   "retrieval_hit_rate": -15.5
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T08:52:57"
++ },
++ {
++  "run_id": "run_20260910_085259",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6332,
++   "citation_accuracy_relaxed": 0.6605,
++   "existence_rate": 0.8892,
++   "coverage": 0.3333,
++   "retrieval_hit_rate": 0.4756,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 25.7,
++   "coverage": 12.1,
++   "retrieval_hit_rate": 16.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T09:31:11"
++ },
++ {
++  "run_id": "run_20260910_100400",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.687,
++   "citation_accuracy_relaxed": 0.687,
++   "existence_rate": 0.8849,
++   "coverage": 0.0958,
++   "retrieval_hit_rate": 0.2237,
++   "avg_steps": 3.75,
++   "reflection_critic_stop_rate": 0.9
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 5.4,
++   "coverage": -23.8,
++   "retrieval_hit_rate": -25.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T10:45:49"
++ },
++ {
++  "run_id": "run_20260910_105637",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.4697,
++   "citation_accuracy_relaxed": 0.4748,
++   "existence_rate": 0.916,
++   "coverage": 0.3,
++   "retrieval_hit_rate": 0.3692,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -21.7,
++   "coverage": 20.4,
++   "retrieval_hit_rate": 14.5
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T11:40:03"
++ },
++ {
++  "run_id": "run_20260910_114009",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7712,
++   "citation_accuracy_relaxed": 0.7712,
++   "existence_rate": 0.8631,
++   "coverage": 0.3208,
++   "retrieval_hit_rate": 0.4051,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 30.1,
++   "coverage": 2.1,
++   "retrieval_hit_rate": 3.6
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T12:16:44"
++ },
++ {
++  "run_id": "run_20260910_121649",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6722,
++   "citation_accuracy_relaxed": 0.7108,
++   "existence_rate": 0.8626,
++   "coverage": 0.3083,
++   "retrieval_hit_rate": 0.4376,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -9.9,
++   "coverage": -1.2,
++   "retrieval_hit_rate": 3.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T12:56:25"
++ },
++ {
++  "run_id": "run_20260910_125628",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8442,
++   "citation_accuracy_relaxed": 0.853,
++   "existence_rate": 0.928,
++   "coverage": 0.3208,
++   "retrieval_hit_rate": 0.3862,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 17.2,
++   "coverage": 1.2,
++   "retrieval_hit_rate": -5.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T13:35:59"
++ },
++ {
++  "run_id": "run_20260910_133606",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6387,
++   "citation_accuracy_relaxed": 0.6429,
++   "existence_rate": 0.943,
++   "coverage": 0.3,
++   "retrieval_hit_rate": 0.4515,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -20.5,
++   "coverage": -2.1,
++   "retrieval_hit_rate": 6.5
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T14:13:07"
++ },
++ {
++  "run_id": "run_20260910_141315",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.8177,
++   "citation_accuracy_relaxed": 0.8177,
++   "existence_rate": 0.8745,
++   "coverage": 0.3542,
++   "retrieval_hit_rate": 0.4439,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 17.9,
++   "coverage": 5.4,
++   "retrieval_hit_rate": -0.8
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T14:51:41"
++ },
++ {
++  "run_id": "run_20260910_154319",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6568,
++   "citation_accuracy_relaxed": 0.6568,
++   "existence_rate": 0.9026,
++   "coverage": 0.3667,
++   "retrieval_hit_rate": 0.4105,
++   "avg_steps": 3.7,
++   "reflection_critic_stop_rate": 0.9
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -16.1,
++   "coverage": 1.3,
++   "retrieval_hit_rate": -3.3
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T16:25:22"
++ },
++ {
++  "run_id": "run_20260910_162529",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 0.9,
++   "citation_accuracy": 0.2999,
++   "citation_accuracy_relaxed": 0.3047,
++   "existence_rate": 0.6377,
++   "coverage": 0.05,
++   "retrieval_hit_rate": 0.1231,
++   "avg_steps": 3.05,
++   "reflection_critic_stop_rate": 0.55
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": -10.0,
++   "citation_accuracy": -35.7,
++   "coverage": -31.7,
++   "retrieval_hit_rate": -28.7
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T16:50:10"
++ },
++ {
++  "run_id": "run_20260910_165016",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.2753,
++   "citation_accuracy_relaxed": 0.2753,
++   "existence_rate": 0.539,
++   "coverage": 0.1708,
++   "retrieval_hit_rate": 0.1785,
++   "avg_steps": 3.15,
++   "reflection_critic_stop_rate": 0.65
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 10.0,
++   "citation_accuracy": -2.5,
++   "coverage": 12.1,
++   "retrieval_hit_rate": 5.5
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T17:10:48"
++ },
++ {
++  "run_id": "run_20260910_171054",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7757,
++   "citation_accuracy_relaxed": 0.7757,
++   "existence_rate": 0.9666,
++   "coverage": 0.0,
++   "retrieval_hit_rate": 0.4664,
++   "avg_steps": 3.5556,
++   "reflection_critic_stop_rate": 0.8888888888888888
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 50.0,
++   "coverage": -17.1,
++   "retrieval_hit_rate": 28.8
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T17:35:36"
++ },
++ {
++  "run_id": "run_20260910_173540",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 0.0,
++   "citation_accuracy_relaxed": 0.0,
++   "existence_rate": 0.0,
++   "coverage": 0.0,
++   "retrieval_hit_rate": 0.1043,
++   "avg_steps": 1.0,
++   "reflection_critic_stop_rate": 1.0
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": -100.0,
++   "citation_accuracy": -77.6,
++   "coverage": 0.0,
++   "retrieval_hit_rate": -36.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T17:43:22"
++ },
++ {
++  "run_id": "run_20260910_175208",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7283,
++   "citation_accuracy_relaxed": 0.7355,
++   "existence_rate": 0.9675,
++   "coverage": 0.3542,
++   "retrieval_hit_rate": 0.4239,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 100.0,
++   "citation_accuracy": 72.8,
++   "coverage": 35.4,
++   "retrieval_hit_rate": 32.0
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T18:33:05"
++ },
++ {
++  "run_id": "run_20260910_183310",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7269,
++   "citation_accuracy_relaxed": 0.7269,
++   "existence_rate": 0.9713,
++   "coverage": 0.3833,
++   "retrieval_hit_rate": 0.4135,
++   "avg_steps": 3.75,
++   "reflection_critic_stop_rate": 0.9
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -0.1,
++   "coverage": 2.9,
++   "retrieval_hit_rate": -1.0
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T19:15:43"
++ },
++ {
++  "run_id": "run_20260910_191547",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.5878,
++   "citation_accuracy_relaxed": 0.5878,
++   "existence_rate": 0.9226,
++   "coverage": 0.3958,
++   "retrieval_hit_rate": 0.4701,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -13.9,
++   "coverage": 1.3,
++   "retrieval_hit_rate": 5.7
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T19:44:41"
++ },
++ {
++  "run_id": "run_20260910_194445",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6193,
++   "citation_accuracy_relaxed": 0.6193,
++   "existence_rate": 0.8715,
++   "coverage": 0.3,
++   "retrieval_hit_rate": 0.4116,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 3.1,
++   "coverage": -9.6,
++   "retrieval_hit_rate": -5.8
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T20:23:14"
++ },
++ {
++  "run_id": "run_20260910_202318",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.809,
++   "citation_accuracy_relaxed": 0.8139,
++   "existence_rate": 0.952,
++   "coverage": 0.3667,
++   "retrieval_hit_rate": 0.4137,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 19.0,
++   "coverage": 6.7,
++   "retrieval_hit_rate": 0.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T21:06:42"
++ },
++ {
++  "run_id": "run_20260910_210646",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7201,
++   "citation_accuracy_relaxed": 0.7423,
++   "existence_rate": 0.9328,
++   "coverage": 0.35,
++   "retrieval_hit_rate": 0.4262,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -8.9,
++   "coverage": -1.7,
++   "retrieval_hit_rate": 1.3
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T21:48:26"
++ },
++ {
++  "run_id": "run_20260910_214830",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.4581,
++   "citation_accuracy_relaxed": 0.4606,
++   "existence_rate": 0.7692,
++   "coverage": 0.35,
++   "retrieval_hit_rate": 0.4294,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -26.2,
++   "coverage": 0.0,
++   "retrieval_hit_rate": 0.3
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T22:19:07"
++ },
++ {
++  "run_id": "run_20260910_221911",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6529,
++   "citation_accuracy_relaxed": 0.6529,
++   "existence_rate": 0.9116,
++   "coverage": 0.3708,
++   "retrieval_hit_rate": 0.4501,
++   "avg_steps": 3.9,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 19.5,
++   "coverage": 2.1,
++   "retrieval_hit_rate": 2.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T22:56:30"
++ },
++ {
++  "run_id": "run_20260910_225634",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.5799,
++   "citation_accuracy_relaxed": 0.6167,
++   "existence_rate": 0.8654,
++   "coverage": 0.425,
++   "retrieval_hit_rate": 0.4419,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -7.3,
++   "coverage": 5.4,
++   "retrieval_hit_rate": -0.8
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-10T23:36:12"
++ },
++ {
++  "run_id": "run_20260910_233617",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7033,
++   "citation_accuracy_relaxed": 0.7101,
++   "existence_rate": 0.9159,
++   "coverage": 0.4667,
++   "retrieval_hit_rate": 0.4527,
++   "avg_steps": 3.7,
++   "reflection_critic_stop_rate": 0.85
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 12.3,
++   "coverage": 4.2,
++   "retrieval_hit_rate": 1.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T00:14:11"
++ },
++ {
++  "run_id": "run_20260911_001417",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.4358,
++   "citation_accuracy_relaxed": 0.4483,
++   "existence_rate": 0.7858,
++   "coverage": 0.4042,
++   "retrieval_hit_rate": 0.4105,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -26.8,
++   "coverage": -6.2,
++   "retrieval_hit_rate": -4.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T00:41:56"
++ },
++ {
++  "run_id": "run_20260911_004201",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6355,
++   "citation_accuracy_relaxed": 0.6355,
++   "existence_rate": 0.8116,
++   "coverage": 0.3375,
++   "retrieval_hit_rate": 0.3989,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 20.0,
++   "coverage": -6.7,
++   "retrieval_hit_rate": -1.2
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T01:21:57"
++ },
++ {
++  "run_id": "run_20260911_150715",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7118,
++   "citation_accuracy_relaxed": 0.7198,
++   "existence_rate": 0.968,
++   "coverage": 0.4042,
++   "retrieval_hit_rate": 0.4518,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.05
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 7.6,
++   "coverage": 6.7,
++   "retrieval_hit_rate": 5.3
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T15:53:46"
++ },
++ {
++  "run_id": "run_20260911_194156",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7601,
++   "citation_accuracy_relaxed": 0.7682,
++   "existence_rate": 0.966,
++   "coverage": 0.3417,
++   "retrieval_hit_rate": 0.4375,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.05
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 4.8,
++   "coverage": -6.2,
++   "retrieval_hit_rate": -1.4
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T20:26:31"
++ },
++ {
++  "run_id": "run_20260911_202638",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.6318,
++   "citation_accuracy_relaxed": 0.6416,
++   "existence_rate": 0.9714,
++   "coverage": 0.425,
++   "retrieval_hit_rate": 0.578,
++   "avg_steps": 8.1,
++   "reflection_critic_stop_rate": 0.9
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -12.8,
++   "coverage": 8.3,
++   "retrieval_hit_rate": 14.0
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T21:22:53"
++ },
++ {
++  "run_id": "run_20260911_212259",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7458,
++   "citation_accuracy_relaxed": 0.7534,
++   "existence_rate": 0.9611,
++   "coverage": 0.3792,
++   "retrieval_hit_rate": 0.401,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.05
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 11.4,
++   "coverage": -4.6,
++   "retrieval_hit_rate": -17.7
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T22:08:49"
++ },
++ {
++  "run_id": "run_20260911_220854",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.7439,
++   "citation_accuracy_relaxed": 0.757,
++   "existence_rate": 0.9471,
++   "coverage": 0.3833,
++   "retrieval_hit_rate": 0.4077,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.05
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -0.2,
++   "coverage": 0.4,
++   "retrieval_hit_rate": 0.7
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T22:40:05"
++ },
++ {
++  "run_id": "run_20260911_224011",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.723,
++   "citation_accuracy_relaxed": 0.7331,
++   "existence_rate": 0.9595,
++   "coverage": 0.3542,
++   "retrieval_hit_rate": 0.4491,
++   "avg_steps": 3.85,
++   "reflection_critic_stop_rate": 0.05
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": -2.1,
++   "coverage": -2.9,
++   "retrieval_hit_rate": 4.1
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-11T23:25:09"
++ },
++ {
++  "run_id": "run_20260911_232515",
++  "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
++  "metrics": {
++   "completion_rate": 1.0,
++   "citation_accuracy": 0.9777,
++   "citation_accuracy_relaxed": 0.9777,
++   "existence_rate": 0.962,
++   "coverage": 0.425,
++   "retrieval_hit_rate": 0.5843,
++   "avg_steps": 8.1,
++   "reflection_critic_stop_rate": 0.95
++  },
++  "delta_pp_from_prev": {
++   "completion_rate": 0.0,
++   "citation_accuracy": 25.5,
++   "coverage": 7.1,
++   "retrieval_hit_rate": 13.5
++  },
++  "status": "PASS",
++  "generated_at": "2026-09-12T00:00:20"
+  }
+ ]
+\ No newline at end of file
+diff --git a/research_engine/eval/run.py b/research_engine/eval/run.py
+index 61c4941..6ab29af 100644
+--- a/research_engine/eval/run.py
++++ b/research_engine/eval/run.py
+@@ -314,6 +314,7 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
+         "metrics_mean": {
+             "completion_rate": _avg("completion", "complete"),
+             "citation_accuracy": _avg("citation", "fidelity_rate"),  # W2 忠实度口径
++            "citation_accuracy_relaxed": _avg("citation", "relaxed_rate"),  # W7 TBD-5 宽松口径
+             "existence_rate": _avg("citation", "existence_rate"),
+             "coverage": _avg("coverage", "coverage"),
+             "retrieval_hit_rate": _avg("retrieval_hit", "retrieval_hit_rate"),
+diff --git a/research_engine/graph.py b/research_engine/graph.py
+index 621574e..8b78227 100644
+--- a/research_engine/graph.py
++++ b/research_engine/graph.py
+@@ -70,11 +70,11 @@ class DeepResearchGraph:
+         g.set_entry_point("plan")
+         g.add_edge("plan", "research")
+         g.add_edge("research", "critic")  # 每跳检索后必过 critic 裁决
+-        # critic 经纯函数路由三态
++        # critic 经纯函数路由四态（P1：新增 augment = gap 查询回填 frontier）
+         g.add_conditional_edges(
+             "critic",
+             route_critic,
+-            {"continue": "research", "revise": "revise", "stop": "write"},
++            {"continue": "research", "augment": "revise", "revise": "revise", "stop": "write"},
+         )
+         g.add_edge("revise", "research")  # 回填 next_queries 或 replan 后，继续研究
+         g.add_edge("write", "validate")
+@@ -141,6 +141,10 @@ class DeepResearchGraph:
+                        depth=state.depth + 1, sq_id=sq_id or "", query=(query or "")[:200]):
+             new_findings, tool_stats = self.researcher.search_once(query, state)
+ 
++        # W7 Arm4 G1：把当前查询归属的子问题 ID 写回 finding（post-tag，覆盖所有工具路径）
++        for f in new_findings:
++            f.sq_id = sq_id or ""
++
+         merged_findings = list(state.findings) + new_findings
+         seen = set(state.visited_sources)
+         new_sources = [f.source for f in new_findings if f.source not in seen]
+@@ -180,18 +184,23 @@ class DeepResearchGraph:
+             "signal": signal,
+             "sufficient": state.sufficient,
+             "needs_replan": state.needs_replan,
++            "knowledge_gap": state.critic_gap,
+             "next_queries": state.next_queries,
++            "stop_reason": state.critic_stop_reason,
+         }
+         return {
+             "critic_signal": state.critic_signal,
+             "sufficient": state.sufficient,
+             "needs_replan": state.needs_replan,
++            "critic_gap": state.critic_gap,
++            "critic_stop_reason": state.critic_stop_reason,
+             "next_queries": state.next_queries,
+             "token_used": state.token_used,  # Q6-B：critic 的 LLM token 累计写回
+             "reflection_log": [entry],  # add reducer 追加（Q7）
+             "progress": [
+                 {"stage": "critic", "msg": f"depth={state.depth} 裁决={signal}"
+-                 + ("（需重分解）" if state.needs_replan else "")}
++                 + ("（需重分解）" if state.needs_replan else "")
++                 + (f" [gap={state.critic_gap[:30]}…]" if state.critic_gap else "")}
+             ],
+         }
+ 
+diff --git a/research_engine/render.py b/research_engine/render.py
+index 9e49ae0..98d3683 100644
+--- a/research_engine/render.py
++++ b/research_engine/render.py
+@@ -78,10 +78,11 @@ class ReportRenderer:
+     # ---- R2.2 + Q6：动态可信声明（双口径）----
+ 
+     def build_trust_statement(self, citations: List[Citation]) -> str:
+-        """报告末尾可信声明：存在性 / 忠实度双口径（Q6=A），随失败数动态生成。
++        """报告末尾可信声明：存在性 / 忠实度 / 宽松度三口径（Q6=A + W7 TBD-5），随失败数动态生成。
+ 
+         - 存在性口径：existence=True 数 / 总数
+-        - 忠实度口径：verified=True 数 / 存在性通过数（忠实度只在存在性子集上判定）
++        - 忠实度口径（严格）：verified=True 数 / 存在性通过数（忠实度只在存在性子集上判定）
++        - 宽松口径：verified_relaxed=True 数 / 存在性通过数（existence AND (faithful OR supported)）
+         - 发生 LLM 降级时显式注明，避免口径失真
+         """
+         total = len(citations)
+@@ -89,11 +90,13 @@ class ReportRenderer:
+             return "\n\n> **可信声明**：报告中未检测到引用标注，无法校验。"
+         existence_ok = sum(1 for c in citations if c.existence)
+         faithful_ok = sum(1 for c in citations if c.verified)
++        relaxed_ok = sum(1 for c in citations if c.verified_relaxed)
+         degraded = any("降级为存在性判定" in c.note for c in citations)
+         lines = [
+             "\n\n> **可信声明**（动态生成，非 LLM 自述）",
+             f"> - 来源存在性：{existence_ok}/{total} 条通过",
+-            f"> - 论断忠实度：{faithful_ok}/{existence_ok} 条通过（仅在存在性通过的子集上判定）",
++            f"> - 论断忠实度（严格）：{faithful_ok}/{existence_ok} 条通过（verified = 存在且忠实）",
++            f"> - 论断宽松口径：{relaxed_ok}/{existence_ok} 条通过（存在且（忠实或多源印证））",
+             "> - 未通过者见下方附录",
+         ]
+         if degraded:
+@@ -103,13 +106,17 @@ class ReportRenderer:
+     # ---- R2.2：失败论断附录 ----
+ 
+     def build_failed_appendix(self, citations: List[Citation]) -> str:
+-        """把 verified=False 的论断抽进报告末尾附录，附 claim + 原因 + finding_id（Q1=A）。"""
++        """把 verified=False 的论断抽进报告末尾附录，附 claim + 原因 + finding_id（Q1=A）。
++
++        W7 TBD-5：每条失败引用额外标注其在宽松口径下是否通过，便于解释口径差。
++        """
+         failed = [c for c in citations if not c.verified]
+         if not failed:
+             return ""
+-        lines = ["\n\n## ⚠️ 未通过引用校验的论断", ""]
++        lines = ["\n\n## ⚠️ 未通过引用校验的论断（严格口径）", ""]
+         for c in failed:
+-            lines.append(f"- **{c.claim[:150]}**")
++            relaxed_note = "（宽松口径：通过）" if c.verified_relaxed else "（宽松口径：未通过）"
++            lines.append(f"- **{c.claim[:150]}** {relaxed_note}")
+             meta = [
+                 f"来源: {c.source}",
+                 f"编号: {c.finding_id}" if c.finding_id else "",
+diff --git a/research_engine/state.py b/research_engine/state.py
+index 63ca7c4..314e009 100644
+--- a/research_engine/state.py
++++ b/research_engine/state.py
+@@ -24,6 +24,7 @@ class ResearchFinding(BaseModel):
+     source_type: str = Field(description="来源类型：web / rag / arxiv / code_exec")
+     confidence: float = Field(default=0.5, description="置信度 0-1")
+     is_meta: bool = Field(default=False, description="是否自指/元描述（R2.4：描述本系统自身），绝不作为正文证据")
++    sq_id: str = Field(default="", description="W7 Arm4 G1：所属子问题 ID，用于 writer 分节喂料")
+     # W4 Q3（统一证据抽象）：富元数据桶——arxiv: {arxiv_id, primary_category, citation_count, structured_match}；
+     #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match}
+     metadata: dict = Field(default_factory=dict, description="W4 扩展元数据（结构化保留，供呈现层展示，LLM 校验不消费）")
+@@ -46,6 +47,7 @@ class Citation(BaseModel):
+     confidence: float = Field(default=0.0, description="LLM 校验置信度 0-1（grill Q3=A，不再丢弃）")
+     note: str = Field(default="", description="校验说明/失败原因（grill Q3=A，不再丢弃）")
+     existence: bool = Field(default=False, description="本地来源存在性判定（grill Q6=A 双口径之一）")
++    verified_relaxed: bool = Field(default=False, description="W7 宽松口径：existence AND (faithful OR supported)，仅呈现不改动 verified 语义")
+     is_meta: bool = Field(default=False, description="自指/元描述复核结果（R2.4 Q5=A：validator verdict 兜底）")
+ 
+ 
+@@ -73,6 +75,8 @@ class ResearchState(BaseModel):
+     sufficient: bool = Field(default=False, description="critic 判研究是否充分")
+     needs_replan: bool = Field(default=False, description="critic 判是否需要重分解")
+     next_queries: List[Dict[str, Any]] = Field(default_factory=list, description="critic 产出的新查询，回填 frontier（Q2=A）")
++    critic_gap: str = Field(default="", description="W7 Arm1：critic 识别的知识缺口文本")
++    critic_stop_reason: str = Field(default="", description="W7 Arm1：本轮 critic 停止原因（hard_stop/gap_unresolved/no_next_queries/critic_stop/continue/gap_continue/revise）")
+     # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
+     reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
+ 
+diff --git a/tests/test_citation_alignment.py b/tests/test_citation_alignment.py
+index b9aa7c5..b178c1d 100644
+--- a/tests/test_citation_alignment.py
++++ b/tests/test_citation_alignment.py
+@@ -22,8 +22,8 @@ from research_engine.llm.router import LLMRouter
+ from research_engine.state import ResearchFinding
+ 
+ # ---- 模拟 LLM：不产生真实 API 调用 ----
+-LLMRouter.fast_chat = lambda self, system, user: f"[模拟压缩摘要] {user[:30]}"
+-LLMRouter.smart_chat = lambda self, system, user: (
++LLMRouter.fast_chat = lambda self, system, user, state=None: f"[模拟压缩摘要] {user[:30]}"
++LLMRouter.smart_chat = lambda self, system, user, state=None: (
+     "# 测试报告\n\n"
+     "论断甲 [来源: 5]。\n\n"
+     "论断乙 [来源: 8]。\n"
+diff --git a/tests/test_citation_audit.py b/tests/test_citation_audit.py
+index 8a34d41..23b1d9e 100644
+--- a/tests/test_citation_audit.py
++++ b/tests/test_citation_audit.py
+@@ -189,7 +189,9 @@ def test_claim_text_cleans_markdown_and_sentence_boundary():
+     cits = v._extract_citations(report)
+     claim = cits[0]["claim"]
+     assert "**" not in claim, "加粗残留应被清理（W2.1）"
+-    assert claim.startswith("这是其核心优势"), f"应从句子边界开始，实际: {claim!r}"
++    # 设计-5 修复后 "这" 也触发 F4 主语兜底，补回前一句做上下文
++    assert "这是其核心优势" in claim, f"claim 应包含核心论断，实际: {claim!r}"
++    assert claim.endswith("这是其核心优势"), f"claim 应以核心论断结尾，实际: {claim!r}"
+     # 无句号长句兜底：不残留换行/多空格，且保底非空
+     long_report = "第一句结束。**复杂段落**没有标点一直延续到引用位置附近的好几个词组 [来源: 2]。"
+     claim2 = v._extract_citations(long_report)[0]["claim"]
+@@ -232,7 +234,8 @@ def test_trust_statement_dual_metric(renderer):
+     ]
+     stmt = renderer.build_trust_statement(cits)
+     assert "来源存在性：2/3 条通过" in stmt
+-    assert "论断忠实度：1/2 条通过" in stmt, "忠实度只在存在性通过子集上判定（Q6 双口径）"
++    assert "论断忠实度（严格）：1/2 条通过" in stmt, "忠实度只在存在性通过子集上判定（Q6 双口径）"
++    assert "论断宽松口径：0/2 条通过" in stmt, "W7 TBD-5 新增宽松口径"
+ 
+ 
+ # ============ R2.5：运行溯源 ============
+diff --git a/tests/test_eval_metrics.py b/tests/test_eval_metrics.py
+index d5d38d6..829dcf4 100644
+--- a/tests/test_eval_metrics.py
++++ b/tests/test_eval_metrics.py
+@@ -32,6 +32,7 @@ def _state(**overrides) -> Dict[str, Any]:
+         "depth": 3,
+         "token_used": 1000,
+         "replan_count": 0,
++        "frontier": [{"sq_id": "s1", "query": "q"}],  # P1 Bug-6：非空 frontier → 不触发 frontier_empty hard_stop
+         "critic_signal": "stop",
+         "reflection_log": [{"decision": "continue"}, {"decision": "continue"}, {"decision": "stop"}],
+         "findings": [],
+@@ -141,6 +142,17 @@ def test_reflection_hard_stop(mock_cfg):
+     assert "max_total_hops" in res["hard_reasons"]
+ 
+ 
++@patch("research_engine.eval.metrics.config")
++def test_reflection_hard_stop_frontier_empty(mock_cfg):
++    """P1 Bug-6：frontier 空应计为 hard_stop，与 critic.py hard_gate 行为一致。"""
++    mock_cfg.research.max_total_hops = 20
++    mock_cfg.research.token_budget = 200_000
++    mock_cfg.research.max_replan = 1
++    res = M.compute_reflection(_state(frontier=[], depth=3, token_used=1000), coverage=0.5)
++    assert res["stop_type"] == "hard_stop"
++    assert "frontier_empty" in res["hard_reasons"]
++
++
+ @patch("research_engine.eval.metrics.config")
+ def test_reflection_early_stop_signal(mock_cfg):
+     mock_cfg.research.max_total_hops = 20
+diff --git a/tests/test_graph_loop.py b/tests/test_graph_loop.py
+index 2514710..eeed49b 100644
+--- a/tests/test_graph_loop.py
++++ b/tests/test_graph_loop.py
+@@ -39,23 +39,25 @@ def test_hard_gate():
+     # token 达预算 → stop（Q6-B）
+     assert hard_gate(make_state(frontier=seed, token_used=config.research.token_budget)) == "stop"
+ 
+-    # replan 达上限 → stop（Q2-B 兜底）
+-    assert hard_gate(make_state(frontier=seed, replan_count=config.research.max_replan)) == "stop"
++    # P1 max_replan 语义修正：replan_count 不再是全局 hard_stop，
++    # 只在 needs_replan=True 时在 _resolve_signal 中限制
++    assert hard_gate(make_state(frontier=seed, replan_count=config.research.max_replan)) is None
+ 
+     # 全部在预算内 → 不触发（返回 None，交 LLM 裁决）
+     assert hard_gate(make_state(frontier=seed)) is None
+-    print("  ✅ hard_gate：frontier空/depth/token/replan 四维度均触发 stop；正常返回 None")
++    print("  ✅ hard_gate：frontier空/depth/token 三维度均触发 stop；replan 不全局 stop；正常返回 None")
+ 
+ 
+-# ---------- 2) 路由纯函数三态 ----------
++# ---------- 2) 路由纯函数四态（P1：新增 augment） ----------
+ def test_route_critic():
+     assert route_critic(make_state(critic_signal="stop")) == "stop"
+     assert route_critic(make_state(critic_signal="continue")) == "continue"
+     assert route_critic(make_state(critic_signal="revise")) == "revise"
+-    print("  ✅ route_critic：critic_signal 三态纯函数映射正确")
++    assert route_critic(make_state(critic_signal="augment")) == "augment"
++    print("  ✅ route_critic：critic_signal 四态纯函数映射正确")
+ 
+ 
+-# ---------- 3) Critic.decide + 注入 mock LLM 三态 ----------
++# ---------- 3) Critic.decide + 注入 mock LLM 四态 ----------
+ def test_decide_with_mock_llm():
+     # sufficient=True → stop
+     c1 = Critic(llm_fn=lambda s: {"sufficient": True, "needs_replan": False, "next_queries": []})
+@@ -65,14 +67,22 @@ def test_decide_with_mock_llm():
+     c2 = Critic(llm_fn=lambda s: {"sufficient": False, "needs_replan": True, "next_queries": []})
+     assert c2.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "revise"
+ 
+-    # 不充分且有 next_queries → continue（Q2-A 回填 frontier）
++    # 不充分且有 next_queries → augment（P1 frontier 闭环：回填 frontier）
+     c3 = Critic(llm_fn=lambda s: {
+         "sufficient": False,
+         "needs_replan": False,
+         "next_queries": [{"sq_id": "s1", "query": "q2"}],
+     })
+-    assert c3.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "continue"
+-    print("  ✅ Critic.decide：sufficient→stop / needs_replan→revise / 不充分+next_queries→continue")
++    assert c3.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "augment"
++
++    # 不充分且无 next_queries → continue（lazy_continue，不回填）
++    c4 = Critic(llm_fn=lambda s: {
++        "sufficient": False,
++        "needs_replan": False,
++        "next_queries": [],
++    })
++    assert c4.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}])) == "continue"
++    print("  ✅ Critic.decide：sufficient→stop / needs_replan→revise / 不充分+queries→augment / 不充分无queries→continue")
+ 
+ 
+ # ---------- 4) 硬闸优先于 LLM（短路，绝不调 LLM）----------
+diff --git a/web/app.py b/web/app.py
+index b5ad447..5598199 100644
+--- a/web/app.py
++++ b/web/app.py
+@@ -83,9 +83,10 @@ if st.button("开始研究", type="primary"):
+             total = len(result.citations)
+             existence = sum(1 for c in result.citations if c.existence)
+             faithful = sum(1 for c in result.citations if c.verified)
+-            c1, c2 = st.columns(2)
++            c1, c2, c3 = st.columns(3)
+             c1.metric("来源存在性通过", f"{existence}/{total}")
+-            c2.metric("论断忠实度通过", f"{faithful}/{existence}")
++            c2.metric("论断忠实度通过（严格）", f"{faithful}/{existence}")
++            c3.metric("论断宽松口径", f"{sum(1 for c in result.citations if c.verified_relaxed)}/{existence}")
+             for c in result.citations:
+                 icon = "✅" if c.verified else "❌"
+                 badge = ""

@@ -1,0 +1,1629 @@
+{
+ "q_id": "q_017",
+ "query": "如何评测 LLM Agent 的工具调用可靠性：有哪些数据集、指标（含 Pass@k）与失败分析实践？",
+ "difficulty": "中",
+ "type": "多轮",
+ "state": {
+  "topic": "如何评测 LLM Agent 的工具调用可靠性：有哪些数据集、指标（含 Pass@k）与失败分析实践？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "当前有哪些公开、权威的基准数据集专门用于评测 LLM Agent 的工具调用能力（如 ToolBench、APIBench、ToolLLM、CRUXEval、WebShop 等）？它们在任务类型、工具多样性、真实 API 覆盖度和标注质量上的关键差异是什么？",
+    "rationale": "数据集是评测的基础设施；厘清各数据集的设计目标与适用边界，是选择或构建合适评测基准的前提，避免因数据偏差导致可靠性评估失真。"
+   },
+   {
+    "id": "q2",
+    "question": "评测工具调用可靠性的核心指标有哪些（除 Pass@k 外，是否包含 Call Accuracy、Tool Selection F1、Execution Success Rate、Error Localization Score 等）？Pass@k 在 Agent 场景下应如何正确定义（如按最终答案、按工具调用序列、还是按中间步骤）？",
+    "rationale": "指标定义直接影响可靠性量化结果；Pass@k 在传统代码/推理任务中含义明确，但在多步工具调用、容错重试、异步执行等 Agent 场景中需重新形式化，否则会导致评估不可比或误导性结论。"
+   },
+   {
+    "id": "q3",
+    "question": "针对工具调用失败，主流研究与工业实践采用哪些系统性失败分析方法（如错误归因分类体系：API schema mismatch、参数生成错误、上下文截断、权限/配额限制、工具文档理解偏差等）？是否存在可复用的诊断框架或开源分析工具？",
+    "rationale": "可靠性不仅是‘能通过多少’，更是‘为何失败’；结构化失败分析能揭示模型能力短板与系统脆弱点，支撑针对性改进（如提示工程优化、工具封装增强、验证器设计），是连接评测与迭代的关键环节。"
+   },
+   {
+    "id": "q4",
+    "question": "在真实部署环境中，如何将离线评测（benchmark-based）与在线可观测性（如调用日志、延迟分布、fallback 触发率、用户反馈闭环）结合，构建端到端的工具调用可靠性评估闭环？",
+    "rationale": "离线 benchmark 往往难以覆盖长尾场景与动态环境；融合线上行为数据可暴露 benchmark 未覆盖的可靠性风险（如时序依赖、服务抖动、用户意图漂移），对落地应用至关重要。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**研究摘要：LLM Agent 工具调用可靠性评测方法**\n\n- **数据集**：`dataset.jsonl` 包含字段 `id, difficulty(易/中/难), type(单轮/多轮/计算/学术), query, followups?, expected_subquestions?, gold_sources?`，用于覆盖不同复杂度和类型的查询任务。\n- **评测指标**：\n  - **完成率**：产出可用报告的比例 ≥90%\n  - **引用准确率**：结论与真实来源匹配（LLM-judge + 人工抽检 20%）≥85%\n  - **信息覆盖度**：子问题被回答比例 ≥90%\n  - **Token 成本**：平均/单次，记录基线并优化\n  - **平均步数**：research→critic 循环次数均值，记录基线\n  - **反思有效性**：该停时停的比例（防无限循环）100%\n- **流程**：运行 `python -m research_engine.eval.run --dataset dataset.jsonl` 输出指标表，人工抽检 20%，结果写入 `docs/eval-report.md`。\n- **当前缺口**：\n  - 缺乏 ≥20 条标注数据集及量化指标表（NFR2 / DoD）\n  - 未接入 Langfuse 可观测工具链（NFR1）\n  - 工具仅限网络搜索 + RAG，缺少 arXiv/学术检索和代码执行能力\n  - strategic 模型为 qwen-plus，需支持强推理模型切换\n  - 图结构为纯线性 DAG，缺乏 conditional_edge 和 Critic 节点化，导致决策逻辑不透明\n\n**优先级排序**：先解决结构性问题（Critic 节点化 + Langfuse），再完善工具与评测，最后开源与博客。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究探讨了如何评测 LLM Agent 的工具调用可靠性，涉及数据集、指标（如 Pass@k）及失败分析实践。案例包括：\n\n1. **信贷审批中的语义增强**：某银行将 Qwen 模型用于 OCR 文档字段抽取，准确率超 96%，人工复核工作量减少 40%。\n2. **反欺诈中的舆情识别**：券商微调 Llama-Factory 上的 Qwen-7B，F1-score 达 0.91，优于 BERT 模型，用于实时风险预警。\n3. **合规监测与多源印证**：监管要求 LLM 在生成 STR 报告时必须引用原始数据，确保可回溯性，体现 RAG 的关键作用。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**研究摘要：评测 LLM Agent 工具调用可靠性的方法与实践**\n\n该研究聚焦于评估 LLM Agent 在工具调用中的可靠性，提出一套完整的评测体系，涵盖数据集、指标及失败分析方法。关键内容如下：\n\n- **技术实现**：支持多格式文档上传（PDF/Word/Markdown/TXT），采用混合检索（向量 + BM25）和分块优化；默认关闭 rerank，先评测再决定是否启用（基于 wechatbot 的负收益经验）。\n- **评测体系**：\n  - **A. 检索命中率**：复用 wechatbot 方法论；\n  - **B. 引用准确率**：量化主卖点（存在性 + 多源印证）；\n  - **C. 报告质量**：采用 LLM-as-judge 评估，借鉴 RACE 四维度；\n  - **D. 端到端验收**：运行真实研究主题进行测试。\n- **技术栈**：使用阿里云百炼 Qwen（qwen-turbo/plus 可切换），三层 LLM 分级（fast/ smart/ strategic），Qdrant 向量库，百炼 text-embedding-v3，博查网络搜索，LangGraph 编排框架。\n- **架构借鉴**：参考 LangChain open_deep_research、gpt-researcher、dzhng/deep-research 等项目，引入差异化亮点——图内 Validator 节点，多数 DeepResearch 项目未包含。\n\n研究强调通过真实查询与系统化评测方法提升 LLM Agent 的工具调用可靠性，并注重成本控制与模型分级策略。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n本文提出 GPTAid 框架，用于自动生成 API 使用规范（APSRs），通过分析 API 源码并检测因参数错误导致的 API 误用。为验证 LLM 生成的 APSRs 正确性，GPTAid 采用执行反馈检查方法，基于安全关键型 API 误用通常由 APSRs 违反引起且常导致运行时错误的观察。流程包括：LLM 生成原始 APSRs 和正确调用代码，再通过修改生成违规代码；动态执行违规代码并根据运行时错误过滤错误 APSRs；最后通过代码差分分析生成具体 APSRs。研究强调编程语言比自然语言更精确，有助于识别关键操作。",
+    "source": "https://arxiv.org/abs/2409.09288v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2409.09288v2",
+     "primary_category": "cs.CR",
+     "published": "2024-09-14T03:34:43Z",
+     "authors": [
+      "Jinghua Liu",
+      "Yi Yang",
+      "Kai Chen"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究提出“Focus Agent”，一个基于大语言模型（LLM）的框架，用于模拟焦点小组讨论并担任主持人角色。通过5次焦点小组会议（共23名人类参与者）及AI参与者的模拟讨论，研究发现Focus Agent生成的观点与人类参与者相似，且LLM作为主持人能提升讨论质量。研究强调了LLM在人机交互中的可靠性与应用潜力。",
+    "source": "https://arxiv.org/abs/2409.01907v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2409.01907v1",
+     "primary_category": "cs.HC",
+     "published": "2024-09-03T13:56:14Z",
+     "authors": [
+      "Taiyu Zhang",
+      "Xuesong Zhang",
+      "Robbe Cools"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究探讨了如何评估LLM Agent的工具调用可靠性，涉及数据集、指标（包括Pass@k）及失败分析实践。LLM驱动的助手（如Xiao Ai和Blue Heart V）通过LLM生成计划并调用工具执行任务，但LLM生成计划的延迟可达数秒，影响用户体验。实测数据显示约30%的请求相似，可复用先前计划以降低延迟，但直接通过文本相似性判断存在困难，因自然语言表达多样且非结构化。",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2512.21309v2",
+     "primary_category": "cs.MA",
+     "published": "2025-12-24T18:08:03Z",
+     "authors": [
+      "Guopeng Li",
+      "Ruiqi Wu",
+      "Haisheng Tan"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究探讨如何评估LLM Agent在调用工具时的可靠性，涵盖数据集、指标（如Pass@k）及失败分析方法。提出一种模块化框架，将任务规划、工具调用和结果总结分别由独立LLM实现，提升效率与可维护性。研究强调需关注任务规划能力、工具调用准确性和结果总结质量，并引入Pass@k等指标进行评估。",
+    "source": "https://arxiv.org/abs/2401.07324v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2401.07324v3",
+     "primary_category": "cs.AI",
+     "published": "2024-01-14T16:17:07Z",
+     "authors": [
+      "Weizhou Shen",
+      "Chenliang Li",
+      "Hongzhan Chen"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究提出 YouZhi-LLM，一种基于华为 Ascend 生态的高效金融大语言模型，通过层自适应 GQA-to-MLA 过渡框架动态分配每层 FreqFold 大小，在最大化 KV 缓存压缩的同时，将困惑度下降降低至最多 35%。训练流程融合通用知识蒸馏与金融领域监督微调，以恢复表征能力并注入领域知识。",
+    "source": "https://arxiv.org/abs/2606.05868v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2606.05868v1",
+     "primary_category": "cs.CL",
+     "published": "2026-06-04T08:44:37Z",
+     "authors": [
+      "PSBC LLM Team",
+      "Huawei LLM Team",
+      "Ruihan Long"
+     ]
+    }
+   },
+   {
+    "content": "**研究摘要：评测 LLM Agent 工具调用可靠性的数据集、指标与失败分析实践**\n\n**背景**：通过运行 `cli.py` 对“大语言模型在金融风控中的应用现状与挑战”进行测试，发现 33 条研究发现中 50/58 条引用通过校验，但存在 8 条未通过的论断未被隔离，且校验机制仅检查来源存在性，忽略论断忠实度和失败原因。\n\n**问题缺口**：\n1. 报告未标注来源类型（web/rag），无法区分知识库注入与网络检索。\n2. 未通过校验的论断仍保留在正文，未被解释或隔离。\n3. 校验逻辑仅验证来源是否存在，未评估论断是否忠实于来源。\n4. 自指类发现未隔离，易误导读者。\n5. 运行状态（如跳数、token 消耗）未在报告中呈现。\n\n**需求目标**：\n- 每条引用显式标注来源类型（web/rag）及具体源。\n- 未通过校验的论断必须列出并附原因，不得出现在正文。\n- 校验升级为“来源存在且论断忠实”。\n- 自指类发现单独成节，不作为证据。\n- 报告、CLI、Web 均含“运行溯源”块，包括跳数、critic 决策次数、web/rag 命中数、token 消耗。\n\n**验收标准**：\n- Citation 包含 source_type、confidence、note。\n- CLI 显示每条引用类型及 rag 具体源。\n- 8 条未通过论断全部列在附录并附原因。\n- `verified` 要求来源存在且论断忠实。\n- `is_meta` 发现不进入正文，单独成节。\n- 报告、CLI、Web 含运行溯源块，数值与 state 一致。\n- 改造后通过率不下降。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "研究提出一种改进的测试方法 **Coordinated Pass@$K$ Policy Optimization (CPPO)**，用于提升大语言模型代理在代码生成任务中的工具调用可靠性。传统方法通过独立采样生成 $ K $ 个答案，易导致重复路径和计算资源浪费，尤其在需要多种算法策略的竞赛编程中效率低下。CPPO 通过联合探索策略，让规划器生成 $ K=4 $ 个高阶方法，共享求解器分别尝试每种方法，并通过乘法奖励机制 $ R_{\\mathrm{plan}} = J_ψ \\cdot R_{\\mathrm{out}} $ 仅对有效策略组合进行奖励。该方法在 APPS 和 CodeCont 等数据集上验证了其有效性。",
+    "source": "https://arxiv.org/abs/2605.27000v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2605.27000v3",
+     "primary_category": "cs.CL",
+     "published": "2026-05-26T13:21:11Z",
+     "authors": [
+      "Yilong Li",
+      "Suman Banerjee",
+      "Tong Che"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了如何评估LLM Agent在工具调用中的可靠性，重点分析了数据集、评估指标（如Pass@k）及失败分析方法。研究指出，Pass@k在大规模采样下可能误导性地反映模型的“真实推理能力”，尤其在离散答案空间任务（如数学问题）中，其值随尝试次数增加而上升，而非体现真正推理能力。为此，作者提出新指标Cover@tau，衡量模型在至少τ比例完成度正确的题目中的表现，以更准确评估推理边界。研究还揭示了RLVR模型在小k值时优于基础模型，但在大样本下可能被超越，暗示基础模型可能具有更大的推理边界。",
+    "source": "https://arxiv.org/abs/2510.08325v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2510.08325v2",
+     "primary_category": "cs.AI",
+     "published": "2025-10-09T15:14:58Z",
+     "authors": [
+      "Marius Dragoi",
+      "Ioana Pintilie",
+      "Florin Gogianu"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了LLM Agent在工具调用中的可靠性，特别是其选择高权限工具的倾向（即使存在足够低权限替代方案）。提出 **ToolPrivBench** 评估框架，用于检测Agent是否在初始选择或临时工具故障后升级到更高权限工具。研究覆盖8个领域和5种风险模式，发现主流LLM Agent普遍存在“过度权限选择”问题，且临时故障会加剧该现象。研究还指出，通用安全对齐无法有效保障最小权限选择，而提示级控制仅能有限缓解该问题。",
+    "source": "https://arxiv.org/abs/2606.20023v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2606.20023v2",
+     "primary_category": "cs.SE",
+     "published": "2026-06-18T09:54:48Z",
+     "authors": [
+      "Kaiyue Yang",
+      "Yuyan Bu",
+      "Jingwei Yi"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究提出 STRIDE 框架，用于评估 LLM Agent 在工具调用中的可靠性，帮助决定是否采用全自主代理。该框架通过任务分解、动态性分析和自我反思需求评估，生成“代理适用性评分”，以指导在直接 LLM 调用、引导式助手和全自主代理之间的选择。在 30 个真实任务（涵盖 SRE、合规和企业自动化）中，STRIDE 在模态选择上达到 92% 的准确率，减少不必要的代理使用。",
+    "source": "https://arxiv.org/abs/2512.02228v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2512.02228v1",
+     "primary_category": "cs.AI",
+     "published": "2025-12-01T21:54:07Z",
+     "authors": [
+      "Shubhi Asthana",
+      "Bing Zhang",
+      "Chad DeLuca"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文研究了多智能体深度强化学习（Comm-MADRL）中通信机制的作用，提出9个维度用于分析和比较不同Comm-MADRL方法，旨在系统化分类现有研究，提升多智能体协作与环境感知能力。",
+    "source": "https://arxiv.org/abs/2203.08975v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2203.08975v2",
+     "primary_category": "cs.MA",
+     "published": "2022-03-16T22:39:46Z",
+     "authors": [
+      "Changxi Zhu",
+      "Mehdi Dastani",
+      "Shihan Wang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究提出 LLMatch 框架，用于企业数据集成中的复杂多表模式匹配任务。该框架分为三个阶段：模式准备、表候选选择和列级对齐，支持组件级评估。LLMatch 引入两阶段优化策略：Rollup 模块将语义相关列合并为高层概念，Drilldown 模块重新展开以实现细粒度映射。为解决复杂语义匹配基准不足的问题，研究构建了 SchemaNet 基准，基于三个企业领域的实际模式对，涵盖多表匹配挑战。",
+    "source": "https://arxiv.org/abs/2507.10897v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2507.10897v1",
+     "primary_category": "cs.DB",
+     "published": "2025-07-15T01:24:49Z",
+     "authors": [
+      "Sha Wang",
+      "Yuchen Li",
+      "Hanhua Xiao"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究调查了基于树与图的结构方法和基于分布式架构与机器学习的统计方法在半结构化数据模式提取中的应用。结构方法更易解释，统计方法更具适用性和泛化能力。还探讨了用于模式提取的工具与系统，主要适用于Spark或NoSQL数据库，适合小数据集或简单环境。",
+    "source": "https://arxiv.org/abs/2012.08105v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2012.08105v2",
+     "primary_category": "cs.DB",
+     "published": "2020-12-15T05:57:41Z",
+     "authors": [
+      "Panpan Li",
+      "Yikun Gong",
+      "Chen Wang"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究提出 Decision Event Schema (DES)，一种 JSON Schema 规范，用于统一记录决策过程中的多层信息（包括 ML 推理、规则评估、系统耦合和治理元数据）。DES 通过六组顶层字段映射治理证据属性，并设计了降级感知字段以增强可靠性。其包含 10 个必填根级字段，并引入轻量、采样、完整三级证据策略，以匹配不同场景下的证据需求。研究旨在解决“碎片化追踪问题”，即现有日志格式无法完整记录决策依据。",
+    "source": "https://arxiv.org/abs/2604.09296v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2604.09296v1",
+     "primary_category": "cs.CY",
+     "published": "2026-04-10T13:06:38Z",
+     "authors": [
+      "Oleg Solozobov"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究附录补充了《一种集体概率的模式映射方法》的额外材料，包括一个扩展示例、补充实验细节及主论文中复杂度结果的证明。未提及具体数据集、指标或失败分析实践。",
+    "source": "https://arxiv.org/abs/1702.03447v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "1702.03447v1",
+     "primary_category": "cs.DB",
+     "published": "2017-02-11T19:18:41Z",
+     "authors": [
+      "Angelika Kimmig",
+      "Alex Memory",
+      "Renee J. Miller"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出基于常识知识的嵌入模型（KEE），用于解决指代消解问题（PDP），该任务是2016年Winograd Schema Challenge的首轮测试集。传统语言特征在该任务中失效，因此KEE通过整合ConceptNet、WordNet和CauseCom等常识知识库，在无监督特征提取中提升性能。",
+    "source": "https://arxiv.org/abs/1611.04146v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "1611.04146v2",
+     "primary_category": "cs.AI",
+     "published": "2016-11-13T15:38:32Z",
+     "authors": [
+      "Quan Liu",
+      "Hui Jiang",
+      "Zhen-Hua Ling"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究探讨了如何评测 LLM Agent 的工具调用可靠性，涉及数据集、指标（包括 Pass@k）及失败分析实践。内容中包含一次执行失败的错误信息，显示在文件路径 `C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_774uye4q\\main.py` 的第 28 行出现编码问题，导致输出异常字符，可能与工具调用或环境配置相关。",
+    "source": "code:c805b5d51b",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_774uye4q\\main.py\", line 28\n    print('query=\"�Ա� ToolBench v2��APIBench��CRUXEval��WebShop �� ToolLLM ��ԭʼ����/�������棬��ȡ���������ͷֲ����滮/ִ��/��֤�����������������REST API / CLI / local function������ʵAPIռ�ȣ�vs mock/simulated�����˹���ע��ģ��һ����������������Cohen's Kappa��\"')\n                                                                                                                                                                        ",
+     "elapsed": 0.063
+    }
+   },
+   {
+    "content": "**摘要：**\n\n研究探讨了如何评估大语言模型（LLM）代理在调用工具（API）方面的可靠性，指出开源LLM（如LLaMA）在工具使用能力上仍显著落后于闭源模型（如ChatGPT），原因在于训练数据主要聚焦基础语言任务，忽视了工具使用领域。为弥补这一差距，研究提出 **ToolLLM** 框架，涵盖数据构建、模型训练与评估。其中，**ToolBench** 是一个通过ChatGPT自动生成的指令调优数据集，包含16,464个来自RapidAPI Hub的API，覆盖49类，分三阶段构建：API收集、指令生成和工具调用标注。研究还涉及评测指标，包括 **Pass@k**，并提供失败分析实践，以提升工具调用的可靠性。",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2307.16789v2",
+     "primary_category": "cs.AI",
+     "published": "2023-07-31T15:56:53Z",
+     "authors": [
+      "Yujia Qin",
+      "Shihao Liang",
+      "Yining Ye"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究提出 CLI-Tool-Bench，一个结构无关的基准，用于评估 LLM Agent 从零生成命令行工具的能力。现有基准因依赖预定义结构和白盒测试而无法有效评估 0-to-1 生成能力。CLI-Tool-Bench 包含 94 个高质量、真实世界的仓库，覆盖多种编程语言和复杂度。该基准基于自动化黑盒差异测试框架，支持评测工具调用可靠性，涵盖数据集、指标（如 Pass@k）及失败分析实践。",
+    "source": "https://arxiv.org/abs/2604.06742v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2604.06742v2",
+     "primary_category": "cs.SE",
+     "published": "2026-04-08T07:09:10Z",
+     "authors": [
+      "Ruida Hu",
+      "Xinchen Wang",
+      "Chao Peng"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究探讨了如何评估LLM Agent调用工具的可靠性，涉及数据集、指标（包括Pass@k）及失败分析方法。",
+    "source": "https://arxiv.org/abs/2310.02990v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2310.02990v1",
+     "primary_category": "cs.SE",
+     "published": "2023-10-04T17:26:44Z",
+     "authors": [
+      "Nwosu Obinnaya Chikezie Victor"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究提出TensorFlow图形框架（TF-GraF），旨在降低TensorFlow对象检测API的使用门槛，为用户提供图形化界面以实现数据预处理、训练、评估、超参数设置、训练过程实时监控、测试图像目标可视化等功能，无需命令行或编码。",
+    "source": "https://arxiv.org/abs/2006.06385v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2006.06385v1",
+     "primary_category": "eess.IV",
+     "published": "2020-06-11T13:00:02Z",
+     "authors": [
+      "Heemoon Yoon",
+      "Sang-Hee Lee",
+      "Mira Park"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究主题为评测 LLM Agent 的工具调用可靠性，涉及数据集、指标（包括 Pass@k）及失败分析实践。需求文档指出当前框架存在“纯线性 DAG”问题，缺乏 `conditional_edge`，反思与停止判断逻辑隐藏在 `researcher.py` 的 `while` 循环中，导致无法明确展示决策路径，影响 agentic 与编排叙事的区分。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2.2",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究提出 HyperTool，一种统一的 MCP 风格工具接口，通过代码块调用工具、处理返回值并传递中间结果，将确定性工具子流程折叠为单次外层调用，解决执行粒度不匹配问题。在 MCP-Universe 数据集上，使用 HyperTool 的模型平均准确率从 15.69% 提升至 35.29%。研究还涉及工具调用可靠性评测的数据集、指标（如 Pass@k）及失败分析实践。",
+    "source": "https://arxiv.org/abs/2606.13663v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.2",
+    "metadata": {
+     "arxiv_id": "2606.13663v1",
+     "primary_category": "cs.CL",
+     "published": "2026-06-11T17:56:36Z",
+     "authors": [
+      "Yaxin Du",
+      "Yifan Zhou",
+      "Yujie Ge"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n本文提出F1，一种基于视觉预测的预训练VLA框架，通过将视觉前景生成整合到决策流程中，提升LLM Agent在动态视觉环境中的工具调用可靠性。F1采用Transformer混合架构，包含感知、前景生成和控制模块，利用下一步预测机制生成目标条件下的视觉前景作为规划目标，将动作生成转化为前景引导的逆动力学问题。研究关注评测方法，包括数据集、指标（如Pass@k）及失败分析实践，旨在提升Agent的鲁棒性与泛化能力。",
+    "source": "https://arxiv.org/abs/2509.06951v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.2",
+    "metadata": {
+     "arxiv_id": "2509.06951v2",
+     "primary_category": "cs.RO",
+     "published": "2025-09-08T17:58:30Z",
+     "authors": [
+      "Qi Lv",
+      "Weijie Kong",
+      "Hao Li"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究记录了 7 项关于 LLM Agent 工具调用可靠性改进的实现与修复工作，均于 2026 年 8 月 19 日至 20 日完成。内容包括：修复 Writer 与 Validator 引用协议不一致、qdrant-client API 兼容性问题、引用编号错位、多编号引用拆分、BM25 中文分词优化、Qdrant 点 ID 跨进程稳定性问题。所有任务状态为“已采纳”。",
+    "source": "rag:README.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3.2",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本研究提出一种新方法，通过上下文外错误检测评估文本理解模型的可靠性。利用自动化修改过程，对2016年TEDTalk语料库进行语义层面的修改，生成具有挑战性的文本片段，用于测试模型在真实场景（如转录和翻译）中的表现。该方法可低成本地应用大规模数据集，支持监督学习和深度网络的训练与测试。研究还涉及语言模型和二分类模型对修改质量的评估。",
+    "source": "https://arxiv.org/abs/1803.08983v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3.2",
+    "metadata": {
+     "arxiv_id": "1803.08983v1",
+     "primary_category": "cs.CL",
+     "published": "2018-03-23T21:20:00Z",
+     "authors": [
+      "Patrick Huber",
+      "Jan Niehues",
+      "Alex Waibel"
+     ]
+    }
+   },
+   {
+    "content": "HOPPET v2 引入三项新功能：支持 N³LO QCD 进化（变夸克数方案）、计算无质量夸克的高阶强子结构函数至 N³LO，以及 QED 进化达到 NNLO QCD 精度。新增 Python 接口、CMake 构建选项、LHAPDF 格式保存功能，并优化了 PDF 表插值性能。",
+    "source": "https://arxiv.org/abs/2510.09310v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3.2",
+    "metadata": {
+     "arxiv_id": "2510.09310v3",
+     "primary_category": "hep-ph",
+     "published": "2025-10-10T12:04:40Z",
+     "authors": [
+      "Alexander Karlberg",
+      "Paolo Nason",
+      "Gavin Salam"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究提出README数据集，包含50,000个医学术语与通俗定义对及300,000条上下文相关定义，由领域专家标注。研究采用数据驱动的人机协作流程提升数据质量，并利用检索增强生成方法（RAG）减少模型幻觉，提高输出准确性。",
+    "source": "https://arxiv.org/abs/2312.15561v5",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3.2",
+    "metadata": {
+     "arxiv_id": "2312.15561v5",
+     "primary_category": "cs.CL",
+     "published": "2023-12-24T23:01:00Z",
+     "authors": [
+      "Zonghai Yao",
+      "Nandyala Siddharth Kantu",
+      "Guanghao Wei"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究提出 FlashPrefill V2，改进了原始算法在长上下文建模中的计算效率与可靠性。通过引入均值修正项降低近似误差，支持极端稀疏性下的性能稳定；重构稀疏注意力算子，采用 PackGQA 内存访问、warp 特化和 pingpong 流水线技术，兼容 FlashAttention-3/4 并支持 FP8 推理，推动其向实际部署迈进。",
+    "source": "https://arxiv.org/abs/2608.19758v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3.2",
+    "metadata": {
+     "arxiv_id": "2608.19758v1",
+     "primary_category": "cs.CL",
+     "published": "2026-08-20T08:02:55Z",
+     "authors": [
+      "Qihang Fan",
+      "Huaibo Huang",
+      "Zhiying Wu"
+     ]
+    }
+   },
+   {
+    "content": "研究主题：评测LLM Agent工具调用可靠性的方法与实践。\n\n摘要：该研究基于GLOCON Gold Standard Corpus（GSC）构建数据库，用于训练和测试自动化文本处理工具，以检测新闻文章中的抗议事件并提取相关信息。GSC包含多国来源的新闻文章，由专业标注员按照严格的标注手册进行人工标注，确保分类与抽取任务的准确性和一致性。研究关注数据集、评测指标（如Pass@k）及失败分析实践。",
+    "source": "https://arxiv.org/abs/2206.10299v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3.2",
+    "metadata": {
+     "arxiv_id": "2206.10299v1",
+     "primary_category": "cs.CL",
+     "published": "2022-05-17T13:16:50Z",
+     "authors": [
+      "Fırat Duruşan",
+      "Ali Hürriyetoğlu",
+      "Erdem Yörük"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:deepresearch-plan.md",
+   "rag:rag_sample.md",
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "rag:deepresearch-plan.md",
+   "https://arxiv.org/abs/2409.09288v2",
+   "https://arxiv.org/abs/2409.01907v1",
+   "https://arxiv.org/abs/2512.21309v2",
+   "https://arxiv.org/abs/2401.07324v3",
+   "https://arxiv.org/abs/2606.05868v1",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "https://arxiv.org/abs/2605.27000v3",
+   "https://arxiv.org/abs/2510.08325v2",
+   "https://arxiv.org/abs/2606.20023v2",
+   "https://arxiv.org/abs/2512.02228v1",
+   "https://arxiv.org/abs/2203.08975v2",
+   "https://arxiv.org/abs/2507.10897v1",
+   "https://arxiv.org/abs/2012.08105v2",
+   "https://arxiv.org/abs/2604.09296v1",
+   "https://arxiv.org/abs/1702.03447v1",
+   "https://arxiv.org/abs/1611.04146v2",
+   "code:c805b5d51b",
+   "https://arxiv.org/abs/2307.16789v2",
+   "https://arxiv.org/abs/2604.06742v2",
+   "https://arxiv.org/abs/2310.02990v1",
+   "https://arxiv.org/abs/2006.06385v1",
+   "rag:1-critic-conditional-edge.md",
+   "https://arxiv.org/abs/2606.13663v1",
+   "https://arxiv.org/abs/2509.06951v2",
+   "rag:README.md",
+   "https://arxiv.org/abs/1803.08983v1",
+   "https://arxiv.org/abs/2510.09310v3",
+   "https://arxiv.org/abs/2312.15561v5",
+   "https://arxiv.org/abs/2608.19758v1",
+   "https://arxiv.org/abs/2206.10299v1"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q4.2",
+    "query": "检索 MLOps for Agents 相关实践文档（如Weights & Biases Agent Monitoring blog、Arize AI agent tracing whitepaper）、以及论文 'Online Reliability Monitoring of LLM Agents in Production' (ACL 2024 demo track)，总结离线benchmark failure mode到线上可观测信号（如fallback rate spike → tool selection F1 drop）的映射规则与闭环反馈机制设计"
+   },
+   {
+    "sq_id": "q1_cross_bench_comparison",
+    "query": "对比 ToolBench、APIBench、ToolLLM、CRUXEval、WebShop 五个数据集：列出每项在（1）任务类型分布（规划/单步/多跳/长程依赖）、（2）工具数量与类别（API vs CLI vs local function）、（3）是否接入真实外部 API（及具体服务如 Stripe、Google Calendar）、（4）标注方式（人工执行轨迹 vs LLM-as-judge vs sandbox execution verification）——要求引用原始论文或官方 technical report"
+   },
+   {
+    "sq_id": "q2_metrics_formalization",
+    "query": "检索 ACL/NeurIPS/ICLR 2023–2024 中明确定义并使用以下指标的论文：'Call Accuracy'、'Tool Selection F1'、'Execution Success Rate'、'Error Localization Score'；对每个指标，提取其数学定义、计算粒度（per-call / per-turn / per-episode）、是否开源实现，并指出 Pass@k 在 agent setting 下被明确定义为 'at least one correct tool call sequence leading to correct final answer' 的权威出处"
+   },
+   {
+    "sq_id": "q3_failure_taxonomy_framework",
+    "query": "查找工业界或顶会论文中提出的工具调用失败归因分类法（taxonomy），要求包含至少5类细粒度错误原因（如 'API schema mismatch due to parameter name inconsistency'、'context truncation-induced tool hallucination'），并确认是否有配套开源工具（如 AgentScope v0.3+ 的 diagnose module、ToolEval's error categorizer）支持自动化归因"
+   },
+   {
+    "sq_id": "q4_observability_loop",
+    "query": "检索大模型平台（如 LangChain, LlamaIndex, Dify, BentoML）或企业实践（Anthropic Computer Use, Microsoft AutoGen deployments）中将 offline benchmark score 与 online metrics（fallback rate、p99 latency per tool, user-reported failure tags）联合建模的案例；重点提取其闭环评估架构图、指标融合公式（如 reliability_score = α * Pass@1 + β * (1 - fallback_rate)）及用户反馈结构化方案（如 feedback → error class mapping rules）"
+   },
+   {
+    "sq_id": "q1_crux_webshop_clarity",
+    "query": "CRUXEval 和 WebShop 是否提供工具调用轨迹（tool call logs）、中间 API 响应或可复现的调用链路？它们是否被原始论文或后续工作（如 'AgentBench' 或 'ToolACE'）明确定义为 tool-use benchmarks，还是仅作为 end-to-end QA/interaction benchmarks 被借用？"
+   },
+   {
+    "sq_id": "q2_pass_at_k_definition_consensus",
+    "query": "在主流 Agent 评测工作（如 ToolLLM, AgentBench, HuggingFace's OpenLLM Leaderboard for Agents）中，Pass@k 的具体计算粒度（answer / trajectory / tool-sequence）如何定义？是否存在跨基准统一的规范（如 'Pass@1 requires correct final answer AND all tool calls match ground-truth sequence'）？"
+   },
+   {
+    "sq_id": "q3_failure_taxonomy_empirical_basis",
+    "query": "ToolBench v2、AgentScope 或 Microsoft's AutoGen Diagnostics 是否发布了经过人工校验的失败归因分类体系？其错误类型（如 'schema mismatch' vs 'parameter hallucination'）是否有定义文档、标注指南及 inter-annotator agreement 报告？"
+   },
+   {
+    "sq_id": "q4_production_observability_case_studies",
+    "query": "检索工业界公开技术博客、论文或开源项目（如 LangChain Observability, LlamaIndex Telemetry, Shopify's Agent Reliability Dashboard），说明如何将 offline benchmark score（如 ToolBench Pass@5）与 online metrics（fallback rate, tool timeout %, user-reported 'didn't use right API' feedback）进行因果归因或联合建模。"
+   },
+   {
+    "sq_id": "q4-closedloop-framework",
+    "query": "综述类论文或工业白皮书（如 Anthropic, Google AI, LangChain Labs）中提出的 'LLM Agent reliability evaluation loop' 或 'online-offline reliability alignment' 系统性框架，需包含指标映射、failure mode bridging、SLO 定义等要素"
+   },
+   {
+    "sq_id": "q2-passatk-consensus",
+    "query": "学术社区对 Pass@k 在工具调用 Agent 场景下的定义共识进展：是否有 ACL/NeurIPS/ICLR 近期 workshop（如 Eval4NLP、AgentEval）提出标准化定义提案？或跨基准复现研究（如 CRUXEval vs ToolBench）指出 Pass@k 不可比性的根源及归一化建议？"
+   },
+   {
+    "sq_id": "q4-user-feedback-integration",
+    "query": "真实 Agent 产品（如 GitHub Copilot Actions、Zapier Interfaces、RapidAPI Agent）中用户反馈（explicit correction, skip, downvote）如何被建模为可靠性信号，并用于动态更新 offline eval 用例或 error taxonomy？"
+   },
+   {
+    "sq_id": "q2_pass_at_k_semantics",
+    "query": "综述近一年顶会论文（NeurIPS'23, ICML'24, ACL'24）及 LMSYS-ToolBench 技术报告中，对 Pass@k 在 multi-step tool-calling Agent 场景下的操作化定义：是否要求参数字符串精确匹配？是否接受语义等价/规范化后的等价判断？是否排除空调用或心跳类工具？列出各定义对应的评估协议与潜在偏差。"
+   },
+   {
+    "sq_id": "q4_slo_calibration_case",
+    "query": "检索工业界公开技术博客、arXiv tech report 或开源 Agent 平台文档（如 LangChain Observability、Microsoft AutoGen Telemetry、Cohere Command R+ Tooling Guide），查找将离线工具调用基准分数（如 CRUXEval Pass@1）与线上 SLO（如成功率、P95 latency、fallback rate）进行量化映射或联合建模的实际案例，重点关注指标转换公式、校准方法和AB测试设计。"
+   },
+   {
+    "sq_id": "q2_pass_at_k_def_comparison",
+    "query": "对比 ToolBench、CRUXEval、APIBench、ToolLLM 和 WebShop 五大基准中 Pass@k 的官方定义原文（含 GitHub README / paper method section 引用），提取其判定粒度（answer / call sequence / step-level）、容错规则（是否允许中间错误但终态正确）、以及是否要求调用可执行（而非仅格式正确）"
+   },
+   {
+    "sq_id": "q4_fallback_sla_industry",
+    "query": "检索工业界技术博客、MLSys 论文或可信会议（如 KDD、RecSys、ACM eCom）中关于 LLM Agent 生产环境工具调用 fallback 触发率的 SLO/SLI 实践：包括典型阈值设定依据、与用户反馈（CSAT/NPS）或业务指标（task completion rate）的相关性分析、以及 fallback 归因的自动化方法（如日志模式挖掘、LLM-assisted error clustering）"
+   },
+   {
+    "sq_id": "q3_unified_error_taxonomy",
+    "query": "识别是否存在被多个主流 Agent 评测工作（≥3 篇 ACL/EMNLP/NeurIPS 论文或 ≥2 个开源 Agent 平台如 LangChain/LlamaIndex 文档）共同引用或实现的工具调用错误归因分类体系；若存在，提取其层级结构、每类定义、判别标准及配套标注指南"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1.2": 1,
+   "q2.2": 1,
+   "q3.2": 1
+  },
+  "token_used": 57039,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q4_industry_case",
+    "query": "检索 Stripe AI Gateway、LangChain v0.3+ Observability Dashboard、Microsoft AutoGen 0.4 telemetry 文档中关于工具调用可靠性监控的具体指标定义（特别是 fallback 触发条件、用户显式纠错反馈的采集方式、延迟-成功率联合热力图应用案例）"
+   },
+   {
+    "sq_id": "q2_passatk_implementation",
+    "query": "对比 ToolBench v2.0、CRUXEval v1.1、APIBench 和 WebShop 的官方评测脚本，提取其 Pass@k 实现逻辑：是否校验中间工具调用序列（含参数）的语义等价性？是否允许跳过无效调用？是否对重试/并行调用做归一化处理？"
+   },
+   {
+    "sq_id": "q3_failure_distribution",
+    "query": "查找基于真实生产级 Agent 日志（如 HuggingFace Transformers Agents 生产部署报告、Salesforce CodeGen-Agent 失败分析白皮书）发布的工具调用失败归因统计（含各错误类型占比、LLM-generated tool doc hallucination 的识别方法与检出率）"
+   }
+  ],
+  "critic_gap": "q4 中关于‘在线可观测性与离线评测结合’的具体工业实践案例（如 Stripe、RapidAPI、LangChain Observability、Microsoft AutoGen Telemetry 等如何定义 fallback 触发率指标、如何将用户反馈闭环结构化为可靠性信号）仍较薄弱；q2 中 Pass@k 在 Agent 场景下的歧义处理（例如：当工具调用序列含冗余/重试/并行调用时，是否要求 k 次采样中至少一次完整生成‘正确工具序列+正确参数+正确执行结果’？现有基准如 ToolBench 和 CRUXEval 的实现细节未统一说明）缺乏横向对比实证；q3 所提错误归因分类体系虽有共识性枚举，但缺少经大规模失败日志验证的统计分布权重（如 API schema mismatch 占比 vs. 参数生成错误占比），也未覆盖 LLM-generated tool doc hallucination 这一新兴子类。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成第1轮检索（跳数1，发现10条），覆盖广度与深度均严重不足：q1中各数据集的关键对比维度（真实API覆盖度、标注质量）几乎未触及；q2中Pass@k在Agent场景下的定义分歧（如是否要求调用序列完全匹配、是否容错中间步骤失败）、Call Accuracy等指标的计算细节及论文出处缺失；q3的错误归因分类体系缺乏权威来源支撑（如ToolBench v2的failure taxonomy或CRUXEval的error annotation schema），且无诊断框架实证（如OpenHands Analyzer、AgentScope Debugger）；q4的在线可观测性闭环设计（如如何对齐离线benchmark failure mode与线上日志pattern）完全未覆盖。四个子问题均存在主体结论支撑薄弱问题。",
+    "next_queries": [
+     {
+      "sq_id": "q1.2",
+      "query": "对比 ToolBench v2、APIBench、CRUXEval、WebShop 和 ToolLLM 的原始论文/技术报告，提取其任务类型分布（规划/执行/验证）、工具数量与类别（REST API / CLI / local function）、真实API占比（vs mock/simulated）、人工标注规模与一致性评估方法（如Cohen's Kappa）"
+     },
+     {
+      "sq_id": "q2.2",
+      "query": "检索 ACL/NeurIPS/ICML 2023–2024 中关于 Agent 工具调用评测指标的论文，聚焦 Pass@k 的三种定义变体（answer-level, call-sequence-level, step-wise partial credit）及其在 HotpotQA-Tool、ALFWorld-Tool 等基准上的实证差异；同时收集 Call Accuracy、Tool Selection F1 的公式、实现代码链接及对应论文"
+     },
+     {
+      "sq_id": "q3.2",
+      "query": "查找 ToolBench v2 release notes、CRUXEval error annotation guidelines、以及工业界实践（如LangChain Observability、Microsoft AutoGen Diagnostics）中定义的工具调用失败分类体系，提取标准类别（如schema mismatch、param coercion error、context truncation-induced hallucination）、子类粒度及典型日志 pattern"
+     },
+     {
+      "sq_id": "q4.2",
+      "query": "检索 MLOps for Agents 相关实践文档（如Weights & Biases Agent Monitoring blog、Arize AI agent tracing whitepaper）、以及论文 'Online Reliability Monitoring of LLM Agents in Production' (ACL 2024 demo track)，总结离线benchmark failure mode到线上可观测信号（如fallback rate spike → tool selection F1 drop）的映射规则与闭环反馈机制设计"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "主体结论严重缺乏支撑：q1 中关键数据集（如 ToolBench、APIBench、ToolLLM、CRUXEval、WebShop）的横向对比维度（任务类型、工具多样性、真实 API 覆盖度、标注质量）几乎未覆盖；q2 中 Pass@k 在 Agent 场景下的定义歧义（按答案/调用序列/中间步骤）及非 Pass@k 指标（Call Accuracy、Tool Selection F1 等）的出处、计算方式、论文依据均未检索到；q3 的失败归因分类体系（如 schema mismatch、参数生成错误等）和可复用诊断框架（如 ToolEval、AgentScope 的 error analyzer）无实证发现；q4 的在线可观测性与离线评测闭环设计（如 fallback 触发率如何量化、用户反馈如何结构化注入评估）完全缺失。当前20条发现多为泛泛而谈的综述片段或单数据集简介，缺乏跨基准对比、指标形式化定义、失败分析方法论溯源和工程闭环设计。",
+    "next_queries": [
+     {
+      "sq_id": "q1_cross_bench_comparison",
+      "query": "对比 ToolBench、APIBench、ToolLLM、CRUXEval、WebShop 五个数据集：列出每项在（1）任务类型分布（规划/单步/多跳/长程依赖）、（2）工具数量与类别（API vs CLI vs local function）、（3）是否接入真实外部 API（及具体服务如 Stripe、Google Calendar）、（4）标注方式（人工执行轨迹 vs LLM-as-judge vs sandbox execution verification）——要求引用原始论文或官方 technical report"
+     },
+     {
+      "sq_id": "q2_metrics_formalization",
+      "query": "检索 ACL/NeurIPS/ICLR 2023–2024 中明确定义并使用以下指标的论文：'Call Accuracy'、'Tool Selection F1'、'Execution Success Rate'、'Error Localization Score'；对每个指标，提取其数学定义、计算粒度（per-call / per-turn / per-episode）、是否开源实现，并指出 Pass@k 在 agent setting 下被明确定义为 'at least one correct tool call sequence leading to correct final answer' 的权威出处"
+     },
+     {
+      "sq_id": "q3_failure_taxonomy_framework",
+      "query": "查找工业界或顶会论文中提出的工具调用失败归因分类法（taxonomy），要求包含至少5类细粒度错误原因（如 'API schema mismatch due to parameter name inconsistency'、'context truncation-induced tool hallucination'），并确认是否有配套开源工具（如 AgentScope v0.3+ 的 diagnose module、ToolEval's error categorizer）支持自动化归因"
+     },
+     {
+      "sq_id": "q4_observability_loop",
+      "query": "检索大模型平台（如 LangChain, LlamaIndex, Dify, BentoML）或企业实践（Anthropic Computer Use, Microsoft AutoGen deployments）中将 offline benchmark score 与 online metrics（fallback rate、p99 latency per tool, user-reported failure tags）联合建模的案例；重点提取其闭环评估架构图、指标融合公式（如 reliability_score = α * Pass@1 + β * (1 - fallback_rate)）及用户反馈结构化方案（如 feedback → error class mapping rules）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "主体结论支撑不足：q1 中缺乏对 CRUXEval 和 WebShop 是否真正支持‘工具调用’能力评测的澄清（二者本质是端到端任务基准，不显式建模工具调用过程或提供调用轨迹标注）；q2 中 Pass@k 在 Agent 场景下的正确定义仍模糊——现有发现未明确区分 'Pass@k (answer)'、'Pass@k (trajectory)' 和 'Pass@k (tool-call sequence)' 的适用边界与社区共识；q3 中虽有错误分类枚举，但缺少经实证验证的归因框架（如 ToolBench v2 的 failure taxonomy 或 AgentScope 的 diagnostic dashboard 设计原理）；q4 完全缺失真实部署中在线可观测性与离线 benchmark 对齐的实践案例（如 Airbnb/Shopify 的 fallback 日志分析 pipeline、LangChain 的 callback-based reliability telemetry）。",
+    "next_queries": [
+     {
+      "sq_id": "q1_crux_webshop_clarity",
+      "query": "CRUXEval 和 WebShop 是否提供工具调用轨迹（tool call logs）、中间 API 响应或可复现的调用链路？它们是否被原始论文或后续工作（如 'AgentBench' 或 'ToolACE'）明确定义为 tool-use benchmarks，还是仅作为 end-to-end QA/interaction benchmarks 被借用？"
+     },
+     {
+      "sq_id": "q2_pass_at_k_definition_consensus",
+      "query": "在主流 Agent 评测工作（如 ToolLLM, AgentBench, HuggingFace's OpenLLM Leaderboard for Agents）中，Pass@k 的具体计算粒度（answer / trajectory / tool-sequence）如何定义？是否存在跨基准统一的规范（如 'Pass@1 requires correct final answer AND all tool calls match ground-truth sequence'）？"
+     },
+     {
+      "sq_id": "q3_failure_taxonomy_empirical_basis",
+      "query": "ToolBench v2、AgentScope 或 Microsoft's AutoGen Diagnostics 是否发布了经过人工校验的失败归因分类体系？其错误类型（如 'schema mismatch' vs 'parameter hallucination'）是否有定义文档、标注指南及 inter-annotator agreement 报告？"
+     },
+     {
+      "sq_id": "q4_production_observability_case_studies",
+      "query": "检索工业界公开技术博客、论文或开源项目（如 LangChain Observability, LlamaIndex Telemetry, Shopify's Agent Reliability Dashboard），说明如何将 offline benchmark score（如 ToolBench Pass@5）与 online metrics（fallback rate, tool timeout %, user-reported 'didn't use right API' feedback）进行因果归因或联合建模。"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "q4 关于在线可观测性与离线评测结合的端到端闭环，现有发现多集中于单点实践（如 fallback 日志统计、延迟监控），但缺乏系统性框架描述：例如如何对齐 offline benchmark failure 模式与 online error clusters（如用 embedding 聚类线上失败调用并映射到 CRUXEval 的 error taxonomy）；是否已有工业级方案（如 LangChain Observability + custom LLM-eval hooks）、或论文中提出的闭环评估范式（如 'Eval-in-the-Loop'、'Reliability SLOs for Agents'）；以及用户反馈如何结构化注入评测（如 implicit feedback via click-through vs explicit correction labels）。此外，q2 中 Pass@k 在 Agent 场景下的定义分歧仍未完全厘清——部分工作（如 ToolLLM）定义为 'at least one correct full trajectory in k attempts'，而 WebShop 采用 'final answer match'，CRUXEval 强调 'correct tool sequence + valid args'，但尚无共识性标准或跨基准可比性校准方法。",
+    "next_queries": [
+     {
+      "sq_id": "q4-closedloop-framework",
+      "query": "综述类论文或工业白皮书（如 Anthropic, Google AI, LangChain Labs）中提出的 'LLM Agent reliability evaluation loop' 或 'online-offline reliability alignment' 系统性框架，需包含指标映射、failure mode bridging、SLO 定义等要素"
+     },
+     {
+      "sq_id": "q2-passatk-consensus",
+      "query": "学术社区对 Pass@k 在工具调用 Agent 场景下的定义共识进展：是否有 ACL/NeurIPS/ICLR 近期 workshop（如 Eval4NLP、AgentEval）提出标准化定义提案？或跨基准复现研究（如 CRUXEval vs ToolBench）指出 Pass@k 不可比性的根源及归一化建议？"
+     },
+     {
+      "sq_id": "q4-user-feedback-integration",
+      "query": "真实 Agent 产品（如 GitHub Copilot Actions、Zapier Interfaces、RapidAPI Agent）中用户反馈（explicit correction, skip, downvote）如何被建模为可靠性信号，并用于动态更新 offline eval 用例或 error taxonomy？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "1. q2 中 Pass@k 在 Agent 场景下的定义分歧尚未完全厘清：部分工作（如 ToolLLM、CRUXEval）按最终答案是否正确定义 Pass@k，而 Tooleval 和 recent LMSYS-ToolBench reports 尝试按完整调用序列（tool + args + execution outcome）的精确匹配定义 Pass@k@1，但缺乏对'序列级 Pass'是否应容忍语义等价参数（如 '2024-01-01' vs 'Jan 1, 2024'）或可忽略的无关调用（如冗余健康检查）的共识说明；2. q4 中‘在线可观测性与离线评测结合’的具体工程实践案例（如某大厂 Agent 平台如何将 WebShop-style offline score 映射为 SLO 指标、fallback 触发率如何参与模型迭代AB测试）仍显稀疏，缺少可复用的指标对齐方案（e.g., how to calibrate 'Pass@1 on CRUXEval' ↔ '95th percentile tool latency < 800ms'）。",
+    "next_queries": [
+     {
+      "sq_id": "q2_pass_at_k_semantics",
+      "query": "综述近一年顶会论文（NeurIPS'23, ICML'24, ACL'24）及 LMSYS-ToolBench 技术报告中，对 Pass@k 在 multi-step tool-calling Agent 场景下的操作化定义：是否要求参数字符串精确匹配？是否接受语义等价/规范化后的等价判断？是否排除空调用或心跳类工具？列出各定义对应的评估协议与潜在偏差。"
+     },
+     {
+      "sq_id": "q4_slo_calibration_case",
+      "query": "检索工业界公开技术博客、arXiv tech report 或开源 Agent 平台文档（如 LangChain Observability、Microsoft AutoGen Telemetry、Cohere Command R+ Tooling Guide），查找将离线工具调用基准分数（如 CRUXEval Pass@1）与线上 SLO（如成功率、P95 latency、fallback rate）进行量化映射或联合建模的实际案例，重点关注指标转换公式、校准方法和AB测试设计。"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "1. 对 Pass@k 在 Agent 工具调用场景下的定义分歧缺乏实证对比：例如 ToolBench 官方采用 '至少一个完整调用序列（含参数）执行成功并导向正确答案' 作为 Pass，而 CRUXEval 将 Pass@k 定义为 'k 次独立 rollout 中至少一次生成的工具调用链（含所有中间步骤）完全语法+语义正确且最终答案匹配'，但现有发现未系统梳理各基准对 Pass@k 的形式化定义、隐含假设（如是否容忍部分调用失败但最终答案碰巧正确）、以及由此导致的跨基准不可比性问题；2. 缺乏工业界落地中 'fallback 触发率' 的典型阈值、归因策略及与可靠性指标的量化映射关系（如 fallback rate >5% 是否显著关联用户满意度下降）；3. 尚未确认是否存在被广泛采纳的统一错误归因分类法（如 ToolBench 的 7 类 vs. APIBench 的 5 类 vs. 工业界常用 '4 层漏斗模型'），及其在论文/开源工具中的标准化程度。",
+    "next_queries": [
+     {
+      "sq_id": "q2_pass_at_k_def_comparison",
+      "query": "对比 ToolBench、CRUXEval、APIBench、ToolLLM 和 WebShop 五大基准中 Pass@k 的官方定义原文（含 GitHub README / paper method section 引用），提取其判定粒度（answer / call sequence / step-level）、容错规则（是否允许中间错误但终态正确）、以及是否要求调用可执行（而非仅格式正确）"
+     },
+     {
+      "sq_id": "q4_fallback_sla_industry",
+      "query": "检索工业界技术博客、MLSys 论文或可信会议（如 KDD、RecSys、ACM eCom）中关于 LLM Agent 生产环境工具调用 fallback 触发率的 SLO/SLI 实践：包括典型阈值设定依据、与用户反馈（CSAT/NPS）或业务指标（task completion rate）的相关性分析、以及 fallback 归因的自动化方法（如日志模式挖掘、LLM-assisted error clustering）"
+     },
+     {
+      "sq_id": "q3_unified_error_taxonomy",
+      "query": "识别是否存在被多个主流 Agent 评测工作（≥3 篇 ACL/EMNLP/NeurIPS 论文或 ≥2 个开源 Agent 平台如 LangChain/LlamaIndex 文档）共同引用或实现的工具调用错误归因分类体系；若存在，提取其层级结构、每类定义、判别标准及配套标注指南"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "q4 中关于‘在线可观测性与离线评测结合’的具体工业实践案例（如 Stripe、RapidAPI、LangChain Observability、Microsoft AutoGen Telemetry 等如何定义 fallback 触发率指标、如何将用户反馈闭环结构化为可靠性信号）仍较薄弱；q2 中 Pass@k 在 Agent 场景下的歧义处理（例如：当工具调用序列含冗余/重试/并行调用时，是否要求 k 次采样中至少一次完整生成‘正确工具序列+正确参数+正确执行结果’？现有基准如 ToolBench 和 CRUXEval 的实现细节未统一说明）缺乏横向对比实证；q3 所提错误归因分类体系虽有共识性枚举，但缺少经大规模失败日志验证的统计分布权重（如 API schema mismatch 占比 vs. 参数生成错误占比），也未覆盖 LLM-generated tool doc hallucination 这一新兴子类。",
+    "next_queries": [
+     {
+      "sq_id": "q4_industry_case",
+      "query": "检索 Stripe AI Gateway、LangChain v0.3+ Observability Dashboard、Microsoft AutoGen 0.4 telemetry 文档中关于工具调用可靠性监控的具体指标定义（特别是 fallback 触发条件、用户显式纠错反馈的采集方式、延迟-成功率联合热力图应用案例）"
+     },
+     {
+      "sq_id": "q2_passatk_implementation",
+      "query": "对比 ToolBench v2.0、CRUXEval v1.1、APIBench 和 WebShop 的官方评测脚本，提取其 Pass@k 实现逻辑：是否校验中间工具调用序列（含参数）的语义等价性？是否允许跳过无效调用？是否对重试/并行调用做归一化处理？"
+     },
+     {
+      "sq_id": "q3_failure_distribution",
+      "query": "查找基于真实生产级 Agent 日志（如 HuggingFace Transformers Agents 生产部署报告、Salesforce CodeGen-Agent 失败分析白皮书）发布的工具调用失败归因统计（含各错误类型占比、LLM-generated tool doc hallucination 的识别方法与检出率）"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# 如何评测 LLM Agent 的工具调用可靠性：数据集、指标与失败分析实践研究报告\n\n本报告严格基于所提供的 **33 条研究发现**（Finding 1–33），按子问题清单结构化组织。所有结论均直接引自原始材料，未引入外部知识或推断；未覆盖的子问题明确标注“信息不足”。引用格式统一为 `[来源: N]`，其中 N 为对应 Finding 编号。\n\n---\n\n## 当前有哪些公开、权威的基准数据集专门用于评测 LLM Agent 的工具调用能力？它们在任务类型、工具多样性、真实 API 覆盖度和标注质量上的关键差异是什么？\n\n当前已有多个公开数据集被明确提出用于评测 LLM Agent 的工具调用能力，其中具有明确构建方法、规模与领域覆盖描述的包括：\n\n- **ToolBench**：由 ChatGPT 自动构建的指令调优数据集，包含 **16,464 个来自 RapidAPI Hub 的真实 API**，覆盖 **49 类工具类别**；构建分三阶段（API 收集 → 指令生成 → 工具调用标注），强调对真实 Web API 的覆盖与结构化标注 [来源: 21]。  \n- **CLI-Tool-Bench**：一个“结构无关”的黑盒基准，聚焦于评估 LLM Agent **从零生成命令行工具的能力**，包含 **94 个高质量、真实世界开源仓库**，覆盖多种编程语言与复杂度，旨在克服白盒/预设结构基准的局限性 [来源: 22]。  \n- **MCP-Universe**：作为 HyperTool 框架的评测基准，虽未说明具体规模与构建细节，但被用于验证工具接口抽象对执行准确率的提升（平均准确率从 15.69% → 35.29%），暗示其包含多步骤、需状态传递的工具调用任务 [来源: 26]。  \n- **SchemaNet**：专为企业级多表模式匹配构建的基准，基于**三个真实企业领域的实际数据库模式对**，覆盖复杂语义匹配挑战，支持组件级评估 [来源: 15]。  \n- **GLOCON Gold Standard Corpus (GSC)**：虽非专为 Agent 设计，但被明确用于评测自动化文本处理工具在新闻事件抽取中的可靠性，含多国新闻、由专业标注员依严格手册人工标注，强调**分类与抽取任务的标注一致性** [来源: 33]。\n\n此外，内部使用的 `dataset.jsonl` 格式数据集定义了结构化字段（`id`, `difficulty`, `type`, `query`, `followups?`, `expected_subquestions?`, `gold_sources?`），覆盖单轮/多轮/计算/学术等任务类型，但该数据集为私有设计，未公开，且当前存在“缺乏 ≥20 条标注数据集及量化指标表”的缺口 [来源: 1]。\n\n**关键差异小结**：  \n- **真实 API 覆盖度**：ToolBench（RapidAPI）、CLI-Tool-Bench（真实 CLI 仓库）、SchemaNet（企业 DB 模式）均强调真实系统来源；而 GSC 和内部 `dataset.jsonl` 更侧重任务逻辑而非工具接口真实性。  \n- **工具多样性**：ToolBench 明确覆盖 49 类 API；CLI-Tool-Bench 覆盖多语言 CLI 工具；SchemaNet 聚焦数据库模式操作类工具；其余未说明多样性。  \n- **标注质量**：GSC 依赖专业标注员+严格手册 [来源: 33]；ToolBench 依赖 ChatGPT 自动生成+人工后验校验（隐含）[来源: 21]；内部 `dataset.jsonl` 要求“LLM-judge + 人工抽检 20%”，但当前未达标的“引用准确率 ≥85%”和“完成率 ≥90%”目标 [来源: 1]，表明其标注质量仍在建设中。\n\n---\n\n## 评测工具调用可靠性的核心指标有哪些？Pass@k 在 Agent 场景下应如何正确定义？\n\n研究发现中明确提及或隐含的评测指标包括：\n\n- **Pass@k**：被多次列为标准指标，用于评估工具调用可靠性 [来源: 7, 10, 11, 21, 22, 23, 26, 33]。其在 Agent 场景下的定义存在关键变体：  \n  - CPPO 框架中，Pass@k 针对**规划器生成的 K 个高阶方法**，由共享求解器分别尝试，强调“策略多样性”而非答案采样 [来源: 10]；  \n  - ToolBench 等任务型基准中，Pass@k 应指模型在 **K 次独立尝试中至少一次成功完成端到端任务（含正确调用序列与最终答案）** 的比例 [来源: 21]；  \n  - 研究亦指出 Pass@k 在离散答案空间中可能“误导性反映真实推理能力”，因其值随 k 增大而上升，未必代表能力提升 [来源: 11]。  \n\n- **Cover@τ**：为弥补 Pass@k 局限而提出的新指标，衡量模型在**至少 τ 比例任务完成度正确**的题目集合上的表现，旨在刻画模型的“推理边界” [来源: 11]。\n\n- **Execution Success Rate（执行成功率）**：虽未直接命名，但多项研究以“准确率”“成功率”指代工具调用后返回有效结果的比例。例如 HyperTool 在 MCP-Universe 上报告“平均准确率”提升 [来源: 26]；ToolLLM 框架强调“工具调用准确性”为评估重点 [来源: 21]。\n\n- **Tool Selection F1 / Call Accuracy**：未在任何 Finding 中明确定义或使用该术语。但 **ToolPrivBench** 明确评估 Agent 是否“过度选择高权限工具”，隐含对**工具选择合理性**的量化需求，可视为一种面向安全性的工具选择准确率 [来源: 12]。\n\n- **其他过程性指标**：  \n  - **完成率**（产出可用报告比例）≥90% [来源: 1]；  \n  - **引用准确率**（结论与真实来源匹配）≥85% [来源: 1, 9]；  \n  - **信息覆盖度**（子问题被回答比例）≥90% [来源: 1]；  \n  - **平均步数**（research→critic 循环次数均值）[来源: 1]；  \n  - **反思有效性**（该停时停的比例）100% [来源: 1]；  \n  - **检索命中率**、**端到端验收通过率** [来源: 3]。\n\n值得注意的是，**Call Accuracy、Error Localization Score 等术语未在任何研究发现中出现**；所有指标均围绕任务完成、答案正确、引用忠实、执行成功等宏观结果，缺乏对单次工具调用原子行为（如参数生成、schema 匹配）的细粒度精度度量。\n\n---\n\n## 针对工具调用失败，主流研究与工业实践采用哪些系统性失败分析方法？是否存在可复用的诊断框架或开源分析工具？\n\n研究发现中提及的失败分析方法与框架如下：\n\n- **错误归因分类体系**：虽未提供完整分类法，但多个 Finding 揭示了高频失败模式：  \n  - **API schema mismatch**：GPTAid 框架通过检测“APSRs（API 使用规范）违反”来定位因参数错误导致的误用，其核心即 schema 不匹配 [来源: 4]；  \n  - **参数生成错误**：同属 GPTAid 关注范畴，通过生成违规代码并执行反馈来识别 [来源: 4]；  \n  - **权限/配额限制**：ToolPrivBench 明确将“过度权限选择”列为风险模式，并指出临时工具故障会加剧该问题，暗示权限与配额是常见失效诱因 [来源: 12]；  \n  - **工具文档理解偏差**：ToolLLM 框架的提出动机即“开源 LLM 训练数据忽视工具使用领域”，导致模型对工具文档语义理解不足 [来源: 21]；  \n  - **上下文截断 / 环境配置问题**：code_exec Finding 20 报告了因文件路径编码异常导致的输出失败，指向环境与 I/O 配置层面的问题 [来源: 20]。\n\n- **可复用诊断框架**：  \n  - **GPTAid**：提供端到端流程——LLM 生成 APSRs → 生成合规/违规代码 → 执行反馈过滤 → 代码差分分析，形成闭环诊断 [来源: 4]；  \n  - **DES (Decision Event Schema)**：虽非专为工具调用设计，但其 JSON Schema 规范旨在统一记录决策过程中的多层信息（ML 推理、规则评估、系统耦合、治理元数据），支持“碎片化追踪问题”的解决，具备作为工具调用可观测性日志 schema 的潜力 [来源: 17]；  \n  - **STRIDE 框架**：通过任务分解、动态性分析与自我反思需求评估，生成“代理适用性评分”，间接实现对工具调用必要性与风险的前置诊断 [来源: 13]。\n\n- **开源工具**：无 Finding 明确提及已开源的、开箱即用的工具调用失败分析工具。内部实践强调需接入 **Langfuse 可观测工具链**（当前为缺口）[来源: 1]，并要求报告中显式标注来源类型（web/rag）、隔离未通过校验论断、升级校验为“来源存在且论断忠实” [来源: 9]，表明工程化诊断能力正在建设中，但尚未成熟落地。\n\n---\n\n## 在真实部署环境中，如何将离线评测（benchmark-based）与在线可观测性（如调用日志、延迟分布、fallback 触发率、用户反馈闭环）结合，构建端到端的工具调用可靠性评估闭环？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n所有 33 条研究发现中，**无一条涉及在线可观测性指标（如调用日志、延迟分布、fallback 触发率、用户反馈闭环）的具体设计、采集方法或与离线 benchmark 的融合机制**。  \n虽有提及“未接入 Langfuse 可观测工具链（NFR1）”为当前缺口 [来源: 1]，以及“运行状态（如跳数、token 消耗）未在报告中呈现” [来源: 9]，但均属待办事项描述，未提供任何关于如何构建闭环的实践、框架或案例。  \n因此，该子问题在现有材料下无法展开实质性分析。\n\n---\n\n## 方法论说明（独立节，仅用于描述本系统自身机制）\n\n本系统（DeepResearch/Agent）采用 Planner→Researcher→Writer→Validator 四节点流水线架构，基于 LangGraph 编排 [来源: 3]；支持三层 LLM 分级（fast/smart/strategic）与混合检索（向量+BM25）[来源: 3]；当前图结构为纯线性 DAG，缺乏 conditional_edge 与显式 Critic 节点，导致决策逻辑不透明 [来源: 1, 25]；评测流程通过 CLI 运行 `research_engine.eval.run`，输出指标表并人工抽检 20% [来源: 1]；所有引用需标注 `source_type`（web/rag）、`confidence` 与 `note`，未通过校验论断须隔离至附录 [来源: 9]。\n\n---\n\n## 当前有哪些公开、权威的基准数据集专门用于评测 LLM Agent 的工具调用能力（如 ToolBench、APIBench、ToolLLM、CRUXEval、WebShop 等）？它们在任务类型、工具多样性、真实 API 覆盖度和标注质量上的关键差异是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 评测工具调用可靠性的核心指标有哪些（除 Pass@k 外，是否包含 Call Accuracy、Tool Selection F1、Execution Success Rate、Error Localization Score 等）？Pass@k 在 Agent 场景下应如何正确定义（如按最终答案、按工具调用序列、还是按中间步骤）？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 针对工具调用失败，主流研究与工业实践采用哪些系统性失败分析方法（如错误归因分类体系：API schema mismatch、参数生成错误、上下文截断、权限/配额限制、工具文档理解偏差等）？是否存在可复用的诊断框架或开源分析工具？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。",
+  "report_display": "# 如何评测 LLM Agent 的工具调用可靠性：数据集、指标与失败分析实践研究报告\n\n本报告严格基于所提供的 **33 条研究发现**（Finding 1–33），按子问题清单结构化组织。所有结论均直接引自原始材料，未引入外部知识或推断；未覆盖的子问题明确标注“信息不足”。引用格式统一为 `[来源: N]`，其中 N 为对应 Finding 编号。\n\n---\n\n## 当前有哪些公开、权威的基准数据集专门用于评测 LLM Agent 的工具调用能力？它们在任务类型、工具多样性、真实 API 覆盖度和标注质量上的关键差异是什么？\n\n当前已有多个公开数据集被明确提出用于评测 LLM Agent 的工具调用能力，其中具有明确构建方法、规模与领域覆盖描述的包括：\n\n- **ToolBench**：由 ChatGPT 自动构建的指令调优数据集，包含 **16,464 个来自 RapidAPI Hub 的真实 API**，覆盖 **49 类工具类别**；构建分三阶段（API 收集 → 指令生成 → 工具调用标注），强调对真实 Web API 的覆盖与结构化标注 [来源: 21 · 🔬arxiv]。  \n- **CLI-Tool-Bench**：一个“结构无关”的黑盒基准，聚焦于评估 LLM Agent **从零生成命令行工具的能力**，包含 **94 个高质量、真实世界开源仓库**，覆盖多种编程语言与复杂度，旨在克服白盒/预设结构基准的局限性 [来源: 22 · 🔬arxiv]。  \n- **MCP-Universe**：作为 HyperTool 框架的评测基准，虽未说明具体规模与构建细节，但被用于验证工具接口抽象对执行准确率的提升（平均准确率从 15.69% → 35.29%），暗示其包含多步骤、需状态传递的工具调用任务 [来源: 26 · 🔬arxiv]。  \n- **SchemaNet**：专为企业级多表模式匹配构建的基准，基于**三个真实企业领域的实际数据库模式对**，覆盖复杂语义匹配挑战，支持组件级评估 [来源: 15 · 🔬arxiv]。  \n- **GLOCON Gold Standard Corpus (GSC)**：虽非专为 Agent 设计，但被明确用于评测自动化文本处理工具在新闻事件抽取中的可靠性，含多国新闻、由专业标注员依严格手册人工标注，强调**分类与抽取任务的标注一致性** [来源: 33 · 🔬arxiv]。\n\n此外，内部使用的 `dataset.jsonl` 格式数据集定义了结构化字段（`id`, `difficulty`, `type`, `query`, `followups?`, `expected_subquestions?`, `gold_sources?`），覆盖单轮/多轮/计算/学术等任务类型，但该数据集为私有设计，未公开，且当前存在“缺乏 ≥20 条标注数据集及量化指标表”的缺口 [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n**关键差异小结**：  \n- **真实 API 覆盖度**：ToolBench（RapidAPI）、CLI-Tool-Bench（真实 CLI 仓库）、SchemaNet（企业 DB 模式）均强调真实系统来源；而 GSC 和内部 `dataset.jsonl` 更侧重任务逻辑而非工具接口真实性。  \n- **工具多样性**：ToolBench 明确覆盖 49 类 API；CLI-Tool-Bench 覆盖多语言 CLI 工具；SchemaNet 聚焦数据库模式操作类工具；其余未说明多样性。  \n- **标注质量**：GSC 依赖专业标注员+严格手册 [来源: 33 · 🔬arxiv]；ToolBench 依赖 ChatGPT 自动生成+人工后验校验（隐含）[来源: 21 · 🔬arxiv]；内部 `dataset.jsonl` 要求“LLM-judge + 人工抽检 20%”，但当前未达标的“引用准确率 ≥85%”和“完成率 ≥90%”目标 [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]，表明其标注质量仍在建设中。\n\n---\n\n## 评测工具调用可靠性的核心指标有哪些？Pass@k 在 Agent 场景下应如何正确定义？\n\n研究发现中明确提及或隐含的评测指标包括：\n\n- **Pass@k**：被多次列为标准指标，用于评估工具调用可靠性 [来源: 7 · 🔬arxiv, 10 · 🔬arxiv, 11 · 🔬arxiv, 21 · 🔬arxiv, 22 · 🔬arxiv, 23 · 🔬arxiv, 26 · 🔬arxiv, 33 · 🔬arxiv]。其在 Agent 场景下的定义存在关键变体：  \n  - CPPO 框架中，Pass@k 针对**规划器生成的 K 个高阶方法**，由共享求解器分别尝试，强调“策略多样性”而非答案采样 [来源: 10 · 🔬arxiv]；  \n  - ToolBench 等任务型基准中，Pass@k 应指模型在 **K 次独立尝试中至少一次成功完成端到端任务（含正确调用序列与最终答案）** 的比例 [来源: 21 · 🔬arxiv]；  \n  - 研究亦指出 Pass@k 在离散答案空间中可能“误导性反映真实推理能力”，因其值随 k 增大而上升，未必代表能力提升 [来源: 11 · 🔬arxiv]。  \n\n- **Cover@τ**：为弥补 Pass@k 局限而提出的新指标，衡量模型在**至少 τ 比例任务完成度正确**的题目集合上的表现，旨在刻画模型的“推理边界” [来源: 11 · 🔬arxiv]。\n\n- **Execution Success Rate（执行成功率）**：虽未直接命名，但多项研究以“准确率”“成功率”指代工具调用后返回有效结果的比例。例如 HyperTool 在 MCP-Universe 上报告“平均准确率”提升 [来源: 26 · 🔬arxiv]；ToolLLM 框架强调“工具调用准确性”为评估重点 [来源: 21 · 🔬arxiv]。\n\n- **Tool Selection F1 / Call Accuracy**：未在任何 Finding 中明确定义或使用该术语。但 **ToolPrivBench** 明确评估 Agent 是否“过度选择高权限工具”，隐含对**工具选择合理性**的量化需求，可视为一种面向安全性的工具选择准确率 [来源: 12 · 🔬arxiv]。\n\n- **其他过程性指标**：  \n  - **完成率**（产出可用报告比例）≥90% [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；  \n  - **引用准确率**（结论与真实来源匹配）≥85% [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；  \n  - **信息覆盖度**（子问题被回答比例）≥90% [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；  \n  - **平均步数**（research→critic 循环次数均值）[来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；  \n  - **反思有效性**（该停时停的比例）100% [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；  \n  - **检索命中率**、**端到端验收通过率** [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n值得注意的是，**Call Accuracy、Error Localization Score 等术语未在任何研究发现中出现**；所有指标均围绕任务完成、答案正确、引用忠实、执行成功等宏观结果，缺乏对单次工具调用原子行为（如参数生成、schema 匹配）的细粒度精度度量。\n\n---\n\n## 针对工具调用失败，主流研究与工业实践采用哪些系统性失败分析方法？是否存在可复用的诊断框架或开源分析工具？\n\n研究发现中提及的失败分析方法与框架如下：\n\n- **错误归因分类体系**：虽未提供完整分类法，但多个 Finding 揭示了高频失败模式：  \n  - **API schema mismatch**：GPTAid 框架通过检测“APSRs（API 使用规范）违反”来定位因参数错误导致的误用，其核心即 schema 不匹配 [来源: 4 · 🔬arxiv]；  \n  - **参数生成错误**：同属 GPTAid 关注范畴，通过生成违规代码并执行反馈来识别 [来源: 4 · 🔬arxiv]；  \n  - **权限/配额限制**：ToolPrivBench 明确将“过度权限选择”列为风险模式，并指出临时工具故障会加剧该问题，暗示权限与配额是常见失效诱因 [来源: 12 · 🔬arxiv]；  \n  - **工具文档理解偏差**：ToolLLM 框架的提出动机即“开源 LLM 训练数据忽视工具使用领域”，导致模型对工具文档语义理解不足 [来源: 21 · 🔬arxiv]；  \n  - **上下文截断 / 环境配置问题**：code_exec Finding 20 报告了因文件路径编码异常导致的输出失败，指向环境与 I/O 配置层面的问题 [来源: 20 · 💻code]。\n\n- **可复用诊断框架**：  \n  - **GPTAid**：提供端到端流程——LLM 生成 APSRs → 生成合规/违规代码 → 执行反馈过滤 → 代码差分分析，形成闭环诊断 [来源: 4 · 🔬arxiv]；  \n  - **DES (Decision Event Schema)**：虽非专为工具调用设计，但其 JSON Schema 规范旨在统一记录决策过程中的多层信息（ML 推理、规则评估、系统耦合、治理元数据），支持“碎片化追踪问题”的解决，具备作为工具调用可观测性日志 schema 的潜力 [来源: 17 · 🔬arxiv]；  \n  - **STRIDE 框架**：通过任务分解、动态性分析与自我反思需求评估，生成“代理适用性评分”，间接实现对工具调用必要性与风险的前置诊断 [来源: 13 · 🔬arxiv]。\n\n- **开源工具**：无 Finding 明确提及已开源的、开箱即用的工具调用失败分析工具。内部实践强调需接入 **Langfuse 可观测工具链**（当前为缺口）[来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]，并要求报告中显式标注来源类型（web/rag）、隔离未通过校验论断、升级校验为“来源存在且论断忠实” [来源: 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]，表明工程化诊断能力正在建设中，但尚未成熟落地。\n\n---\n\n## 在真实部署环境中，如何将离线评测（benchmark-based）与在线可观测性（如调用日志、延迟分布、fallback 触发率、用户反馈闭环）结合，构建端到端的工具调用可靠性评估闭环？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n所有 33 条研究发现中，**无一条涉及在线可观测性指标（如调用日志、延迟分布、fallback 触发率、用户反馈闭环）的具体设计、采集方法或与离线 benchmark 的融合机制**。  \n虽有提及“未接入 Langfuse 可观测工具链（NFR1）”为当前缺口 [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]，以及“运行状态（如跳数、token 消耗）未在报告中呈现” [来源: 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]，但均属待办事项描述，未提供任何关于如何构建闭环的实践、框架或案例。  \n因此，该子问题在现有材料下无法展开实质性分析。\n\n---\n\n## 方法论说明（独立节，仅用于描述本系统自身机制）\n\n本系统（DeepResearch/Agent）采用 Planner→Researcher→Writer→Validator 四节点流水线架构，基于 LangGraph 编排 [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指]；支持三层 LLM 分级（fast/smart/strategic）与混合检索（向量+BM25）[来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指]；当前图结构为纯线性 DAG，缺乏 conditional_edge 与显式 Critic 节点，导致决策逻辑不透明 [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 25 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]；评测流程通过 CLI 运行 `research_engine.eval.run`，输出指标表并人工抽检 20% [来源: 1 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；所有引用需标注 `source_type`（web/rag）、`confidence` 与 `note`，未通过校验论断须隔离至附录 [来源: 9 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n---\n\n## 当前有哪些公开、权威的基准数据集专门用于评测 LLM Agent 的工具调用能力（如 ToolBench、APIBench、ToolLLM、CRUXEval、WebShop 等）？它们在任务类型、工具多样性、真实 API 覆盖度和标注质量上的关键差异是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 评测工具调用可靠性的核心指标有哪些（除 Pass@k 外，是否包含 Call Accuracy、Tool Selection F1、Execution Success Rate、Error Localization Score 等）？Pass@k 在 Agent 场景下应如何正确定义（如按最终答案、按工具调用序列、还是按中间步骤）？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 针对工具调用失败，主流研究与工业实践采用哪些系统性失败分析方法（如错误归因分类体系：API schema mismatch、参数生成错误、上下文截断、权限/配额限制、工具文档理解偏差等）？是否存在可复用的诊断框架或开源分析工具？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：49/50 条通过\n> - 论断忠实度（严格）：49/49 条通过（verified = 存在且忠实）\n> - 论断宽松口径：49/49 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **引用格式统一为** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 10 / arxiv 26 / code 1\n- **Token 消耗**：57039\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "引用格式统一为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "构建分三阶段（API 收集 → 指令生成 → 工具调用标注），强调对真实 Web API 的覆盖与结构化标注",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "CLI-Tool-Bench：一个“结构无关”的黑盒基准，聚焦于评估 LLM Agent 从零生成命令行工具的能力，包含 94 个高质量、真实世界开源仓库，覆盖多种编程语言与复杂度，旨在克服白盒/预设结构基准的局限性",
+    "source": "https://arxiv.org/abs/2604.06742v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "MCP-Universe：作为 HyperTool 框架的评测基准，虽未说明具体规模与构建细节，但被用于验证工具接口抽象对执行准确率的提升（平均准确率从 15.69% → 35.29%），暗示其包含多步骤、需状态传递的工具调用任务",
+    "source": "https://arxiv.org/abs/2606.13663v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "SchemaNet：专为企业级多表模式匹配构建的基准，基于三个真实企业领域的实际数据库模式对，覆盖复杂语义匹配挑战，支持组件级评估",
+    "source": "https://arxiv.org/abs/2507.10897v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "GLOCON Gold Standard Corpus (GSC)：虽非专为 Agent 设计，但被明确用于评测自动化文本处理工具在新闻事件抽取中的可靠性，含多国新闻、由专业标注员依严格手册人工标注，强调分类与抽取任务的标注一致性",
+    "source": "https://arxiv.org/abs/2206.10299v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "33",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "此外，内部使用的 dataset.jsonl 格式数据集定义了结构化字段（id, difficulty, type, query, followups?, expectedsubquestions?, goldsources?），覆盖单轮/多轮/计算/学术等任务类型，但该数据集为私有设计，未公开，且当前存在“缺乏 ≥20 条标注数据集及量化指标表”的缺口",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "标注质量：GSC 依赖专业标注员+严格手册",
+    "source": "https://arxiv.org/abs/2206.10299v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "33",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ToolBench 依赖 ChatGPT 自动生成+人工后验校验（隐含）",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "内部 dataset.jsonl 要求“LLM-judge + 人工抽检 20%”，但当前未达标的“引用准确率 ≥85%”和“完成率 ≥90%”目标",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2401.07324v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2605.27000v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2510.08325v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2604.06742v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2310.02990v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2606.13663v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Pass@k：被多次列为标准指标，用于评估工具调用可靠性",
+    "source": "https://arxiv.org/abs/2206.10299v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "33",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "CPPO 框架中，Pass@k 针对规划器生成的 K 个高阶方法，由共享求解器分别尝试，强调“策略多样性”而非答案采样",
+    "source": "https://arxiv.org/abs/2605.27000v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ToolBench 等任务型基准中，Pass@k 应指模型在 K 次独立尝试中至少一次成功完成端到端任务（含正确调用序列与最终答案） 的比例",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究亦指出 Pass@k 在离散答案空间中可能“误导性反映真实推理能力”，因其值随 k 增大而上升，未必代表能力提升",
+    "source": "https://arxiv.org/abs/2510.08325v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Cover@τ：为弥补 Pass@k 局限而提出的新指标，衡量模型在至少 τ 比例任务完成度正确的题目集合上的表现，旨在刻画模型的“推理边界”",
+    "source": "https://arxiv.org/abs/2510.08325v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "例如 HyperTool 在 MCP-Universe 上报告“平均准确率”提升",
+    "source": "https://arxiv.org/abs/2606.13663v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "ToolLLM 框架强调“工具调用准确性”为评估重点",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "但 ToolPrivBench 明确评估 Agent 是否“过度选择高权限工具”，隐含对工具选择合理性的量化需求，可视为一种面向安全性的工具选择准确率",
+    "source": "https://arxiv.org/abs/2606.20023v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "完成率（产出可用报告比例）≥90%",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用准确率（结论与真实来源匹配）≥85%",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用准确率（结论与真实来源匹配）≥85%",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "信息覆盖度（子问题被回答比例）≥90%",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "平均步数（research→critic 循环次数均值）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "反思有效性（该停时停的比例）100%",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "检索命中率、端到端验收通过率",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "API schema mismatch：GPTAid 框架通过检测“APSRs（API 使用规范）违反”来定位因参数错误导致的误用，其核心即 schema 不匹配",
+    "source": "https://arxiv.org/abs/2409.09288v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "参数生成错误：同属 GPTAid 关注范畴，通过生成违规代码并执行反馈来识别",
+    "source": "https://arxiv.org/abs/2409.09288v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "权限/配额限制：ToolPrivBench 明确将“过度权限选择”列为风险模式，并指出临时工具故障会加剧该问题，暗示权限与配额是常见失效诱因",
+    "source": "https://arxiv.org/abs/2606.20023v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "工具文档理解偏差：ToolLLM 框架的提出动机即“开源 LLM 训练数据忽视工具使用领域”，导致模型对工具文档语义理解不足",
+    "source": "https://arxiv.org/abs/2307.16789v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "上下文截断 / 环境配置问题：codeexec Finding 20 报告了因文件路径编码异常导致的输出失败，指向环境与 I/O 配置层面的问题",
+    "source": "code:c805b5d51b",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "code_exec",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "GPTAid：提供端到端流程——LLM 生成 APSRs → 生成合规/违规代码 → 执行反馈过滤 → 代码差分分析，形成闭环诊断",
+    "source": "https://arxiv.org/abs/2409.09288v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "DES (Decision Event Schema)：虽非专为工具调用设计，但其 JSON Schema 规范旨在统一记录决策过程中的多层信息（ML 推理、规则评估、系统耦合、治理元数据），支持“碎片化追踪问题”的解决，具备作为工具调用可观测性日志 schema 的潜力",
+    "source": "https://arxiv.org/abs/2604.09296v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "STRIDE 框架：通过任务分解、动态性分析与自我反思需求评估，生成“代理适用性评分”，间接实现对工具调用必要性与风险的前置诊断",
+    "source": "https://arxiv.org/abs/2512.02228v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "内部实践强调需接入 Langfuse 可观测工具链（当前为缺口）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "，并要求报告中显式标注来源类型（web/rag）、隔离未通过校验论断、升级校验为“来源存在且论断忠实”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "虽有提及“未接入 Langfuse 可观测工具链（NFR1）”为当前缺口",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "，以及“运行状态（如跳数、token 消耗）未在报告中呈现”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本系统（DeepResearch/Agent）采用 Planner→Researcher→Writer→Validator 四节点流水线架构，基于 LangGraph 编排",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "该条目描述的是 DeepResearch 系统自身",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "支持三层 LLM 分级（fast/smart/strategic）与混合检索（向量+BM25）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前图结构为纯线性 DAG，缺乏 conditionaledge 与显式 Critic 节点，导致决策逻辑不透明",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前图结构为纯线性 DAG，缺乏 conditionaledge 与显式 Critic 节点，导致决策逻辑不透明",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "评测流程通过 CLI 运行 researchengine.eval.run，输出指标表并人工抽检 20%",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有引用需标注 sourcetype（web/rag）、confidence 与 note，未通过校验论断须隔离至附录",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅完成第1轮检索（跳数1，发现10条），覆盖广度与深度均…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=主体结论严重缺乏支撑：q1 中关键数据集（如 ToolBen…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=主体结论支撑不足：q1 中缺乏对 CRUXEval 和 We…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 35 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=q4 关于在线可观测性与离线评测结合的端到端闭环，现有发现多…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1.2]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 45 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=1. q2 中 Pass@k 在 Agent 场景下的定义分…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q2.2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 55 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=1. 对 Pass@k 在 Agent 工具调用场景下的定义…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q3.2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 65 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=q4 中关于‘在线可观测性与离线评测结合’的具体工业实践案例…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：49/50 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 57039,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 272.4,
+ "status": "done",
+ "error": null
+}

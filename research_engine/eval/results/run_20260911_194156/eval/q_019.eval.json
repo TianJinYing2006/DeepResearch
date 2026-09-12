@@ -1,0 +1,171 @@
+{
+ "q_id": "q_019",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5268,
+   "headings": 6,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 19,
+   "verified": 5,
+   "verified_relaxed": 5,
+   "existence_rate": 0.8421,
+   "fidelity_rate": 0.3125,
+   "relaxed_rate": 0.3125,
+   "by_source_type": {
+    "arxiv": {
+     "total": 10,
+     "verified": 5,
+     "verified_relaxed": 5,
+     "existence": 10
+    },
+    "code_exec": {
+     "total": 5,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 5
+    },
+    "unknown": {
+     "total": 3,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    },
+    "rag": {
+     "total": 1,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 1
+    }
+   },
+   "failed_note_distribution": {
+    "原文 [9] 仅提及 'Llama-3.1-8B-Base' 一次，且未提及其他": 1,
+    "claim 开头含非法字符'、'（中文顿号），且无主谓结构，非有效论断；原文 [": 1,
+    "原文 [7] 仅使用 'Llama 3.1-8B'（空格分隔），未出现 'Lla": 1,
+    "原文 [9] 仅使用 'Llama-3.1-8B-Base'（连字符分隔+Bas": 1,
+    "原文 [10] 仅使用 'Llama-3.1-8B-Base'（同 [9]），未": 1,
+    "claim 声称'领域共识'但未提供任何外部权威依据（如PyTorch文档、Hu": 1,
+    "claim 以中文引号开头，内容残缺（'”，但...'），语法断裂；原文 [11": 1,
+    "原文 [11] 日志中 'KV桢' 为乱码（UTF-8 解码失败），'KV ca": 1,
+    "原文 [11] 日志为 'query=...£洢ģȨغƫСԴ棨KV桢Ż״̬ۼ㣿": 1,
+    "原文 [11] 无任何关于'固定开销'的表述，'权重、KV缓存、激活'等术语均因": 1,
+    "来源不存在于研究发现（编号越界或来源未命中）": 3,
+    "claim 截断（结尾'如'字不完整），无实际语义；原文 [5] 是 ADR-0": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 0,
+   "total": 4,
+   "coverage": 0.0,
+   "per_sub": [
+    {
+     "subquestion": "Llama 3.1 8B 模型的总参数量（以 float16 表示）是多少？",
+     "covered": false,
+     "reason": "检索到的文本中未提及 Llama 3.1 8B 的具体参数量（如 8B 即 80 亿参数是否指 float16 下的存储量、是否含 embedding 等），也未说明该数字是参数量本身（无单位）还是其 float16 存储量（字节）。虽有 'Llama-3.1-8B-Base' 出现，但仅作为 SAE 训练对象被引用，未给出参数规模定义或验证。"
+    },
+    {
+     "subquestion": "FP16 精度下每个参数占用多少字节？模型权重本身所需显存如何计算？",
+     "covered": false,
+     "reason": "文本中完全未涉及 FP16/float16 的字节占用（应为 2 字节/参数）、显存计算公式（如 8e9 × 2 bytes = ~16 GB）、或任何与显存估算相关的数值或方法论。存在乱码行 '[执行失败] ... FP16£...'，但内容损坏不可读，无法提取有效信息。"
+    },
+    {
+     "subquestion": "推理时除权重外还需额外显存（如 KV 缓存、激活值、临时缓冲区）吗？典型增量占比是多少？",
+     "covered": false,
+     "reason": "全文未讨论 KV 缓存、激活值、临时缓冲区等推理时内存开销概念，亦无任何关于‘额外显存’、‘增量占比’、‘内存放大效应’或相关实测比例（如 1.2×、1.5×）的描述。所有技术细节均聚焦于 RAG 架构、评测体系、工程决策，而非模型部署内存分析。"
+    },
+    {
+     "subquestion": "是否存在官方或实测验证的最小显存下限值（例如 Hugging Face Transformers 或 vLLM 在 batch_size=1、seq_len=2048 下的实测值）？",
+     "covered": false,
+     "reason": "未出现任何框架（Hugging Face Transformers、vLLM）、配置（batch_size=1、seq_len=2048）或实测显存数值（如 '14.2 GB'、'OOM at 12GB'）；也未引用官方文档、benchmark 报告或实验日志。所有提及的模型（Qwen、Llama-Factor、Foundation-Sec-8B-Reasoning）均未附带其部署资源需求数据。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 1,
+   "retrieval_hit_rate": 0.125,
+   "matched_by": {
+    "keyword": 1,
+    "semantic": 0,
+    "miss": 7
+   },
+   "per_keyword": [
+    {
+     "keyword": "Llama 3.1 8B",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "FP16",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "显存占用",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "KV缓存",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "参数量",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "float16字节",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理显存公式",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "vLLM",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 27127,
+   "total_cost": 0.038,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.0
+  },
+  "raw_complete": true
+ }
+}

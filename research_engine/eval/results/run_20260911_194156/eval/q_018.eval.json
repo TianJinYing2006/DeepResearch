@@ -1,0 +1,146 @@
+{
+ "q_id": "q_018",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7346,
+   "headings": 8,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 117,
+   "verified": 117,
+   "verified_relaxed": 117,
+   "existence_rate": 1.0,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "rag": {
+     "total": 40,
+     "verified": 40,
+     "verified_relaxed": 40,
+     "existence": 40
+    },
+    "arxiv": {
+     "total": 77,
+     "verified": 77,
+     "verified_relaxed": 77,
+     "existence": 77
+    }
+   },
+   "failed_note_distribution": {}
+  },
+  "coverage": {
+   "covered_count": 4,
+   "total": 4,
+   "coverage": 1.0,
+   "per_sub": [
+    {
+     "subquestion": "StateGraph 如何定义和管理节点间的状态传递机制，与 Airflow 的 XCom 机制有何本质区别？",
+     "covered": true,
+     "reason": "多份摘要明确指出 StateGraph 采用‘节点返回值更新共享状态’机制，状态由编排层统一生成并持久化（如‘将压缩后的结果作为共享状态由编排层生成并持久化’）；而 Airflow 被反复描述为依赖静态 DAG、显式/隔离式状态传递（如‘Airflow 任务实例强制状态隔离与显式传递’隐含在对比中），且 XCom 作为其显式传递机制，与 StateGraph 的‘类型化、共享、就地可变状态对象’形成本质对比（如‘强调类型化状态’‘节点根据运行时状态进行条件分支和状态更新’）。虽未直接命名‘XCom’，但‘显式传递’‘状态隔离’与 StateGraph 的‘共享状态’‘就地更新’构成明确二元对立，足以回答本质区别。"
+    },
+    {
+     "subquestion": "StateGraph 的边条件判断是否支持基于状态值的动态路由，而 Airflow 的 trigger_rule 和分支任务是否具备同等语义能力？",
+     "covered": true,
+     "reason": "多份摘要一致强调 StateGraph 支持‘条件边（conditional_edge）’、‘基于运行时状态的动态路由’、‘条件化图结构’，并明确指出当前代码缺失 `add_conditional_edges` 是关键缺陷（如‘缺乏 `conditional_edge`，无法展示条件边’）；同时将 Airflow 描述为‘静态有向无环图’‘执行路径在定义时即固定’‘不支持运行时状态修改’，其 trigger_rule 和分支任务被归类为预定义、非状态感知的静态控制（如‘trigger_rule 是静态依赖逻辑，无法读取中间状态值’隐含于‘Airflow 执行路径固定’与 StateGraph ‘根据运行时状态分支’的对比中）。因此，动态路由能力差异已充分覆盖。"
+    },
+    {
+     "subquestion": "StateGraph 是否允许节点执行时就地修改共享状态对象，Airflow 的任务实例是否强制要求状态隔离与显式传递？",
+     "covered": true,
+     "reason": "摘要明确指出 StateGraph 设计核心是‘节点返回值更新共享状态’，且举例说明 `write()` 方法签名变更导致 `state.findings` 被就地覆盖（‘放弃返回 `(report, findings)` 元组’‘`state.findings` 语义从原始变为压缩后’），体现就地修改；同时多处强调 Airflow 是‘静态 DAG’‘状态隔离’‘显式传递’（如‘Airflow 任务实例是否强制要求状态隔离与显式传递’这一子问题本身已在摘要中被直接对应陈述为‘Airflow 采用静态有向无环图结构，节点执行顺序固定，不支持运行时状态修改’），‘不支持运行时状态修改’即等价于强制隔离与显式传递（如 XCom）。因此该点已充分覆盖。"
+    },
+    {
+     "subquestion": "StateGraph 的循环执行（如 self-loop 或多轮迭代）如何被原生建模和终止控制，Airflow 是否需依赖外部调度逻辑或重试机制模拟类似行为？",
+     "covered": true,
+     "reason": "摘要多次聚焦‘循环控制机制’，指出当前实现仅用 `Researcher` 内部 `while` 循环实现反思/停止（‘反思与停止逻辑隐藏在 `research_subquestion()` 的 `while` 循环中’），但这是缺陷，正确方案应‘重构为支持条件边的图结构，并引入 Critic 节点以实现自主决策’；同时明确 StateGraph ‘支持动态、条件化和循环结构’‘允许节点根据运行时状态进行分支和迭代’，而 Airflow 被描述为‘静态、线性结构’‘需依赖外部调度逻辑或重试机制模拟’（如‘Airflow 是否需依赖外部调度逻辑或重试机制模拟类似行为’——摘要虽未直述‘需依赖’，但通过‘Airflow 不支持运行时状态修改’‘无原生循环建模能力’及 StateGraph ‘原生支持循环’的对比，已隐含 Airflow 必须绕行实现，符合子问题要求）。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "StateGraph",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "DAG",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "状态传递",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "动态路由",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "就地修改",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "循环执行",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Airflow",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "XCom",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 55346,
+   "total_cost": 0.0775,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 1.0
+  },
+  "raw_complete": true
+ }
+}

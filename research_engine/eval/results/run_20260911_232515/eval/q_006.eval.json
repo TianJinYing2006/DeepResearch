@@ -1,0 +1,134 @@
+{
+ "q_id": "q_006",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4031,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 33,
+   "verified": 33,
+   "verified_relaxed": 33,
+   "existence_rate": 1.0,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "arxiv": {
+     "total": 6,
+     "verified": 6,
+     "verified_relaxed": 6,
+     "existence": 6
+    },
+    "rag": {
+     "total": 27,
+     "verified": 27,
+     "verified_relaxed": 27,
+     "existence": 27
+    }
+   },
+   "failed_note_distribution": {}
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 3,
+   "coverage": 0.6667,
+   "per_sub": [
+    {
+     "subquestion": "AI Agent 的核心能力与技术架构是什么？",
+     "covered": true,
+     "reason": "多份研究发现明确描述了AI Agent的核心能力（如规划、多跳检索、工具使用、记忆、长周期交互、交叉验证防幻觉、RAG融合检索、LangGraph状态机编排）和技术架构（Planner/Researcher/Writer/Validator多Agent节点、三层LLM分级+动态路由、CLI+轻量Web UI、基于SLM的框架对比等），尤其DeepResearch和ADR-0001案例提供了具体、结构化的实现细节。"
+    },
+    {
+     "subquestion": "RPA 工作流自动化的典型实现方式与技术边界在哪里？",
+     "covered": false,
+     "reason": "所有提及RPA的研究均仅作对比性描述（如‘执行预设规则’‘适用于结构化任务’‘纯线性DAG’），未说明其典型实现方式（如录制回放、脚本语言、UI自动化技术、企业级平台如UiPath/Automation Anywhere集成机制等），也未界定其技术边界（如无法处理非结构化输入、缺乏语义理解、异常处理能力弱、扩展性限制等）。缺乏RPA自身视角的技术细节，仅停留在功能层面的笼统对照。"
+    },
+    {
+     "subquestion": "AI Agent 与 RPA 在决策自主性、环境适应性和学习能力上的关键差异有哪些？",
+     "covered": true,
+     "reason": "多处研究直接指出关键差异：决策自主性——AI Agent具备规划与反思能力（如conditional_edge缺失暴露其必要性），RPA为纯线性、无条件分支；环境适应性——AI Agent支持多源检索、动态路由、多跳循环、引用校验以应对不确定性，RPA依赖固定流程；学习能力——虽未提RPA的学习能力（隐含无），但AI Agent被明确关联到强化学习（Comm-MADRL、AOAD-MAT）、持续验证优化、以及‘防幻觉’机制迭代等适应性演进行为；且摘要中‘AI Agent能自主执行复杂任务，RPA执行预设规则’及‘语义理解增强决策’等表述共同支撑三维度差异。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 7,
+   "hit": 2,
+   "retrieval_hit_rate": 0.2857,
+   "matched_by": {
+    "keyword": 2,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "AI Agent",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "RPA",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "规则驱动",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "自主决策",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "流程自动化",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "智能体架构",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "任务泛化",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 45527,
+   "total_cost": 0.0637,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.6667
+  },
+  "raw_complete": true
+ }
+}

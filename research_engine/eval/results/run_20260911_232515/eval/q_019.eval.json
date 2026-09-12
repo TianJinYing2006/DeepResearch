@@ -1,0 +1,152 @@
+{
+ "q_id": "q_019",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 3585,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 44,
+   "verified": 43,
+   "verified_relaxed": 43,
+   "existence_rate": 1.0,
+   "fidelity_rate": 0.9773,
+   "relaxed_rate": 0.9773,
+   "by_source_type": {
+    "rag": {
+     "total": 23,
+     "verified": 22,
+     "verified_relaxed": 22,
+     "existence": 23
+    },
+    "arxiv": {
+     "total": 19,
+     "verified": 19,
+     "verified_relaxed": 19,
+     "existence": 19
+    },
+    "code_exec": {
+     "total": 2,
+     "verified": 2,
+     "verified_relaxed": 2,
+     "existence": 2
+    }
+   },
+   "failed_note_distribution": {
+    "该论断未正确计算显存占用，未除以 $1024^3$，导致单位错误。": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 3,
+   "total": 4,
+   "coverage": 0.75,
+   "per_sub": [
+    {
+     "subquestion": "Llama 3.1 8B 模型的总参数量（以 float16 表示）是多少？",
+     "covered": true,
+     "reason": "多条检索结果一致明确指出模型参数量为 80 亿（8,000,000,000 或 8×10⁹），即 '8B'，且上下文均默认该数值即指总参数量（非等效/稀疏/有效参数），符合子问题要求。"
+    },
+    {
+     "subquestion": "FP16 精度下每个参数占用多少字节？模型权重本身所需显存如何计算？",
+     "covered": true,
+     "reason": "多条检索结果明确说明 FP16 下每个参数占 2 字节（如 'FP16 精度下每个参数占用 2 字节'、'16 位 → 2 字节'），并给出统一权重显存计算公式：(参数量 × 2) / (1024³)（单位 GB），且代入 8B 参数得出 ~14.9–15.26 GB，逻辑完整、可复现。"
+    },
+    {
+     "subquestion": "推理时除权重外还需额外显存（如 KV 缓存、激活值、临时缓冲区）吗？典型增量占比是多少？",
+     "covered": true,
+     "reason": "多条检索结果明确指出需额外显存，包括 '激活值'、'KV 缓存'（隐含在'中间计算结果'、'临时缓冲区'等表述中）、'优化器状态'（虽属训练，但部分条目区分了推理场景）、'其他开销'；并给出典型增量估算：如'激活值约 1.5 倍参数量'导致总量达 42.4 GB，或'实际占用 18–20 GB'（比纯权重 15.26 GB 高出 ~20–30%），或'额外内存开销'定性描述，足以回答该子问题。"
+    },
+    {
+     "subquestion": "是否存在官方或实测验证的最小显存下限值（例如 Hugging Face Transformers 或 vLLM 在 batch_size=1、seq_len=2048 下的实测值）？",
+     "covered": false,
+     "reason": "所有检索结果均未提及任何具体框架（Hugging Face Transformers、vLLM 等）、具体配置（batch_size=1、seq_len=2048）下的实测数据；所有数值均为理论估算（如'下限≈14.9 GB'）或泛化描述（如'实际可能更高'），无来源标注为官方文档、基准测试报告或可复现实验结果，因此不满足'官方或实测验证'这一关键要求。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 4,
+   "retrieval_hit_rate": 0.5,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 4
+   },
+   "per_keyword": [
+    {
+     "keyword": "Llama 3.1 8B",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "FP16",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "显存占用",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "KV缓存",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "参数量",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "float16字节",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "推理显存公式",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "vLLM",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 51011,
+   "total_cost": 0.0714,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.75
+  },
+  "raw_complete": true
+ }
+}

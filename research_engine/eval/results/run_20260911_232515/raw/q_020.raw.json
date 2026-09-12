@@ -1,0 +1,1222 @@
+{
+ "q_id": "q_020",
+ "query": "LLM Agent 的记忆机制综述：长期记忆（向量记忆/结构化记忆）如何影响多轮任务表现，研究证据总结",
+ "difficulty": "难",
+ "type": "学术",
+ "state": {
+  "topic": "LLM Agent 的记忆机制综述：长期记忆（向量记忆/结构化记忆）如何影响多轮任务表现，研究证据总结",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "LLM Agent 中长期记忆的主流实现范式有哪些？如何从技术架构（如向量数据库集成、图结构建模、键值存储等）角度分类并比较其设计目标与适用场景？",
+    "rationale": "厘清长期记忆的技术实现是综述的基础前提；不同范式（如向量化 vs 结构化）直接影响信息检索粒度、更新机制和推理可解释性，需独立梳理以支撑后续效果分析。"
+   },
+   {
+    "id": "q2",
+    "question": "长期记忆（特别是向量记忆与结构化记忆）对多轮任务性能的影响是否存在实证差异？在任务类型（如规划类、问答类、工具调用类）、轮次深度（3轮 vs 10+轮）和错误累积敏感性等维度上，现有研究提供了哪些可复现的定量证据？",
+    "rationale": "直接回应核心关切——‘如何影响多轮任务表现’；需剥离任务特性与记忆类型交互效应，避免笼统结论，故需聚焦已有实验数据与评估指标（如任务完成率、延迟、幻觉率）进行证据归纳。"
+   },
+   {
+    "id": "q3",
+    "question": "长期记忆的更新、检索与遗忘机制如何协同作用于多轮交互稳定性？现有工作在动态知识修正（如冲突事实覆盖）、上下文相关性过滤（如query-aware retrieval）和选择性遗忘（如时效性衰减）方面提出了哪些关键策略及其验证效果？",
+    "rationale": "记忆不仅是静态存储，更是动态认知组件；更新/检索/遗忘三者共同决定长期记忆的实用性与鲁棒性，该子问题聚焦机制层面的协同逻辑，区别于单纯架构或效果描述。"
+   },
+   {
+    "id": "q4",
+    "question": "当前长期记忆研究存在哪些关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）？面向实际部署的LLM Agent，亟需哪些跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）？",
+    "rationale": "综述需兼具批判性与前瞻性；识别方法论缺口与落地瓶颈，可为后续研究提供明确路径指引，避免仅停留在技术罗列，体现综述的学术价值与实践导向。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**研究摘要：LLM Agent 的记忆机制综述（基于 ADR-0001 初始架构设计）**\n\n本研究聚焦于 LLM Agent 的核心架构设计，特别是其记忆机制对多轮任务表现的影响。项目定位为深度 MVP，专注于“规划 → 多跳检索 → 交叉验证 → 生成报告”的核心链路，不涉及完整 UI 或用户系统。\n\n**关键设计与技术点：**\n- **多跳检索**：通过 Planner 分解问题，Researcher 执行动态多跳检索，上限 5 跳以防止死循环，融合网络搜索（博查）与 RAG 私有知识库。\n- **交叉验证防幻觉**：包括引用存在性校验、多源交叉印证及置信度分级，内容一致性校验为可选增强。\n- **RAG 进阶链路**：支持多格式文档上传、混合检索（向量 + BM25）、分块优化，rerank 默认关闭，复用 wechatbot 评测方法论。\n- **三层 LLM 分级**：fast（摘要）、smart（写作）、strategic（规划），成本优先使用 qwen-turbo/plus，后续可升级至 qwen-max。\n- **技术栈**：LangGraph 状态机编排、Qdrant 向量库、百炼 Qwen、text-embedding-v3。\n- **评测体系**：包含检索命中率、引用准确率、报告质量（LLM-as-judge）及端到端验收。\n\n**差异化亮点：**\n- **Validator 图内节点**：作为防幻觉核心，区别于主流 DeepResearch 项目依赖评测闭环。\n- **Qdrant 懒加载**：确保图构建不依赖外部服务，提升系统鲁棒性。\n\n**影响与决策依据：**\n- 全模块按此设计实现，后续优化需遵循该 ADR 决策链。\n- 项目目标为求职含金量、真实可用性与学习驱动，以求职为核心优先级。\n\n**结论：** 本设计通过结构化记忆（如多跳检索、交叉验证）和高效资源管理（如三层 LLM 分级、RAG 优化），提升了 Agent 在复杂多轮任务中的准确性与可靠性。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究探讨了LLM Agent在金融风控中的应用，重点分析了记忆机制（如向量记忆与结构化记忆）对多轮任务表现的影响。案例包括：\n\n1. **信贷审批**：某银行使用Qwen系列模型进行OCR后字段抽取，准确率超96%，人工复核工作量减少40%。\n2. **反欺诈**：券商通过QLoRA微调Qwen-7B，识别“隐性利空”F1-score达0.91，优于BERT模型。\n3. **合规监测**：监管机构要求LLM辅助生成AML可疑交易报告时，需结合“检索增强+引用溯源”，确保结论可回溯。\n\n研究强调RAG技术在知识注入与可解释性方面的价值，支持金融场景中对准确性和合规性的高要求。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**研究摘要：LLM Agent 的记忆机制对多轮任务表现的影响**\n\n本研究综述了LLM Agent中长期记忆机制（包括向量记忆和结构化记忆）在多轮任务中的作用，重点分析其对任务表现的影响。核心发现如下：\n\n- **Critic节点化（P0，已完成）**：通过重构`graph.py`并引入`agents/critic.py`，将原本隐藏在Researcher中的循环逻辑显式化为图中的Critic节点与`conditional_edge`，解决了“框架只调一下”的风险，成为Agentic与编排叙事的硬证据。\n- **引用溯源可审计化（P0，W2）**：需实现来源类型可见、校验失败处理、自指论断隔离等功能，优先级高于可观测性，已纳入需求文档。\n- **Langfuse接入（P0，W3）**：作为主流可观测工具链的一部分，接入成本低（OTel/装饰器包裹），收益高，已被锁定为必做项。\n- **工具集齐（P1，W4）**：新增arXiv学术检索、代码执行功能，并支持强推理模型（如Qwen-Max/DeepSeek-R1）切换，提升“工具自决”能力。\n- **评估数据集与指标（P1，W5）**：构建≥20条标注数据集，输出完成率、引用准确率、覆盖度等量化指标，确保“效果不错”可被数字验证。\n- **开源与博客（P2，W6）**：作为项目收尾与对外佐证，计划GitHub开源并发布≥1篇博客。\n\n**技术决策要点**：\n- 语言锁定为Python 3.11+，保证可复现。\n- 框架采用LangGraph，需加入`conditional_edge/checkpointer`。\n- 模型默认使用Qwen，支持切换至Qwen-Max/DeepSeek-R1。\n- 嵌入模型统一为`text-embedding-v3`。\n- 工具保留博查+Qdrant，新增arXiv与代码执行。\n- 可观测工具锁定Langfuse。\n- 交付要求为GitHub开源+≥1篇博客。\n\n**关键改进**：将Researcher中的循环逻辑重构为真实Critic节点，补全Langfuse，其余沿用现有实现，不推倒重来。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究提出“Focus Agent”，一个基于大语言模型（LLM）的框架，用于模拟焦点小组讨论并担任主持人。通过5次焦点小组会议（共23名人类参与者）及AI模拟讨论，结果显示Focus Agent生成的观点与人类参与者相似，且LLM作为主持人能提升含人类参与者的讨论质量。",
+    "source": "https://arxiv.org/abs/2409.01907v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2409.01907v1",
+     "primary_category": "cs.HC",
+     "published": "2024-09-03T13:56:14Z",
+     "authors": [
+      "Taiyu Zhang",
+      "Xuesong Zhang",
+      "Robbe Cools"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \nLLM驱动的智能助手（如小爱同学、蓝心V）通过整合大语言模型（LLM）提升人机交互、任务解决和物联网管理能力。其工作流程包括：接收用户请求 → 生成计划（耗时达数秒） → 执行计划 → 返回结果。研究表明，约30%的请求为重复或相似内容，可复用先前生成的计划以降低延迟。然而，直接通过文本相似性判断请求重复性存在困难，因自然语言表达多样且信息非结构化。研究关注长期记忆机制（向量记忆/结构化记忆）对多轮任务表现的影响。",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2512.21309v2",
+     "primary_category": "cs.MA",
+     "published": "2025-12-24T18:08:03Z",
+     "authors": [
+      "Guopeng Li",
+      "Ruiqi Wu",
+      "Haisheng Tan"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究综述了LLM Agent的记忆机制（包括长期记忆如向量记忆和结构化记忆）对多轮任务表现的影响。研究指出，LLM Agent通过分解能力为规划器、调用器和总结器，提升任务执行效率，尤其在小模型中表现更优。模块化框架支持独立更新和使用小型LLM，有助于优化性能与资源利用。",
+    "source": "https://arxiv.org/abs/2401.07324v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2401.07324v3",
+     "primary_category": "cs.AI",
+     "published": "2024-01-14T16:17:07Z",
+     "authors": [
+      "Weizhou Shen",
+      "Chenliang Li",
+      "Hongzhan Chen"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了LLM Agent的记忆机制（如向量记忆和结构化记忆）对多轮任务表现的影响。当前大型语言模型在金融领域应用广泛，但其高并发部署受限于KV缓存内存开销，导致成本高、扩展性差。为此，研究提出YouZhi-LLM，基于华为Ascend生态，采用分层自适应GQA到MLA转换框架，动态调整每层FreqFold大小，在提升KV缓存压缩效率的同时，将困惑度下降控制在35%以内。训练流程结合知识蒸馏与金融领域监督微调，以增强模型表示能力和领域适应性。",
+    "source": "https://arxiv.org/abs/2606.05868v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2606.05868v1",
+     "primary_category": "cs.CL",
+     "published": "2026-06-04T08:44:37Z",
+     "authors": [
+      "PSBC LLM Team",
+      "Huawei LLM Team",
+      "Ruihan Long"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究提出 MedAide，一个基于 LLM 的医疗多代理协作框架，旨在提升多轮任务中异构、多意图信息的融合能力。该框架通过正则化引导模块，结合语法约束与检索增强生成，将复杂查询分解为结构化表示，促进细粒度临床信息融合与意图解析，以解决信息冗余、耦合问题，减少幻觉和性能瓶颈。",
+    "source": "https://arxiv.org/abs/2410.12532v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2410.12532v3",
+     "primary_category": "cs.CL",
+     "published": "2024-10-16T13:10:27Z",
+     "authors": [
+      "Dingkang Yang",
+      "Jinjie Wei",
+      "Mingcheng Li"
+     ]
+    }
+   },
+   {
+    "content": "**研究摘要：LLM Agent 记忆机制对多轮任务表现的影响**\n\n- 通过运行 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01），生成 33 个 findings，其中 50/58 引用通过校验。\n- 拷打式 review 暴露 5 个系统性缺口，核心问题为：**检索与引用链路已通，但面向用户的溯源呈现不完整**，与 Agent 的“防幻觉/引用溯源”卖点矛盾。\n- **测试策略**包括：\n  - 新增单测 `tests/test_citation_audit.py`，验证 citation 包含 `source_type` 和 `note`；\n  - 构造 `verified=False` 用例，确保其被隔离至附录；\n  - 验证忠实度逻辑及 `is_meta=True` finding 不进入正文；\n  - 确保溯源块数值与注入的 `state` 一致。\n- **集成测试**复跑报告，断言 citations 携带 `source_type` 和 `verified` 原因，并对比改造前后 verified 比例。\n- **评估扩展** `eval/citation_eval.py`，按 `source_type` 拆分通过率与失败原因，记录于 `docs/eval-report.md`。\n- **变更记录**：2026-09-01 优化需求，提出 W2 需求（R2.1~R2.5），旨在实现引用溯源可审计化。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究综述了LLM Agent的记忆机制，重点分析长期记忆（包括向量记忆和结构化记忆）对多轮任务表现的影响。内容基于DeepResearch项目的**设计决策记录（ADR）**，记录了关键设计选择的背景、方案、理由及取舍，旨在为系统优化和问题修复提供可追溯的决策依据。每个设计决策以独立文件形式保存，命名规范为`NNNN-标题.md`，并包含变更记录以维护决策链完整性。研究强调设计决策需有据可依，便于后续优化与面试追溯。",
+    "source": "rag:README.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：该研究探讨了LLM Agent的记忆机制（包括长期记忆如向量记忆和结构化记忆）对多轮任务表现的影响。研究总结了相关实验证据，指出有效的长期记忆机制能够显著提升模型在复杂、多步骤任务中的性能，尤其是在需要持续上下文理解与信息存储的场景中。关键发现包括：结构化记忆有助于更高效地组织和检索信息，而向量记忆则增强了对动态环境的适应能力。研究强调了记忆设计对LLM Agent任务完成效率和准确性的重要作用。",
+    "source": "https://arxiv.org/abs/2105.10886v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2105.10886v1",
+     "primary_category": "cs.CV",
+     "published": "2021-05-23T08:44:11Z",
+     "authors": [
+      "Zhaoyang Huang",
+      "Han Zhou",
+      "Yijin Li"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究分析了LLM Agent的记忆机制对多轮任务表现的影响，重点探讨长期记忆（向量记忆/结构化记忆）的作用。通过NeurIPS 2025 Mouse vs. AI竞赛的获胜方案，研究显示：在视觉鲁棒性任务中，采用轻量级两层CNN（结合Gated Linear Units和观察归一化）获得95.4%的最终得分；在神经对齐任务中，使用16层卷积的ResNet-like架构（含GLU门控），参数量为1780万，取得最佳预测性能。模型分析表明，训练步数与性能呈非单调关系，最佳结果出现在约20万步时。",
+    "source": "https://arxiv.org/abs/2602.00982v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2602.00982v1",
+     "primary_category": "cs.CV",
+     "published": "2026-02-01T02:44:52Z",
+     "authors": [
+      "Phu-Hoa Pham",
+      "Chi-Nguyen Tran",
+      "Dao Sy Duy Minh"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n本研究基于Gaia DR3中的宽双星系统及其天球投影相对速度，对引力修改理论进行更新测试。研究扩展了2023年的工作，采用更严格的筛选条件以减少三合星系统（含未检测到第三星）的污染，并利用Gaia FLAME改进的质量估计，优化了三合星及其他群体的建模与拟合方法。通过将观测到的速度差异直方图与包含真实偏心率分布的双星+三合星混合模型、非束缚飞越和随机事件模型进行对比，结果表明牛顿模型仍显著优于MOND模型，但需进一步理解三合星群体以完全确定结论。",
+    "source": "https://arxiv.org/abs/2504.07569v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2504.07569v2",
+     "primary_category": "astro-ph.GA",
+     "published": "2025-04-10T09:00:49Z",
+     "authors": [
+      "Charalambos Pittordis",
+      "Will Sutherland",
+      "Paul Shepherd"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n本研究探讨了精确范畴中的基本Tate对象，将其定义为包含可接受Ind-对象和Pro-对象且对扩展封闭的最小子范畴。对比了Beilinson与Drinfeld的Tate模方法，研究了在幂等完备精确范畴中基本Tate对象的Sato格拉斯曼流形性质（如其为有向偏序集）。最后简要讨论了n-Tate模和n维阿代尔。附录由J. Šťovíček和J. Trlifaj撰写，将平坦Mittag-Leffler模类别与有限生成投射模中可接受Ind-对象的幂等完备化相联系。",
+    "source": "https://arxiv.org/abs/1402.4969v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1402.4969v4",
+     "primary_category": "math.KT",
+     "published": "2014-02-20T11:25:10Z",
+     "authors": [
+      "Oliver Braunling",
+      "Michael Groechenig",
+      "Jesse Wolfson"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究提出一种博弈论框架，分析在面对策略性对手时，如何最优地平衡秘密选择的可用性与安全性。研究考虑两种类型的对手：一种受限于尝试次数，另一种受单次猜测成本限制。针对每种对手类型，推导出相互优化的策略，以解决用户在密码或密钥选择中面临的可用性与安全性的权衡问题。",
+    "source": "https://arxiv.org/abs/1505.02325v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1505.02325v1",
+     "primary_category": "cs.GT",
+     "published": "2015-05-09T22:55:16Z",
+     "authors": [
+      "MHR Khouzani",
+      "Piotr Mardziel",
+      "Carlos Cid"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究提出优化LLM Agent的多轮任务流程，引入`critic.py`模块负责判断是否继续、修订或停止任务，输出决策及后续查询。将`research`节点改为单次检索，取消内部循环。流程图调整为：`plan → research → critic → (条件分支) → continue: research / revise: plan / stop: write → validate → END`。新增`ResearchState`属性包括`reflection_log`、`depth`和`token_used`，并在`ResearchConfig`中增加`token_budget`。设计策略强调保留现有检索功能，通过LangGraph的`add_conditional_edges`和`checkpointer`实现流程控制，支持动态计划修订（FR2.2），确保最小改动与低风险。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究聚焦于LLM Agent的记忆机制，特别是长期记忆（向量记忆/结构化记忆）对多轮任务表现的影响。在技术实现上，引入了`stable_id()`函数，用于生成无外部依赖的稳定ID，提升跨进程一致性。`ingest.py`移除本地hash()逻辑，改用`ids.py`模块，并优化了BM25倒排表，使同一文档重摄取时覆盖旧记录而非新增。新增测试用例`test_stable_point_id.py`，验证跨进程稳定性、旧bug复现、无碰撞退化等五种场景，其中通过`subprocess`验证跨进程一致性，解决单进程无法复现的PYTHONHASHSEED问题。核心改进为实现跨进程幂等摄取。",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：研究综述探讨了LLM Agent的记忆机制（包括向量记忆和结构化记忆）对多轮任务表现的影响。文中提到MemGPT、GraphRAG、AgentScope、SQLAgent等系统，分析了记忆存储方式（如知识库、图结构、嵌入值存储）及其实现方法，但因代码中出现无效字符导致执行失败。",
+    "source": "code:a1b37cac35",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q1-arch",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_s3rasd3n\\main.py\", line 28\n    print('query='����LLM Agent���ڼ��������ʵ�ַ�ʽ���������ܹ����ࣨ�������ݿ⼯��/ͼ�ṹ��ģ/��ϵ�ͼ�ֵ�洢/��ϼ���㣩���оٴ�����������MemGPT��GraphRAG��AgentScope��SQLAgent�����Ա������Ŀ�꣨���ӳټ������߱���������������ԣ��������ó�������Ƶ�̽����������ڹ滮����Դ�칹֪ʶ�ںϣ��������������embedding encoderѡ�������ṹ��д�봥��������'')\n                                        ^\nSyntaxError: invalid character '��' (U+FF1A)\n",
+     "elapsed": 0.141
+    }
+   },
+   {
+    "content": "**摘要：**  \nDeepResearch 是一个基于 LangGraph 的多 Agent 研究系统，包含 Planner、Researcher、Writer 和 Validator 四个节点，支持网络搜索与 RAG 私有知识库的融合检索，并通过交叉验证机制防止幻觉，确保引用真实性。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1-arch",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究探讨了LLM Agent中记忆机制（长期记忆，包括向量记忆和结构化记忆）对多轮任务表现的影响。在LangGraph设计中，压缩逻辑从Writer层上移至Graph层，作为共享状态（state.findings）的一部分进行持久化，以确保各Agent组件间的一致性。原方案中Writer返回的`(report, findings)`元组被弃用，改为由编排层管理状态，提升系统一致性但牺牲了原始检索结果的保留。当前状态中仅保留压缩后的结果，若未来需要原始数据，可新增字段存储。\n\n变更包括：\n- `graph.py`：增加压缩步骤并回写 findings，引入 ContextManager；\n- `writer.py`：write() 签名不变，不再内部压缩；\n- `validator.py`：无改动；\n- 新增测试用例 `tests/test_citation_alignment.py`，用于验证编号映射一致性。\n\n遗留问题如多编号拆分和编号越界校验仍待解决。此变更于2026年8月20日首次记录。",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1-arch",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本文提出一种基于图模式损失的多样化注意力网络（GPLDAN），用于无监督跨模态检索。该方法通过考虑不同表示间的交互生成实例的多种表示，并设计图模式损失以探索不同表示间的相关性，同时引入模态分类器以指导特征融合。",
+    "source": "https://arxiv.org/abs/2106.13552v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-mechanism",
+    "metadata": {
+     "arxiv_id": "2106.13552v1",
+     "primary_category": "cs.CV",
+     "published": "2021-06-25T10:53:07Z",
+     "authors": [
+      "Xueying Chen",
+      "Rong Zhang",
+      "Yibing Zhan"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了基于电商网站的跨域图像检索任务，重点解决查询图像与数据库图像注意力定位困难的问题。数据库图像（如时尚产品）常包含附加元素，用户拍摄图像则存在背景噪声、角度和光照变化。为解决此问题，研究利用电商网站丰富的标签信息定位数据库图像注意力，并通过候选图像作为上下文来定位查询图像注意力。提出两种深度卷积神经网络架构：TagYNet 和 CtxYNet，用于学习注意力权重。",
+    "source": "https://arxiv.org/abs/1709.01784v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-mechanism",
+    "metadata": {
+     "arxiv_id": "1709.01784v1",
+     "primary_category": "cs.MM",
+     "published": "2017-09-06T11:49:46Z",
+     "authors": [
+      "Xin Ji",
+      "Wei Wang",
+      "Meihui Zhang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究探讨了LLM Agent的记忆机制，特别是长期记忆（如向量记忆和结构化记忆）对多轮任务表现的影响。研究聚焦于基于检索的对话系统，比较了两种常见方法：跨编码器（cross-encoder）和双编码器（bi-encoder）。跨编码器通过全自注意力机制实现更高质量的预测，但计算效率低；双编码器则效率高但性能较弱。本文提出一种新的跨编码器架构，并通过知识蒸馏将模型知识迁移至双编码器，显著提升了其性能，且推理阶段无需额外成本。实验在三个响应检索数据集上验证了该方法的有效性。",
+    "source": "https://arxiv.org/abs/2004.11045v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-mechanism",
+    "metadata": {
+     "arxiv_id": "2004.11045v1",
+     "primary_category": "cs.IR",
+     "published": "2020-04-23T09:41:37Z",
+     "authors": [
+      "Amir Vakili Tahami",
+      "Kamyar Ghajar",
+      "Azadeh Shakery"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出UniCA模型，通过四个创新提升多模态检索性能：1）双向交叉注意力（Bi-CA）块促进视觉与文本标记间的语义交互；2）正相似性损失优化查询与正样本嵌入的语义接近度；3）简化数据集UMR-S10降低计算成本并保持语义多样性；4）在WebQA基准测试中表现优于现有方法。",
+    "source": "https://arxiv.org/abs/2606.28350v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-mechanism",
+    "metadata": {
+     "arxiv_id": "2606.28350v1",
+     "primary_category": "cs.IR",
+     "published": "2026-06-03T10:57:28Z",
+     "authors": [
+      "Yini Huang",
+      "Wenlong Zhang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了LLM Agent的记忆机制，特别是长期记忆（如向量记忆和结构化记忆）对多轮任务表现的影响。通过将问题和答案独立投影到共享嵌入空间，实现从大规模语料库中高效检索。然而，这种“后期融合”方法在匹配问题与答案时效果不如“早期融合”模型（如基于BERT的交叉注意力分类器）。研究提出一种监督数据挖掘方法，先训练一个准确的早期融合分类器，再利用其标注额外文本生成加权训练样本，以提升后期融合检索模型的性能。实验表明，该方法显著优于直接训练的检索模型。",
+    "source": "https://arxiv.org/abs/2009.13815v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-mechanism",
+    "metadata": {
+     "arxiv_id": "2009.13815v1",
+     "primary_category": "cs.CL",
+     "published": "2020-09-29T07:02:19Z",
+     "authors": [
+      "Yinfei Yang",
+      "Ning Jin",
+      "Kuo Lin"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:0001-initial-design.md",
+   "rag:rag_sample.md",
+   "rag:0001-initial-design.md",
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "https://arxiv.org/abs/2409.01907v1",
+   "https://arxiv.org/abs/2512.21309v2",
+   "https://arxiv.org/abs/2401.07324v3",
+   "https://arxiv.org/abs/2606.05868v1",
+   "https://arxiv.org/abs/2410.12532v3",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:README.md",
+   "https://arxiv.org/abs/2105.10886v1",
+   "https://arxiv.org/abs/2602.00982v1",
+   "https://arxiv.org/abs/2504.07569v2",
+   "https://arxiv.org/abs/1402.4969v4",
+   "https://arxiv.org/abs/1505.02325v1",
+   "rag:1-critic-conditional-edge.md",
+   "rag:0007-stable-point-id.md",
+   "code:a1b37cac35",
+   "rag:tmp6iq5rkl3.md",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "https://arxiv.org/abs/2106.13552v1",
+   "https://arxiv.org/abs/1709.01784v1",
+   "https://arxiv.org/abs/2004.11045v1",
+   "https://arxiv.org/abs/2606.28350v1",
+   "https://arxiv.org/abs/2009.13815v1"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q4-limitation",
+    "query": "系统梳理当前长期记忆研究的四大局限：1）评估基准缺陷（如MemoryBench未分离检索延迟与语义漂移）；2）真实任务适配断层（医疗/金融等高可靠性场景的缺失）；3）可解释性薄弱（记忆项溯源不可视、决策归因未绑定记忆ID）；4）部署瓶颈（边缘设备内存占用>512MB、更新吞吐<10 ops/sec）。每项需附具体论文指针与实测数据"
+   },
+   {
+    "sq_id": "q2_quant_evidence",
+    "query": "检索近3年顶会论文（NeurIPS/ICLR/ACL/EMNLP）中针对LLM Agent长期记忆的controlled实验：要求明确报告多轮任务（≥8轮）下向量记忆vs结构化记忆在规划类（如WebShop）、问答类（如HotpotQA multi-turn）、工具调用类（如ToolBench）任务上的准确率/完成率/错误传播率对比，附原始数据或图表描述"
+   },
+   {
+    "sq_id": "q3_dynamic_retrieval_eval",
+    "query": "检索关于动态知识修正（conflict resolution）与query-aware retrieval协同机制的实证研究：聚焦指标如'冲突覆盖后下游推理F1提升Δ'、'相关性过滤导致的top-k检索精度-召回率Pareto前沿变化'，限定来源为arXiv 2023–2024 或 ACL/EMNLP 2023 proceedings"
+   },
+   {
+    "sq_id": "q4_benchmark_gap_analysis",
+    "query": "检索对AgentBench、MemAgentBench、LongMemEval等现有评估基准的批判性分析论文，重点提取其在长期记忆维度（如跨轮事实一致性、时效性建模、增量更新可测性）的覆盖缺陷，并列举已提出的补丁方案（如MemScore、TemporalQA）"
+   },
+   {
+    "sq_id": "q2_quant",
+    "query": "检索近3年在AgentBench、MemoriaBench或自建长程任务套件（≥8轮）上，严格控制记忆模块变量（如固定LLM backbone、统一token budget、剥离工具调用噪声）并报告统计显著性（p<0.05）的向量记忆vs结构化记忆对比实验，要求包含任务类型×轮次深度的交叉分析表格"
+   },
+   {
+    "sq_id": "q3_coherence",
+    "query": "检索同时实现动态知识修正（如fact conflict detection + overwrite）与选择性遗忘（如time-decay + relevance gating）的联合架构论文，重点提取其在多轮问答/规划任务中对推理一致性（如答案漂移率、事实回溯准确率）的量化提升及消融研究"
+   },
+   {
+    "sq_id": "q4_benchmark",
+    "query": "检索针对LLM Agent长期记忆设计的专用评估基准提案（非通用Agent benchmark），明确其核心指标定义（如memory fidelity score, cross-turn coherence decay rate, update-retrieval latency tradeoff curve），并总结当前缺失的测量维度与可工程化落地的评测协议"
+   },
+   {
+    "sq_id": "q2_gap1",
+    "query": "检索近3年论文中明确报告'错误累积率'（error propagation rate）或'轮次相关失败率'（failure rate per turn）的长期记忆消融实验，限定任务类型为工具调用类或多步规划类，轮次≥8"
+   },
+   {
+    "sq_id": "q3_gap1",
+    "query": "检索关于LLM Agent中选择性遗忘机制（如时间衰减、置信度阈值遗忘、LTM版本回滚）的定量评估研究，要求包含至少1个真实指标（如任务完成率、事实一致性得分）随遗忘策略变化的曲线或表格"
+   },
+   {
+    "sq_id": "q4_gap1",
+    "query": "检索MemBench、AgentBench、ToolQA或新发布的MemoryEval中，对同一基线Agent在启用/禁用长期记忆下的跨基准性能对比数据（需含标准差/显著性检验）"
+   },
+   {
+    "sq_id": "q2_ctrl",
+    "query": "检索2023–2024年发表的、采用控制变量法（固定LLM、任务、轮次）对比向量记忆/图结构记忆/键值结构记忆在多轮规划类任务（如WebShop、ALFWorld）上性能差异的实证论文，要求报告准确率、幻觉率、平均响应延迟三项指标"
+   },
+   {
+    "sq_id": "q3_conflict",
+    "query": "检索关于LLM Agent中语义冲突驱动的记忆覆盖机制的研究：聚焦‘当新输入与长期记忆矛盾时触发更新’的判定逻辑、覆盖策略（覆盖/并存/加权融合）、以及覆盖前后在FactCheckQA或HotPotQA多跳问答任务中的纠错率变化实验"
+   },
+   {
+    "sq_id": "q4_joint_train",
+    "query": "检索提出并验证‘记忆-推理联合训练’框架的最新工作：需包含具体训练目标设计（如memory consistency loss + task loss）、梯度传播路径说明、在AgentBench或Meta-World多轮benchmark上的端到端评估结果"
+   },
+   {
+    "sq_id": "q2a",
+    "query": "检索近3年在HotpotQA、ToolBench或MultiWOZ Long-Horizon Benchmark上，明确按轮次分组（3轮/5轮/10轮+）报告长期记忆性能变化的实证研究，要求含error propagation rate或task completion decay曲线"
+   },
+   {
+    "sq_id": "q2b",
+    "query": "检索比较向量记忆与结构化记忆在相同多轮工具调用任务（如WebShop或Mind2Web extended sessions）中，对初始错误导致后续连锁失败（error cascade）的缓解效果的对照实验"
+   },
+   {
+    "sq_id": "q3a",
+    "query": "检索基于真实用户交互日志（非合成session）评估选择性遗忘机制（如time-decay, conflict-aware overwrite）对多轮对话稳定性（如turn-level consistency score, hallucination recurrence rate）影响的实证工作"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1-arch": 1,
+   "q2-eval": 1,
+   "q3-mechanism": 1
+  },
+  "token_used": 48415,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q2_deepturns",
+    "query": "检索明确比较LLM Agent在≥10轮连续任务（非对话轮次，而是逻辑依赖型多步任务）中启用/禁用长期记忆的端到端准确率、错误累积率、恢复能力的实证研究（需含原始轮次粒度指标）"
+   },
+   {
+    "sq_id": "q3_forgetting_eval",
+    "query": "检索采用真实用户交互轨迹（如ToolBench、AgentInstruct日志）评估选择性遗忘机制（特别是基于时间戳/置信度衰减）对长期记忆一致性与响应稳定性影响的论文或技术报告"
+   },
+   {
+    "sq_id": "q4_joint_arch",
+    "query": "检索提出并实现记忆模块与推理模块联合训练的LLM Agent架构（如memory-augmented backpropagation、shared memory-reasoning transformer layers），要求包含训练目标函数、参数共享策略及下游任务增益分析"
+   }
+  ],
+  "critic_gap": "现有发现基本覆盖q1-q4的主干结论，但q2中关于‘轮次深度（3轮 vs 10+轮）’的对比性定量证据仍较稀疏：多数研究仅报告平均多轮性能（如5–8轮），缺乏严格控制变量下≥10轮的消融实验；q3中‘选择性遗忘’的实证验证（尤其时效性衰减在真实对话流中的动态效果）多基于合成数据，缺少用户交互日志驱动的时序分析；q4中‘记忆-推理联合训练’的具体架构范式（如梯度耦合方式、共享表征层设计）尚未见系统归纳。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成1跳检索（发现10条），覆盖广度与深度均严重不足：q1缺乏对主流范式（如ReAct+FAISS、GraphRAG、MemGPT的memory layer、SQL-based structured memory）的系统性架构对比；q2几乎无实证数据支撑——未见控制变量下的多轮任务SOTA对比实验（如HotpotQA多跳问答中3轮vs12轮的F1衰减曲线）、也未提取向量记忆vs结构化记忆在工具调用类任务（如WebShop）中的成功率差异；q3的动态机制（如时效性遗忘函数设计、冲突事实覆盖策略）仅有零星提及，缺乏机制-效果映射证据；q4的局限分析多为泛泛而谈，缺少对评估基准缺陷（如现有Benchmarks未解耦记忆容量/检索精度/更新延迟三要素）的具体归因。亟需定向补全四类实证与机制证据。",
+    "next_queries": [
+     {
+      "sq_id": "q1-arch",
+      "query": "综述LLM Agent长期记忆的主流实现范式：按技术架构分类（向量数据库集成/图结构建模/关系型键值存储/混合记忆层），列举代表工作（如MemGPT、GraphRAG、AgentScope、SQLAgent），对比其设计目标（低延迟检索？高保真推理？可审计性？）、适用场景（高频短交互？长周期规划？多源异构知识融合？）及核心组件（embedding encoder选择、索引结构、写入触发条件）"
+     },
+     {
+      "sq_id": "q2-eval",
+      "query": "检索近3年实证研究：在标准多轮任务基准（如MultiWOZ、ToolAlpaca、HotpotQA-MultiTurn、WebShop-Memory）上，定量比较向量记忆（FAISS/Pinecone）与结构化记忆（Neo4j/SQLite/JSON Schema）对任务成功率、轮次鲁棒性（3/6/10+轮准确率衰减率）、错误累积率的影响；要求提供具体指标（如10轮后F1下降Δ=0.23 vs Δ=0.07）、统计显著性（p<0.01）及任务类型标注"
+     },
+     {
+      "sq_id": "q3-mechanism",
+      "query": "提取长期记忆动态机制的关键策略：1）更新机制——冲突事实覆盖方案（如版本戳覆盖、置信度加权合并）及验证效果（A/B测试准确率提升）；2）检索机制——query-aware filtering方法（如self-refine retrieval、cross-attention re-ranking）与上下文相关性提升幅度；3）遗忘机制——时效性衰减函数（exponential/time-windowed）设计及对噪声抑制率/关键信息保留率的影响"
+     },
+     {
+      "sq_id": "q4-limitation",
+      "query": "系统梳理当前长期记忆研究的四大局限：1）评估基准缺陷（如MemoryBench未分离检索延迟与语义漂移）；2）真实任务适配断层（医疗/金融等高可靠性场景的缺失）；3）可解释性薄弱（记忆项溯源不可视、决策归因未绑定记忆ID）；4）部署瓶颈（边缘设备内存占用>512MB、更新吞吐<10 ops/sec）。每项需附具体论文指针与实测数据"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q2的实证差异分析（尤其是跨任务类型、轮次深度、错误累积敏感性的定量对比），缺乏可复现的基准实验数据（如HotpotQA多跳问答中10+轮记忆衰减曲线、ToolBench上工具调用类任务的记忆更新成功率）；q3中动态知识修正与query-aware retrieval的协同机制验证效果（如冲突覆盖后的推理一致性提升率、相关性过滤对检索精度/召回权衡的量化影响）未见充分报告；q4的关键局限部分缺少对评估基准缺失的具体案例（如当前主流benchmark如AgentBench、MemAgentBench在长期记忆维度的覆盖缺口）及轻量化边缘记忆的实证工作（如TinyMem、EdgeMemory等原型系统性能指标）。",
+    "next_queries": [
+     {
+      "sq_id": "q2_quant_evidence",
+      "query": "检索近3年顶会论文（NeurIPS/ICLR/ACL/EMNLP）中针对LLM Agent长期记忆的controlled实验：要求明确报告多轮任务（≥8轮）下向量记忆vs结构化记忆在规划类（如WebShop）、问答类（如HotpotQA multi-turn）、工具调用类（如ToolBench）任务上的准确率/完成率/错误传播率对比，附原始数据或图表描述"
+     },
+     {
+      "sq_id": "q3_dynamic_retrieval_eval",
+      "query": "检索关于动态知识修正（conflict resolution）与query-aware retrieval协同机制的实证研究：聚焦指标如'冲突覆盖后下游推理F1提升Δ'、'相关性过滤导致的top-k检索精度-召回率Pareto前沿变化'，限定来源为arXiv 2023–2024 或 ACL/EMNLP 2023 proceedings"
+     },
+     {
+      "sq_id": "q4_benchmark_gap_analysis",
+      "query": "检索对AgentBench、MemAgentBench、LongMemEval等现有评估基准的批判性分析论文，重点提取其在长期记忆维度（如跨轮事实一致性、时效性建模、增量更新可测性）的覆盖缺陷，并列举已提出的补丁方案（如MemScore、TemporalQA）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "q2 的实证差异缺乏可复现的定量证据汇总：现有发现多为个案实验（如HotpotQA上的F1提升3.2%）或未控制变量的对比（如未隔离记忆容量/检索延迟/微调策略等混杂因素），缺少跨任务、跨基准（如AgentBench、MemoriaBench）、标准化轮次深度（如严格定义10+轮交互轨迹）下的归因性分析；q3 中‘动态知识修正’与‘选择性遗忘’的协同机制缺乏联合建模的实证验证（如遗忘策略是否提升冲突覆盖后的推理一致性？），多数工作仅单独报告模块效果；q4 中‘评估基准缺失’的具体缺口未结构化（如缺少长期记忆专用的评估维度：记忆保真度、跨轮语义连贯性衰减率、更新-检索时延权衡曲线等）。",
+    "next_queries": [
+     {
+      "sq_id": "q2_quant",
+      "query": "检索近3年在AgentBench、MemoriaBench或自建长程任务套件（≥8轮）上，严格控制记忆模块变量（如固定LLM backbone、统一token budget、剥离工具调用噪声）并报告统计显著性（p<0.05）的向量记忆vs结构化记忆对比实验，要求包含任务类型×轮次深度的交叉分析表格"
+     },
+     {
+      "sq_id": "q3_coherence",
+      "query": "检索同时实现动态知识修正（如fact conflict detection + overwrite）与选择性遗忘（如time-decay + relevance gating）的联合架构论文，重点提取其在多轮问答/规划任务中对推理一致性（如答案漂移率、事实回溯准确率）的量化提升及消融研究"
+     },
+     {
+      "sq_id": "q4_benchmark",
+      "query": "检索针对LLM Agent长期记忆设计的专用评估基准提案（非通用Agent benchmark），明确其核心指标定义（如memory fidelity score, cross-turn coherence decay rate, update-retrieval latency tradeoff curve），并总结当前缺失的测量维度与可工程化落地的评测协议"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现覆盖了主流范式（q1）、多轮性能影响的中等粒度实证趋势（如向量记忆在问答类任务中提升约12–18%准确率，结构化记忆在规划类任务中降低30%步骤冗余），以及部分更新/检索机制（如FAISS+RAG、Neo4j图谱+子图检索）。但缺乏：① 针对'错误累积敏感性'（q2子维度）的对照实验数据（如记忆引入是否加剧早期错误在10+轮后的级联放大）；② '选择性遗忘'机制的量化评估（如时效性衰减函数对任务完成率的影响曲线）；③ 跨基准的统一评估结果（如同一Agent在MemBench、AgentBench、ToolQA上的记忆消融对比）。",
+    "next_queries": [
+     {
+      "sq_id": "q2_gap1",
+      "query": "检索近3年论文中明确报告'错误累积率'（error propagation rate）或'轮次相关失败率'（failure rate per turn）的长期记忆消融实验，限定任务类型为工具调用类或多步规划类，轮次≥8"
+     },
+     {
+      "sq_id": "q3_gap1",
+      "query": "检索关于LLM Agent中选择性遗忘机制（如时间衰减、置信度阈值遗忘、LTM版本回滚）的定量评估研究，要求包含至少1个真实指标（如任务完成率、事实一致性得分）随遗忘策略变化的曲线或表格"
+     },
+     {
+      "sq_id": "q4_gap1",
+      "query": "检索MemBench、AgentBench、ToolQA或新发布的MemoryEval中，对同一基线Agent在启用/禁用长期记忆下的跨基准性能对比数据（需含标准差/显著性检验）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "1. 缺乏对‘结构化记忆’在多轮任务中相对于向量记忆的**控制变量实证对比**（如相同任务、相同LLM backbone、相同轮次下，纯向量vs纯图谱vs混合结构的记忆模块的准确率/失败率/延迟差异）；2. 关于‘选择性遗忘’机制，现有发现多集中于时效衰减或LRU策略，但缺少针对**语义冲突场景下的动态覆盖决策证据**（例如：当新事实与旧记忆矛盾时，模型是否/如何触发覆盖？覆盖后下游任务纠错率提升多少？）；3. 对‘记忆-推理联合训练’这一跨层改进方向，仅有概念提案和初步消融（如MemGPT中的memory-augmented SFT），缺乏端到端可复现的训练范式设计（如记忆更新梯度如何反传、loss权重分配策略）及在标准benchmark（如AgentBench多轮子集）上的泛化验证。",
+    "next_queries": [
+     {
+      "sq_id": "q2_ctrl",
+      "query": "检索2023–2024年发表的、采用控制变量法（固定LLM、任务、轮次）对比向量记忆/图结构记忆/键值结构记忆在多轮规划类任务（如WebShop、ALFWorld）上性能差异的实证论文，要求报告准确率、幻觉率、平均响应延迟三项指标"
+     },
+     {
+      "sq_id": "q3_conflict",
+      "query": "检索关于LLM Agent中语义冲突驱动的记忆覆盖机制的研究：聚焦‘当新输入与长期记忆矛盾时触发更新’的判定逻辑、覆盖策略（覆盖/并存/加权融合）、以及覆盖前后在FactCheckQA或HotPotQA多跳问答任务中的纠错率变化实验"
+     },
+     {
+      "sq_id": "q4_joint_train",
+      "query": "检索提出并验证‘记忆-推理联合训练’框架的最新工作：需包含具体训练目标设计（如memory consistency loss + task loss）、梯度传播路径说明、在AgentBench或Meta-World多轮benchmark上的端到端评估结果"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现基本支撑了q1-q4的主体结论，但在q2的定量证据粒度上存在两个缺口：(1) 缺乏对'轮次深度'（3轮 vs 10+轮）影响的控制变量实验对比——多数研究仅报告平均多轮性能提升，未分离轮次效应；(2) 关于'错误累积敏感性'的实证指标不统一（如有的用error propagation rate，有的用recovery latency），且缺少跨论文可比的基准任务（如未在HotpotQA multi-hop或ToolBench long-horizon setting下复现）。此外，q3中'选择性遗忘的时效性衰减'策略虽有提及（如Time-Weighted FAISS），但缺乏在真实用户交互轨迹（而非合成数据）上的稳定性验证报告。",
+    "next_queries": [
+     {
+      "sq_id": "q2a",
+      "query": "检索近3年在HotpotQA、ToolBench或MultiWOZ Long-Horizon Benchmark上，明确按轮次分组（3轮/5轮/10轮+）报告长期记忆性能变化的实证研究，要求含error propagation rate或task completion decay曲线"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "检索比较向量记忆与结构化记忆在相同多轮工具调用任务（如WebShop或Mind2Web extended sessions）中，对初始错误导致后续连锁失败（error cascade）的缓解效果的对照实验"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "检索基于真实用户交互日志（非合成session）评估选择性遗忘机制（如time-decay, conflict-aware overwrite）对多轮对话稳定性（如turn-level consistency score, hallucination recurrence rate）影响的实证工作"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现基本覆盖q1-q4的主干结论，但q2中关于‘轮次深度（3轮 vs 10+轮）’的对比性定量证据仍较稀疏：多数研究仅报告平均多轮性能（如5–8轮），缺乏严格控制变量下≥10轮的消融实验；q3中‘选择性遗忘’的实证验证（尤其时效性衰减在真实对话流中的动态效果）多基于合成数据，缺少用户交互日志驱动的时序分析；q4中‘记忆-推理联合训练’的具体架构范式（如梯度耦合方式、共享表征层设计）尚未见系统归纳。",
+    "next_queries": [
+     {
+      "sq_id": "q2_deepturns",
+      "query": "检索明确比较LLM Agent在≥10轮连续任务（非对话轮次，而是逻辑依赖型多步任务）中启用/禁用长期记忆的端到端准确率、错误累积率、恢复能力的实证研究（需含原始轮次粒度指标）"
+     },
+     {
+      "sq_id": "q3_forgetting_eval",
+      "query": "检索采用真实用户交互轨迹（如ToolBench、AgentInstruct日志）评估选择性遗忘机制（特别是基于时间戳/置信度衰减）对长期记忆一致性与响应稳定性影响的论文或技术报告"
+     },
+     {
+      "sq_id": "q4_joint_arch",
+      "query": "检索提出并实现记忆模块与推理模块联合训练的LLM Agent架构（如memory-augmented backpropagation、shared memory-reasoning transformer layers），要求包含训练目标函数、参数共享策略及下游任务增益分析"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# LLM Agent 的记忆机制综述：长期记忆（向量记忆/结构化记忆）如何影响多轮任务表现，研究证据总结\n\n---\n\n## 一、LLM Agent 中长期记忆的主流实现范式有哪些？如何从技术架构（如向量数据库集成、图结构建模、键值存储等）角度分类并比较其设计目标与适用场景？\n\n当前 LLM Agent 长期记忆的主流实现范式可依据底层存储与检索机制划分为三类：**向量记忆范式（Vector Memory）、结构化记忆范式（Structured Memory）与混合增强范式（Hybrid-Augmented Memory）**。该分类在 DeepResearch 项目的设计决策与技术栈选型中得到明确体现，并具有清晰的工程目标与场景适配逻辑。\n\n### 向量记忆范式  \n以**稠密向量嵌入 + 近似最近邻检索（ANN）**为核心，典型代表为集成 Qdrant 向量数据库的 RAG 流程 [来源: 1]。其设计目标是支持**语义级、模糊匹配驱动的动态知识召回**，适用于开放域问答、跨文档事实关联等需泛化理解的任务。Qdrant 的“懒加载”机制被特别强调，以确保图编排不依赖外部服务，提升系统鲁棒性与部署轻量化 [来源: 1]。嵌入模型统一采用 `text-embedding-v3`，保障向量空间一致性；检索策略支持混合（向量 + BM25），兼顾语义相关性与关键词精确性 [来源: 1]。\n\n### 结构化记忆范式  \n强调**显式关系建模与可审计状态管理**，体现为 LangGraph 状态机中的结构化 `state` 设计（如 `state.findings`, `state.reflection_log`, `state.depth`）[来源: 16, 20]。其核心不是存储原始文本，而是维护任务执行过程中的**结构化中间产物与元信息**（如引用来源类型、校验状态、检索深度、token 消耗）。例如，`citation_audit.py` 单测强制验证 `source_type` 和 `note` 字段存在，`eval/citation_eval.py` 按 `source_type` 拆分评估通过率，均指向对结构化溯源能力的工程强化 [来源: 9]。该范式适用于高合规要求场景（如金融 AML 报告生成），其价值在于**可回溯、可验证、可干预** [来源: 2]。\n\n### 混合增强范式  \n将向量记忆与结构化记忆协同嵌入工作流，形成闭环增强。DeepResearch 的“多跳检索 → 交叉验证 → 引用溯源”链路即典型代表：Planner 分解问题后，Researcher 执行最多 5 跳的向量+BM25 检索；Critic 节点基于结构化 `reflection_log` 与 `depth` 判断是否继续、修订或终止；Validator 节点则执行引用存在性校验与多源交叉印证 [来源: 1, 3, 16]。该范式设计目标是**平衡检索广度与推理可信度**，适用于复杂规划类任务（如“生成某领域技术发展报告”），其适用场景明确限定于需多步推理、多源验证、防幻觉的深度研究型任务 [来源: 1]。\n\n三类范式并非互斥，而呈演进关系：向量记忆提供基础召回能力，结构化记忆赋予过程可控性，混合范式则通过编排层（LangGraph）实现二者协同。当前实践表明，纯向量记忆易导致幻觉与不可追溯，纯结构化记忆受限于人工建模成本；混合范式虽增加系统复杂度，但已被验证为提升多轮任务准确性与可靠性的关键路径 [来源: 1, 3]。\n\n---\n\n## 二、长期记忆（特别是向量记忆与结构化记忆）对多轮任务性能的影响是否存在实证差异？在任务类型（如规划类、问答类、工具调用类）、轮次深度（3轮 vs 10+轮）和错误累积敏感性等维度上，现有研究提供了哪些可复现的定量证据？\n\n现有研究提供了**有限但指向明确的定量证据**，证实长期记忆机制对多轮任务性能具有显著影响，尤其在**引用准确性、任务完成稳定性与错误抑制能力**三个维度上。然而，针对不同任务类型、轮次深度与错误累积敏感性的细粒度对比实验仍严重缺失。\n\n### 引用准确性：结构化记忆带来可测量提升  \n在金融风控场景实证中，“检索增强+引用溯源”被监管机构列为 AML 报告生成的强制要求，其核心价值在于结论可回溯 [来源: 2]。DeepResearch 项目通过运行 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"` 生成 33 个 findings，其中 **50/58 引用通过校验（≈86.2% 通过率）**，该指标成为评估记忆链路有效性的直接量化依据 [来源: 9]。进一步，`eval/citation_eval.py` 支持按 `source_type`（如网页、PDF、arXiv）拆分评估，记录失败原因（如“未找到原文段落”“引用编号错位”），使引用质量可归因、可优化 [来源: 9]。这表明：结构化记忆（如 `source_type` 字段显式注入、`verified` 状态标记）对提升引用准确性具有可复现的正向作用。\n\n### 任务完成稳定性：多跳与条件控制降低错误累积风险  \nDeepResearch 明确设定“多跳检索上限为 5 跳”，以防止死循环与错误扩散 [来源: 1]；同时将 Researcher 内部循环逻辑重构为独立 Critic 节点，通过 `conditional_edge` 实现“继续/修订/停止”的显式决策 [来源: 3, 16]。该设计直接应对多轮任务中的错误累积问题——当 `depth` 超过阈值或 `reflection_log` 显示置信度不足时，Critic 可触发 `revise: plan` 分支，而非盲目推进至下一轮。尽管未报告具体轮次深度（如 3 轮 vs 10+轮）的对比数据，但“上限 5 跳”与“`depth` 作为 `ResearchState` 属性”的设计，已隐含对轮次深度敏感性的工程响应 [来源: 1, 16]。\n\n### 任务类型适配性：规划类任务最受益于混合记忆  \n研究指出，LLM Agent 通过分解为 Planner、Caller、Summarizer 提升效率，尤其在小模型中表现更优 [来源: 6]；而 DeepResearch 的完整链路（Plan → Multi-hop Research → Cross-validate → Write）专为“规划 → 多跳检索 → 交叉验证 → 生成报告”这一复杂规划类任务定制 [来源: 1]。相比之下，问答类与工具调用类任务在现有材料中缺乏对应实证数据。例如，Finding 5 提及智能助手可复用先前计划以降低延迟，但未给出复用成功率或延迟降低幅度的定量结果 [来源: 5]；Finding 8 的 MedAide 框架虽面向医疗多轮任务，但仅描述其结构化分解能力，未提供性能对比数字 [来源: 8]。\n\n综上，现有实证证据集中于**引用准确率（86.2%）与流程可控性（5跳上限、Critic 条件分支）**，证实长期记忆（尤其是结构化+向量混合）对提升多轮任务可信度与稳定性有效；但尚无研究提供跨任务类型、跨轮次深度的标准化对比实验与统计显著性检验。\n\n---\n\n## 三、长期记忆的更新、检索与遗忘机制如何协同作用于多轮交互稳定性？现有工作在动态知识修正（如冲突事实覆盖）、上下文相关性过滤（如query-aware retrieval）和选择性遗忘（如时效性衰减）方面提出了哪些关键策略及其验证效果？\n\n现有研究在**更新与检索机制**上提出了若干具工程落地性的策略，并进行了初步验证；但在**遗忘机制**（尤其是选择性、时效性遗忘）方面尚无明确设计或实证。\n\n### 更新机制：幂等摄取与状态压缩保障一致性  \n为解决重复摄取导致的知识冗余与冲突，DeepResearch 引入 `stable_id()` 函数生成跨进程稳定 ID，并在 `ingest.py` 中移除本地 `hash()`，改用 `ids.py` 模块；同时优化 BM25 倒排表，确保同一文档重摄取时**覆盖旧记录而非新增** [来源: 17]。该策略通过 `test_stable_point_id.py` 验证了跨进程幂等性，解决了 PYTHONHASHSEED 导致的单进程测试无法复现的问题 [来源: 17]。此外，状态压缩逻辑从 Writer 层上移至 Graph 层，作为共享 `state.findings` 持久化，避免各 Agent 组件间状态不一致 [来源: 20]。这些更新策略共同服务于一个目标：**确保长期记忆库的单一事实源（Single Source of Truth）**，从而支撑多轮交互中知识的一致性与可预测性。\n\n### 检索机制：Query-aware 与多跳协同提升相关性  \n检索机制的核心创新在于**将 query-awareness 与多跳结构深度耦合**。Planner 首先将用户问题分解为子问题，Researcher 针对每个子问题执行独立检索；Critic 节点则基于当前 `state.reflection_log` 与 `depth` 决定是否生成新查询（`continue: research`）或返回 Planner 修订初始问题（`revise: plan`）[来源: 16]。这种设计天然实现了 query-aware retrieval：每轮检索均受上一轮反思结果引导，而非静态地对原始 query 进行多次相似检索。同时，“多跳上限 5 跳”与“融合网络搜索+RAG 私有知识库”的设计，增强了对复杂、长尾问题的覆盖能力 [来源: 1]。虽然未报告具体相关性指标（如 MRR、NDCG），但“交叉验证防幻觉”模块（引用存在性校验、多源印证）的成功运行，间接验证了检索结果的相关性与可靠性 [来源: 1]。\n\n### 遗忘机制：当前研究尚未涉及  \n所有可用研究发现中，**未提及任何关于动态遗忘、时效性衰减、冲突事实覆盖优先级或知识生命周期管理的策略**。例如，未见对“旧新闻是否应随时间衰减权重”“新政策发布后如何自动覆盖旧条款”等场景的技术方案描述。Finding 17 的“覆盖旧记录”属于摄取层面的幂等控制，而非面向已有记忆的主动遗忘；Finding 20 的“压缩逻辑上移”旨在提升一致性，亦非遗忘。因此，在遗忘机制方面，当前工作仍处于空白状态。\n\n综上，更新与检索机制已形成“幂等摄取 → 多跳引导 → 反思驱动”的协同闭环，有效支撑多轮交互稳定性；而遗忘机制的缺失，构成当前长期记忆系统在真实世界长期运行中面临知识陈旧、冲突难解等风险的关键短板。\n\n---\n\n## 四、当前长期记忆研究存在哪些关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）？面向实际部署的LLM Agent，亟需哪些跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）？\n\n**信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。**  \n\n所有提供的研究发现中，**未包含任何一条直接讨论当前长期记忆研究的关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）或提出面向实际部署的跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）的内容**。子问题四被明确标注为“（暂无研究发现）”，且所有 Finding 编号（1–25）均未覆盖该主题。因此，依据给定材料，无法对该子问题进行实质性论述。\n\n---\n\n## 方法论说明\n\n本报告严格遵循所提供的研究发现（Finding 1–25）进行撰写，未引入任何外部知识或预训练常识。所有结论均直接引自材料中明确陈述的内容，并按编号标注来源。报告结构完全对应子问题清单，对无材料支撑的子问题四，如实标注“信息不足”。本系统（DeepResearch）的架构包含 Planner→Researcher→Writer→Validator 四个节点，基于 LangGraph 编排，使用 Qdrant 向量库与 `text-embedding-v3` 嵌入模型，其设计目标聚焦于“规划 → 多跳检索 → 交叉验证 → 生成报告”的深度研究链路 [来源: 1, 19]。\n\n---\n\n## LLM Agent 中长期记忆的主流实现范式有哪些？如何从技术架构（如向量数据库集成、图结构建模、键值存储等）角度分类并比较其设计目标与适用场景？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 长期记忆（特别是向量记忆与结构化记忆）对多轮任务性能的影响是否存在实证差异？在任务类型（如规划类、问答类、工具调用类）、轮次深度（3轮 vs 10+轮）和错误累积敏感性等维度上，现有研究提供了哪些可复现的定量证据？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 长期记忆的更新、检索与遗忘机制如何协同作用于多轮交互稳定性？现有工作在动态知识修正（如冲突事实覆盖）、上下文相关性过滤（如query-aware retrieval）和选择性遗忘（如时效性衰减）方面提出了哪些关键策略及其验证效果？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 当前长期记忆研究存在哪些关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）？面向实际部署的LLM Agent，亟需哪些跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。",
+  "report_display": "# LLM Agent 的记忆机制综述：长期记忆（向量记忆/结构化记忆）如何影响多轮任务表现，研究证据总结\n\n---\n\n## 一、LLM Agent 中长期记忆的主流实现范式有哪些？如何从技术架构（如向量数据库集成、图结构建模、键值存储等）角度分类并比较其设计目标与适用场景？\n\n当前 LLM Agent 长期记忆的主流实现范式可依据底层存储与检索机制划分为三类：**向量记忆范式（Vector Memory）、结构化记忆范式（Structured Memory）与混合增强范式（Hybrid-Augmented Memory）**。该分类在 DeepResearch 项目的设计决策与技术栈选型中得到明确体现，并具有清晰的工程目标与场景适配逻辑。\n\n### 向量记忆范式  \n以**稠密向量嵌入 + 近似最近邻检索（ANN）**为核心，典型代表为集成 Qdrant 向量数据库的 RAG 流程 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。其设计目标是支持**语义级、模糊匹配驱动的动态知识召回**，适用于开放域问答、跨文档事实关联等需泛化理解的任务。Qdrant 的“懒加载”机制被特别强调，以确保图编排不依赖外部服务，提升系统鲁棒性与部署轻量化 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。嵌入模型统一采用 `text-embedding-v3`，保障向量空间一致性；检索策略支持混合（向量 + BM25），兼顾语义相关性与关键词精确性 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n### 结构化记忆范式  \n强调**显式关系建模与可审计状态管理**，体现为 LangGraph 状态机中的结构化 `state` 设计（如 `state.findings`, `state.reflection_log`, `state.depth`）[来源: 16 · 🟢rag：rag:1-critic-conditional-edge.md, 20 · 🟢rag：rag:0004-citation-index-mismatch-fix.md]。其核心不是存储原始文本，而是维护任务执行过程中的**结构化中间产物与元信息**（如引用来源类型、校验状态、检索深度、token 消耗）。例如，`citation_audit.py` 单测强制验证 `source_type` 和 `note` 字段存在，`eval/citation_eval.py` 按 `source_type` 拆分评估通过率，均指向对结构化溯源能力的工程强化 [来源: 9 · 🟢rag：rag:2-provenance-auditable-reporting.md]。该范式适用于高合规要求场景（如金融 AML 报告生成），其价值在于**可回溯、可验证、可干预** [来源: 2 · 🟢rag：rag:rag_sample.md · 🔄自指]。\n\n### 混合增强范式  \n将向量记忆与结构化记忆协同嵌入工作流，形成闭环增强。DeepResearch 的“多跳检索 → 交叉验证 → 引用溯源”链路即典型代表：Planner 分解问题后，Researcher 执行最多 5 跳的向量+BM25 检索；Critic 节点基于结构化 `reflection_log` 与 `depth` 判断是否继续、修订或终止；Validator 节点则执行引用存在性校验与多源交叉印证 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md, 16 · 🟢rag：rag:1-critic-conditional-edge.md]。该范式设计目标是**平衡检索广度与推理可信度**，适用于复杂规划类任务（如“生成某领域技术发展报告”），其适用场景明确限定于需多步推理、多源验证、防幻觉的深度研究型任务 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n三类范式并非互斥，而呈演进关系：向量记忆提供基础召回能力，结构化记忆赋予过程可控性，混合范式则通过编排层（LangGraph）实现二者协同。当前实践表明，纯向量记忆易导致幻觉与不可追溯，纯结构化记忆受限于人工建模成本；混合范式虽增加系统复杂度，但已被验证为提升多轮任务准确性与可靠性的关键路径 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md]。\n\n---\n\n## 二、长期记忆（特别是向量记忆与结构化记忆）对多轮任务性能的影响是否存在实证差异？在任务类型（如规划类、问答类、工具调用类）、轮次深度（3轮 vs 10+轮）和错误累积敏感性等维度上，现有研究提供了哪些可复现的定量证据？\n\n现有研究提供了**有限但指向明确的定量证据**，证实长期记忆机制对多轮任务性能具有显著影响，尤其在**引用准确性、任务完成稳定性与错误抑制能力**三个维度上。然而，针对不同任务类型、轮次深度与错误累积敏感性的细粒度对比实验仍严重缺失。\n\n### 引用准确性：结构化记忆带来可测量提升  \n在金融风控场景实证中，“检索增强+引用溯源”被监管机构列为 AML 报告生成的强制要求，其核心价值在于结论可回溯 [来源: 2 · 🟢rag：rag:rag_sample.md · 🔄自指]。DeepResearch 项目通过运行 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"` 生成 33 个 findings，其中 **50/58 引用通过校验（≈86.2% 通过率）**，该指标成为评估记忆链路有效性的直接量化依据 [来源: 9 · 🟢rag：rag:2-provenance-auditable-reporting.md]。进一步，`eval/citation_eval.py` 支持按 `source_type`（如网页、PDF、arXiv）拆分评估，记录失败原因（如“未找到原文段落”“引用编号错位”），使引用质量可归因、可优化 [来源: 9 · 🟢rag：rag:2-provenance-auditable-reporting.md]。这表明：结构化记忆（如 `source_type` 字段显式注入、`verified` 状态标记）对提升引用准确性具有可复现的正向作用。\n\n### 任务完成稳定性：多跳与条件控制降低错误累积风险  \nDeepResearch 明确设定“多跳检索上限为 5 跳”，以防止死循环与错误扩散 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]；同时将 Researcher 内部循环逻辑重构为独立 Critic 节点，通过 `conditional_edge` 实现“继续/修订/停止”的显式决策 [来源: 3 · 🟢rag：rag:deepresearch-plan.md, 16 · 🟢rag：rag:1-critic-conditional-edge.md]。该设计直接应对多轮任务中的错误累积问题——当 `depth` 超过阈值或 `reflection_log` 显示置信度不足时，Critic 可触发 `revise: plan` 分支，而非盲目推进至下一轮。尽管未报告具体轮次深度（如 3 轮 vs 10+轮）的对比数据，但“上限 5 跳”与“`depth` 作为 `ResearchState` 属性”的设计，已隐含对轮次深度敏感性的工程响应 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 16 · 🟢rag：rag:1-critic-conditional-edge.md]。\n\n### 任务类型适配性：规划类任务最受益于混合记忆  \n研究指出，LLM Agent 通过分解为 Planner、Caller、Summarizer 提升效率，尤其在小模型中表现更优 [来源: 6 · 🔬arxiv]；而 DeepResearch 的完整链路（Plan → Multi-hop Research → Cross-validate → Write）专为“规划 → 多跳检索 → 交叉验证 → 生成报告”这一复杂规划类任务定制 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。相比之下，问答类与工具调用类任务在现有材料中缺乏对应实证数据。例如，Finding 5 提及智能助手可复用先前计划以降低延迟，但未给出复用成功率或延迟降低幅度的定量结果 [来源: 5 · 🔬arxiv]；Finding 8 的 MedAide 框架虽面向医疗多轮任务，但仅描述其结构化分解能力，未提供性能对比数字 [来源: 8 · 🔬arxiv]。\n\n综上，现有实证证据集中于**引用准确率（86.2%）与流程可控性（5跳上限、Critic 条件分支）**，证实长期记忆（尤其是结构化+向量混合）对提升多轮任务可信度与稳定性有效；但尚无研究提供跨任务类型、跨轮次深度的标准化对比实验与统计显著性检验。\n\n---\n\n## 三、长期记忆的更新、检索与遗忘机制如何协同作用于多轮交互稳定性？现有工作在动态知识修正（如冲突事实覆盖）、上下文相关性过滤（如query-aware retrieval）和选择性遗忘（如时效性衰减）方面提出了哪些关键策略及其验证效果？\n\n现有研究在**更新与检索机制**上提出了若干具工程落地性的策略，并进行了初步验证；但在**遗忘机制**（尤其是选择性、时效性遗忘）方面尚无明确设计或实证。\n\n### 更新机制：幂等摄取与状态压缩保障一致性  \n为解决重复摄取导致的知识冗余与冲突，DeepResearch 引入 `stable_id()` 函数生成跨进程稳定 ID，并在 `ingest.py` 中移除本地 `hash()`，改用 `ids.py` 模块；同时优化 BM25 倒排表，确保同一文档重摄取时**覆盖旧记录而非新增** [来源: 17 · 🟢rag：rag:0007-stable-point-id.md]。该策略通过 `test_stable_point_id.py` 验证了跨进程幂等性，解决了 PYTHONHASHSEED 导致的单进程测试无法复现的问题 [来源: 17 · 🟢rag：rag:0007-stable-point-id.md]。此外，状态压缩逻辑从 Writer 层上移至 Graph 层，作为共享 `state.findings` 持久化，避免各 Agent 组件间状态不一致 [来源: 20 · 🟢rag：rag:0004-citation-index-mismatch-fix.md]。这些更新策略共同服务于一个目标：**确保长期记忆库的单一事实源（Single Source of Truth）**，从而支撑多轮交互中知识的一致性与可预测性。\n\n### 检索机制：Query-aware 与多跳协同提升相关性  \n检索机制的核心创新在于**将 query-awareness 与多跳结构深度耦合**。Planner 首先将用户问题分解为子问题，Researcher 针对每个子问题执行独立检索；Critic 节点则基于当前 `state.reflection_log` 与 `depth` 决定是否生成新查询（`continue: research`）或返回 Planner 修订初始问题（`revise: plan`）[来源: 16 · 🟢rag：rag:1-critic-conditional-edge.md]。这种设计天然实现了 query-aware retrieval：每轮检索均受上一轮反思结果引导，而非静态地对原始 query 进行多次相似检索。同时，“多跳上限 5 跳”与“融合网络搜索+RAG 私有知识库”的设计，增强了对复杂、长尾问题的覆盖能力 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。虽然未报告具体相关性指标（如 MRR、NDCG），但“交叉验证防幻觉”模块（引用存在性校验、多源印证）的成功运行，间接验证了检索结果的相关性与可靠性 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n### 遗忘机制：当前研究尚未涉及  \n所有可用研究发现中，**未提及任何关于动态遗忘、时效性衰减、冲突事实覆盖优先级或知识生命周期管理的策略**。例如，未见对“旧新闻是否应随时间衰减权重”“新政策发布后如何自动覆盖旧条款”等场景的技术方案描述。Finding 17 的“覆盖旧记录”属于摄取层面的幂等控制，而非面向已有记忆的主动遗忘；Finding 20 的“压缩逻辑上移”旨在提升一致性，亦非遗忘。因此，在遗忘机制方面，当前工作仍处于空白状态。\n\n综上，更新与检索机制已形成“幂等摄取 → 多跳引导 → 反思驱动”的协同闭环，有效支撑多轮交互稳定性；而遗忘机制的缺失，构成当前长期记忆系统在真实世界长期运行中面临知识陈旧、冲突难解等风险的关键短板。\n\n---\n\n## 四、当前长期记忆研究存在哪些关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）？面向实际部署的LLM Agent，亟需哪些跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）？\n\n**信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。**  \n\n所有提供的研究发现中，**未包含任何一条直接讨论当前长期记忆研究的关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）或提出面向实际部署的跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）的内容**。子问题四被明确标注为“（暂无研究发现）”，且所有 Finding 编号（1–25）均未覆盖该主题。因此，依据给定材料，无法对该子问题进行实质性论述。\n\n---\n\n## 方法论说明\n\n本报告严格遵循所提供的研究发现（Finding 1–25）进行撰写，未引入任何外部知识或预训练常识。所有结论均直接引自材料中明确陈述的内容，并按编号标注来源。报告结构完全对应子问题清单，对无材料支撑的子问题四，如实标注“信息不足”。本系统（DeepResearch）的架构包含 Planner→Researcher→Writer→Validator 四个节点，基于 LangGraph 编排，使用 Qdrant 向量库与 `text-embedding-v3` 嵌入模型，其设计目标聚焦于“规划 → 多跳检索 → 交叉验证 → 生成报告”的深度研究链路 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 19 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]。\n\n---\n\n## LLM Agent 中长期记忆的主流实现范式有哪些？如何从技术架构（如向量数据库集成、图结构建模、键值存储等）角度分类并比较其设计目标与适用场景？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 长期记忆（特别是向量记忆与结构化记忆）对多轮任务性能的影响是否存在实证差异？在任务类型（如规划类、问答类、工具调用类）、轮次深度（3轮 vs 10+轮）和错误累积敏感性等维度上，现有研究提供了哪些可复现的定量证据？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 长期记忆的更新、检索与遗忘机制如何协同作用于多轮交互稳定性？现有工作在动态知识修正（如冲突事实覆盖）、上下文相关性过滤（如query-aware retrieval）和选择性遗忘（如时效性衰减）方面提出了哪些关键策略及其验证效果？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 当前长期记忆研究存在哪些关键局限（如评估基准缺失、真实世界任务适配不足、可解释性薄弱）？面向实际部署的LLM Agent，亟需哪些跨层改进方向（如记忆-推理联合训练、人机协同记忆标注、轻量化边缘记忆）？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：33/33 条通过\n> - 论断忠实度（严格）：33/33 条通过（verified = 存在且忠实）\n> - 论断宽松口径：33/33 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 11 / arxiv 15 / code 1\n- **Token 消耗**：48415\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "以稠密向量嵌入 + 近似最近邻检索（ANN）为核心，典型代表为集成 Qdrant 向量数据库的 RAG 流程",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Qdrant 的“懒加载”机制被特别强调，以确保图编排不依赖外部服务，提升系统鲁棒性与部署轻量化",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "检索策略支持混合（向量 + BM25），兼顾语义相关性与关键词精确性",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "强调显式关系建模与可审计状态管理，体现为 LangGraph 状态机中的结构化 state 设计（如 state.findings, state.reflectionlog, state.depth）",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "强调显式关系建模与可审计状态管理，体现为 LangGraph 状态机中的结构化 state 设计（如 state.findings, state.reflectionlog, state.depth）",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "例如，citationaudit.py 单测强制验证 sourcetype 和 note 字段存在，eval/citationeval.py 按 sourcetype 拆分评估通过率，均指向对结构化溯源能力的工程强化",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该范式适用于高合规要求场景（如金融 AML 报告生成），其价值在于可回溯、可验证、可干预",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Validator 节点则执行引用存在性校验与多源交叉印证",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Validator 节点则执行引用存在性校验与多源交叉印证",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Validator 节点则执行引用存在性校验与多源交叉印证",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该范式设计目标是平衡检索广度与推理可信度，适用于复杂规划类任务（如“生成某领域技术发展报告”），其适用场景明确限定于需多步推理、多源验证、防幻觉的深度研究型任务",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "混合范式虽增加系统复杂度，但已被验证为提升多轮任务准确性与可靠性的关键路径",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "混合范式虽增加系统复杂度，但已被验证为提升多轮任务准确性与可靠性的关键路径",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "在金融风控场景实证中，“检索增强+引用溯源”被监管机构列为 AML 报告生成的强制要求，其核心价值在于结论可回溯",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "DeepResearch 项目通过运行 cli.py \"大语言模型在金融风控中的应用现状与挑战\" 生成 33 个 findings，其中 50/58 引用通过校验（≈86.2% 通过率），该指标成为评估记忆链路有效性的直接量化依据",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "进一步，eval/citationeval.py 支持按 sourcetype（如网页、PDF、arXiv）拆分评估，记录失败原因（如“未找到原文段落”“引用编号错位”），使引用质量可归因、可优化",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "DeepResearch 明确设定“多跳检索上限为 5 跳”，以防止死循环与错误扩散",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "同时将 Researcher 内部循环逻辑重构为独立 Critic 节点，通过 conditionaledge 实现“继续/修订/停止”的显式决策",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "同时将 Researcher 内部循环逻辑重构为独立 Critic 节点，通过 conditionaledge 实现“继续/修订/停止”的显式决策",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "尽管未报告具体轮次深度（如 3 轮 vs 10+轮）的对比数据，但“上限 5 跳”与“depth 作为 ResearchState 属性”的设计，已隐含对轮次深度敏感性的工程响应",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "尽管未报告具体轮次深度（如 3 轮 vs 10+轮）的对比数据，但“上限 5 跳”与“depth 作为 ResearchState 属性”的设计，已隐含对轮次深度敏感性的工程响应",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究指出，LLM Agent 通过分解为 Planner、Caller、Summarizer 提升效率，尤其在小模型中表现更优",
+    "source": "https://arxiv.org/abs/2401.07324v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而 DeepResearch 的完整链路（Plan → Multi-hop Research → Cross-validate → Write）专为“规划 → 多跳检索 → 交叉验证 → 生成报告”这一复杂规划类任务定制",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "例如，Finding 5 提及智能助手可复用先前计划以降低延迟，但未给出复用成功率或延迟降低幅度的定量结果",
+    "source": "https://arxiv.org/abs/2512.21309v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 8 的 MedAide 框架虽面向医疗多轮任务，但仅描述其结构化分解能力，未提供性能对比数字",
+    "source": "https://arxiv.org/abs/2410.12532v3",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "同时优化 BM25 倒排表，确保同一文档重摄取时覆盖旧记录而非新增",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该策略通过 teststablepointid.py 验证了跨进程幂等性，解决了 PYTHONHASHSEED 导致的单进程测试无法复现的问题",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "此外，状态压缩逻辑从 Writer 层上移至 Graph 层，作为共享 state.findings 持久化，避免各 Agent 组件间状态不一致",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Critic 节点则基于当前 state.reflectionlog 与 depth 决定是否生成新查询（continue: research）或返回 Planner 修订初始问题（revise: plan）",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "同时，“多跳上限 5 跳”与“融合网络搜索+RAG 私有知识库”的设计，增强了对复杂、长尾问题的覆盖能力",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "虽然未报告具体相关性指标（如 MRR、NDCG），但“交叉验证防幻觉”模块（引用存在性校验、多源印证）的成功运行，间接验证了检索结果的相关性与可靠性",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本系统（DeepResearch）的架构包含 Planner→Researcher→Writer→Validator 四个节点，基于 LangGraph 编排，使用 Qdrant 向量库与 text-embedding-v3 嵌入模型，其设计目标聚焦于“规划 → 多跳检索 → 交叉验证 → 生成报告”的深度研究链路",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本系统（DeepResearch）的架构包含 Planner→Researcher→Writer→Validator 四个节点，基于 LangGraph 编排，使用 Qdrant 向量库与 text-embedding-v3 嵌入模型，其设计目标聚焦于“规划 → 多跳检索 → 交叉验证 → 生成报告”的深度研究链路",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅完成1跳检索（发现10条），覆盖广度与深度均严重不足：…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=现有发现尚未系统覆盖q2的实证差异分析（尤其是跨任务类型、轮…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 25 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=q2 的实证差异缺乏可复现的定量证据汇总：现有发现多为个案实…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=现有发现覆盖了主流范式（q1）、多轮性能影响的中等粒度实证趋…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1-arch]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 36 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=1. 缺乏对‘结构化记忆’在多轮任务中相对于向量记忆的**控…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q2-eval]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 46 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=现有发现基本支撑了q1-q4的主体结论，但在q2的定量证据粒…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q3-mechanism]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 56 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=现有发现基本覆盖q1-q4的主干结论，但q2中关于‘轮次深度…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：33/33 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 48415,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 253.1,
+ "status": "done",
+ "error": null
+}

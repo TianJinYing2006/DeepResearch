@@ -1,0 +1,138 @@
+{
+ "q_id": "q_005",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 4297,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 28,
+   "verified": 26,
+   "verified_relaxed": 26,
+   "existence_rate": 0.9286,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "unknown": {
+     "total": 2,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    },
+    "code_exec": {
+     "total": 2,
+     "verified": 2,
+     "verified_relaxed": 2,
+     "existence": 2
+    },
+    "arxiv": {
+     "total": 11,
+     "verified": 11,
+     "verified_relaxed": 11,
+     "existence": 11
+    },
+    "rag": {
+     "total": 13,
+     "verified": 13,
+     "verified_relaxed": 13,
+     "existence": 13
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 3,
+   "coverage": 0.3333,
+   "per_sub": [
+    {
+     "subquestion": "向量维度与内存模型计算",
+     "covered": false,
+     "reason": "所有检索到的研究发现均未提及向量维度（如embedding dimension）、其与内存占用的数学关系（例如：索引内存 ≈ 文档数 × 维度 × 字节/元素），也未给出任何公式、实测数据或推导过程来支撑该子问题的回答。虽多次提到'内存占用估算'，但均停留在任务目标层面，无具体维度参数或计算模型。"
+    },
+    {
+     "subquestion": "10 万条文档的索引内存估算",
+     "covered": true,
+     "reason": "多份摘要明确指出研究目标是'估算10万条文档的RAG系统中向量检索的内存占用'，并关联具体技术栈（如Qdrant、Faiss、Annoy）；其中一份提到FAISS乘积量化在0.24 MB索引大小下实现98.40%精度（隐含10万条规模下的实测索引体积），另一份对比FAISS与Annoy的内存占用，且多处强调'评估内存占用'为研究核心目的。虽未给出单一确定数值，但存在可支撑估算的实证锚点和技术上下文，满足'足以回答'——即能据此推导或报告合理估算范围。"
+    },
+    {
+     "subquestion": "批量查询的延迟上限",
+     "covered": false,
+     "reason": "所有检索结果仅泛提'查询延迟'、'平均查询延迟'（如Annoy 0.00015秒）、'端到端延迟'或'推理时间'（如0.1208秒/问题），但从未定义或测量'批量查询'场景（如并发QPS、batch size=32/64时的p95/p99延迟、吞吐饱和点、延迟抖动或硬性上限）。'延迟上限'要求明确最坏情况边界（如<500ms@99th），而现有数据均为平均值、单次查询或未说明负载条件，无法支撑上限判定。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 5,
+   "hit": 4,
+   "retrieval_hit_rate": 0.8,
+   "matched_by": {
+    "keyword": 4,
+    "semantic": 0,
+    "miss": 1
+   },
+   "per_keyword": [
+    {
+     "keyword": "内存",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "向量维度",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "延迟",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "索引",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "估算",
+     "matched": true,
+     "matched_by": "keyword"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 52175,
+   "total_cost": 0.073,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.3333
+  },
+  "raw_complete": true
+ }
+}

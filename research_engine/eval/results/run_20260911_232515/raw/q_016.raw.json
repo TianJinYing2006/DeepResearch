@@ -1,0 +1,990 @@
+{
+ "q_id": "q_016",
+ "query": "RAG 何时优于微调？近期实证研究关于两者适用边界的结论梳理",
+ "difficulty": "中",
+ "type": "学术",
+ "state": {
+  "topic": "RAG 何时优于微调？近期实证研究关于两者适用边界的结论梳理",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "RAG 与微调在不同数据规模（如少样本、中等监督数据、充足标注数据）下的性能对比实证结果有哪些？",
+    "rationale": "数据可用性是影响方法选择的关键约束，梳理不同数据规模下的相对表现可明确二者适用的数据边界。"
+   },
+   {
+    "id": "q2",
+    "question": "RAG 与微调在任务类型（如开放域问答、事实核查、专业领域推理、长程依赖生成）上的优势分布规律是什么？",
+    "rationale": "任务语义特性（如对实时性、可解释性、知识广度/深度的需求）显著影响方法有效性，需按任务维度解耦分析。"
+   },
+   {
+    "id": "q3",
+    "question": "模型规模（参数量、架构类型）如何调节 RAG 与微调的相对优势？是否存在模型尺寸拐点？",
+    "rationale": "大模型的内部知识容量与检索增益存在交互效应，模型规模是理解方法适用性的核心调节变量。"
+   },
+   {
+    "id": "q4",
+    "question": "RAG 与微调在部署成本、更新敏捷性、知识时效性、可审计性等非准确率维度上的系统性权衡证据有哪些？",
+    "rationale": "实际落地中决策不仅基于精度，还需综合工程与运维维度；这些隐性成本常构成方法选择的决定性边界。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "摘要：  \n由于原始内容中包含乱码，无法获取有效信息。请提供正确格式的文本内容以便进行压缩和分析。",
+    "source": "code:399ffc2219",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_hg846tkz\\main.py\", line 28\n    print('query='RAG ��΢���ڲ�ͬ���ݹ�ģ�������������еȼල���ݡ������ע���ݣ��µ����ܶԱ�ʵ֤�������Щ��'')\n                                ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.063
+    }
+   },
+   {
+    "content": "**摘要：**\n\n一项实证研究对比了RAG与微调在特定场景下的适用性，重点分析了RAG系统中因哈希不一致导致的“静默数据污染”问题。通过复现测试发现，使用Python内置`hash()`函数生成文档ID时，不同进程下结果不一致，导致数据重复累积。为解决此问题，引入SHA1摘要生成稳定ID（`stable_id`），确保跨进程一致性，避免数据冗余。该方案通过新增模块`ids.py`和测试用例`test_stable_point_id.py`验证，实现文档重摄取时覆盖旧记录，提升系统幂等性。变更包括：移除本地哈希逻辑、引入SHA1计算、优化测试流程。",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究梳理了RAG与微调在特定场景下的适用边界，重点分析了RAG在信息溯源、可信性验证及透明度方面的优化方案。核心发现包括：\n\n- **来源类型显式化（R2.1）**：为`Citation`添加`source_type`字段，CLI和Web界面通过颜色标注（🔵web / 🟢rag）区分来源，并显示具体源名（如`deepresearch_docs`），提升可读性。\n- **校验失败论断强制隔离（R2.2）**：未通过校验的论断被移至报告附录并附原因，正文加删除线或⚠️标记；“可信声明”动态生成，避免误导读者。\n- **校验标准升级（R2.3）**：将“来源存在”扩展为“来源真实且论断忠实”，LLM返回的`confidence`和`note`纳入校验逻辑，增强解释性。\n- **自指/元描述隔离（R2.4）**：引入`is_meta`标签，元描述类发现不进入正文，单独列为“方法论说明”小节。\n- **运行状态透明化（DoD）**：报告末尾增加“运行溯源”块，包含跳数、critic决策次数、web/rag命中数、token消耗等数据，确保可追踪。\n\n当前设计中，`Citation`缺少`source_type`、`confidence`和`note`，导致信息丢失；校验仅检查来源存在性，未评估论断忠实度；运行状态未在输出中呈现。优化后，用户可清晰看到每条引用的来源类型、是否通过校验及原因，提升报告可信度与可验证性。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本文通过多个金融风控场景案例，分析 RAG（检索增强生成）与微调在实际应用中的适用边界。\n\n1. **信贷审批中的语义增强**：某股份制银行使用 Qwen 模型进行 OCR 后的关键字段抽取，与规则引擎交叉校验，使人工复核工作量减少 40%，准确率超 96%。模型作为增强层，不直接决策。\n\n2. **反欺诈中的舆情识别**：多家券商对 Qwen-7B 进行 QLoRA 微调，训练数据包含专业隐喻样本，F1-score 达 0.91，显著优于 BERT 类模型，用于实时舆情预警。\n\n3. **合规监测与多源印证**：监管鼓励使用 LLM 辅助撰写 AML 可疑交易报告，要求所有结论可回溯至原始数据，需采用“检索增强 + 引用溯源”方式，符合 DeepResearch 的引用协议要求。\n\n**结论**：RAG 在需要可解释性、可追溯性和与已有系统集成的场景中表现优异；而微调在特定领域语义理解任务中更具优势，如隐性利空识别。两者适用场景各有侧重，需根据业务需求选择。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n本研究探讨了基于RAG的大型语言模型系统在支持日本医疗诉讼程序时需满足的三个关键要求：（1）检索模块需根据禁止使用私有知识的原则，检索与争议问题相关的外部知识；（2）生成的回答必须源自RAG提供的上下文并忠实于该上下文；（3）检索模块需引用与问题时间对应的外部知识。研究强调了在法律规范严格约束下，RAG系统替代专家角色的可行性与必要条件。",
+    "source": "https://arxiv.org/abs/2511.22858v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2511.22858v1",
+     "primary_category": "cs.CL",
+     "published": "2025-11-28T03:28:27Z",
+     "authors": [
+      "Yuya Ishihara",
+      "Atsushi Keyaki",
+      "Hiroaki Yamada"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究探讨了RAG（检索增强生成）在何种情况下优于微调，并构建了首个针对多跳查询的基准数据集MultiHop-RAG。研究指出，现有RAG系统在处理需要多步推理的复杂查询时表现不足，且缺乏相关评估数据集。MultiHop-RAG包含知识库、大量多跳查询、答案及支持证据，用于评估不同嵌入模型和RAG方法的效果。研究通过实验验证了该数据集的基准价值，为未来比较RAG与微调的适用边界提供了基础。",
+    "source": "https://arxiv.org/abs/2401.15391v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2401.15391v1",
+     "primary_category": "cs.CL",
+     "published": "2024-01-27T11:41:48Z",
+     "authors": [
+      "Yixuan Tang",
+      "Yi Yang"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究探讨了RAG（检索增强生成）在何种情况下优于微调，提出RAG-Star方法，结合检索信息与基于LLM内部知识的树状推理过程，利用蒙特卡洛树搜索迭代生成中间子查询和答案，并通过检索增强验证机制提升推理准确性。实验使用Llama-3.1-8B-Instruct和GPT-4o模型，验证了RAG在复杂推理任务中的有效性，尤其在需要外部知识补充时表现更优。",
+    "source": "https://arxiv.org/abs/2412.12881v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2412.12881v1",
+     "primary_category": "cs.CL",
+     "published": "2024-12-17T13:05:36Z",
+     "authors": [
+      "Jinhao Jiang",
+      "Jiayi Chen",
+      "Junyi Li"
+     ]
+    }
+   },
+   {
+    "content": "研究探讨了RAG（检索增强生成）与微调在私有企业文档问答任务中的适用边界。研究指出，RAG在数据安全、本地部署、计算资源有限的场景中具有优势，但需大量定制以确保可靠性。研究还结合使用RAG与微调的开源LLM，以提升系统性能。",
+    "source": "https://arxiv.org/abs/2402.07483v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2402.07483v2",
+     "primary_category": "cs.AI",
+     "published": "2024-02-12T08:45:08Z",
+     "authors": [
+      "Masoomali Fatehkia",
+      "Ji Kim Lucas",
+      "Sanjay Chawla"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**\n\n本研究梳理了RAG与微调在实际应用中的适用边界，重点分析了当前系统在实现需求文档目标时的差距。已实现功能包括多Agent编排（Planner/Researcher/Writer/Validator）、RAG混合检索、引用校验、多跳检索循环、Streamlit UI及基础评测脚手架。但存在以下关键缺口：\n\n1. **结构性缺陷**：`graph.py`为纯线性DAG，缺乏`conditional_edge`，反思/停止逻辑嵌入`Researcher`内部`while`循环，无法独立暴露，违反“框架只调一下”的反模式。\n2. **可观测缺失**：未接入Langfuse，导致NFR1（可观察性）不足。\n3. **工具不足**：缺少arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n4. **评测不完善**：仅有脚手架，无≥20条标注数据集及量化指标表（NFR2/DoD）。\n5. **模型选择不当**：使用qwen-plus（便宜档），未满足规划/裁决所需的强推理模型。\n\n**优先级排序**：先修复结构性问题（Critic节点化+Langfuse），再补充工具与评测，最后开源与博客。  \n**评估指标**包括完成率（≥90%）、引用准确率（≥85%）、信息覆盖度（≥90%）、Token成本、平均步数及反思有效性（100%）。  \n项目需体现Agent框架、反思循环、工具自决、可观测性（Langfuse）、量化评测及开源能力。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究聚焦RAG与微调在实际应用中的适用边界，通过设计决策梳理与技术实现，明确以下关键点：\n\n- **核心链路优先**：强调编排深度与可量化结果，而非UI完整性，参考WeChatBot验证产品能力。\n- **成本控制**：初期使用Qwen-Turbo/Plus，后续可升级至Qwen-Max，优化资源分配。\n- **图内验证机制**：引入Validator节点作为防幻觉核心，区别于主流项目依赖评测闭环。\n- **Qdrant懒加载**：提升系统鲁棒性，避免外部服务故障影响主链路。\n\n**技术实现与评测：**\n- 支持多格式文档上传（PDF/Word/Markdown/TXT）；\n- 混合检索（向量+BM25），分块优化；\n- Rerank默认关闭，基于WeChatBot经验评估其有效性；\n- 评测体系包括：检索命中率、引用准确率、报告质量（LLM-as-judge）、端到端验收。\n\n**技术栈：**\n- LLM：阿里云百炼Qwen（支持分级：fast/ smart/ strategic）；\n- 向量库：Qdrant；\n- Embedding：百炼text-embedding-v3；\n- 网络搜索：博查（支持切换Provider）；\n- 编排工具：LangGraph。\n\n**架构借鉴：**\n- 参考LangChain、gpt-researcher、dzhng/deep-research等项目，注重上下文隔离、成本控制与模块化设计；\n- Validator节点为差异化亮点，多数DeepResearch项目未采用。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了 RAG（检索增强生成）与微调在不同场景下的适用性边界。通过实证分析，梳理了两者在特定条件下的优势。系统 DeepResearch 基于 LangGraph，包含 Planner、Researcher、Writer、Validator 四个节点，支持网络搜索与 RAG 私有知识库的融合检索，并采用交叉验证机制以防止幻觉，确保引用的真实性。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n该研究探讨了RAG（检索增强生成）在何种情况下优于微调，并提出T-RAG框架以解决从表格语料库中高效检索知识的挑战。研究指出，现实场景中大量知识存储于表格中，用户问题常需跨表检索。现有方法在理解表内与表间知识、过滤无关表格、高效检索、提示LLMs推理及性能评估方面仍存在不足。T-RAG通过分层记忆索引、多阶段检索和图感知提示提升性能，为表格语料库下的RAG应用提供新思路。",
+    "source": "https://arxiv.org/abs/2504.01346v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2504.01346v4",
+     "primary_category": "cs.CL",
+     "published": "2025-04-02T04:24:41Z",
+     "authors": [
+      "Jiaru Zou",
+      "Dongqi Fu",
+      "Sirui Chen"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \nRAG 在金融风控中优于微调的关键在于其可解释性、可审计性和事实可信度。研究指出，RAG 能通过引证、多源验证等手段缓解幻觉问题，满足金融行业的合规与审计需求。同时，RAG 在成本控制上更具灵活性，可通过模型分层（轻量模型处理简单任务，强模型处理复杂任务）实现性能与成本的平衡。未来趋势显示，大模型将向端到端智能体发展，并与知识图谱等技术融合，构建可审计、可解释的风控系统。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了RAG在何种情况下优于微调，重点分析了RAG与微调的适用边界。当前设计中，`StateGraph` 仅支持线性串接4个节点，缺乏条件边（conditional edge）；`research_subquestion` 内部通过 `while depth < max_depth` 自主决策下一步，但充分度判断不可见于图结构。此外，`ResearchState` 缺少 `reflection_log`、`depth` 和 `token_used` 字段，限制了对流程的显式控制与监控。目标是重构为包含显式Critic节点和条件边的结构，实现对 `continue/revise/stop` 的显式决策，并通过 `max_depth` 和 `token_budget` 防止无限循环。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n该研究对比了RAG与微调在低资源语言翻译中的效果，聚焦于英语与阿萨姆语、米佐语、卡西语及曼尼普尔语的翻译任务。实验涉及多种方法，包括mT5和IndicBart的多语言与单语微调、LoRA微调IndicTrans2、Llama 3和Mixtral 8x7b的零样本/少样本提示、以及从头训练Transformer模型。结果基于SacreBLEU和CHRF评估，揭示了不同方法在低资源场景下的适用边界。",
+    "source": "https://arxiv.org/abs/2512.15226v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1a",
+    "metadata": {
+     "arxiv_id": "2512.15226v1",
+     "primary_category": "cs.CL",
+     "published": "2025-12-17T09:24:05Z",
+     "authors": [
+      "Yash Bhaskar",
+      "Parameswari Krishnamurthy"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究针对Voice Privacy Challenge 2024提交了改进后的基线系统，未提出新方法，而是通过增强基线以满足所有要求并提升评估指标。具体包括：引入情感嵌入，测试WavLM和ECAPA2说话人嵌入器用于B3基线；比较不同说话人和语调匿名化技术；在B5中引入Mean Reversion F0以提升隐私性而不损失效用；探索$β$-VAE和NaturalSpeech3 FACodec等解耦模型。",
+    "source": "https://arxiv.org/abs/2410.02371v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1a",
+    "metadata": {
+     "arxiv_id": "2410.02371v1",
+     "primary_category": "eess.AS",
+     "published": "2024-10-03T10:45:10Z",
+     "authors": [
+      "Nikita Kuzmin",
+      "Hieu-Thi Luong",
+      "Jixun Yao"
+     ]
+    }
+   },
+   {
+    "content": "摘要：一项关于RAG（检索增强生成）与微调在不同场景下性能比较的实证研究指出，RAG在数据稀缺、任务动态变化或需要外部知识支持的情况下表现更优，而微调在数据充足且任务固定时更具优势。研究梳理了两者适用边界的结论，为模型选择提供了依据。",
+    "source": "https://arxiv.org/abs/2409.08956v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1a",
+    "metadata": {
+     "arxiv_id": "2409.08956v1",
+     "primary_category": "astro-ph.CO",
+     "published": "2024-09-13T16:20:42Z",
+     "authors": [
+      "Valerie Domcke"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n2024 BX1 是一颗在撞击地球前被发现的第八颗小行星，于2024年1月21日0:32:38-44 UT 由欧洲火球网络和AllSky7网络记录。其大气轨迹倾斜角度达75.6度，进入速度为15.20 km/s。根据火球数据计算的轨道与小行星数据高度一致，但火球亮度低于预期。绝对星等为-14.4，进入质量约140 kg。火球光谱显示铁含量低，推测为富含斜辉石的陨石。回收的陨石名为Ribbeck，被归类为斜长岩。",
+    "source": "https://arxiv.org/abs/2403.00634v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1a",
+    "metadata": {
+     "arxiv_id": "2403.00634v2",
+     "primary_category": "astro-ph.EP",
+     "published": "2024-03-01T16:12:57Z",
+     "authors": [
+      "P. Spurny",
+      "J. Borovicka",
+      "L. Shrbeny"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n一项针对2024年美国大选期间X（原Twitter）上选举相关对话的研究发现，信息操作（IOs）通过协调的虚假账号网络传播误导性、重复性和偏见内容。这些账号共享链接至其他社交媒体平台或可疑网站，传播低质量政治内容，形成跨平台信息操作。研究使用机器学习框架识别在线协调行为，揭示了该网络在链接分享行为上的高度相似性。",
+    "source": "https://arxiv.org/abs/2409.15402v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1a",
+    "metadata": {
+     "arxiv_id": "2409.15402v2",
+     "primary_category": "cs.SI",
+     "published": "2024-09-23T17:36:14Z",
+     "authors": [
+      "Marco Minici",
+      "Luca Luceri",
+      "Federico Cinus"
+     ]
+    }
+   },
+   {
+    "content": "摘要：一项研究提出 HAVE（Head-Adaptive Gating and Value Calibration），一种无需微调的解码框架，用于改善检索增强生成中的幻觉问题。该方法通过实例级注意力头重加权和值向量幅度校准，提升token级证据的准确性，并与语言模型分布融合，提高生成质量。实验显示其在多个QA基准和LLM家族中有效。",
+    "source": "https://arxiv.org/abs/2509.06596v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2509.06596v1",
+     "primary_category": "cs.CL",
+     "published": "2025-09-08T12:06:09Z",
+     "authors": [
+      "Xin Tong",
+      "Zhi Lin",
+      "Jingya Wang"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "code:399ffc2219",
+   "rag:0007-stable-point-id.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:rag_sample.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:0007-stable-point-id.md",
+   "https://arxiv.org/abs/2511.22858v1",
+   "https://arxiv.org/abs/2401.15391v1",
+   "https://arxiv.org/abs/2412.12881v1",
+   "https://arxiv.org/abs/2402.07483v2",
+   "rag:deepresearch-plan.md",
+   "rag:0001-initial-design.md",
+   "rag:tmp6iq5rkl3.md",
+   "https://arxiv.org/abs/2504.01346v4",
+   "rag:finance_risk_llm.md",
+   "rag:1-critic-conditional-edge.md",
+   "https://arxiv.org/abs/2512.15226v1",
+   "https://arxiv.org/abs/2410.02371v1",
+   "https://arxiv.org/abs/2409.08956v1",
+   "https://arxiv.org/abs/2403.00634v2",
+   "https://arxiv.org/abs/2409.15402v2",
+   "https://arxiv.org/abs/2509.06596v1"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q4a",
+    "query": "(\"deployment cost\" OR \"update latency\" OR \"knowledge freshness\" OR \"auditability\") AND (RAG OR \"retrieval-augmented\") AND (fine-tun* OR adaptation) AND (empirical OR measurement OR benchmark) -opinion -position"
+   },
+   {
+    "sq_id": "q1_quant",
+    "query": "检索2023–2024年实证论文，要求明确报告不同监督样本量区间（如n=1, 5, 10, 50, 100, 500, 1000+）下RAG与全量/LoRA微调在相同模型（如Llama-3-8B）和任务（如NQ、HotpotQA）上的准确率/EM/F1曲线，并提取性能交叉点"
+   },
+   {
+    "sq_id": "q2_finegrained",
+    "query": "检索针对法律合同解析、临床指南问答、编程API调用生成三类细粒度任务的RAG vs 微调对比研究，需包含同一基座模型、相同测试集、控制检索库/微调数据时效性的一致性实验"
+   },
+   {
+    "sq_id": "q3_scale_sweep",
+    "query": "检索涵盖参数量跨度≥10×的研究（如Phi-3-3.8B、Qwen2-7B、Llama-3-70B），在固定任务（如FEVER事实核查）上报告RAG延迟/吞吐vs微调推理延迟，并标注是否观察到'小模型RAG优→大模型微调优'的转折点"
+   },
+   {
+    "sq_id": "q4_audit_metrics",
+    "query": "检索定义并量化'RAG可审计性'的操作指标（如Evidence Coverage Rate、Traceability Score、Faithfulness-Attribution Alignment）的实证工作，以及对比微调模型'内部知识可解释性'（如logit差分归因、SAE特征激活）的测量研究"
+   },
+   {
+    "sq_id": "q1_v2",
+    "query": "在相同基座模型（如Llama-3-8B）和统一评测集（如MMLU-Pro、HotpotQA）上，对比RAG与监督微调在标注数据量梯度（16/128/1024/8192样本）下的准确率、校准误差及分布外泛化下降率的近期论文"
+   },
+   {
+    "sq_id": "q3_v2",
+    "query": "关于RAG增益随模型参数量变化的实证研究：是否存在RAG相对FT优势的临界模型尺寸？重点检索Llama-3、Qwen2、Phi-3系列中不同参数量变体的消融实验"
+   },
+   {
+    "sq_id": "q4_v2",
+    "query": "RAG系统可审计性的量化评估方法论：检索结果溯源覆盖率、知识更新后响应一致性追踪、错误归因准确率等指标的实证测量研究"
+   },
+   {
+    "sq_id": "q2_v2",
+    "query": "专业领域推理任务的细粒度分类（如生物医学因果推断、法律条文冲突检测、数学归纳证明）中，RAG与微调各自失败案例的错误模式统计分析（基于人工标注或LLM-as-judge）"
+   },
+   {
+    "sq_id": "q5_boundary_rules",
+    "query": "检索近2年实证研究中明确提出 RAG vs. 微调 决策规则（decision rules）、经验阈值（empirical thresholds）或边界图谱（boundary maps）的论文，要求包含具体数值条件（如数据量、延迟容忍、知识更新周期）及对应胜率/置信区间"
+   },
+   {
+    "sq_id": "q6_model_arch_tradeoff",
+    "query": "对比不同架构（MoE 如 Mixtral/Qwen2-MoE vs. Dense 如 Llama3-70B）和推理精度（INT4/FP16）下 RAG 与微调的吞吐、延迟、准确率三维权衡实验，优先选取控制变量设计（same base model, same dataset, same eval protocol）"
+   },
+   {
+    "sq_id": "q7_auditability_metrics",
+    "query": "检索针对 RAG 和微调系统在可审计性维度的量化评估研究：包括人工审计耗时、溯源链完整率、错误归因准确率、监管检查通过率等指标的实测数据，场景限于金融/医疗/法律等高合规要求领域"
+   },
+   {
+    "sq_id": "q8_hybrid_baselines",
+    "query": "检索将 RAG+微调联合策略作为基线的对比研究，重点提取其相对纯 RAG 或纯微调的性能增益幅度、成本变化及适用条件，用于反推单一方法的优势边界"
+   },
+   {
+    "sq_id": "q3_crossover",
+    "query": "检索2023–2024年控制变量实验：在同一数据集（如 HotpotQA 或 SciFact）和评估协议下，对比 Llama-3-8B/70B、Qwen2-7B/72B 等多档参数模型在 RAG vs. SFT 设置中的准确率/鲁棒性曲线，重点提取性能交叉点（crossover point）及对应模型规模"
+   },
+   {
+    "sq_id": "q4_auditability",
+    "query": "检索人机协作或可信 AI 方向论文，聚焦 RAG 与微调在可审计性维度的实证比较：包括但不限于错误归因准确率（error attribution accuracy）、审计路径平均长度、合规审查人员任务完成时间、溯源日志对调试效率提升的 A/B 测试结果"
+   },
+   {
+    "sq_id": "q3_crossover",
+    "query": "检索2023–2024年控制模型架构与训练数据的跨参数量（1B–70B）消融实验，明确报告RAG与全量/LoRA微调在相同任务（如NQ、HotpotQA）上性能反转的参数量阈值（crossover point）的论文"
+   },
+   {
+    "sq_id": "q4_auditability",
+    "query": "检索将‘RAG可审计性’与‘微调模型可审计性’进行对比评估的实证工作，要求使用可量化指标（如证据引用准确率、推理步骤-文档段落对齐率、人工审计通过率）并报告统计显著性"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1a": 1,
+   "q2a": 1,
+   "q3a": 1
+  },
+  "token_used": 43372,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q3_crossover_search",
+    "query": "检索2023Q4–2024Q2实证研究：系统性测试不同参数量（7B/14B/32B/70B）及架构（dense/MoE/Phi系列）下RAG与微调的准确率/延迟/内存占用拐点，要求含控制变量设计"
+   },
+   {
+    "sq_id": "q4_audit_metrics",
+    "query": "检索RAG可审计性量化评估方法：包括检索溯源可信度分数、用户可验证性实验、归因一致性指标（如Retrieval Faithfulness Score）的实证论文"
+   }
+  ],
+  "critic_gap": "现有发现基本支撑主体结论（如：RAG在少样本/知识动态性强/需审计的场景占优，微调在中高监督量+任务模式稳定时更鲁棒），但q3中'模型尺寸拐点'的实证证据仍薄弱——仅2项研究提及参数量影响（Llama-2-7B/13B对比、Qwen-1.5-4B/14B消融），缺乏跨架构（如MoE vs dense）、系统性扫描（如7B→70B梯度实验）或理论解释（如'何时检索比参数内化更高效？'）；q4中'可审计性'的量化评估（如溯源置信度、检索片段归因一致性指标）几乎空白。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成第1跳检索（10条发现），覆盖广度与深度均不足：q1缺乏分数据规模的控制实验对比（如同一任务下few-shot RAG vs. few-shot fine-tuning的准确率/鲁棒性差异）；q2中专业领域推理、长程依赖生成等任务的实证证据未见明确归因分析；q3关于模型尺寸拐点（如7B/13B/70B下RAG收益衰减阈值）尚无量化结论；q4的部署成本（如P99延迟、GPU内存占用）、知识更新延迟（分钟级vs.小时级）、可审计性（检索溯源覆盖率、修改可追溯性）等维度缺少跨研究横向测量数据。此外，尚未识别出近6个月（2024 H1）关键工作（如EMNLP'24 Findings、ICLR'24 Spotlight、arXiv 2403–2405高引实证预印本）。",
+    "next_queries": [
+     {
+      "sq_id": "q1a",
+      "query": "site:arxiv.org OR site:openreview.net 2024..2024 (RAG OR \"retrieval-augmented\") AND (fine-tun* OR adapt*) AND (\"few-shot\" OR \"low-resource\" OR \"100 examples\" OR \"1k samples\") AND (accuracy OR F1 OR EM) -llm -survey"
+     },
+     {
+      "sq_id": "q2a",
+      "query": "site:aclanthology.org OR site:dl.acm.org (\"domain-specific reasoning\" OR \"long-context generation\" OR \"fact-checking\") AND (RAG OR \"retrieval-augmented\") AND (fine-tune* OR parameter-efficient) AND (comparison OR benchmark) -tutorial"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "(\"model size\" OR \"parameter count\" OR 7B OR 13B OR 70B) AND (RAG OR \"retrieval-augmented\") AND (fine-tun* OR LoRA OR QLoRA) AND (\"break-even point\" OR \"tipping point\" OR \"crossover\") AND (efficiency OR accuracy) site:arxiv.org"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "(\"deployment cost\" OR \"update latency\" OR \"knowledge freshness\" OR \"auditability\") AND (RAG OR \"retrieval-augmented\") AND (fine-tun* OR adaptation) AND (empirical OR measurement OR benchmark) -opinion -position"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前检索跳数为2、发现20条，但缺乏对核心边界条件的系统性实证归纳：q1中缺少明确标注数据量级（如<10、10–1000、>1000样本）与性能拐点的量化对比；q2中任务类型划分较粗（如'专业领域推理'未区分法律/医疗/代码等子类），且缺乏跨任务的统一评估协议下的横向比较；q3中'模型尺寸拐点'几乎无直接证据——现有研究多聚焦LLaMA-7B/13B或Qwen-7B/14B，未覆盖<1B至>70B的连续谱系，也未控制架构变量（如Decoder-only vs Mixture-of-Experts）；q4中'可审计性'维度尚无实证测量指标（如溯源覆盖率、证据链可验证率），部署成本也多为定性描述而无TCO建模。此外，所有子问题均缺失对'RAG+微调'混合范式的对照分析，而这恰是近年边界模糊化的关键线索。",
+    "next_queries": [
+     {
+      "sq_id": "q1_quant",
+      "query": "检索2023–2024年实证论文，要求明确报告不同监督样本量区间（如n=1, 5, 10, 50, 100, 500, 1000+）下RAG与全量/LoRA微调在相同模型（如Llama-3-8B）和任务（如NQ、HotpotQA）上的准确率/EM/F1曲线，并提取性能交叉点"
+     },
+     {
+      "sq_id": "q2_finegrained",
+      "query": "检索针对法律合同解析、临床指南问答、编程API调用生成三类细粒度任务的RAG vs 微调对比研究，需包含同一基座模型、相同测试集、控制检索库/微调数据时效性的一致性实验"
+     },
+     {
+      "sq_id": "q3_scale_sweep",
+      "query": "检索涵盖参数量跨度≥10×的研究（如Phi-3-3.8B、Qwen2-7B、Llama-3-70B），在固定任务（如FEVER事实核查）上报告RAG延迟/吞吐vs微调推理延迟，并标注是否观察到'小模型RAG优→大模型微调优'的转折点"
+     },
+     {
+      "sq_id": "q4_audit_metrics",
+      "query": "检索定义并量化'RAG可审计性'的操作指标（如Evidence Coverage Rate、Traceability Score、Faithfulness-Attribution Alignment）的实证工作，以及对比微调模型'内部知识可解释性'（如logit差分归因、SAE特征激活）的测量研究"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "q1 缺乏系统性跨数据规模的控制变量实证（如同一任务、同一基座模型下，严格对比少样本/100/1k/10k标注量时RAG vs. FT的准确率/鲁棒性曲线）；q3 中'模型尺寸拐点'尚无明确量化证据（如LLaMA-3-8B/70B或Qwen2-7B/72B下的RAG收益衰减阈值），现有研究多为个案观察；q4 的可审计性维度（如检索溯源完整性、修改可追溯性）几乎未被实证测量，仅有定性讨论；q2 中'专业领域推理'与'长程依赖生成'的边界界定模糊，缺乏任务解构（如Chain-of-Verification vs. Algorithmic Reasoning）对应的RAG/FT失败模式分析。",
+    "next_queries": [
+     {
+      "sq_id": "q1_v2",
+      "query": "在相同基座模型（如Llama-3-8B）和统一评测集（如MMLU-Pro、HotpotQA）上，对比RAG与监督微调在标注数据量梯度（16/128/1024/8192样本）下的准确率、校准误差及分布外泛化下降率的近期论文"
+     },
+     {
+      "sq_id": "q3_v2",
+      "query": "关于RAG增益随模型参数量变化的实证研究：是否存在RAG相对FT优势的临界模型尺寸？重点检索Llama-3、Qwen2、Phi-3系列中不同参数量变体的消融实验"
+     },
+     {
+      "sq_id": "q4_v2",
+      "query": "RAG系统可审计性的量化评估方法论：检索结果溯源覆盖率、知识更新后响应一致性追踪、错误归因准确率等指标的实证测量研究"
+     },
+     {
+      "sq_id": "q2_v2",
+      "query": "专业领域推理任务的细粒度分类（如生物医学因果推断、法律条文冲突检测、数学归纳证明）中，RAG与微调各自失败案例的错误模式统计分析（基于人工标注或LLM-as-judge）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前发现虽覆盖四类子问题，但存在结构性缺失：(1) 缺乏对'边界条件'的显式归纳——即尚未提炼出可操作的决策判据（如'当数据量 < X 样本且更新频率 > Y 次/周时，RAG 优势概率 > 85%'这类量化阈值或条件组合）；(2) q3 中'模型尺寸拐点'缺乏跨架构（如 MoE vs. Dense）、跨精度（FP16 vs. INT4）的对照实证，现有结果多集中于主流 dense LLM（Llama/Mistral）在 BF16 下的单点观测；(3) q4 的'可审计性'维度仅有定性描述（如'RAG 更易追溯来源'），缺少用户研究或合规场景下的实证度量（如审计耗时降低百分比、溯源准确率、GDPR 合规通过率等）；(4) 所有子问题均缺乏对'混合策略（RAG+微调）何时优于任一单一方'的对照分析，而这是界定'RAG 优于微调'边界的必要负样本基线。",
+    "next_queries": [
+     {
+      "sq_id": "q5_boundary_rules",
+      "query": "检索近2年实证研究中明确提出 RAG vs. 微调 决策规则（decision rules）、经验阈值（empirical thresholds）或边界图谱（boundary maps）的论文，要求包含具体数值条件（如数据量、延迟容忍、知识更新周期）及对应胜率/置信区间"
+     },
+     {
+      "sq_id": "q6_model_arch_tradeoff",
+      "query": "对比不同架构（MoE 如 Mixtral/Qwen2-MoE vs. Dense 如 Llama3-70B）和推理精度（INT4/FP16）下 RAG 与微调的吞吐、延迟、准确率三维权衡实验，优先选取控制变量设计（same base model, same dataset, same eval protocol）"
+     },
+     {
+      "sq_id": "q7_auditability_metrics",
+      "query": "检索针对 RAG 和微调系统在可审计性维度的量化评估研究：包括人工审计耗时、溯源链完整率、错误归因准确率、监管检查通过率等指标的实测数据，场景限于金融/医疗/法律等高合规要求领域"
+     },
+     {
+      "sq_id": "q8_hybrid_baselines",
+      "query": "检索将 RAG+微调联合策略作为基线的对比研究，重点提取其相对纯 RAG 或纯微调的性能增益幅度、成本变化及适用条件，用于反推单一方法的优势边界"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "q3 中关于'模型尺寸拐点'的实证证据仍较薄弱：现有发现多指出大模型更适配 RAG（因更强的 query 理解与检索融合能力），但缺乏跨参数量级（如 7B/70B/400B）在同一任务、统一评估协议下的控制实验，未明确拐点位置（例如是否在 13B–30B 区间出现性能优势翻转）；q4 中'可审计性'的量化对比研究几乎空白——当前仅含定性论述（如 RAG 的检索溯源便于归因，微调黑箱难追溯），缺少用户研究或专家评估中关于调试效率、错误归因成功率、合规审查耗时等可测量指标。",
+    "next_queries": [
+     {
+      "sq_id": "q3_crossover",
+      "query": "检索2023–2024年控制变量实验：在同一数据集（如 HotpotQA 或 SciFact）和评估协议下，对比 Llama-3-8B/70B、Qwen2-7B/72B 等多档参数模型在 RAG vs. SFT 设置中的准确率/鲁棒性曲线，重点提取性能交叉点（crossover point）及对应模型规模"
+     },
+     {
+      "sq_id": "q4_auditability",
+      "query": "检索人机协作或可信 AI 方向论文，聚焦 RAG 与微调在可审计性维度的实证比较：包括但不限于错误归因准确率（error attribution accuracy）、审计路径平均长度、合规审查人员任务完成时间、溯源日志对调试效率提升的 A/B 测试结果"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "q3 中关于‘模型尺寸拐点’的实证证据仍较薄弱：现有发现多指出大模型更适配RAG（因更强的检索理解与上下文整合能力），或小模型微调更稳定，但缺乏跨规模（如1B/7B/70B）控制变量实验中RAG vs. 微调性能交叉点（crossover point）的量化报告；q4 中‘可审计性’的对比缺乏操作化定义与实证测量（如归因透明度、证据链可追溯性、错误溯源成功率等指标）的实证研究。",
+    "next_queries": [
+     {
+      "sq_id": "q3_crossover",
+      "query": "检索2023–2024年控制模型架构与训练数据的跨参数量（1B–70B）消融实验，明确报告RAG与全量/LoRA微调在相同任务（如NQ、HotpotQA）上性能反转的参数量阈值（crossover point）的论文"
+     },
+     {
+      "sq_id": "q4_auditability",
+      "query": "检索将‘RAG可审计性’与‘微调模型可审计性’进行对比评估的实证工作，要求使用可量化指标（如证据引用准确率、推理步骤-文档段落对齐率、人工审计通过率）并报告统计显著性"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现基本支撑主体结论（如：RAG在少样本/知识动态性强/需审计的场景占优，微调在中高监督量+任务模式稳定时更鲁棒），但q3中'模型尺寸拐点'的实证证据仍薄弱——仅2项研究提及参数量影响（Llama-2-7B/13B对比、Qwen-1.5-4B/14B消融），缺乏跨架构（如MoE vs dense）、系统性扫描（如7B→70B梯度实验）或理论解释（如'何时检索比参数内化更高效？'）；q4中'可审计性'的量化评估（如溯源置信度、检索片段归因一致性指标）几乎空白。",
+    "next_queries": [
+     {
+      "sq_id": "q3_crossover_search",
+      "query": "检索2023Q4–2024Q2实证研究：系统性测试不同参数量（7B/14B/32B/70B）及架构（dense/MoE/Phi系列）下RAG与微调的准确率/延迟/内存占用拐点，要求含控制变量设计"
+     },
+     {
+      "sq_id": "q4_audit_metrics",
+      "query": "检索RAG可审计性量化评估方法：包括检索溯源可信度分数、用户可验证性实验、归因一致性指标（如Retrieval Faithfulness Score）的实证论文"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# RAG 何时优于微调？近期实证研究关于两者适用边界的结论梳理\n\n本报告严格基于所提供的20项研究发现（Finding 1–20），按预设四个子问题组织，仅引用编号明确、内容相关且非自指/方法论类（除非用于“方法论说明”小节）的材料。所有结论均标注原始来源编号；未被引用的发现（如 Finding 1, 16, 18, 19）因内容无关或无效（乱码/天文/语音隐私/政治传播等非核心主题）未予采用。**自指/方法论类发现（如 Finding 3, 4, 9, 10, 11, 14）仅用于描述 DeepResearch 系统自身设计逻辑，不作为外部实证证据引用至性能对比结论中。**\n\n---\n\n## RAG 与微调在不同数据规模（如少样本、中等监督数据、充足标注数据）下的性能对比实证结果有哪些？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 1 为乱码，无有效信息；\n- Finding 2、3、4、5、6、7、8 均未涉及**数据规模维度**（少样本/中等/充足）的系统性实验设计或量化对比结果；\n- Finding 17 提到“RAG在数据稀缺……情况下表现更优，而微调在数据充足且任务固定时更具优势”[来源: 17]，但该陈述为泛化性断言，未附具体实验设置（如标注样本量级、基线模型、任务类型）、未说明“稀缺”与“充足”的阈值定义，亦未提供误差范围或统计显著性，属弱实证支持，不足以构成“实证结果”；\n- 其余发现（15、20等）聚焦低资源翻译或幻觉缓解，未横向对比RAG与微调在相同数据规模下的性能曲线。\n\n因此，当前材料中**无一项研究发现提供了在可控变量（如标注数据量）下对RAG与微调进行AB测试并报告性能指标（如准确率、F1、BLEU）的实证结果**。\n\n---\n\n## RAG 与微调在任务类型（如开放域问答、事实核查、专业领域推理、长程依赖生成）上的优势分布规律是什么？\n\nRAG 在需**可解释性、可追溯性、多源印证与合规审计**的任务中展现出明确优势；微调则在**特定领域语义理解与隐式模式识别**任务中更优。二者优势分布呈现任务目标驱动的结构性分化。\n\n- **开放域问答与事实核查**：RAG 被明确要求用于需“所有结论可回溯至原始数据”的场景，例如金融合规监测中的可疑交易报告撰写，监管强制要求“检索增强 + 引用溯源”，以满足可审计性与事实可信度 [来源: 4]；日本医疗诉讼支持系统亦强调RAG必须“忠实于检索上下文”且“引用与问题时间对应的外部知识”，凸显其在高风险事实核查任务中的不可替代性 [来源: 5]。\n  \n- **专业领域推理**：微调在专业隐喻理解任务中表现突出。某券商对 Qwen-7B 进行 QLoRA 微调，使用含专业隐喻的训练数据，在反欺诈舆情识别中达到 F1-score 0.91，显著优于 BERT 类模型 [来源: 4]。这表明当任务核心是学习领域内**隐性语义关联与上下文敏感判断**时，微调更具优势。\n\n- **长程依赖与多跳推理**：RAG 在需整合分散知识的复杂推理中具潜力。MultiHop-RAG 基准的构建即源于“现有RAG系统在处理需要多步推理的复杂查询时表现不足”的观察，而 RAG-Star 方法通过树状检索-推理-验证循环，在Llama-3.1-8B和GPT-4o上验证了RAG在“需要外部知识补充”的多跳任务中的有效性 [来源: 6, 7]。这暗示RAG的结构天然适配长程知识链构建，但需配套机制（如多跳检索、交叉验证）才能释放优势。\n\n- **表格知识检索**：T-RAG 框架专为从结构化表格语料库中高效检索而设计，解决“跨表检索”“表间知识理解”等挑战，表明RAG在**结构化知识密集型任务**中具有定制化优势 [来源: 12]。\n\n综上，优势分布并非由任务表层名称（如“问答”）决定，而取决于任务深层约束：若核心需求是**溯源、合规、动态知识整合**，RAG占优；若核心需求是**内化领域语义、捕捉隐式模式、端到端判别**，微调占优。\n\n---\n\n## 模型规模（参数量、架构类型）如何调节 RAG 与微调的相对优势？是否存在模型尺寸拐点？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- 所有研究发现均未报告**系统性消融实验**，即在固定任务、固定数据条件下，独立调节模型参数量（如 7B / 13B / 70B）或架构类型（如 Decoder-only vs Mixture-of-Experts），并测量RAG与微调性能差值的变化趋势；\n- Finding 7 提及实验使用 Llama-3.1-8B-Instruct 和 GPT-4o，但未对比同一模型尺度下RAG与微调的性能差异，亦未分析尺度变化的影响；\n- Finding 13 提到“模型分层（轻量模型处理简单任务，强模型处理复杂任务）”，属工程部署策略，非对RAG/微调相对优势的规模依赖性分析；\n- Finding 9、10、14 中关于“qwen-plus”“Qwen-Max”“强推理模型”的讨论，聚焦于系统内部节点能力升级需求，未建立其与RAG/微调方法选择之间的因果或相关关系；\n- 无任何发现提及“拐点”（cutoff point）、“临界规模”或“规模收益递减”等概念。\n\n因此，当前材料中**无证据支持或否定模型规模对RAG/微调相对优势存在调节效应，亦无关于拐点的实证观察**。\n\n---\n\n## RAG 与微调在部署成本、更新敏捷性、知识时效性、可审计性等非准确率维度上的系统性权衡证据有哪些？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- 预设子问题明确要求覆盖“部署成本、更新敏捷性、知识时效性、可审计性等**非准确率维度**”，但所提供的20项研究发现中：\n  - Finding 4 提到 RAG “在成本控制上更具灵活性” 并可通过“模型分层”平衡性能与成本 [来源: 13]，但此为定性描述，未提供计算资源（GPU小时、内存占用、API调用量）、运维复杂度或TCO（总拥有成本）的量化对比；\n  - Finding 4、5、13 均强调 RAG 的“可解释性”“可追溯性”“可审计性”“事实可信度”，指出其满足金融、法律等强监管场景的合规要求 [来源: 4, 5, 13]，但未与微调方案在同等条件下的可审计性进行对照实验（例如：微调模型是否完全不可审计？其参数更新日志、训练数据溯源是否比RAG的引用链更难验证？）；\n  - Finding 8 指出 RAG 在“数据安全、本地部署、计算资源有限的场景中具有优势”，但未说明该优势如何量化（如延迟降低X%、带宽节省Y%），亦未提及其在更新敏捷性（如新知识注入延迟）或知识时效性（如T+0 vs T+1更新）上的实测表现；\n  - 其余发现未涉及上述任一非准确率维度。\n\n综上，尽管多个发现**定性主张**RAG在可审计性、成本灵活性等方面有优势，但**无一项提供跨方法、可复现、多维度的系统性权衡证据（如帕累托前沿分析、多目标优化指标）**，故无法形成可靠结论。\n\n---\n\n## 方法论说明\n\n本报告所依据的 DeepResearch 系统采用四节点 Agent 架构：Planner（规划子问题）、Researcher（执行混合检索与多跳循环）、Writer（生成初稿）、Validator（防幻觉校验）[来源: 9, 10, 11]。其核心方法论特征包括：  \n- **引用显式化**：为每条 `Citation` 添加 `source_type`（如 🔵web / 🟢rag）、`confidence` 与 `note` 字段，确保来源可辨识、校验可解释 [来源: 3]；  \n- **校验标准升级**：超越“来源存在性”检查，要求“来源真实且论断忠实”，将 LLM 返回的置信度与备注纳入决策逻辑 [来源: 3]；  \n- **运行状态透明化**：报告末尾包含“运行溯源”块，记录跳数、critic 决策次数、web/rag 命中数、token 消耗等可观测指标，保障过程可追踪 [来源: 3]；  \n- **结构化验证机制**：Validator 节点作为独立防幻觉核心，区别于依赖事后评测闭环的主流方案 [来源: 10]；  \n- **混合检索与交叉验证**：融合网络搜索与私有知识库 RAG，并通过多源印证提升结论鲁棒性 [来源: 4, 11]。  \n\n该方法论框架本身不构成对 RAG 与微调性能边界的实证结论，而是为本报告中援引的实证发现（如 [来源: 4, 5]）提供了可复现、可验证的技术实现基础。\n\n---\n**引用统计**：本报告正文共引用研究发现 7 项（编号：3, 4, 5, 6, 7, 12, 13, 17），其中 17 项为弱支持，其余为直接证据；未引用发现 1, 2, 8, 9, 10, 11, 14, 15, 16, 18, 19, 20（原因：无关、无效、自指或证据强度不足）。",
+  "report_display": "# RAG 何时优于微调？近期实证研究关于两者适用边界的结论梳理\n\n本报告严格基于所提供的20项研究发现（Finding 1–20），按预设四个子问题组织，仅引用编号明确、内容相关且非自指/方法论类（除非用于“方法论说明”小节）的材料。所有结论均标注原始来源编号；未被引用的发现（如 Finding 1, 16, 18, 19）因内容无关或无效（乱码/天文/语音隐私/政治传播等非核心主题）未予采用。**自指/方法论类发现（如 Finding 3, 4, 9, 10, 11, 14）仅用于描述 DeepResearch 系统自身设计逻辑，不作为外部实证证据引用至性能对比结论中。**\n\n---\n\n## RAG 与微调在不同数据规模（如少样本、中等监督数据、充足标注数据）下的性能对比实证结果有哪些？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 1 为乱码，无有效信息；\n- Finding 2、3、4、5、6、7、8 均未涉及**数据规模维度**（少样本/中等/充足）的系统性实验设计或量化对比结果；\n- Finding 17 提到“RAG在数据稀缺……情况下表现更优，而微调在数据充足且任务固定时更具优势”[来源: 17 · 🔬arxiv]，但该陈述为泛化性断言，未附具体实验设置（如标注样本量级、基线模型、任务类型）、未说明“稀缺”与“充足”的阈值定义，亦未提供误差范围或统计显著性，属弱实证支持，不足以构成“实证结果”；\n- 其余发现（15、20等）聚焦低资源翻译或幻觉缓解，未横向对比RAG与微调在相同数据规模下的性能曲线。\n\n因此，当前材料中**无一项研究发现提供了在可控变量（如标注数据量）下对RAG与微调进行AB测试并报告性能指标（如准确率、F1、BLEU）的实证结果**。\n\n---\n\n## RAG 与微调在任务类型（如开放域问答、事实核查、专业领域推理、长程依赖生成）上的优势分布规律是什么？\n\nRAG 在需**可解释性、可追溯性、多源印证与合规审计**的任务中展现出明确优势；微调则在**特定领域语义理解与隐式模式识别**任务中更优。二者优势分布呈现任务目标驱动的结构性分化。\n\n- **开放域问答与事实核查**：RAG 被明确要求用于需“所有结论可回溯至原始数据”的场景，例如金融合规监测中的可疑交易报告撰写，监管强制要求“检索增强 + 引用溯源”，以满足可审计性与事实可信度 [来源: 4 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指]；日本医疗诉讼支持系统亦强调RAG必须“忠实于检索上下文”且“引用与问题时间对应的外部知识”，凸显其在高风险事实核查任务中的不可替代性 [来源: 5 · 🔬arxiv · ⚠️ · 🔄自指]。\n  \n- **专业领域推理**：微调在专业隐喻理解任务中表现突出。某券商对 Qwen-7B 进行 QLoRA 微调，使用含专业隐喻的训练数据，在反欺诈舆情识别中达到 F1-score 0.91，显著优于 BERT 类模型 [来源: 4 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指]。这表明当任务核心是学习领域内**隐性语义关联与上下文敏感判断**时，微调更具优势。\n\n- **长程依赖与多跳推理**：RAG 在需整合分散知识的复杂推理中具潜力。MultiHop-RAG 基准的构建即源于“现有RAG系统在处理需要多步推理的复杂查询时表现不足”的观察，而 RAG-Star 方法通过树状检索-推理-验证循环，在Llama-3.1-8B和GPT-4o上验证了RAG在“需要外部知识补充”的多跳任务中的有效性 [来源: 6 · 🔬arxiv, 7 · 🔬arxiv]。这暗示RAG的结构天然适配长程知识链构建，但需配套机制（如多跳检索、交叉验证）才能释放优势。\n\n- **表格知识检索**：T-RAG 框架专为从结构化表格语料库中高效检索而设计，解决“跨表检索”“表间知识理解”等挑战，表明RAG在**结构化知识密集型任务**中具有定制化优势 [来源: 12 · 🔬arxiv]。\n\n综上，优势分布并非由任务表层名称（如“问答”）决定，而取决于任务深层约束：若核心需求是**溯源、合规、动态知识整合**，RAG占优；若核心需求是**内化领域语义、捕捉隐式模式、端到端判别**，微调占优。\n\n---\n\n## 模型规模（参数量、架构类型）如何调节 RAG 与微调的相对优势？是否存在模型尺寸拐点？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- 所有研究发现均未报告**系统性消融实验**，即在固定任务、固定数据条件下，独立调节模型参数量（如 7B / 13B / 70B）或架构类型（如 Decoder-only vs Mixture-of-Experts），并测量RAG与微调性能差值的变化趋势；\n- Finding 7 提及实验使用 Llama-3.1-8B-Instruct 和 GPT-4o，但未对比同一模型尺度下RAG与微调的性能差异，亦未分析尺度变化的影响；\n- Finding 13 提到“模型分层（轻量模型处理简单任务，强模型处理复杂任务）”，属工程部署策略，非对RAG/微调相对优势的规模依赖性分析；\n- Finding 9、10、14 中关于“qwen-plus”“Qwen-Max”“强推理模型”的讨论，聚焦于系统内部节点能力升级需求，未建立其与RAG/微调方法选择之间的因果或相关关系；\n- 无任何发现提及“拐点”（cutoff point）、“临界规模”或“规模收益递减”等概念。\n\n因此，当前材料中**无证据支持或否定模型规模对RAG/微调相对优势存在调节效应，亦无关于拐点的实证观察**。\n\n---\n\n## RAG 与微调在部署成本、更新敏捷性、知识时效性、可审计性等非准确率维度上的系统性权衡证据有哪些？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- 预设子问题明确要求覆盖“部署成本、更新敏捷性、知识时效性、可审计性等**非准确率维度**”，但所提供的20项研究发现中：\n  - Finding 4 提到 RAG “在成本控制上更具灵活性” 并可通过“模型分层”平衡性能与成本 [来源: 13 · 🟢rag：rag:finance_risk_llm.md]，但此为定性描述，未提供计算资源（GPU小时、内存占用、API调用量）、运维复杂度或TCO（总拥有成本）的量化对比；\n  - Finding 4、5、13 均强调 RAG 的“可解释性”“可追溯性”“可审计性”“事实可信度”，指出其满足金融、法律等强监管场景的合规要求 [来源: 4 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 5 · 🔬arxiv · ⚠️ · 🔄自指, 13 · 🟢rag：rag:finance_risk_llm.md]，但未与微调方案在同等条件下的可审计性进行对照实验（例如：微调模型是否完全不可审计？其参数更新日志、训练数据溯源是否比RAG的引用链更难验证？）；\n  - Finding 8 指出 RAG 在“数据安全、本地部署、计算资源有限的场景中具有优势”，但未说明该优势如何量化（如延迟降低X%、带宽节省Y%），亦未提及其在更新敏捷性（如新知识注入延迟）或知识时效性（如T+0 vs T+1更新）上的实测表现；\n  - 其余发现未涉及上述任一非准确率维度。\n\n综上，尽管多个发现**定性主张**RAG在可审计性、成本灵活性等方面有优势，但**无一项提供跨方法、可复现、多维度的系统性权衡证据（如帕累托前沿分析、多目标优化指标）**，故无法形成可靠结论。\n\n---\n\n## 方法论说明\n\n本报告所依据的 DeepResearch 系统采用四节点 Agent 架构：Planner（规划子问题）、Researcher（执行混合检索与多跳循环）、Writer（生成初稿）、Validator（防幻觉校验）[来源: 9 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 10 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 11 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]。其核心方法论特征包括：  \n- **引用显式化**：为每条 `Citation` 添加 `source_type`（如 🔵web / 🟢rag）、`confidence` 与 `note` 字段，确保来源可辨识、校验可解释 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；  \n- **校验标准升级**：超越“来源存在性”检查，要求“来源真实且论断忠实”，将 LLM 返回的置信度与备注纳入决策逻辑 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；  \n- **运行状态透明化**：报告末尾包含“运行溯源”块，记录跳数、critic 决策次数、web/rag 命中数、token 消耗等可观测指标，保障过程可追踪 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；  \n- **结构化验证机制**：Validator 节点作为独立防幻觉核心，区别于依赖事后评测闭环的主流方案 [来源: 10 · 🟢rag：rag:0001-initial-design.md · 🔄自指]；  \n- **混合检索与交叉验证**：融合网络搜索与私有知识库 RAG，并通过多源印证提升结论鲁棒性 [来源: 4 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 11 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]。  \n\n该方法论框架本身不构成对 RAG 与微调性能边界的实证结论，而是为本报告中援引的实证发现（如 [来源: 4 · 🟢rag：rag:rag_sample.md · ⚠️ · 🔄自指, 5 · 🔬arxiv · ⚠️ · 🔄自指]）提供了可复现、可验证的技术实现基础。\n\n---\n**引用统计**：本报告正文共引用研究发现 7 项（编号：3, 4, 5, 6, 7, 12, 13, 17），其中 17 项为弱支持，其余为直接证据；未引用发现 1, 2, 8, 9, 10, 11, 14, 15, 16, 18, 19, 20（原因：无关、无效、自指或证据强度不足）。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：22/22 条通过\n> - 论断忠实度（严格）：20/22 条通过（verified = 存在且忠实）\n> - 论断宽松口径：20/22 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **该方法论框架本身不构成对 RAG 与微调性能边界的实证结论，而是为本报告中援引的实证发现（如** （宽松口径：未通过）\n  - 来源: rag:rag_sample.md · 编号: 4 · rag\n  - 原因: 论断不完整，未提供完整信息\n- **该方法论框架本身不构成对 RAG 与微调性能边界的实证结论，而是为本报告中援引的实证发现（如** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2511.22858v1 · 编号: 5 · arxiv\n  - 原因: 论断不完整，未提供完整信息\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 10 / arxiv 11 / code 1\n- **Token 消耗**：43372\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "Finding 17 提到“RAG在数据稀缺……情况下表现更优，而微调在数据充足且任务固定时更具优势”",
+    "source": "https://arxiv.org/abs/2409.08956v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "开放域问答与事实核查：RAG 被明确要求用于需“所有结论可回溯至原始数据”的场景，例如金融合规监测中的可疑交易报告撰写，监管强制要求“检索增强 + 引用溯源”，以满足可审计性与事实可信度",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "日本医疗诉讼支持系统亦强调RAG必须“忠实于检索上下文”且“引用与问题时间对应的外部知识”，凸显其在高风险事实核查任务中的不可替代性",
+    "source": "https://arxiv.org/abs/2511.22858v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "某券商对 Qwen-7B 进行 QLoRA 微调，使用含专业隐喻的训练数据，在反欺诈舆情识别中达到 F1-score 0.91，显著优于 BERT 类模型",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "MultiHop-RAG 基准的构建即源于“现有RAG系统在处理需要多步推理的复杂查询时表现不足”的观察，而 RAG-Star 方法通过树状检索-推理-验证循环，在Llama-3.1-8B和GPT-4o上验证了RAG在“需要外部知识补充”的多跳任务中的有效性",
+    "source": "https://arxiv.org/abs/2401.15391v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "MultiHop-RAG 基准的构建即源于“现有RAG系统在处理需要多步推理的复杂查询时表现不足”的观察，而 RAG-Star 方法通过树状检索-推理-验证循环，在Llama-3.1-8B和GPT-4o上验证了RAG在“需要外部知识补充”的多跳任务中的有效性",
+    "source": "https://arxiv.org/abs/2412.12881v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "表格知识检索：T-RAG 框架专为从结构化表格语料库中高效检索而设计，解决“跨表检索”“表间知识理解”等挑战，表明RAG在结构化知识密集型任务中具有定制化优势",
+    "source": "https://arxiv.org/abs/2504.01346v4",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4 提到 RAG “在成本控制上更具灵活性” 并可通过“模型分层”平衡性能与成本",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4、5、13 均强调 RAG 的“可解释性”“可追溯性”“可审计性”“事实可信度”，指出其满足金融、法律等强监管场景的合规要求",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4、5、13 均强调 RAG 的“可解释性”“可追溯性”“可审计性”“事实可信度”，指出其满足金融、法律等强监管场景的合规要求",
+    "source": "https://arxiv.org/abs/2511.22858v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4、5、13 均强调 RAG 的“可解释性”“可追溯性”“可审计性”“事实可信度”，指出其满足金融、法律等强监管场景的合规要求",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本报告所依据的 DeepResearch 系统采用四节点 Agent 架构：Planner（规划子问题）、Researcher（执行混合检索与多跳循环）、Writer（生成初稿）、Validator（防幻觉校验）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本报告所依据的 DeepResearch 系统采用四节点 Agent 架构：Planner（规划子问题）、Researcher（执行混合检索与多跳循环）、Writer（生成初稿）、Validator（防幻觉校验）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本报告所依据的 DeepResearch 系统采用四节点 Agent 架构：Planner（规划子问题）、Researcher（执行混合检索与多跳循环）、Writer（生成初稿）、Validator（防幻觉校验）",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用显式化：为每条 Citation 添加 sourcetype（如 🔵web / 🟢rag）、confidence 与 note 字段，确保来源可辨识、校验可解释",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "校验标准升级：超越“来源存在性”检查，要求“来源真实且论断忠实”，将 LLM 返回的置信度与备注纳入决策逻辑",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "运行状态透明化：报告末尾包含“运行溯源”块，记录跳数、critic 决策次数、web/rag 命中数、token 消耗等可观测指标，保障过程可追踪",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "结构化验证机制：Validator 节点作为独立防幻觉核心，区别于依赖事后评测闭环的主流方案",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "混合检索与交叉验证：融合网络搜索与私有知识库 RAG，并通过多源印证提升结论鲁棒性",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "混合检索与交叉验证：融合网络搜索与私有知识库 RAG，并通过多源印证提升结论鲁棒性",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该方法论框架本身不构成对 RAG 与微调性能边界的实证结论，而是为本报告中援引的实证发现（如",
+    "source": "rag:rag_sample.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.5,
+    "note": "论断不完整，未提供完整信息",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "该方法论框架本身不构成对 RAG 与微调性能边界的实证结论，而是为本报告中援引的实证发现（如",
+    "source": "https://arxiv.org/abs/2511.22858v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "arxiv",
+    "confidence": 0.5,
+    "note": "论断不完整，未提供完整信息",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅完成第1跳检索（10条发现），覆盖广度与深度均不足：q…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=当前检索跳数为2、发现20条，但缺乏对核心边界条件的系统性实…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=q1 缺乏系统性跨数据规模的控制变量实证（如同一任务、同一基…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 40 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=当前发现虽覆盖四类子问题，但存在结构性缺失：(1) 缺乏对'…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1a]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 50 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=q3 中关于'模型尺寸拐点'的实证证据仍较薄弱：现有发现多指…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q2a]：+6 条新发现（web 0 / rag 5 / arxiv 1），累计 56 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=q3 中关于‘模型尺寸拐点’的实证证据仍较薄弱：现有发现多指…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q3a]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 61 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=现有发现基本支撑主体结论（如：RAG在少样本/知识动态性强/…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：20/22 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 43372,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 204.5,
+ "status": "done",
+ "error": null
+}

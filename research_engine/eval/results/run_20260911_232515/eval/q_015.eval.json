@@ -1,0 +1,152 @@
+{
+ "q_id": "q_015",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 5006,
+   "headings": 10,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 31,
+   "verified": 29,
+   "verified_relaxed": 29,
+   "existence_rate": 0.9355,
+   "fidelity_rate": 1.0,
+   "relaxed_rate": 1.0,
+   "by_source_type": {
+    "rag": {
+     "total": 19,
+     "verified": 19,
+     "verified_relaxed": 19,
+     "existence": 19
+    },
+    "arxiv": {
+     "total": 10,
+     "verified": 10,
+     "verified_relaxed": 10,
+     "existence": 10
+    },
+    "unknown": {
+     "total": 2,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "来源不存在于研究发现（编号越界或来源未命中）": 2
+   }
+  },
+  "coverage": {
+   "covered_count": 1,
+   "total": 4,
+   "coverage": 0.25,
+   "per_sub": [
+    {
+     "subquestion": "提示注入攻击的主要类型和典型利用场景有哪些？",
+     "covered": false,
+     "reason": "检索结果中虽多次提及'提示注入攻击'，但未系统归纳其主要类型（如直接注入、间接注入、上下文覆盖、混淆编码等）或典型利用场景（如绕过内容过滤、劫持代理行为、窃取上下文信息、诱导越权操作等）。仅在一处提到六领域威胁模型（含提示完整性失效等），但未展开解释类型与场景，缺乏足够细节支撑回答。"
+    },
+    {
+     "subquestion": "针对提示注入的防御策略中，输入过滤与规范化有哪些具体工程实践？",
+     "covered": false,
+     "reason": "检索结果中未出现任何关于输入过滤（如正则清洗、敏感token拦截、Unicode归一化、控制字符剔除）、输入规范化（如标准化换行符、空格压缩、HTML/Markdown转义、prompt模板强制约束）等具体工程实践的描述。虽有提及'输入验证'，但无实例、代码片段、配置方式或效果评估，无法构成实质性回答。"
+    },
+    {
+     "subquestion": "LLM 应用中如何通过架构设计（如沙箱、输出验证、角色隔离）缓解提示注入风险？",
+     "covered": true,
+     "reason": "检索结果明确提出了'SDB（随机-确定性边界）'架构契约，包含提议者-验证者-提交-拒绝信号四要素，本质即运行时输出验证机制；提及'分层委派''监督加门控''人机协同'等基于SDB的运行时模式，体现角色/责任隔离思想；还指出需设置max_depth/token_budget防无限循环，隐含沙箱式资源约束。此外，'DES决策事件模式'支持追踪与证据降级，支撑可审计的架构治理。这些均构成架构层面的缓解实践。"
+    },
+    {
+     "subquestion": "当前主流开源/商业 LLM 安全框架（如 Microsoft Guidance、NeMo Guardrails、PromptShield）提供了哪些内置防护机制？",
+     "covered": false,
+     "reason": "检索结果中未提及Microsoft Guidance、NeMo Guardrails、PromptShield等任一具体框架名称，也未描述其内置机制（如Guidance的语法约束、Guardrails的输出schema校验、PromptShield的注入检测规则等）。虽有泛泛提及'安全框架'和'防护机制'，但无框架名、无功能枚举、无技术对比，无法回答该子问题。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 1,
+   "retrieval_hit_rate": 0.125,
+   "matched_by": {
+    "keyword": 1,
+    "semantic": 0,
+    "miss": 7
+   },
+   "per_keyword": [
+    {
+     "keyword": "提示注入",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "输入过滤",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "输出验证",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "沙箱机制",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "角色隔离",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "NeMo Guardrails",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "Microsoft Guidance",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "PromptShield",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 45833,
+   "total_cost": 0.0642,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 7,
+   "depth": 7
+  },
+  "reflection": {
+   "stop_type": "critic_stop",
+   "hard_reasons": [],
+   "critic_signal": "stop",
+   "rounds": 7,
+   "early_stop_candidate": true,
+   "late_stop_candidate": true,
+   "coverage_at_stop": 0.25
+  },
+  "raw_complete": true
+ }
+}

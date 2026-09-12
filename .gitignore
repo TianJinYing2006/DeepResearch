@@ -29,3 +29,16 @@ samples/
 # 系统
 .DS_Store
 Thumbs.db
+
+# ---- eval 实验产物纪律 ----
+# 只入库权威/里程碑 run 与 curated 权威产物；原始迭代过程不入库。
+# （.gitignore 对已跟踪文件无效，故此前误入库的内容不受本规则影响）
+research_engine/eval/results/run_*/
+!research_engine/eval/results/run_20260911_194156/
+!research_engine/eval/results/run_20260911_232515/
+research_engine/eval/results/w7_experiment_*/
+!research_engine/eval/results/w7_experiment_20260911_194151/
+# 被取代/废弃/临时产物一律不入库（文件保留在本地仅供追溯，不进入正式记录）
+research_engine/eval/results/*_SUPERSEDED.json
+research_engine/eval/results/*_DISCARDED.json
+research_engine/eval/results/_tmp_*/

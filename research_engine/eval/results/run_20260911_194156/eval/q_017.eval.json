@@ -1,0 +1,165 @@
+{
+ "q_id": "q_017",
+ "status": "ok",
+ "missing_metrics": [],
+ "metrics": {
+  "completion": {
+   "complete": true,
+   "status": "done",
+   "error": null,
+   "report_chars": 7081,
+   "headings": 7,
+   "conditions": {
+    "status_done": true,
+    "error_none": true,
+    "report_len_ge_300": true,
+    "headings_ge_2": true
+   }
+  },
+  "citation": {
+   "total_citations": 68,
+   "verified": 47,
+   "verified_relaxed": 47,
+   "existence_rate": 0.9265,
+   "fidelity_rate": 0.746,
+   "relaxed_rate": 0.746,
+   "by_source_type": {
+    "rag": {
+     "total": 30,
+     "verified": 19,
+     "verified_relaxed": 19,
+     "existence": 30
+    },
+    "arxiv": {
+     "total": 24,
+     "verified": 19,
+     "verified_relaxed": 19,
+     "existence": 24
+    },
+    "code_exec": {
+     "total": 9,
+     "verified": 9,
+     "verified_relaxed": 9,
+     "existence": 9
+    },
+    "unknown": {
+     "total": 5,
+     "verified": 0,
+     "verified_relaxed": 0,
+     "existence": 0
+    }
+   },
+   "failed_note_distribution": {
+    "原文[1]未提及‘arXiv/代码执行等工具缺失’；相反，[1]明确使用了rag": 7,
+    "来源[1]全文未提及Bloomberg Terminal、PubMed API或": 1,
+    "来源[7]全文聚焦YouZhi-LLM模型架构与训练方法（GQA-to-MLA、": 1,
+    "来源[8]仅介绍MedAide医疗多智能体框架及其正则化引导模块，**未讨论数据": 1,
+    "来源[1]未出现‘缺少 ≥20 条标注数据集’表述；原文仅说‘dataset.j": 1,
+    "原文[10]未出现‘ismeta=true’字样；该标记是校验器元规则，非来源内": 1,
+    "来源[12]全文未提‘tokenbudget’；该词仅出现在[1]中（‘Toke": 1,
+    "来源[1]未提及Langfuse；‘可观测性缺失’是合理推断，但‘Langfus": 1,
+    "来源不存在于研究发现（编号越界或来源未命中）": 5,
+    "来源[5]摘要结尾为完整句子，无截断；Claim为明显文本截断错误，无效论断。": 1,
+    "来源[5]为arXiv论文，不含HTML标签‘<br>’；该Claim混入格式标": 1
+   }
+  },
+  "coverage": {
+   "covered_count": 2,
+   "total": 3,
+   "coverage": 0.6667,
+   "per_sub": [
+    {
+     "subquestion": "当前有哪些专门用于评测LLM Agent工具调用能力的公开数据集（如ToolBench、APIBench、MMMLU-Tools等）及其核心设计特点？",
+     "covered": false,
+     "reason": "检索内容中仅提及一个自定义数据集（dataset.jsonl），包含字段如id、difficulty、type、query等，但未说明其是否为公开数据集，也未提及其名称（如ToolBench、APIBench、MMMLU-Tools）、来源、规模、构建方式、任务类型覆盖或与已有基准的对比；未出现任何已知公开数据集的名称或特征描述。"
+    },
+    {
+     "subquestion": "评测工具调用可靠性时常用的关键指标有哪些（除Pass@k外，是否包含ToolCall Accuracy、Success Rate、Error Type Distribution等）？各指标具体定义与计算方式是什么？Pass@k在工具调用场景下的具体含义、适用条件及典型取值（如k=1/3/5）与局限性是什么？",
+     "covered": true,
+     "reason": "检索内容多次明确列出指标：Pass@k（多处提及，含CPPO、Cover@tau对比）、ToolCall Accuracy、Parameter F1、Execution Success Rate、Recovery Rate；指出Pass@k在大采样量下可能误导、在离散答案空间任务中局限性明显，并提出Cover@tau作为替代；还提到引用准确率（LLM-judge+人工抽检）、完成率、信息覆盖度等，虽未给出全部精确定义公式，但已覆盖关键指标名称、部分语境化解释（如Execution Success Rate隐含执行成功比例）、Pass@k的适用问题与局限性，满足‘是否包含’及‘基本含义与局限性’的回答要求。"
+    },
+    {
+     "subquestion": "工业界与学术界在工具调用失败分析中采用哪些系统化实践（如错误归因框架、日志追踪方法、典型失败模式分类）？",
+     "covered": true,
+     "reason": "检索内容提供了多项系统化失败分析实践：（1）验收标准（DoD）中要求记录运行溯源信息（跳数、token消耗）、强制字段（source_type/confidence/note）和verified校验逻辑；（2）明确归纳5个关键缺陷（如‘引用未区分来源类型’‘RAG注入不可见’）；（3）识别典型失败模式：多编号引用导致校验失败、中文分隔符变体不支持、索引缺失、无效字符（U+FF0C）引发语法错误；（4）提出错误归因——旧提取逻辑正则捕获组误处理多编号为整体字符串；（5）工业案例中体现失败分析导向的改进（如银行OCR字段抽取、券商隐性风险识别、监管AML溯源要求）。虽未使用‘错误归因框架’等术语，但实质内容符合系统化实践要求。"
+    }
+   ],
+   "judge_failed": false
+  },
+  "retrieval_hit": {
+   "total_keywords": 8,
+   "hit": 3,
+   "retrieval_hit_rate": 0.375,
+   "matched_by": {
+    "keyword": 3,
+    "semantic": 0,
+    "miss": 5
+   },
+   "per_keyword": [
+    {
+     "keyword": "工具调用可靠性",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "Pass@k",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "ToolBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "APIBench",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "ToolCall Accuracy",
+     "matched": true,
+     "matched_by": "keyword"
+    },
+    {
+     "keyword": "失败归因",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "错误类型分析",
+     "matched": false,
+     "matched_by": "miss"
+    },
+    {
+     "keyword": "MMMLU-Tools",
+     "matched": false,
+     "matched_by": "miss"
+    }
+   ]
+  },
+  "cost": {
+   "total_tokens": 42407,
+   "total_cost": 0.0594,
+   "per_model": {},
+   "per_role": {},
+   "single_token_only": true
+  },
+  "steps": {
+   "steps": 4,
+   "depth": 4
+  },
+  "reflection": {
+   "stop_type": "hard_stop",
+   "hard_reasons": [
+    "frontier_empty"
+   ],
+   "critic_signal": "stop",
+   "rounds": 4,
+   "early_stop_candidate": false,
+   "late_stop_candidate": false,
+   "coverage_at_stop": 0.6667
+  },
+  "raw_complete": true
+ }
+}

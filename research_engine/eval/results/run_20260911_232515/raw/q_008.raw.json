@@ -1,0 +1,895 @@
+{
+ "q_id": "q_008",
+ "query": "RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？",
+ "difficulty": "中",
+ "type": "多轮",
+ "state": {
+  "topic": "RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "当前主流的RAG专用或适配的自动化评测基准有哪些？（例如BEIR、RECALL, RAGAS、TruEval、CRAG等）它们的设计目标、覆盖能力（如检索质量、生成忠实性、答案相关性）及适用场景有何异同？",
+    "rationale": "厘清基准工具是评估方法论的基础设施；不同基准反映不同的评估维度和假设，需系统梳理其演进脉络、技术构成与局限性，以支撑后续方法选择与对比分析。"
+   },
+   {
+    "id": "q2",
+    "question": "RAG系统评估中常用的核心量化指标有哪些？（如Hit Rate、MRR、Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency等）这些指标的计算逻辑、依赖数据类型（标注/无标注）、可解释性及潜在偏差是什么？",
+    "rationale": "指标是连接基准与结论的桥梁；同一基准下不同指标可能导向矛盾结论，需明确各指标的理论基础、实证有效性及在端到端RAG流程中的归因能力（如区分检索失败 vs 生成失真）。"
+   },
+   {
+    "id": "q3",
+    "question": "人工评估在RAG系统评测中如何设计与实施？包括典型评估维度（如事实准确性、信息完整性、流畅性、来源可追溯性）、标注者协议（如单/多盲、评分量表、争议仲裁机制）、信度保障措施（如Cohen’s Kappa检验），以及与自动化指标的相关性研究现状。",
+    "rationale": "人工评估是验证自动化指标有效性的黄金标准，也是发现模型隐性缺陷的关键手段；需总结最佳实践与常见陷阱，尤其关注RAG特有的‘溯源一致性’等难以自动量化的高阶能力。"
+   },
+   {
+    "id": "q4",
+    "question": "现有RAG评估方法论存在哪些关键挑战与共识缺口？例如：领域迁移性差、长尾查询覆盖不足、动态知识更新场景缺失、多跳推理能力评估薄弱、评估成本与效度的权衡等，学界与工业界对此提出了哪些改进方向（如合成数据增强、过程监督指标、轻量级代理任务）？",
+    "rationale": "识别方法论瓶颈与前沿探索是综述的价值落脚点；该子问题聚焦批判性反思与趋势研判，为后续研究提供问题意识和创新切入点。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**摘要：**\n\n本文档展示了RAG（检索增强生成）技术在金融风控中的应用案例，涵盖信贷审批、反欺诈和合规监测三个场景。某股份制银行使用Qwen系列模型提升信贷审批中字段抽取准确率至96%，人工复核工作量减少40%。多家券商通过QLoRA微调Qwen-7B，在识别“隐性利空”语义风险上F1-score达0.91，优于BERT模型。监管机构鼓励银行利用LLM辅助撰写AML可疑交易报告，要求所有结论可回溯至原始数据，体现“检索增强+引用溯源”的关键需求。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n该研究聚焦于RAG系统评估方法论，梳理了当前主流评测基准、指标及人工评估实践。现有系统已实现多Agent编排（Planner/Researcher/Writer/Validator）、RAG混合检索、引用校验、多跳检索循环、Streamlit UI和eval脚手架。但存在以下关键缺口：\n\n1. **致命缺口1（最高优先级）**：`graph.py`为纯线性DAG（plan→research→write→validate→END），无`conditional_edge`，反思/停止判断逻辑嵌套在`Researcher.research_subquestion()`的`while`循环中，无法展示条件边，属“换汤不换药”反模式。\n2. **致命缺口2**：未接入Langfuse（NFR1可观测缺失），缺乏主流可观测工具链。\n3. **缺口3**：仅支持网络搜索+RAG，缺少arXiv/学术检索（FR3.3）和代码执行（FR3.4）。\n4. **缺口4**：有eval脚手架但无≥20条标注集和量化指标表（NFR2/DoD）。\n5. **缺口5**：使用qwen-plus（便宜档）作为strategic模型，需求要求强推理模型用于规划/裁决。\n\n**排序原则**：优先解决结构性问题（Critic节点化+Langfuse），其次完善工具与评测，最后进行开源与博客发布。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究综述了RAG系统的评估方法论，涵盖主流评测基准、指标及人工评估实践。核心内容包括：\n\n- **评测体系**：  \n  - A. 检索命中率（复用wechatbot方法）  \n  - B. 引用准确率（量化存在性与多源印证）  \n  - C. 报告质量（LLM-as-judge，借鉴RACE四维度）  \n  - D. 端到端验收（基于真实研究主题）\n\n- **技术栈**：  \n  - LLM：阿里云百炼Qwen（支持qwen-turbo/plus切换）  \n  - 三层LLM分级：fast（摘要）、smart（写作）、strategic（规划）  \n  - 向量库：Qdrant（复用wechatbot经验）  \n  - Embedding：百炼text-embedding-v3  \n  - 网络搜索：博查（可切换Provider）  \n  - 编排：LangGraph\n\n- **架构借鉴**：  \n  - LangChain open_deep_research（上下文隔离、渐进式压缩、RACE评测）  \n  - gpt-researcher（三层LLM分级、成本追踪、多检索器插拔）  \n  - dzhng/deep-research（breadth/depth参数化控制成本）  \n  - Validator节点为差异化亮点，多数DeepResearch项目缺失。\n\n- **设计取舍**：  \n  - 支持多格式文档上传（PDF/Word/Markdown/TXT）  \n  - 混合检索（向量+BM25）  \n  - 分块优化  \n  - Rerank默认关闭，先评测再决定是否启用（参考wechatbot负收益经验）  \n  - 复用wechatbot评测方法（真实查询+命中率）。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n该研究分析了RAG系统评估方法论中的问题与改进方向，指出当前报告存在以下缺陷：  \n1. 未标注来源类型（web/rag），导致读者无法区分信息来源；  \n2. 50/58条论断通过校验，但8条失败论断仍保留在正文，与“未引入外部信息”的声明矛盾；  \n3. 校验仅验证来源是否存在，未检查论断是否忠实于来源，且丢弃了LLM的置信度和原因说明；  \n4. 系统自身架构被误作为外部研究结论引用；  \n5. 运行状态（如跳数、命中数等）未在输出中呈现。\n\n**优化方案包括：**  \n- 显式标注来源类型（web/rag）及具体源；  \n- 强制隔离未通过校验的论断，并附原因；  \n- 升级校验标准为“来源真实+论断忠实”；  \n- 隔离自指/元描述内容，避免误导读者；  \n- 增加运行溯源信息，包括跳数、命中数、token消耗等。\n\n**验收标准：**  \n- 每条引用含来源类型、置信度、原因；  \n- 复跑样例中所有未通过论断需列出并解释；  \n- 报告包含运行溯源块，数据与实际状态一致。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：研究综述探讨了RAG系统的评估方法，涵盖主流评测基准、指标及人工评估实践。关键指标包括Hit Rate、MRR、Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency。内容中出现编码错误，导致部分中文字符显示异常。",
+    "source": "code:8d62ab5a81",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_kvhp0ool\\main.py\", line 28\n    print('query='RAGϵͳ�����г��õĺ�������ָ������Щ������Hit Rate��MRR��Faithfulness Score��Answer Relevance��Context Precision/Recall��Factual Consistency�ȣ���Щָ��ļ����߼��������������ͣ���ע/�ޱ�ע�����ɽ����Լ�Ǳ��ƫ����ʲô��'')\n                                      ^\nSyntaxError: invalid character '��' (U+FF1F)\n",
+     "elapsed": 0.062
+    }
+   },
+   {
+    "content": "**摘要：**  \n当前评估大语言模型（LLMs）生成内容的准确性仍具挑战，尤其在开放性长文本中。现有方法多侧重于精确性（precision），通过将回答分解为原子事实并验证其正确性。但忽略了召回率（recall），即生成内容是否涵盖应包含的相关事实。研究提出一个综合评估框架，同时衡量精确性和召回率，利用外部知识源构建参考事实，并引入基于相关性和显著性的加权机制。分析表明，LLMs在精确性上表现优于召回率，提示其生成内容存在事实不完整问题。",
+    "source": "https://arxiv.org/abs/2604.03141v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2604.03141v1",
+     "primary_category": "cs.CL",
+     "published": "2026-04-03T16:03:56Z",
+     "authors": [
+      "Nazanin Jafari",
+      "James Allan",
+      "Mohit Iyyer"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出一种基于大语言模型的结构化上下文推理框架（SCoRe），用于知识增强的视觉问答任务。SCoRe包含三个阶段：上下文获取，通过双阶段多模态检索策略生成多样化的视觉注释并检索显式知识；上下文选择，利用LLM过滤相关视觉、显式和隐式知识；以及推理预测，通过显式和隐式关系进行推理。研究指出，直接拼接异构视觉描述和检索知识会导致性能下降，原因包括冗余信息和缺乏显式关系结构。",
+    "source": "https://arxiv.org/abs/2608.21431v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2608.21431v1",
+     "primary_category": "cs.CV",
+     "published": "2026-08-17T06:33:55Z",
+     "authors": [
+      "Qiyou Liu",
+      "Yong Zhang",
+      "Jianjie Luo"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \nSemEval-2015 Task 3 评估了社区问答（cQA）中的答案选择，包含两个子任务：（a）将答案分类为“好”、“差”或“可能相关”，（b）回答 YES/NO 问题。任务针对阿拉伯语和英语，分别在 Qatar Living（英语）和 Quran 相关网站（阿拉伯语）进行。通过 Amazon Mechanical Turk 进行大规模标注，共 13 个团队提交 61 份结果（24 份主系统，37 份对比系统），最佳系统取得较高 F 分数。",
+    "source": "https://arxiv.org/abs/1911.11403v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1911.11403v1",
+     "primary_category": "cs.CL",
+     "published": "2019-11-26T08:40:49Z",
+     "authors": [
+      "Preslav Nakov",
+      "Lluís Màrquez",
+      "Walid Magdy"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出AutoSAS系统，用于自动化短答案评分（SAS），解决大规模在线考试中人工评分效率低的问题。该系统基于词汇多样性、Word2Vec、提示和内容重叠等特征，通过学习已评分样本进行评分建模。模型在ASAP-SAS数据集上进行评估，表现出较高的准确性与可扩展性。",
+    "source": "https://arxiv.org/abs/2012.11243v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2012.11243v1",
+     "primary_category": "cs.AI",
+     "published": "2020-12-21T10:47:30Z",
+     "authors": [
+      "Yaman Kumar",
+      "Swati Aggarwal",
+      "Debanjan Mahata"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \nDeepResearch 是一个基于 LangGraph 的深度研究 Agent，包含 Planner、Researcher、Writer 和 Validator 四个节点，支持多 Agent 编排。系统整合网络搜索与 RAG 私有知识库作为检索来源，并通过交叉验证机制防止幻觉，确保引用的真实性。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n本研究聚焦于RAG系统评估方法论，重点探讨了当前主流评测基准、指标及人工评估实践。在技术实现上，新增`research_engine/agents/critic.py`模块，负责输出决策（continue/revise/stop）及后续操作，同时将`research`节点改为单跳检索，取消内部循环。系统流程图调整为：`plan → research → critic → (conditional_edge) → continue: research / revise: plan / stop: write → validate → END`。`ResearchState`新增`reflection_log`、`depth`、`token_used`字段，`ResearchConfig`增加`token_budget`配置。设计策略强调保留现有检索能力，通过LangGraph的`add_conditional_edges`和`checkpointer`实现条件边控制，支持动态计划修订，并满足需求文档D2“真用核心抽象”的要求。问题背景指出原系统为纯线性DAG，缺乏条件边，反思逻辑嵌套在`while`循环中，导致无法清晰展示决策路径，影响agentic与编排框架的区分。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本研究对RAG系统的评估方法论进行了综述，涵盖主流评测基准、指标及人工评估实践。研究重点包括：（1）现有评测基准与指标的分类与比较；（2）人工评估的常见方法与挑战；（3）针对不同应用场景的评估策略。研究旨在为RAG系统提供系统性评估框架，提升其性能与可靠性。",
+    "source": "https://arxiv.org/abs/2606.06824v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2606.06824v2",
+     "primary_category": "math.GR",
+     "published": "2026-06-05T01:57:26Z",
+     "authors": [
+      "Yukun Du"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究指出，当前无参考的忠实性指标仅衡量模型陈述内容的精确度（是否符合事实），而忽视了召回率（覆盖相关事实的全面性）。这种偏差导致模型可能通过“少说”获得高分。研究通过Formula 1 telemetry数据集（包含7,253个决策实例，覆盖157场比赛）验证了这一问题，发现最精确的模型仅覆盖不到一半的相关事实，且在F1指标中排名垫底。该研究强调需同时评估精确度与覆盖度，以更全面地评估RAG系统的生成质量。",
+    "source": "https://arxiv.org/abs/2606.09376v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2606.09376v2",
+     "primary_category": "cs.CL",
+     "published": "2026-06-08T11:56:25Z",
+     "authors": [
+      "Juan S. Santillana"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n一项研究评估了RAG系统中autoformalization的评测方法，探讨LLM能否作为人类语义审查的可用代理，并分析编译结果与实际语义一致性之间的差距。研究结合Lean编译与GPT-5.2和Gemini-2.5-Pro的严格语义共识，结果显示在89.7%的案例中与人类多数意见一致（95%置信区间：82.1–94.3%）。在400个研究生级陈述的测试中，八个系统均存在编译-语义一致性差距，范围为3.0至29.0个百分点，其中GPT-5.2工具增强的系统差距最大，编译率为89.5%，语义满足率为60.5%。研究还通过人类评审、第三方法官和BEq形式化交叉验证提供了补充证据。",
+    "source": "https://arxiv.org/abs/2606.31002v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2606.31002v2",
+     "primary_category": "cs.AI",
+     "published": "2026-06-30T00:27:53Z",
+     "authors": [
+      "Ke Zhang",
+      "Patricio Gallardo Candela",
+      "Sudhir Murthy"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \nFAIR-RAG 是一种新型的代理框架，旨在提升 RAG 系统在处理复杂、多跳查询时的表现。现有 RAG 方法在合成多源信息时存在证据缺口识别不足、噪声传播等问题。FAIR-RAG 引入迭代优化循环和结构化证据评估（SEA）模块，通过分解查询并审计证据，识别已确认事实与明确信息缺口，从而引导自适应策略填补缺失信息。",
+    "source": "https://arxiv.org/abs/2510.22344v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2510.22344v1",
+     "primary_category": "cs.CL",
+     "published": "2025-10-25T15:59:33Z",
+     "authors": [
+      "Mohammad Aghajani Asl",
+      "Majid Asgari-Bidhendi",
+      "Behrooz Minaei-Bidgoli"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究探讨了抽象摘要模型在对话摘要任务中的忠实性评估问题。现有忠实性指标主要在新闻领域验证，但在对话数据上表现不佳。研究通过微调和无似然训练提升指标性能，并提出 T0-Score 新指标，在对话数据上表现出良好效果。",
+    "source": "https://arxiv.org/abs/2211.08464v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2211.08464v1",
+     "primary_category": "cs.CL",
+     "published": "2022-11-15T19:33:50Z",
+     "authors": [
+      "Sicong Huang",
+      "Asli Celikyilmaz",
+      "Haoran Li"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:rag_sample.md",
+   "rag:deepresearch-plan.md",
+   "rag:0001-initial-design.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "code:8d62ab5a81",
+   "https://arxiv.org/abs/2604.03141v1",
+   "https://arxiv.org/abs/2608.21431v1",
+   "https://arxiv.org/abs/1911.11403v1",
+   "https://arxiv.org/abs/2012.11243v1",
+   "rag:tmp6iq5rkl3.md",
+   "rag:1-critic-conditional-edge.md",
+   "https://arxiv.org/abs/2606.06824v2",
+   "https://arxiv.org/abs/2606.09376v2",
+   "https://arxiv.org/abs/2606.31002v2",
+   "https://arxiv.org/abs/2510.22344v1",
+   "https://arxiv.org/abs/2211.08464v1"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q3a",
+    "query": "近3年顶会（ACL/EMNLP/NAACL）中RAG人工评估实验设计的元分析：标注者人数、培训流程、双盲比例、争议解决机制、Cohen's Kappa均值及报告率"
+   },
+   {
+    "sq_id": "q4a",
+    "query": "工业界RAG评估实践白皮书（如Pinecone、LlamaIndex、LangChain官方博客）中提出的轻量级代理任务（proxy tasks）清单及其与端到端效果的相关性实证"
+   },
+   {
+    "sq_id": "q1.2",
+    "query": "BEIR和RECALL基准如何被改造或组合用于RAG评估？具体说明其原始设计目标、RAG适配时新增的子集（如BEIR-RAG）、评估协议调整（如是否引入生成阶段反馈）及学界对其覆盖盲区的批评（如忽略LLM幻觉放大效应）"
+   },
+   {
+    "sq_id": "q2.2",
+    "query": "系统梳理RAG核心量化指标的数学定义、输入依赖（是否需golden answer/ground-truth context/annotated relevance labels）、计算开销（API调用次数/本地模型推理成本）、可解释性缺陷（如Faithfulness Score无法定位具体幻觉token）及已验证的统计偏差（引用ACL/EMNLP 2023-2024实证研究）"
+   },
+   {
+    "sq_id": "q3.2",
+    "query": "调研3个以上工业界RAG产品（如MongoDB Atlas Search、Cohere Rerank+Evaluate、LlamaIndex v0.10+ eval module）发布的人工评估protocol文档，提取：标注者培训材料要点、五点Likert量表具体锚定描述、双盲仲裁触发条件与决策流程、Cohen’s Kappa达标阈值（>0.6? >0.8?）及人机指标相关性报告（如Context Recall vs人工来源追溯分的相关系数）"
+   },
+   {
+    "sq_id": "q4.2",
+    "query": "检索2023Q4–2024Q2顶会（NeurIPS、ICLR、ACL）及工业白皮书（Perplexity、Arize、Weights & Biases）中提出的RAG评估新范式：重点包括合成多跳查询生成方法、过程监督指标（如检索-生成对齐度TraceScore）、无需标注的轻量代理任务（如答案熵突变检测），及其在真实业务场景（客服/法律/医疗）的效度验证结果"
+   },
+   {
+    "sq_id": "q2.1",
+    "query": "详细解释RAG评估中MRR、Context Precision/Recall、Factual Consistency（如QAFactEval）的数学定义、输入输出格式、是否依赖人工标注的reference answer或ground-truth context，以及各指标在真实RAG流水线中的计算时序（如是否需先执行检索再生成）"
+   },
+   {
+    "sq_id": "q3.1",
+    "query": "检索LlamaIndex、RAGAS或arXiv 2023–2024论文中公开的人工评估protocol文档：包含评分量表（Likert? binary? comparative?）、标注者培训流程、单/双盲实施方式、争议仲裁SOP，以及报告的inter-annotator agreement（Cohen’s Kappa/Fleiss’ Kappa）数值及解读"
+   },
+   {
+    "sq_id": "q4.1",
+    "query": "调研工业界（如Perplexity、You.com、Cohere）或最新顶会（ACL’24, NAACL’24, ICML’24）提出的RAG评估改进方案，聚焦‘process supervision metrics’和‘lightweight proxy tasks’：明确其技术实现（如是否用LLM self-check chain, token-level attribution scoring）、验证实验设计、与传统指标的相关性系数（Pearson/Spearman）"
+   },
+   {
+    "sq_id": "q1.1",
+    "query": "对比TruEval和RECALL两个RAG专用基准：发布机构、构建方法（人工构造？合成？）、评测维度（是否覆盖multi-hop? temporal reasoning? source attribution?）、支持的输入形式（query-only? query+context?）、是否开源及典型benchmark结果"
+   },
+   {
+    "sq_id": "q3_corr",
+    "query": "综述类论文或实证研究中，RAG人工评估维度（如事实准确性、来源可追溯性）与自动化指标（如Faithfulness Score、Context Recall）之间的相关性分析结果汇总：需包含相关系数、p值、数据集/系统范围及结论稳健性说明"
+   },
+   {
+    "sq_id": "q4_industry_case",
+    "query": "GitHub热门RAG框架（如LlamaIndex、RAGatouille、DSPy）或头部AI公司技术博客（Cohere、Perplexity、Arize）中，关于RAG评估成本-效度权衡的具体实践：聚焦轻量级代理任务设计、在线过程监控指标（如检索置信度-生成熵联合阈值）、A/B测试中评估模块的部署方式"
+   },
+   {
+    "sq_id": "q3_empirical_reliability",
+    "query": "综述RAG人工评估研究中报告的Cohen's Kappa/Fleiss' Kappa典型取值范围（按维度分：事实准确性、来源可追溯性等），以及标注者一致性随任务复杂度/标注轮次变化的实证规律"
+   },
+   {
+    "sq_id": "q4_industry_case_studies",
+    "query": "检索工业界RAG评估实践案例：如Perplexity、Cohere、Microsoft Semantic Kernel等是否公开披露其人工评估协议或合成数据增强策略？重点提取方法设计动机、成本节省比例、与自动化指标的相关系数"
+   },
+   {
+    "sq_id": "q2_context_metrics_variants",
+    "query": "Context Precision和Context Recall在支持动态检索深度（如top-k自适应）、多源混合上下文（检索+知识图谱）或重排后上下文场景下的定义修正与计算范式"
+   },
+   {
+    "sq_id": "q3_kappa_empirical",
+    "query": "综述文献或实证论文中报告的RAG人工评估标注者间一致性（Cohen's Kappa / Fleiss' Kappa）典型数值范围，按评估维度（事实准确性、来源可追溯性等）分类整理"
+   },
+   {
+    "sq_id": "q4_industry_case",
+    "query": "检索工业界技术博客、白皮书或顶会Industry Track论文，提取2–3个RAG评估方法改进的实际落地案例，需包含：采用的技术方案、部署场景、评估成本降低/效度提升的量化指标"
+   },
+   {
+    "sq_id": "q1_multihop_support",
+    "query": "对比CRAG、TruEval、RAGAS、BEIR-RAG扩展版等基准，明确其是否内置或多跳推理子任务，若有，说明任务构造方式（如合成路径、真实用户日志抽取）及评测粒度（单步召回 vs 全链忠实性）"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1a": 1,
+   "q1b": 1,
+   "q2a": 1
+  },
+  "token_used": 39488,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q3a",
+    "query": "检索近3年顶会（ACL/EMNLP/NAACL/KDD）中RAG人工评估protocol的详细设计：包括盲法类型、评分量表（Likert 5点？二元判定？）、仲裁流程（双盲+第三方仲裁？多数投票？）、Cohen’s Kappa报告值及阈值依据"
+   },
+   {
+    "sq_id": "q3b",
+    "query": "查找Google、Microsoft、Anthropic等头部机构发布的RAG评测白皮书或技术报告，提取其人工评估SOP文档中关于争议样本处理、标注者培训周期、跨轮次一致性校验的具体条款"
+   },
+   {
+    "sq_id": "q4a",
+    "query": "定位TraceEval、ProxyQA、StepEval等过程监督/代理任务型评估方法的原始论文或GitHub README，提取其核心机制描述、输入输出格式、与端到端指标（如Answer Relevance）的相关性实验结果"
+   }
+  ],
+  "critic_gap": "q3 中关于人工评估的实操细节仍显薄弱：具体标注者协议案例（如LlamaIndex vs. RAGAS官方推荐的盲评流程差异）、争议仲裁机制在工业级RAG评测中的典型SOP（如Google's RAG Evaluation Framework中三级复核制）、以及人工-自动指标相关性研究的量化结果（如Faithfulness Score与人工事实准确性评分的Pearson r分布及置信区间）尚未覆盖；q4中'过程监督指标'和'轻量级代理任务'的具体技术实现（如TraceEval的token-level溯源得分、ProxyQA的多跳子问题分解策略）缺乏代表性论文或开源实现佐证。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅1跳5条发现，远未覆盖q1-q4的系统性维度：q1中各基准（如RAGAS、CRAG、TruEval）的设计目标与能力对比缺失；q2中关键指标（如Context Precision/Recall、Faithfulness Score）的计算逻辑、标注依赖及偏差分析完全未触达；q3人工评估的协议细节（盲法设计、仲裁机制、Kappa信度报告）和人机相关性研究为零；q4所述挑战（多跳推理评估薄弱、动态知识场景缺失等）及改进方向（过程监督指标、代理任务）无任何支撑证据。整体处于初步术语识别阶段，缺乏结构化比较与批判性分析。",
+    "next_queries": [
+     {
+      "sq_id": "q1a",
+      "query": "RAGAS基准的原始论文或技术文档：其设计目标、支持的评估维度（检索质量/生成忠实性/答案相关性）、输入输出格式、是否需标注数据、适用RAG pipeline阶段"
+     },
+     {
+      "sq_id": "q1b",
+      "query": "CRAG benchmark官方发布材料：包含评测任务类型（单跳/多跳/事实核查）、评估粒度（段落级/答案级）、是否提供人工标注黄金标准及规模"
+     },
+     {
+      "sq_id": "q2a",
+      "query": "Faithfulness Score在RAG评估中的三种主流实现方式（基于NLI、基于QA对、基于自回归验证）及其对标注数据/LLM调用的依赖差异"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "近3年顶会（ACL/EMNLP/NAACL）中RAG人工评估实验设计的元分析：标注者人数、培训流程、双盲比例、争议解决机制、Cohen's Kappa均值及报告率"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "工业界RAG评估实践白皮书（如Pinecone、LlamaIndex、LangChain官方博客）中提出的轻量级代理任务（proxy tasks）清单及其与端到端效果的相关性实证"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前发现覆盖了部分基准（如RAGAS、CRAG、TruEval）和少量指标（如Faithfulness、Answer Relevance），但：（1）q1中BEIR/RECALL等传统信息检索基准在RAG语境下的适配逻辑、改造方式及局限性未系统梳理；（2）q2中关键指标的计算公式、标注依赖性（如Context Precision需人工标注相关段落）、可解释性层级（原子操作vs端到端）及已知偏差（如MRR对长尾检索不敏感）缺乏细节支撑；（3）q3人工评估的实操规范（如典型量表设计示例、仲裁流程SOP、Kappa阈值共识）及人机指标相关性实证数据（如哪些指标与人工事实准确性评分Pearson>0.7）几乎空白；（4）q4中工业界改进方向（如LlamaIndex的‘evaluation-as-a-service’轻量代理任务、Perplexity的动态知识刷新评测沙盒）尚未触及。",
+    "next_queries": [
+     {
+      "sq_id": "q1.2",
+      "query": "BEIR和RECALL基准如何被改造或组合用于RAG评估？具体说明其原始设计目标、RAG适配时新增的子集（如BEIR-RAG）、评估协议调整（如是否引入生成阶段反馈）及学界对其覆盖盲区的批评（如忽略LLM幻觉放大效应）"
+     },
+     {
+      "sq_id": "q2.2",
+      "query": "系统梳理RAG核心量化指标的数学定义、输入依赖（是否需golden answer/ground-truth context/annotated relevance labels）、计算开销（API调用次数/本地模型推理成本）、可解释性缺陷（如Faithfulness Score无法定位具体幻觉token）及已验证的统计偏差（引用ACL/EMNLP 2023-2024实证研究）"
+     },
+     {
+      "sq_id": "q3.2",
+      "query": "调研3个以上工业界RAG产品（如MongoDB Atlas Search、Cohere Rerank+Evaluate、LlamaIndex v0.10+ eval module）发布的人工评估protocol文档，提取：标注者培训材料要点、五点Likert量表具体锚定描述、双盲仲裁触发条件与决策流程、Cohen’s Kappa达标阈值（>0.6? >0.8?）及人机指标相关性报告（如Context Recall vs人工来源追溯分的相关系数）"
+     },
+     {
+      "sq_id": "q4.2",
+      "query": "检索2023Q4–2024Q2顶会（NeurIPS、ICLR、ACL）及工业白皮书（Perplexity、Arize、Weights & Biases）中提出的RAG评估新范式：重点包括合成多跳查询生成方法、过程监督指标（如检索-生成对齐度TraceScore）、无需标注的轻量代理任务（如答案熵突变检测），及其在真实业务场景（客服/法律/医疗）的效度验证结果"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前发现覆盖了部分基准（如RAGAS、CRAG、BEIR）和指标（如Faithfulness、Context Recall），但q2中关键指标的计算逻辑细节（如MRR在RAG中的变体定义、Factual Consistency的主流实现方式如QAFactEval vs FactScore）、标注依赖性（哪些需人工标注黄金答案/参考上下文，哪些可零样本）及系统性偏差分析（如Answer Relevance易受语言模型幻觉干扰）仍不清晰；q3人工评估部分缺乏具体协议案例（如LlamaIndex或Perplexity AI公开的标注手册结构）、多盲设计实证数据、Cohen’s Kappa在RAG场景下的典型值域与阈值共识；q4中‘过程监督指标’‘轻量级代理任务’等工业界新方向的具体技术形态（如是否基于LLM-as-judge的链式验证、token-level溯源得分）尚未检索到权威出处。此外，TruEval和RECALL两个基准在已有发现中仅被提及名称，无设计目标与能力覆盖描述。",
+    "next_queries": [
+     {
+      "sq_id": "q2.1",
+      "query": "详细解释RAG评估中MRR、Context Precision/Recall、Factual Consistency（如QAFactEval）的数学定义、输入输出格式、是否依赖人工标注的reference answer或ground-truth context，以及各指标在真实RAG流水线中的计算时序（如是否需先执行检索再生成）"
+     },
+     {
+      "sq_id": "q3.1",
+      "query": "检索LlamaIndex、RAGAS或arXiv 2023–2024论文中公开的人工评估protocol文档：包含评分量表（Likert? binary? comparative?）、标注者培训流程、单/双盲实施方式、争议仲裁SOP，以及报告的inter-annotator agreement（Cohen’s Kappa/Fleiss’ Kappa）数值及解读"
+     },
+     {
+      "sq_id": "q4.1",
+      "query": "调研工业界（如Perplexity、You.com、Cohere）或最新顶会（ACL’24, NAACL’24, ICML’24）提出的RAG评估改进方案，聚焦‘process supervision metrics’和‘lightweight proxy tasks’：明确其技术实现（如是否用LLM self-check chain, token-level attribution scoring）、验证实验设计、与传统指标的相关性系数（Pearson/Spearman）"
+     },
+     {
+      "sq_id": "q1.1",
+      "query": "对比TruEval和RECALL两个RAG专用基准：发布机构、构建方法（人工构造？合成？）、评测维度（是否覆盖multi-hop? temporal reasoning? source attribution?）、支持的输入形式（query-only? query+context?）、是否开源及典型benchmark结果"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "对q3中人工评估的实证相关性研究（即人工评分与各自动化指标之间的统计相关性，如Spearman ρ、显著性水平、跨基准一致性）覆盖不充分；q4中工业界落地案例级改进方向（如具体公司/开源项目采用的轻量级代理任务设计、过程监督指标在生产pipeline中的嵌入方式）缺乏代表性实例支撑。",
+    "next_queries": [
+     {
+      "sq_id": "q3_corr",
+      "query": "综述类论文或实证研究中，RAG人工评估维度（如事实准确性、来源可追溯性）与自动化指标（如Faithfulness Score、Context Recall）之间的相关性分析结果汇总：需包含相关系数、p值、数据集/系统范围及结论稳健性说明"
+     },
+     {
+      "sq_id": "q4_industry_case",
+      "query": "GitHub热门RAG框架（如LlamaIndex、RAGatouille、DSPy）或头部AI公司技术博客（Cohere、Perplexity、Arize）中，关于RAG评估成本-效度权衡的具体实践：聚焦轻量级代理任务设计、在线过程监控指标（如检索置信度-生成熵联合阈值）、A/B测试中评估模块的部署方式"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "对q3中人工评估的实证信度数据（如典型Kappa值范围、多标注者一致性衰减规律）及q4中工业界落地案例（如具体公司采用合成数据增强/过程监督指标的实践细节与效果对比）覆盖不足；q2中部分指标（如Context Precision/Recall）在非标准RAG pipeline（如带重排或自适应检索深度）下的计算变体尚未明确。",
+    "next_queries": [
+     {
+      "sq_id": "q3_empirical_reliability",
+      "query": "综述RAG人工评估研究中报告的Cohen's Kappa/Fleiss' Kappa典型取值范围（按维度分：事实准确性、来源可追溯性等），以及标注者一致性随任务复杂度/标注轮次变化的实证规律"
+     },
+     {
+      "sq_id": "q4_industry_case_studies",
+      "query": "检索工业界RAG评估实践案例：如Perplexity、Cohere、Microsoft Semantic Kernel等是否公开披露其人工评估协议或合成数据增强策略？重点提取方法设计动机、成本节省比例、与自动化指标的相关系数"
+     },
+     {
+      "sq_id": "q2_context_metrics_variants",
+      "query": "Context Precision和Context Recall在支持动态检索深度（如top-k自适应）、多源混合上下文（检索+知识图谱）或重排后上下文场景下的定义修正与计算范式"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "对q3中人工评估的实证信度数据（如典型Cohen’s Kappa值范围、多标注者一致性在RAG任务中的实际报告值）覆盖不足；q4中工业界改进方向的具体落地案例（如某公司采用过程监督指标提升评估效率的量化结果）缺乏代表性实例；此外，各基准对多跳推理能力的隐式/显式支持程度（如CRAG是否含multi-hop子集、TruEval是否提供链式推理评测模块）未明确比对。",
+    "next_queries": [
+     {
+      "sq_id": "q3_kappa_empirical",
+      "query": "综述文献或实证论文中报告的RAG人工评估标注者间一致性（Cohen's Kappa / Fleiss' Kappa）典型数值范围，按评估维度（事实准确性、来源可追溯性等）分类整理"
+     },
+     {
+      "sq_id": "q4_industry_case",
+      "query": "检索工业界技术博客、白皮书或顶会Industry Track论文，提取2–3个RAG评估方法改进的实际落地案例，需包含：采用的技术方案、部署场景、评估成本降低/效度提升的量化指标"
+     },
+     {
+      "sq_id": "q1_multihop_support",
+      "query": "对比CRAG、TruEval、RAGAS、BEIR-RAG扩展版等基准，明确其是否内置或多跳推理子任务，若有，说明任务构造方式（如合成路径、真实用户日志抽取）及评测粒度（单步召回 vs 全链忠实性）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "q3 中关于人工评估的实操细节仍显薄弱：具体标注者协议案例（如LlamaIndex vs. RAGAS官方推荐的盲评流程差异）、争议仲裁机制在工业级RAG评测中的典型SOP（如Google's RAG Evaluation Framework中三级复核制）、以及人工-自动指标相关性研究的量化结果（如Faithfulness Score与人工事实准确性评分的Pearson r分布及置信区间）尚未覆盖；q4中'过程监督指标'和'轻量级代理任务'的具体技术实现（如TraceEval的token-level溯源得分、ProxyQA的多跳子问题分解策略）缺乏代表性论文或开源实现佐证。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "检索近3年顶会（ACL/EMNLP/NAACL/KDD）中RAG人工评估protocol的详细设计：包括盲法类型、评分量表（Likert 5点？二元判定？）、仲裁流程（双盲+第三方仲裁？多数投票？）、Cohen’s Kappa报告值及阈值依据"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "查找Google、Microsoft、Anthropic等头部机构发布的RAG评测白皮书或技术报告，提取其人工评估SOP文档中关于争议样本处理、标注者培训周期、跨轮次一致性校验的具体条款"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "定位TraceEval、ProxyQA、StepEval等过程监督/代理任务型评估方法的原始论文或GitHub README，提取其核心机制描述、输入输出格式、与端到端指标（如Answer Relevance）的相关性实验结果"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？\n\n---\n\n## 当前主流的RAG专用或适配的自动化评测基准有哪些？（例如BEIR、RECALL, RAGAS、TruEval、CRAG等）它们的设计目标、覆盖能力（如检索质量、生成忠实性、答案相关性）及适用场景有何异同？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n尽管研究发现中多次提及“评测基准”“主流评测基准”“eval脚手架”等术语（如 Finding 2、3、12），但**未提供任何具体基准（如 BEIR、RAGAS、CRAG、TruEval 等）的名称、设计目标、指标构成、覆盖维度或对比分析**。Finding 3 提到“复用wechatbot方法”“A. 检索命中率”“B. 引用准确率”“C. 报告质量（LLM-as-judge）”“D. 端到端验收”，但未说明这些是否对应某公开基准，亦未定义其与 RAGAS/CRAG 等的关系；Finding 2 指出“有 eval 脚手架但无 ≥20 条标注集和量化指标表”，反向印证当前系统尚未接入或验证主流基准。所有材料均未描述 BEIR 的跨域检索评估机制、RAGAS 的无参考忠实性/相关性指标设计、CRAG 的合成挑战集构造逻辑等关键事实。\n\n---\n\n## RAG系统评估中常用的核心量化指标有哪些？（如Hit Rate、MRR、Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency等）这些指标的计算逻辑、依赖数据类型（标注/无标注）、可解释性及潜在偏差是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \nFinding 5 列出了指标名称（Hit Rate、MRR、Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency），但**未提供任一指标的定义、计算公式、所需输入（如是否需黄金答案、参考文档、源片段标注）、是否依赖人工标注、可解释性表现或已知偏差**。Finding 6 和 Finding 13 讨论了“精确性（precision）vs 召回率（recall）”的评估失衡问题，并指出忽略召回会导致模型通过“少说”获高分 [来源: 6, 13]，这间接揭示 Faithfulness Score 类指标可能存在 precision 偏好偏差；但该洞见未被锚定到具体指标实现（如是否指 RAGAS 的 faithfulness），也未延伸至 Context Precision/Recall 的计算逻辑或 Factual Consistency 的验证路径。Finding 5 明确标注置信度仅 0.20，且含编码错误，可靠性低。其余材料（如 Finding 3 中“引用准确率”）属内部自定义口径，未与标准指标对齐。\n\n---\n\n## 人工评估在RAG系统评测中如何设计与实施？包括典型评估维度（如事实准确性、信息完整性、流畅性、来源可追溯性）、标注者协议（如单/多盲、评分量表、争议仲裁机制）、信度保障措施（如Cohen’s Kappa检验），以及与自动化指标的相关性研究现状。\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n虽 Finding 3 提及“报告质量（LLM-as-judge，借鉴RACE四维度）”[来源: 3]，Finding 8 描述 SemEval-2015 Task 3 使用 AMT 进行大规模标注并报告 F 分数 [来源: 8]，Finding 14 提到“人类评审、第三方法官”参与验证 [来源: 14]，但**无一条材料系统说明 RAG 场景下人工评估的完整设计链路**：  \n- 未定义 RACE 四维度在 RAG 中的具体映射（如是否即事实准确性、完整性、流畅性、可追溯性）；  \n- 未说明标注者是单盲/双盲、采用 Likert 量表还是二元判断、争议如何仲裁；  \n- 未报告任何信度检验结果（如 Cohen’s Kappa 值）或标注者间一致性分析；  \n- 未呈现人工评分与 Hit Rate、Faithfulness Score 等自动化指标之间的相关性数据（如 Pearson/Spearman 系数）。  \nFinding 10 仅泛称“通过交叉验证机制防止幻觉，确保引用的真实性”[来源: 10]，属功能声明，非评估方法论描述。\n\n---\n\n## 现有RAG评估方法论存在哪些关键挑战与共识缺口？例如：领域迁移性差、长尾查询覆盖不足、动态知识更新场景缺失、多跳推理能力评估薄弱、评估成本与效度的权衡等，学界与工业界对此提出了哪些改进方向（如合成数据增强、过程监督指标、轻量级代理任务）？\n\n### 关键挑战与共识缺口\n\n**多跳推理能力评估薄弱**：现有系统架构缺乏对多跳推理的显式建模与评估支持。Finding 15 指出 FAIR-RAG 专门针对“复杂、多跳查询”提出迭代优化与结构化证据评估（SEA）模块，直指当前 RAG 方法“在合成多源信息时存在证据缺口识别不足、噪声传播等问题”[来源: 15]，表明多跳能力评估是明确缺口。Finding 11 进一步佐证：原系统 `graph.py` 为纯线性 DAG，反思/停止逻辑嵌套在 `Researcher.research_subquestion()` 的 `while` 循环中，无法展示条件边，属“换汤不换药”反模式；新设计引入 `critic` 节点与 `conditional_edge`，支持 `continue/revise/stop` 决策，旨在使多跳过程可观察、可审计 [来源: 11]。\n\n**评估可观测性缺失**：缺乏主流可观测工具链集成。Finding 2 明确将“未接入 Langfuse（NFR1 可观测缺失）”列为致命缺口第二位，指出系统缺少 trace、span、prompt 版本、token 消耗等运行时洞察，导致评估过程黑盒化 [来源: 2]。\n\n**评估数据规模与质量不足**：存在标注数据匮乏与校验标准过松问题。Finding 2 指出“有 eval 脚手架但无 ≥20 条标注集和量化指标表”[来源: 2]；Finding 4 批判当前校验仅验证“来源是否存在”，未检查“论断是否忠实于来源”，且丢弃 LLM 置信度与原因说明，导致评估结论不可靠 [来源: 4]。\n\n**动态知识与领域迁移支持弱**：Finding 1 揭示金融风控场景强调“所有结论可回溯至原始数据”，体现对动态业务知识（如新规、新欺诈模式）的强溯源需求 [来源: 1]；但 Finding 2 同时指出系统“缺少 arXiv/学术检索（FR3.3）和代码执行（FR3.4）”，暗示其知识源固化、难以适配科研或工程等需动态更新的领域 [来源: 2]。\n\n### 改进方向\n\n**过程监督与可追溯性增强**：多项改进聚焦于使评估过程透明化、可审计。Finding 4 提出“显式标注来源类型（web/rag）及具体源”“强制隔离未通过校验的论断并附原因”“升级校验标准为‘来源真实+论断忠实’”“增加运行溯源信息（跳数、命中数、token 消耗）”[来源: 4]；Finding 11 新增 `reflection_log`、`depth`、`token_used` 字段及 `token_budget` 配置，将评估维度从结果层下沉至过程层 [来源: 11]。\n\n**结构化证据评估机制**：针对多跳与噪声问题，FAIR-RAG 提出“分解查询并审计证据，识别已确认事实与明确信息缺口”，以引导自适应信息填补 [来源: 15]；这代表学界正从静态答案打分转向动态证据链完整性评估。\n\n**混合检索与分块优化**：Finding 3 明确采用“混合检索（向量+BM25）”与“分块优化”，并谨慎对待重排序（rerank）——“默认关闭，先评测再决定是否启用”，体现工业界对评估成本与效度权衡的务实策略 [来源: 3]。\n\n---\n\n## 方法论说明（独立节，仅用于陈述本系统自身机制）\n\n本研究报告严格基于所提供的研究发现（Finding 1–16）进行归纳与推断，未引入任何外部知识或预训练常识。报告结构完全遵循用户指定的子问题清单，每个子问题独立成节；对于无足够材料支撑的子问题，明确标注“信息不足”，不作推测性补充。所有事实性陈述均附带来源编号引用（格式为 `[来源: N]`），引用编号仅限于所提供列表中的真实编号。本系统（DeepResearch Agent）的内部架构（如 Planner→Researcher→Writer→Validator 四节点编排、LangGraph 流程图、`critic` 条件边设计）仅在“方法论说明”节及“关键挑战”部分作为被分析对象出现，未被误用为外部研究结论的证据。",
+  "report_display": "# RAG 系统的评估方法论综述：目前有哪些主流评测基准、指标和人工评估实践？\n\n---\n\n## 当前主流的RAG专用或适配的自动化评测基准有哪些？（例如BEIR、RECALL, RAGAS、TruEval、CRAG等）它们的设计目标、覆盖能力（如检索质量、生成忠实性、答案相关性）及适用场景有何异同？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n尽管研究发现中多次提及“评测基准”“主流评测基准”“eval脚手架”等术语（如 Finding 2、3、12），但**未提供任何具体基准（如 BEIR、RAGAS、CRAG、TruEval 等）的名称、设计目标、指标构成、覆盖维度或对比分析**。Finding 3 提到“复用wechatbot方法”“A. 检索命中率”“B. 引用准确率”“C. 报告质量（LLM-as-judge）”“D. 端到端验收”，但未说明这些是否对应某公开基准，亦未定义其与 RAGAS/CRAG 等的关系；Finding 2 指出“有 eval 脚手架但无 ≥20 条标注集和量化指标表”，反向印证当前系统尚未接入或验证主流基准。所有材料均未描述 BEIR 的跨域检索评估机制、RAGAS 的无参考忠实性/相关性指标设计、CRAG 的合成挑战集构造逻辑等关键事实。\n\n---\n\n## RAG系统评估中常用的核心量化指标有哪些？（如Hit Rate、MRR、Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency等）这些指标的计算逻辑、依赖数据类型（标注/无标注）、可解释性及潜在偏差是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \nFinding 5 列出了指标名称（Hit Rate、MRR、Faithfulness Score、Answer Relevance、Context Precision/Recall、Factual Consistency），但**未提供任一指标的定义、计算公式、所需输入（如是否需黄金答案、参考文档、源片段标注）、是否依赖人工标注、可解释性表现或已知偏差**。Finding 6 和 Finding 13 讨论了“精确性（precision）vs 召回率（recall）”的评估失衡问题，并指出忽略召回会导致模型通过“少说”获高分 [来源: 6 · 🔬arxiv, 13 · 🔬arxiv]，这间接揭示 Faithfulness Score 类指标可能存在 precision 偏好偏差；但该洞见未被锚定到具体指标实现（如是否指 RAGAS 的 faithfulness），也未延伸至 Context Precision/Recall 的计算逻辑或 Factual Consistency 的验证路径。Finding 5 明确标注置信度仅 0.20，且含编码错误，可靠性低。其余材料（如 Finding 3 中“引用准确率”）属内部自定义口径，未与标准指标对齐。\n\n---\n\n## 人工评估在RAG系统评测中如何设计与实施？包括典型评估维度（如事实准确性、信息完整性、流畅性、来源可追溯性）、标注者协议（如单/多盲、评分量表、争议仲裁机制）、信度保障措施（如Cohen’s Kappa检验），以及与自动化指标的相关性研究现状。\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n虽 Finding 3 提及“报告质量（LLM-as-judge，借鉴RACE四维度）”[来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指]，Finding 8 描述 SemEval-2015 Task 3 使用 AMT 进行大规模标注并报告 F 分数 [来源: 8 · 🔬arxiv]，Finding 14 提到“人类评审、第三方法官”参与验证 [来源: 14 · 🔬arxiv]，但**无一条材料系统说明 RAG 场景下人工评估的完整设计链路**：  \n- 未定义 RACE 四维度在 RAG 中的具体映射（如是否即事实准确性、完整性、流畅性、可追溯性）；  \n- 未说明标注者是单盲/双盲、采用 Likert 量表还是二元判断、争议如何仲裁；  \n- 未报告任何信度检验结果（如 Cohen’s Kappa 值）或标注者间一致性分析；  \n- 未呈现人工评分与 Hit Rate、Faithfulness Score 等自动化指标之间的相关性数据（如 Pearson/Spearman 系数）。  \nFinding 10 仅泛称“通过交叉验证机制防止幻觉，确保引用的真实性”[来源: 10 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]，属功能声明，非评估方法论描述。\n\n---\n\n## 现有RAG评估方法论存在哪些关键挑战与共识缺口？例如：领域迁移性差、长尾查询覆盖不足、动态知识更新场景缺失、多跳推理能力评估薄弱、评估成本与效度的权衡等，学界与工业界对此提出了哪些改进方向（如合成数据增强、过程监督指标、轻量级代理任务）？\n\n### 关键挑战与共识缺口\n\n**多跳推理能力评估薄弱**：现有系统架构缺乏对多跳推理的显式建模与评估支持。Finding 15 指出 FAIR-RAG 专门针对“复杂、多跳查询”提出迭代优化与结构化证据评估（SEA）模块，直指当前 RAG 方法“在合成多源信息时存在证据缺口识别不足、噪声传播等问题”[来源: 15 · 🔬arxiv]，表明多跳能力评估是明确缺口。Finding 11 进一步佐证：原系统 `graph.py` 为纯线性 DAG，反思/停止逻辑嵌套在 `Researcher.research_subquestion()` 的 `while` 循环中，无法展示条件边，属“换汤不换药”反模式；新设计引入 `critic` 节点与 `conditional_edge`，支持 `continue/revise/stop` 决策，旨在使多跳过程可观察、可审计 [来源: 11 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。\n\n**评估可观测性缺失**：缺乏主流可观测工具链集成。Finding 2 明确将“未接入 Langfuse（NFR1 可观测缺失）”列为致命缺口第二位，指出系统缺少 trace、span、prompt 版本、token 消耗等运行时洞察，导致评估过程黑盒化 [来源: 2 · 🟢rag：rag:deepresearch-plan.md]。\n\n**评估数据规模与质量不足**：存在标注数据匮乏与校验标准过松问题。Finding 2 指出“有 eval 脚手架但无 ≥20 条标注集和量化指标表”[来源: 2 · 🟢rag：rag:deepresearch-plan.md]；Finding 4 批判当前校验仅验证“来源是否存在”，未检查“论断是否忠实于来源”，且丢弃 LLM 置信度与原因说明，导致评估结论不可靠 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n**动态知识与领域迁移支持弱**：Finding 1 揭示金融风控场景强调“所有结论可回溯至原始数据”，体现对动态业务知识（如新规、新欺诈模式）的强溯源需求 [来源: 1 · 🟢rag：rag:rag_sample.md · 🔄自指]；但 Finding 2 同时指出系统“缺少 arXiv/学术检索（FR3.3）和代码执行（FR3.4）”，暗示其知识源固化、难以适配科研或工程等需动态更新的领域 [来源: 2 · 🟢rag：rag:deepresearch-plan.md]。\n\n### 改进方向\n\n**过程监督与可追溯性增强**：多项改进聚焦于使评估过程透明化、可审计。Finding 4 提出“显式标注来源类型（web/rag）及具体源”“强制隔离未通过校验的论断并附原因”“升级校验标准为‘来源真实+论断忠实’”“增加运行溯源信息（跳数、命中数、token 消耗）”[来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；Finding 11 新增 `reflection_log`、`depth`、`token_used` 字段及 `token_budget` 配置，将评估维度从结果层下沉至过程层 [来源: 11 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。\n\n**结构化证据评估机制**：针对多跳与噪声问题，FAIR-RAG 提出“分解查询并审计证据，识别已确认事实与明确信息缺口”，以引导自适应信息填补 [来源: 15 · 🔬arxiv]；这代表学界正从静态答案打分转向动态证据链完整性评估。\n\n**混合检索与分块优化**：Finding 3 明确采用“混合检索（向量+BM25）”与“分块优化”，并谨慎对待重排序（rerank）——“默认关闭，先评测再决定是否启用”，体现工业界对评估成本与效度权衡的务实策略 [来源: 3 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n---\n\n## 方法论说明（独立节，仅用于陈述本系统自身机制）\n\n本研究报告严格基于所提供的研究发现（Finding 1–16）进行归纳与推断，未引入任何外部知识或预训练常识。报告结构完全遵循用户指定的子问题清单，每个子问题独立成节；对于无足够材料支撑的子问题，明确标注“信息不足”，不作推测性补充。所有事实性陈述均附带来源编号引用（格式为 `[来源: N]`），引用编号仅限于所提供列表中的真实编号。本系统（DeepResearch Agent）的内部架构（如 Planner→Researcher→Writer→Validator 四节点编排、LangGraph 流程图、`critic` 条件边设计）仅在“方法论说明”节及“关键挑战”部分作为被分析对象出现，未被误用为外部研究结论的证据。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：17/18 条通过\n> - 论断忠实度（严格）：17/17 条通过（verified = 存在且忠实）\n> - 论断宽松口径：17/17 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **所有事实性陈述均附带来源编号引用（格式为** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 7 / arxiv 9 / code 1\n- **Token 消耗**：39488\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "Finding 6 和 Finding 13 讨论了“精确性（precision）vs 召回率（recall）”的评估失衡问题，并指出忽略召回会导致模型通过“少说”获高分",
+    "source": "https://arxiv.org/abs/2604.03141v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 6 和 Finding 13 讨论了“精确性（precision）vs 召回率（recall）”的评估失衡问题，并指出忽略召回会导致模型通过“少说”获高分",
+    "source": "https://arxiv.org/abs/2606.09376v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "虽 Finding 3 提及“报告质量（LLM-as-judge，借鉴RACE四维度）”",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "，Finding 8 描述 SemEval-2015 Task 3 使用 AMT 进行大规模标注并报告 F 分数",
+    "source": "https://arxiv.org/abs/1911.11403v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "，Finding 14 提到“人类评审、第三方法官”参与验证",
+    "source": "https://arxiv.org/abs/2606.31002v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 10 仅泛称“通过交叉验证机制防止幻觉，确保引用的真实性”",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 15 指出 FAIR-RAG 专门针对“复杂、多跳查询”提出迭代优化与结构化证据评估（SEA）模块，直指当前 RAG 方法“在合成多源信息时存在证据缺口识别不足、噪声传播等问题”",
+    "source": "https://arxiv.org/abs/2510.22344v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "新设计引入 critic 节点与 conditionaledge，支持 continue/revise/stop 决策，旨在使多跳过程可观察、可审计",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2 明确将“未接入 Langfuse（NFR1 可观测缺失）”列为致命缺口第二位，指出系统缺少 trace、span、prompt 版本、token 消耗等运行时洞察，导致评估过程黑盒化",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2 指出“有 eval 脚手架但无 ≥20 条标注集和量化指标表”",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4 批判当前校验仅验证“来源是否存在”，未检查“论断是否忠实于来源”，且丢弃 LLM 置信度与原因说明，导致评估结论不可靠",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "动态知识与领域迁移支持弱：Finding 1 揭示金融风控场景强调“所有结论可回溯至原始数据”，体现对动态业务知识（如新规、新欺诈模式）的强溯源需求",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "但 Finding 2 同时指出系统“缺少 arXiv/学术检索（FR3.3）和代码执行（FR3.4）”，暗示其知识源固化、难以适配科研或工程等需动态更新的领域",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4 提出“显式标注来源类型（web/rag）及具体源”“强制隔离未通过校验的论断并附原因”“升级校验标准为‘来源真实+论断忠实’”“增加运行溯源信息（跳数、命中数、token 消耗）”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 11 新增 reflectionlog、depth、tokenused 字段及 tokenbudget 配置，将评估维度从结果层下沉至过程层",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "结构化证据评估机制：针对多跳与噪声问题，FAIR-RAG 提出“分解查询并审计证据，识别已确认事实与明确信息缺口”，以引导自适应信息填补",
+    "source": "https://arxiv.org/abs/2510.22344v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "混合检索与分块优化：Finding 3 明确采用“混合检索（向量+BM25）”与“分块优化”，并谨慎对待重排序（rerank）——“默认关闭，先评测再决定是否启用”，体现工业界对评估成本与效度权衡的务实策略",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "所有事实性陈述均附带来源编号引用（格式为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 5 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅1跳5条发现，远未覆盖q1-q4的系统性维度：q1中各…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 5 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 15 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=当前发现覆盖了部分基准（如RAGAS、CRAG、TruEva…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=当前发现覆盖了部分基准（如RAGAS、CRAG、BEIR）和…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 25 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=对q3中人工评估的实证相关性研究（即人工评分与各自动化指标之…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1a]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=对q3中人工评估的实证信度数据（如典型Kappa值范围、多标…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q1b]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 35 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=对q3中人工评估的实证信度数据（如典型Cohen’s Kap…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q2a]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 45 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=q3 中关于人工评估的实操细节仍显薄弱：具体标注者协议案例（…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：17/18 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 39488,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 205.3,
+ "status": "done",
+ "error": null
+}

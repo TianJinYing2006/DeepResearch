@@ -1,0 +1,1973 @@
+{
+ "q_id": "q_012",
+ "query": "思维链（Chain-of-Thought）提示的局限性研究：在哪些任务与条件下 CoT 会失效或产生负面效果",
+ "difficulty": "难",
+ "type": "学术",
+ "state": {
+  "topic": "思维链（Chain-of-Thought）提示的局限性研究：在哪些任务与条件下 CoT 会失效或产生负面效果",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "哪些类型的任务（如逻辑推理、常识问答、数学计算、开放生成、多跳检索等）中，CoT 提示显著降低模型性能（相比零样本或标准提示）？",
+    "rationale": "识别任务维度上的失效边界是理解 CoT 局限性的基础；不同任务对中间推理步骤的依赖性、可分解性及验证性差异巨大，需实证归类失效场景。"
+   },
+   {
+    "id": "q2",
+    "question": "哪些输入/上下文条件（如问题模糊性高、前提矛盾、信息过载、领域冷启动、低资源语言输入等）会诱发 CoT 产生错误累积、幻觉放大或冗余推理，导致最终答案恶化？",
+    "rationale": "CoT 的脆弱性常源于输入质量与上下文约束，而非模型本身；厘清诱发负面效果的条件性因素有助于构建鲁棒性干预策略。"
+   },
+   {
+    "id": "q3",
+    "question": "在哪些模型架构与规模区间（如小参数量Decoder-only模型、非推理优化的开源模型、经RLHF微调但未对齐推理链的模型）中，CoT 提示不仅无效，反而系统性损害输出一致性与准确性？",
+    "rationale": "CoT 效果高度依赖模型内在的推理能力与训练目标对齐程度；探究模型能力谱系与CoT适配性的不匹配关系，可揭示‘提示-模型’协同失效机制。"
+   },
+   {
+    "id": "q4",
+    "question": "是否存在CoT引发的隐性负面效应（如推理路径过度自信、人类评估偏差、下游任务兼容性下降、可解释性假象等），即使最终答案正确仍构成实质性局限？",
+    "rationale": "局限性不仅体现于准确率下降，更包括可信度错配、人机协作障碍与部署风险等高阶影响；该子问题拓展对‘失效’的定义，覆盖非显性但关键的实践瓶颈。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "摘要：在使用思维链（CoT）提示时，因字符编码错误导致执行失败，具体错误为无效字符“”（U+FF08），发生在文件路径 \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_5zn7g7oa\\main.py\" 的第 28 行。",
+    "source": "code:2448f970eb",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_5zn7g7oa\\main.py\", line 28\n    print('query='��Щ���͵��������߼���������ʶ�ʴ���ѧ���㡢�������ɡ����������ȣ��У�CoT ��ʾ��������ģ�����ܣ�������������׼��ʾ����'')\n                         ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.062
+    }
+   },
+   {
+    "content": "**研究摘要：思维链（CoT）提示的局限性**\n\n本研究分析了思维链（Chain-of-Thought, CoT）提示在特定任务和条件下的失效或负面效果，聚焦于一个以“防幻觉/引用溯源”为核心卖点的智能代理系统。通过实际运行 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"` 任务，发现以下关键问题：\n\n- **5个系统性缺口**：检索与引用链路虽已打通，但“面向用户的溯源呈现”存在缺陷，导致报告可信度不足。\n  1. 引用未标注来源类型（web/rag），无法区分知识库注入与外部信息。\n  2. 8条未通过校验的论断仍保留在正文，与“全部基于提供的33项研究发现”的声明矛盾。\n  3. 校验仅验证来源存在性，未评估论断是否忠实于来源；失败原因未被记录。\n  4. 报告中包含自指/元描述内容（如系统架构），易误导读者。\n  5. 运行状态（如跳数、token消耗等）未在产出中呈现。\n\n为解决这些问题，研究提出以下优化方案：\n- **R2.1 来源类型显式化**：在引用中标注来源类型（web/rag）及具体源。\n- **R2.2 校验失败论断强制隔离**：将未通过校验的论断移至附录，并在正文中标记。\n- **R2.3 校验升格为“来源真实 + 论断忠实”**：新增LLM判断论断是否被引用内容支持，提升校验准确性。\n- **R2.4 自指/元描述发现隔离**：对元描述类发现打标签，避免其作为事实证据出现在正文。\n\n**影响范围与风险**：\n- 修改 `Citation` 和 `ResearchFinding` 模型可能影响多个模块（如 `graph.py`、`web/app.py` 等），需同步更新字段访问逻辑。\n- R2.2 移除失败论断可能削弱报告完整性，采用“附录+正文⚠️标记”双轨策略。\n- R2.3 增加一次LLM调用会略微增加成本，降级时回退到存在性校验。\n\n**验收标准**：\n- `Citation` 包含 `source_type`、`confidence`、`note`；\n- CLI/Web 显示引用类型与具体源；\n- 复跑样例中8条未通过论断全部进入附录并附原因；\n- `verified` 要求“来源存在且论断忠实”，失败计入附录；\n- `is_meta` 发现不进入正文，单独成“方法论说明”小节；\n- 报告/CLI/Web 含“运行溯源”块，数值与 `state` 一致；\n- 改造前后通过率无下降。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n本设计决策文档聚焦于系统核心链路的编排深度与可量化结果，强调不依赖UI完整性。采用成本较低的qwen-turbo/plus模型，后续可升级至qwen-max。Validator采用图内节点验证以防止幻觉，区别于主流评测闭环方式。Qdrant懒加载设计确保图构建不依赖外部服务，在不可用时实现优雅降级。该设计影响所有模块，并规定后续优化需遵循此决策链。记录日期为2026-08-19，基于共识达成。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究聚焦于思维链（CoT）提示在特定任务与条件下的局限性，重点分析其失效或产生负面效果的场景。核心改进包括：\n\n- **Critic 节点化**：将 `Researcher._judge_sufficiency` 逻辑迁移至独立 `Critic` 节点，输出 `continue|revise|stop` 决策及理由，实现反思循环。\n- **图结构重构**：将 `research` 节点改为单跳检索，构建 `plan → research → critic → (conditional_edge) → continue/revise/stop → write → validate → END` 的流程，支持条件分支。\n- **状态增强**：`ResearchState` 增加 `reflection_log`、`depth`、`token_used`，用于追踪和限制深度与成本。\n\n**关键缺口与风险：**\n- 框架未完全使用 `LangGraph` 的 `conditional_edge/checkpointer`，决策循环未暴露到图中。\n- 缺乏 `Langfuse` 可观测性、学术检索（arXiv/Semantic Scholar）、代码执行能力、评测数据集（≥20 条）及开源与博客发布。\n\n**后续计划：**\n- 优先完成 **W1（Critic 节点化）**，确保循环机制暴露于图中。\n- 后续推进 **W2（引用溯源审计）**、**W3（Langfuse 集成）**、**W4（工具集齐）**、**W5（评测数据集）** 和 **W6（开源+博客）**。\n\n**评估指标：**\n- 完成率 ≥90%、引用准确率 ≥85%、信息覆盖度 ≥90%、Token 成本控制、反思有效性（防无限循环）。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究聚焦于思维链（CoT）提示在特定任务与条件下的局限性。当前系统中，`research_engine/graph.py` 为纯线性 DAG，缺乏 `conditional_edge`，反思与停止判断逻辑隐藏在 `researcher.py` 的 `while` 循环中，导致无法明确展示决策路径。需求文档提出重构，将循环控制显式化为图中的 **Critic 节点**，并引入 `conditional_edge` 实现 `continue/revise/stop` 决策。目标包括：可视化含条件边的图结构、支持多轮反思日志、确保兜底终止机制（如 `max_depth` 和 `token_budget`），同时保持检索质量不变。影响范围涉及多个文件，需注意状态传递与去重问题，测试策略包括单元测试、集成测试及评估对比。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "研究指出，思维链（CoT）虽在数学推理中效果显著，但在多模态领域面临三大局限：依赖粗粒度的矩形图像区域、视觉编码器对数学内容感知有限、以及需依赖外部工具进行视觉修改。为此，研究提出MINT-CoT，通过“交织标记”动态整合任意形状的视觉区域到文本推理中，并构建了包含54,000个数学问题的MINT-CoT数据集。",
+    "source": "https://arxiv.org/abs/2506.05331v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2506.05331v1",
+     "primary_category": "cs.CV",
+     "published": "2025-06-05T17:59:02Z",
+     "authors": [
+      "Xinyan Chen",
+      "Renrui Zhang",
+      "Dongzhi Jiang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了思维链（CoT）在哪些任务和条件下可能失效或产生负面效果，重点分析了视觉思维链（Visual CoT）的挑战。由于现有视觉CoT性能不足及高质量训练数据缺乏，研究提出Zebra-CoT数据集，包含182,384个样本，涵盖四类任务：科学问题（几何、物理、算法）、2D视觉推理（视觉搜索、拼图）、3D推理（多跳推理、机器人规划）、以及视觉逻辑与策略游戏（如国际象棋）。在Anole-7B模型上微调Zebra-CoT，测试集准确率提升12%。研究揭示了CoT在复杂视觉任务中的局限性及改进方向。",
+    "source": "https://arxiv.org/abs/2507.16746v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2507.16746v2",
+     "primary_category": "cs.CV",
+     "published": "2025-07-22T16:35:36Z",
+     "authors": [
+      "Ang Li",
+      "Charles Wang",
+      "Deqing Fu"
+     ]
+    }
+   },
+   {
+    "content": "研究指出，大型语言模型（LLMs）在处理涉及多个实体的复杂场景时仍面临挑战，尤其在需要多步推理的隐含关系任务中表现不佳。为此，研究提出ERA-CoT方法，通过捕捉实体间关系提升LLM的上下文理解与推理能力。实验显示，ERA-CoT在GPT3.5上相比现有SOTA基线平均提升5.1%，显著提高问答准确性和推理能力。",
+    "source": "https://arxiv.org/abs/2403.06932v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2403.06932v2",
+     "primary_category": "cs.CL",
+     "published": "2024-03-11T17:18:53Z",
+     "authors": [
+      "Yanming Liu",
+      "Xinyue Peng",
+      "Tianyu Du"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了思维链（CoT）提示在不同任务和条件下的局限性，发现其虽能提升模型推理能力，但会显著增加推理成本。在简单任务中，推理路径可被压缩，但在复杂任务中效果不佳。为此，研究提出 **CoT-Valve** 策略，通过调整模型参数空间中的特定方向，动态控制推理链长度，从而降低推理开销。研究构建了从长到短的推理链数据集，并探索了两种增强策略，以实现更灵活的推理路径控制。",
+    "source": "https://arxiv.org/abs/2502.09601v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2502.09601v1",
+     "primary_category": "cs.AI",
+     "published": "2025-02-13T18:52:36Z",
+     "authors": [
+      "Xinyin Ma",
+      "Guangnian Wan",
+      "Runpeng Yu"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了思维链（CoT）提示在图像编辑任务中的局限性，提出Meta-CoT框架，通过将编辑意图分解为三元组（任务、目标、所需理解能力），实现任务与目标的解耦，提升模型对编辑操作的理解粒度和泛化能力。",
+    "source": "https://arxiv.org/abs/2604.24625v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2604.24625v1",
+     "primary_category": "cs.CV",
+     "published": "2026-04-27T15:52:48Z",
+     "authors": [
+      "Shiyi Zhang",
+      "Yiji Cheng",
+      "Tiankai Hang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**\n\n研究探讨了思维链（CoT）提示在金融风控场景中的应用与局限性，涉及信贷审批、反欺诈和合规监测三个领域。某股份制银行使用Qwen模型进行字段抽取，使人工复核工作量减少40%，准确率超96%。多家券商通过微调Qwen-7B，识别“隐性利空”语义风险的F1-score达0.91。监管机构要求LLM在生成反洗钱报告时必须引用原始数据，确保可追溯性，这需要RAG技术的支持。研究强调了在特定任务中，CoT需结合检索增强与严格溯源机制，以避免生成不可靠结论。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n思维链（CoT）提示在金融风控中存在局限性，主要体现在：1）幻觉与可信度问题，生成内容可能缺乏事实依据，需通过RAG、输出约束等手段缓解；2）合规与审计要求，需记录决策来源、模型版本及链路以满足监管；3）成本与性能平衡，需分层使用模型并优化缓存与异步处理。未来趋势为：模型向端到端智能体演进，并与知识图谱等技术融合，构建可审计、可解释的风控系统。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "研究主题：思维链（CoT）提示的局限性  \n摘要：该研究探讨了在有限字母表 $A$ 上，基于非连续子词序的首阶逻辑（FO）的可判定性与表达能力。当 $|A| \\ge 3$ 时，存在关系在 $Σ_1$ 片段中可定义当且仅当其为递归可枚举。这一结论扩展至所有 $Σ_i$ 片段，揭示了 CoT 在某些逻辑结构下可能失效或产生负面效果。",
+    "source": "https://arxiv.org/abs/2210.15642v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-empirical",
+    "metadata": {
+     "arxiv_id": "2210.15642v4",
+     "primary_category": "cs.LO",
+     "published": "2022-10-27T17:32:17Z",
+     "authors": [
+      "Pascal Baumann",
+      "Moses Ganardi",
+      "Ramanathan S. Thinniyam"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：** 该研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。研究聚焦于重写问题，即给定一个析取查询 $Q$ 和视图集合 $\\mathcal{V}$，判断是否存在一个基于 $\\mathcal{V}$ 的等价查询 $Q'$。研究发现，若 $Q$ 本身为无环，则存在无环重写当且仅当存在任何重写。类似结论适用于自由连接无环、分层和 q-分层查询。在复杂度方面，当模式的 arity 有界时，无环重写问题为 NP-hard，即使 $Q$ 和视图均为无环或分层。但若视图为自由连接无环，则问题变为可解的。",
+    "source": "https://arxiv.org/abs/2201.05129v6",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-empirical",
+    "metadata": {
+     "arxiv_id": "2201.05129v6",
+     "primary_category": "cs.DB",
+     "published": "2022-01-13T18:40:02Z",
+     "authors": [
+      "Gaetano Geck",
+      "Jens Keppeler",
+      "Thomas Schwentick"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了基于观察的策略在两人轮流图游戏中的应用，特别是针对omega-正则目标。研究提出两种算法：一是用于计算玩家可通过确定性观察策略获胜的状态集合，该算法基于反链格的不动点计算，避免了显式子集构造；二是用于计算玩家以概率1通过随机观察策略赢得布赫海姆目标的状态集合。研究适用于控制器设计中无法获取系统内部状态的情况。",
+    "source": "https://arxiv.org/abs/0706.2619v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1-empirical",
+    "metadata": {
+     "arxiv_id": "0706.2619v3",
+     "primary_category": "cs.LO",
+     "published": "2007-06-18T15:02:02Z",
+     "authors": [
+      "Krishnendu Chatterjee",
+      "Laurent Doyen",
+      "Thomas A. Henzinger"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究发现，在某些任务和条件下，思维链（CoT）提示可能失效或产生负面效果。具体表现为代码执行时出现语法错误，涉及无效字符“”，可能与模型对特定文本的处理能力有关。",
+    "source": "code:c5905a083e",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_0a4a3s6x\\main.py\", line 28\n    print('query='������ͬ����������3B, 7�C13B, ��30B�����ܹ���Decoder-only vs. Encoder-Decoder��ģ����CoT��ʾ�³���ϵͳ�������ӻ������ǽ����������ĶԱ��о�'')\n                         ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.062
+    }
+   },
+   {
+    "content": "**摘要：**\n\n研究发现，当思维链（CoT）提示在任务中生成的引用编号与原始来源不匹配时，会导致“静默溯源错误”，比校验失败更危险。例如，40条原始发现压缩为10条后，[来源:5]会被错误映射到source-2而非source-5，且存在性校验仍通过。此问题在小规模测试中未暴露，仅在大任务（findings > 30）中触发。\n\n为解决该问题，将压缩逻辑从Writer移至graph的`write`节点，并将压缩结果写回state。这样，Writer退化为仅负责格式化和生成，不再修改数据。此调整使共享状态（如引用编号）由编排层统一管理，避免数据错位。\n\n影响包括：`graph.py`增加压缩步骤并更新state，`writer.py`签名不变，`validator.py`无改动，新增离线测试验证编号一致性。当前未解决多编号拆分和越界校验问题，需另行处理。",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了思维链（CoT）提示在特定任务与条件下的局限性。在中文处理中，当 jieba 不可用时，系统降级为 `_char_unigrams` 模式，将 CJK 字符切分为单字，虽导致停用词过滤和词边界丢失，但优于整句单 token 方式，仍能保持 BM25 分数非零。英文段则降级为字符级，影响较小。项目采用“外部依赖懒加载 + 优雅降级”策略，确保 BM25 能够降级运行，不因 jieba 未安装而失败。文档与查询需使用同一分词函数以保证倒排索引对齐。为保留英文空格分词，采用按空白分段后再切分的方式，提升混合语料质量。首次加载 jieba 需约 0.5 秒，但通过懒加载不影响启动。当前方案已显著优于“零”效果，未来可考虑自定义词典或 HMM 模式优化专业术语切分。",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：该研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。尽管CoT在许多任务中表现优异，但其有效性依赖于特定条件，如任务复杂度、输入格式、模型规模等。研究指出，在涉及多步骤推理、模糊问题或需要外部知识的任务中，CoT可能无法生成合理推理链，甚至导致错误结论。此外，当输入信息不完整或存在歧义时，CoT的输出可能不稳定，影响最终性能。研究强调需谨慎评估CoT适用性，并探索其局限性以改进方法。",
+    "source": "https://arxiv.org/abs/2105.10886v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {
+     "arxiv_id": "2105.10886v1",
+     "primary_category": "cs.CV",
+     "published": "2021-05-23T08:44:11Z",
+     "authors": [
+      "Zhaoyang Huang",
+      "Han Zhou",
+      "Yijin Li"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。来源为arXiv论文（编号2602.00982v1）。研究发现，模型训练时长与性能呈非单调关系，最佳性能出现在约200K步时。此外，轻量级两层CNN（带GLU和观察归一化）在视觉鲁棒性任务中达到95.4%的得分，而深度ResNet-like架构（16层卷积，17.8M参数）在神经对齐任务中表现最优。",
+    "source": "https://arxiv.org/abs/2602.00982v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {
+     "arxiv_id": "2602.00982v1",
+     "primary_category": "cs.CV",
+     "published": "2026-02-01T02:44:52Z",
+     "authors": [
+      "Phu-Hoa Pham",
+      "Chi-Nguyen Tran",
+      "Dao Sy Duy Minh"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n本研究基于Gaia DR3的宽双星样本及其天球投影相对速度，测试引力修改理论。通过改进的筛选条件减少三合星污染，并采用更精确的质量估计和模型拟合方法，分析了二元、三合星、非束缚飞越及随机事件的混合分布。结果表明，牛顿模型仍优于MOND，但需进一步理解三合星群体以得出更明确结论。",
+    "source": "https://arxiv.org/abs/2504.07569v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {
+     "arxiv_id": "2504.07569v2",
+     "primary_category": "astro-ph.GA",
+     "published": "2025-04-10T09:00:49Z",
+     "authors": [
+      "Charalambos Pittordis",
+      "Will Sutherland",
+      "Paul Shepherd"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了在精确范畴中初等Tate对象的性质，将其定义为包含可接受Ind-对象和Pro-对象且对扩张封闭的最小子范畴。比较了Beilinson与Drinfeld关于Tate模的方法，证明了在幂等完备的精确范畴中，初等Tate对象的Sato格拉斯曼流形是一个有向偏序集。最后简要讨论了n-Tate模和n维阿代尔。附录由J. Šťovíček和J. Trlifaj撰写，将平坦Mittag-Leffler模范畴与有限生成投射模中可接受Ind-对象的幂等完备化相联系。",
+    "source": "https://arxiv.org/abs/1402.4969v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3-model_boundary",
+    "metadata": {
+     "arxiv_id": "1402.4969v4",
+     "primary_category": "math.KT",
+     "published": "2014-02-20T11:25:10Z",
+     "authors": [
+      "Oliver Braunling",
+      "Michael Groechenig",
+      "Jesse Wolfson"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果，重点分析了强化学习（RL）在提升LLM的CoT能力中的应用，特别是DPO和GRPO两种算法的优劣。研究指出，自回归图像生成作为序列式CoT推理过程，面临文本-图像一致性、图像美学质量提升及复杂奖励模型设计等挑战，与传统LLM CoT不同，现有研究缺乏对这些领域特性和RL策略特征的深入分析。",
+    "source": "https://arxiv.org/abs/2505.17017v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "2505.17017v2",
+     "primary_category": "cs.CV",
+     "published": "2025-05-22T17:59:49Z",
+     "authors": [
+      "Chengzhuo Tong",
+      "Ziyu Guo",
+      "Renrui Zhang"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究探讨了思维链（CoT）提示在复杂任务中的局限性，特别是在处理具有时间敏感性的视频对象分割任务时，现有方法因缺乏时空整合而失效。为此，作者提出CoT-RVS框架，利用MLLM的零样本CoT能力，通过时空语义推理解决该问题，具备无需训练和兼容封闭模型的特点，适用于视频实例分割任务。",
+    "source": "https://arxiv.org/abs/2505.18561v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "2505.18561v4",
+     "primary_category": "cs.CV",
+     "published": "2025-05-24T07:01:31Z",
+     "authors": [
+      "Shiu-hong Kao",
+      "Yu-Wing Tai",
+      "Chi-Keung Tang"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。尽管CoT在许多任务中表现良好，但其有效性受限于任务复杂性、模型能力及输入质量等因素。研究指出，在需要高度精确推理或存在噪声干扰的任务中，CoT可能无法提供可靠结果，甚至导致错误结论。此外，当模型对任务理解不足或输入信息不完整时，CoT的输出可能缺乏一致性或准确性。",
+    "source": "https://arxiv.org/abs/2004.08463v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2004.08463v2",
+     "primary_category": "astro-ph.IM",
+     "published": "2020-04-17T21:49:35Z",
+     "authors": [
+      "Ruby Byrne",
+      "Miguel F. Morales",
+      "Bryna Hazelton"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果，强调模型校准的重要性，即模型对其决策的自信应与实际结果一致。文章介绍了常用的校准定义和评估指标，指出其局限性，并讨论了由此产生的新校准概念及相应评估方法。研究旨在为校准的不同概念及其评估提供简要介绍，并重申一种仍广泛使用的评估指标存在的问题。",
+    "source": "https://arxiv.org/abs/2501.19047v5",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2501.19047v5",
+     "primary_category": "stat.ME",
+     "published": "2025-01-31T11:18:45Z",
+     "authors": [
+      "Maja Pavlovic"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了对称互易匹配（SRM）校准方法中匹配标准的寄生建模问题，指出传统方法假设匹配标准已知，而实际可通过非线性全局优化建立任意频变模型。数值测试表明该方法可精确恢复寄生模型，微带线测量显示其校准精度与 multiline TRL 校准相当。",
+    "source": "https://arxiv.org/abs/2509.18426v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2509.18426v2",
+     "primary_category": "eess.SP",
+     "published": "2025-09-22T21:13:15Z",
+     "authors": [
+      "Ziad Hatab",
+      "Michael Ernst Gadringer",
+      "Arash Arsanjani"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。针对基于神经网络的分类模型，传统方法常使用最大预测类别概率作为置信度评分，但该方法难以准确反映正确预测的概率，需进行后处理校准。然而，许多校准方法在多类别问题中表现不佳。为此，研究将多类别分类的校准问题转化为单个替代二分类器的校准问题，从而更高效地利用标准校准方法。实验在多个用于图像和文本分类的神经网络上进行，结果表明该方法显著提升了现有校准方法的效果。",
+    "source": "https://arxiv.org/abs/2411.02988v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2411.02988v2",
+     "primary_category": "cs.LG",
+     "published": "2024-11-05T10:51:01Z",
+     "authors": [
+      "Adrien LeCoz",
+      "Stéphane Herbin",
+      "Faouzi Adjed"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究指出，当GUM（测量不确定度表示指南）的适用条件不满足时，应采用CIPM Supplement I中提出的蒙特卡洛（MC）方法进行不确定度评估。在MC方法引入前，即使条件不满足，GUM仍被广泛使用。尽管后续许多研究应用了MC方法并提供了更深入的见解，但多数论文忽略了在方法选择前分析适用条件的重要性。",
+    "source": "https://arxiv.org/abs/1012.2631v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "1012.2631v2",
+     "primary_category": "physics.data-an",
+     "published": "2010-12-13T05:14:36Z",
+     "authors": [
+      "Thang H. L.",
+      "Nguyen D. D.",
+      "Dung D. N."
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。通过分析法律异质性、组织与商业激励冲突、架构碎片化及权利相关行为控制不对称等因素，论文指出当前信息系统在行使数字权利方面存在显著障碍。研究提出一种“人权层”概念，旨在实现标准化、机器可读、双向且跨司法管辖区的沟通机制。通过比较加州式退出信号、欧盟混合合法基础制度及P3P、DNT、GPC、ADPC等协议，论文提炼出七项规范性要求，并将GDPR中关于自动化隐私管理的规定作为一项有限的解放性政策进行探讨。",
+    "source": "https://arxiv.org/abs/2609.02455v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2609.02455v1",
+     "primary_category": "cs.CY",
+     "published": "2026-09-02T11:27:06Z",
+     "authors": [
+      "Soheil Human"
+     ]
+    }
+   },
+   {
+    "content": "研究发现：LLM驱动的BPMN建模助手在可用性（CUQ均分67.2/100）方面表现尚可，但信任度较低（均分48.8%），可靠性最受关注（均分1.8/5）。输出质量存在问题，需更深入的澄清问题。研究提出五种应用场景，强调人机协作的重要性。",
+    "source": "https://arxiv.org/abs/2603.12895v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2603.12895v1",
+     "primary_category": "cs.HC",
+     "published": "2026-03-13T10:59:23Z",
+     "authors": [
+      "Chantale Lauer",
+      "Peter Pfeiffer",
+      "Nijat Mehdiyev"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果，强调了当前对“需求”概念的限制如何影响AI的未来发展，指出这些概念边界在塑造AI技术、心理、伦理及实际应用中的关键作用。",
+    "source": "https://arxiv.org/abs/2202.04977v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2202.04977v3",
+     "primary_category": "cs.AI",
+     "published": "2022-02-10T12:19:48Z",
+     "authors": [
+      "Ryan Watkins",
+      "Soheil Human"
+     ]
+    }
+   },
+   {
+    "content": "摘要：ADPC 是一项技术规范及社会技术机制，旨在通过标准化方式改进基于互联网的个人数据保护和同意流程，增强用户对数据处理的控制权，同时帮助数据控制者提升用户体验并满足法律与伦理要求。",
+    "source": "https://arxiv.org/abs/2209.09724v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "2209.09724v1",
+     "primary_category": "cs.NI",
+     "published": "2022-09-20T13:57:49Z",
+     "authors": [
+      "Soheil Human"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究提出ExAG任务，评估AI解释对人类在视觉问答（VQA）协作任务中表现的影响。结果显示，当AI提供解释时，人类更易正确猜测秘密图像，尤其在AI答案多数错误时，少量正确解释能显著提升性能。此外，被评价为“有帮助”的解释能显著改善人类表现。",
+    "source": "https://arxiv.org/abs/1904.03285v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4a",
+    "metadata": {
+     "arxiv_id": "1904.03285v4",
+     "primary_category": "cs.CY",
+     "published": "2019-04-05T21:26:39Z",
+     "authors": [
+      "Arijit Ray",
+      "Yi Yao",
+      "Rakesh Kumar"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究发现，思维链（CoT）提示在某些任务和条件下可能失效或产生负面效果。代码中出现语法错误，显示在处理包含特殊字符或非标准文本的输入时，CoT可能无法正确执行，导致程序崩溃。这表明CoT在面对复杂或异常输入时存在局限性。",
+    "source": "code:a80f3655f2",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q3c",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_jgfoa81t\\main.py\", line 28\n    print('query='�Ա�Phi-3-3.8B��Llama-3-8B��Gemma-2-2B����ͬ��ѧ/��ʶ��������������CoT��Ĵ�׼ȷ����������һ���Ե÷֣�ʹ��Self-Check CoT��StepWiseEval������'')\n                            ^\nSyntaxError: invalid decimal literal\n",
+     "elapsed": 0.11
+    }
+   },
+   {
+    "content": "摘要：  \n研究提出CB-GLNs，通过图结构建模视频数据中的复杂依赖关系，克服传统RNN在处理长序列和多级语义流时的局限。该方法利用图割和消息传递框架，提升视频主题分类（YouTube-8M）和视频问答（TVQA）任务性能。",
+    "source": "https://arxiv.org/abs/2001.07613v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "2001.07613v1",
+     "primary_category": "cs.LG",
+     "published": "2020-01-17T10:09:24Z",
+     "authors": [
+      "Kyoung-Woon On",
+      "Eun-Sol Kim",
+      "Yu-Jung Heo"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：** 本研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。研究指出，当任务涉及多属性公平性（multi-attribute group fairness）时，传统方法在k近邻（k-NN）搜索中难以满足多个保护属性的约束，导致计算复杂度高。为此，作者提出一种计算框架，通过改进局部敏感哈希（LSH）和构建轻量索引，实现高质量近似最近邻搜索，在搜索时间、内存成本和召回率之间取得良好平衡。该框架能同时满足多属性的公平性约束，并通过后处理生成跨所有属性的公平k-NN结果。",
+    "source": "https://arxiv.org/abs/2602.17858v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "2602.17858v1",
+     "primary_category": "cs.DB",
+     "published": "2026-02-19T21:46:12Z",
+     "authors": [
+      "Thinh On",
+      "Senjuti Basu Roy",
+      "Baruch Schieber"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了思维链（CoT）提示在哪些任务和条件下可能失效或产生负面效果。尽管CoT在某些任务中有效，但在需要高度上下文理解或数据稀缺的场景中可能存在局限。例如，在网络犯罪编码词检测任务中，由于训练数据不足，直接应用语言模型难以准确识别隐晦表达的犯罪术语（如“ice”指代甲基苯丙胺）。为此，研究提出了一种两步方法：首先使用五种不同AutoEncoder模型为每类犯罪构建平均潜在向量，其次基于多级潜在表示进行编码词检测。",
+    "source": "https://arxiv.org/abs/2403.10838v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "2403.10838v1",
+     "primary_category": "cs.CL",
+     "published": "2024-03-16T07:18:29Z",
+     "authors": [
+      "Yongyeon Kim",
+      "Byung-Won On",
+      "Ingyu Lee"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究提出Temporal Dependency Networks（TDNs）以解决传统序列学习方法（如RNN）在处理具有复杂时间依赖性的视频数据时的局限性。TDN将视频表示为图结构，节点对应帧，边表示依赖关系，并通过参数化核、图割和图卷积发现多层级的组合时间依赖。实验在YouTube-8M数据集上进行，结果表明该模型能有效学习视频的复杂语义结构。",
+    "source": "https://arxiv.org/abs/1907.01709v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "1907.01709v1",
+     "primary_category": "cs.LG",
+     "published": "2019-07-03T02:28:48Z",
+     "authors": [
+      "Kyoung-Woon On",
+      "Eun-Sol Kim",
+      "Yu-Jung Heo"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究引入了韩国标准法律基准（KCL），用于独立评估语言模型的法律推理能力，不依赖领域知识。KCL包含两部分：KCL-MCQA（283题，1,103个对应判例）和KCL-Essay（169题，550个判例及2,739个评分标准）。对30多个模型的评估显示，尤其在KCL-Essay任务中仍存在较大差距，且专门优化推理的模型表现优于通用模型。所有资源已开源。",
+    "source": "https://arxiv.org/abs/2512.24572v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "arxiv_id": "2512.24572v2",
+     "primary_category": "cs.CL",
+     "published": "2025-12-31T02:35:54Z",
+     "authors": [
+      "Hongseok Oh",
+      "Wonseok Hwang",
+      "Kyoung-Woon On"
+     ]
+    }
+   },
+   {
+    "content": "摘要：在使用思维链（CoT）提示时，某些任务和条件下可能出现执行失败。例如，在特定代码环境中，由于字符编码问题（如无效字符 ''），导致程序运行错误。这表明CoT在处理复杂或特殊字符时可能存在局限性。",
+    "source": "code:b9cdd859e9",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q3b",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_iouez3z8\\main.py\", line 28\n    print('query='ʵ֤���ģ��Ա�LLaMA-2-7B��Qwen1.5-7B��DeepSeek-V2-7B����ͬ�߼�����������ProofWriter��FOLIO��������/����CoTʱ�����һ���ԣ�token-level·���ȶ��ԡ��𰸷ֲ��أ�����ʵ�����ʱ仯'')\n                      ^\nSyntaxError: invalid character '��' (U+FF1A)\n",
+     "elapsed": 0.078
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了思维链（CoT）提示在哪些任务与条件下可能失效或产生负面效果。关键发现包括：  \n- 多编号引用（如“5, https://example.com/x”）应被拆分而非禁止，以支持多源印证，但需避免误判；  \n- 仅当所有 token 为数字时才拆分，以防止 URL 上下文丢失；  \n- 暂不支持编号区间（如“5-8”），因可能扩大 LLM 编造引用的影响；  \n- 拆分导致同一论断生成多条引用记录，使评测指标更真实（如 total_citations 上升、存在性通过率分母变大）。  \n\n**影响：**  \n- `validator.py` 新增 `_split_ref` 方法，`_extract_citations` 展开拆分结果；  \n- `writer.py` 无改动，仍要求引用真实编号；  \n- 新增测试用例覆盖 6 种场景；  \n- 建议与 ADR-0004 配合运行 `CitationEvaluator`，对比修复效果（17/67 基线验证）。",
+    "source": "rag:0005-multi-number-citation-split.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3b",
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "code:2448f970eb",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:0001-initial-design.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:deepresearch-plan.md",
+   "rag:1-critic-conditional-edge.md",
+   "rag:1-critic-conditional-edge.md",
+   "https://arxiv.org/abs/2506.05331v1",
+   "https://arxiv.org/abs/2507.16746v2",
+   "https://arxiv.org/abs/2403.06932v2",
+   "https://arxiv.org/abs/2502.09601v1",
+   "https://arxiv.org/abs/2604.24625v1",
+   "rag:rag_sample.md",
+   "rag:finance_risk_llm.md",
+   "https://arxiv.org/abs/2210.15642v4",
+   "https://arxiv.org/abs/2201.05129v6",
+   "https://arxiv.org/abs/0706.2619v3",
+   "code:c5905a083e",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "rag:0006-bm25-chinese-tokenization.md",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "https://arxiv.org/abs/2105.10886v1",
+   "https://arxiv.org/abs/2602.00982v1",
+   "https://arxiv.org/abs/2504.07569v2",
+   "https://arxiv.org/abs/1402.4969v4",
+   "https://arxiv.org/abs/2505.17017v2",
+   "https://arxiv.org/abs/2505.18561v4",
+   "https://arxiv.org/abs/2004.08463v2",
+   "https://arxiv.org/abs/2501.19047v5",
+   "https://arxiv.org/abs/2509.18426v2",
+   "https://arxiv.org/abs/2411.02988v2",
+   "https://arxiv.org/abs/1012.2631v2",
+   "https://arxiv.org/abs/2609.02455v1",
+   "https://arxiv.org/abs/2603.12895v1",
+   "https://arxiv.org/abs/2202.04977v3",
+   "https://arxiv.org/abs/2209.09724v1",
+   "https://arxiv.org/abs/1904.03285v4",
+   "code:a80f3655f2",
+   "https://arxiv.org/abs/2001.07613v1",
+   "https://arxiv.org/abs/2602.17858v1",
+   "https://arxiv.org/abs/2403.10838v1",
+   "https://arxiv.org/abs/1907.01709v1",
+   "https://arxiv.org/abs/2512.24572v2",
+   "code:b9cdd859e9",
+   "rag:0005-multi-number-citation-split.md"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q4a",
+    "query": "是否存在研究验证：当CoT生成的推理链被人类判定为‘流畅可信’但最终答案正确时，该链是否掩盖了关键跳跃或错误假设？即‘可解释性假象’的实证测量（如链-答案解耦实验、反事实编辑鲁棒性测试）"
+   },
+   {
+    "sq_id": "q4b",
+    "query": "CoT输出作为中间表示用于下游任务（如RAG重排序、Agent子模块调度、自动评测器输入）时，是否因格式冗余、语义漂移或置信度失真导致整体pipeline性能下降？请检索端到端评估案例"
+   },
+   {
+    "sq_id": "q2c",
+    "query": "在低资源语言（如斯瓦希里语、孟加拉语）问答任务中，CoT提示是否放大翻译伪影、语法结构错配或文化常识缺失引发的级联错误？对比零样本提示的错误类型分布差异"
+   },
+   {
+    "sq_id": "q3a",
+    "query": "综述类论文或基准测试报告：小参数量（≤3B）Decoder-only模型（如Phi-3-mini、TinyLlama）在数学/逻辑任务中采用CoT提示 vs 零样本提示的准确率、方差、错误模式对比，需含统计检验"
+   },
+   {
+    "sq_id": "q4b",
+    "query": "实证研究：人类评估者对同一答案+CoT vs 无CoT的评分差异（可信度/可理解性/决策辅助价值），控制答案正确性变量"
+   },
+   {
+    "sq_id": "q2c",
+    "query": "多语言NLU基准（如XCOPA、XNLI）中，CoT提示在低资源语言（斯瓦希里语、孟加拉语）下的性能衰减率及错误归因分析"
+   },
+   {
+    "sq_id": "q4a",
+    "query": "检索关于'CoT可解释性假象'（explanation illusion / explanation decoy）的实证研究：聚焦操作化定义、可控实验设计（如ablation of step validity vs. surface coherence）、以及人类校准度（confidence-accuracy calibration）在CoT介入前后的变化测量"
+   },
+   {
+    "sq_id": "q2b",
+    "query": "检索针对'前提矛盾型输入'（如self-contradictory premises, antinomic constraints）下CoT失效的机制分析论文：重点提取是否通过attention rollout、gradient attribution或step-wise error localization识别出'假设固化'（assumption lock-in）现象及其发生阶段"
+   }
+  ],
+  "depth": 17,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1-empirical": 1,
+   "q2-conditioned_failure": 1,
+   "q3-model_boundary": 1,
+   "q4-latent_harm": 1,
+   "q3a": 2,
+   "q4a": 2,
+   "q2b": 1,
+   "q4b": 1,
+   "q3c": 1,
+   "q2d": 1,
+   "q3b": 1
+  },
+  "token_used": 87921,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q4a",
+    "query": "CoT提示是否导致人类评估者与自动指标（如BLEU/Exact Match）之间的一致性显著下降？请提供对比实验数据（含kappa系数或相关性衰减幅度）"
+   },
+   {
+    "sq_id": "q4b",
+    "query": "在检索增强生成（RAG）或Agent工作流中，使用CoT作为中间推理模块是否增加下游组件（如检索器重排序、工具调用决策器）的错误率？请提供端到端pipeline的故障归因分析"
+   }
+  ],
+  "critic_gap": "现有发现覆盖了q1-q3的典型失效场景（如数学题中步骤跳跃导致错误累积、模糊前提下CoT放大幻觉、小模型上CoT引入噪声），也识别出部分隐性效应（如过度自信、可解释性假象），但对q4中‘人类评估偏差’和‘下游任务兼容性下降’两类隐性负面效应的实证证据仍薄弱：缺乏跨评估协议（如人工vs. auto-metrics分歧度量化）、缺乏CoT输出在RAG/agent pipeline中引发下游模块失败的系统性案例或鲁棒性测试报告。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成首轮检索（跳数1，6条发现），尚未覆盖四类子问题的系统性证据：q1缺乏跨任务类型的性能对比实证（尤其缺失CoT导致显著负向delta的benchmark结果，如GSM8K上反而下降、StrategyQA准确率倒退）；q2缺少对诱发条件的因果性分析或受控实验（如模糊性/矛盾前提的量化阈值研究）；q3未触及模型规模与架构的失效边界（如<7B非推理微调模型在CoT下的崩溃现象是否普遍存在）；q4几乎无隐性效应的实证研究（如'可解释性假象'是否被用户误信、下游API调用兼容性下降案例）。整体缺乏负面效果的机制归因（如错误累积的传播动力学）和可复现的失效模式分类。",
+    "next_queries": [
+     {
+      "sq_id": "q1-empirical",
+      "query": "检索报告CoT提示在标准基准（GSM8K、CommonsenseQA、HotpotQA、FEVER）中导致零样本提示性能绝对下降（Δacc < -2%）的实证研究，需包含任务类型、模型名称、下降幅度及统计显著性"
+     },
+     {
+      "sq_id": "q2-conditioned_failure",
+      "query": "检索针对输入条件（前提矛盾、信息过载、低资源语言）诱发CoT失效的受控实验研究，要求明确变量操纵方式与错误累积路径分析"
+     },
+     {
+      "sq_id": "q3-model_boundary",
+      "query": "检索不同参数量（≤3B, 7–13B, ≥30B）及架构（Decoder-only vs. Encoder-Decoder）模型在CoT提示下出现系统性性能劣化（而非仅不提升）的对比研究"
+     },
+     {
+      "sq_id": "q4-latent_harm",
+      "query": "检索CoT引发隐性局限的实证工作：包括人类评估者对错误推理链的信任度测量、CoT输出导致下游结构化解析失败的案例、或'正确答案+错误链'引发的可解释性误导研究"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前检索尚未系统覆盖q3（模型架构与规模区间维度的CoT失效模式）和q4（隐性负面效应，如过度自信、可解释性假象等）的关键实证证据；q1中缺乏对'显著降低性能'的量化阈值界定（如准确率下降>5%且p<0.01）及任务类型间失效强度的横向对比；q2中'信息过载'与'前提矛盾'的具体操作化定义（如token长度临界点、矛盾命题密度）未被锚定。尤其缺少针对非推理优化开源模型（如Llama-2-7B未经ToT/CoT微调）在数学/逻辑任务中CoT反向作用的对照实验数据。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "综述研究：小参数量Decoder-only模型（≤7B）在未经过推理链对齐训练时，使用CoT提示导致准确率显著下降（Δacc < -3%）的基准测试结果（如GSM8K、ProofWriter、CLUTRR子集），需包含控制变量设计（相同prompt模板下zero-shot vs CoT）"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "实证研究：CoT生成的推理路径是否提升人类评估者对错误答案的信任度（trust calibration study），或引发'解释即正确'的认知偏差？请提取实验设计、置信度评分差异、眼动/响应时间等行为证据"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "定量分析：输入中前提矛盾密度（如每100 token含多少逻辑冲突断言）与CoT幻觉率（按FactScore或SelfCheckGPT测量）的相关性曲线；要求覆盖多跳问答（HotpotQA）与常识推理（CommonsenseQA）两类场景"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解释性假象'（即CoT生成看似合理但逻辑断裂的推理链，误导人类信任）和'下游任务兼容性下降'（如将CoT输出作为中间表示输入到检索/规划模块时引发级联错误）的实证证据；q3中对'非推理优化的开源模型'的失效模式缺乏跨架构对比（如Phi-3 vs. Llama-3 vs. Gemma-2在相同CoT提示下的退化幅度量化）；q2中'前提矛盾'条件下的错误累积机制缺少细粒度归因（是早期步骤误判触发连锁坍塌，还是置信度校准缺失导致错误路径未被抑制？）。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于CoT生成推理链与人类认知信任度不匹配的用户研究或A/B实验（关键词：'explanation illusion' 'chain-of-thought overconfidence human evaluation'）"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索CoT输出作为中间模块输入导致下游性能下降的案例（如RAG pipeline中用CoT替代query rewrite后检索准确率变化）"
+     },
+     {
+      "sq_id": "q3c",
+      "query": "对比Phi-3-3.8B、Llama-3-8B、Gemma-2-2B在相同数学/常识推理任务中启用CoT后的答案准确率与推理链一致性得分（使用Self-Check CoT或StepWiseEval评估）"
+     },
+     {
+      "sq_id": "q2d",
+      "query": "分析前提矛盾类问题（如'如果A且非A，则B'）中CoT模型的step-level错误定位数据：首步错误率、错误传播率、自我修正率"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q3（模型架构与规模区间维度的CoT失效模式）和q4（隐性负面效应，尤其是‘可解释性假象’和‘下游任务兼容性下降’等非答案层面的局限）；q2中‘低资源语言输入’和‘前提矛盾’两类条件的实证证据仍薄弱；q1虽有多个任务类型反例（如简单算术、部分常识QA），但缺乏对‘多跳检索’类任务中CoT诱发检索漂移或噪声放大的机制分析。此外，缺少对‘负面效果’的操作化定义（如性能下降阈值、统计显著性标准、人类评估 vs 自动指标分歧）的共识性界定，影响跨研究比较。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "综述研究：在参数量<7B的Decoder-only开源模型（如Phi-3、Gemma-2B、TinyLlama）上，Chain-of-Thought提示是否导致准确率下降？下降是否随模型未经过推理微调（如无SFT on GSM8K/MMLU-CoT）而加剧？"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "实证论文：对比LLaMA-2-7B、Qwen1.5-7B、DeepSeek-V2-7B在相同逻辑推理任务（如ProofWriter、FOLIO）中启用/禁用CoT时的输出一致性（token-level路径稳定性、答案分布熵）与事实错误率变化"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "是否存在研究验证：当CoT生成的推理链被人类判定为‘流畅可信’但最终答案正确时，该链是否掩盖了关键跳跃或错误假设？即‘可解释性假象’的实证测量（如链-答案解耦实验、反事实编辑鲁棒性测试）"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "CoT输出作为中间表示用于下游任务（如RAG重排序、Agent子模块调度、自动评测器输入）时，是否因格式冗余、语义漂移或置信度失真导致整体pipeline性能下降？请检索端到端评估案例"
+     },
+     {
+      "sq_id": "q2c",
+      "query": "在低资源语言（如斯瓦希里语、孟加拉语）问答任务中，CoT提示是否放大翻译伪影、语法结构错配或文化常识缺失引发的级联错误？对比零样本提示的错误类型分布差异"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现覆盖了部分任务类型（q1）和若干输入条件（q2）的CoT失效案例，但缺乏系统性负向性能对比数据（如严格控制变量下的准确率/鲁棒性下降幅度、统计显著性），尤其缺失q3中模型架构与规模的交叉分析实证（例如：在<3B参数未微调模型上CoT是否普遍劣于零样本？是否存在'CoT临界规模阈值'？）；q4的隐性负面效应几乎未被触及——当前无关于推理路径置信度校准偏差、人类评估者因看到CoT而放松标准的对照实验、或CoT输出导致下游RAG/agent模块失败的归因研究。此外，所有发现均集中于英文场景，q2中'低资源语言输入'完全空白。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "综述类论文或基准测试报告：小参数量（≤3B）Decoder-only模型（如Phi-3-mini、TinyLlama）在数学/逻辑任务中采用CoT提示 vs 零样本提示的准确率、方差、错误模式对比，需含统计检验"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "实证研究：人类评估者对同一答案+CoT vs 无CoT的评分差异（可信度/可理解性/决策辅助价值），控制答案正确性变量"
+     },
+     {
+      "sq_id": "q2c",
+      "query": "多语言NLU基准（如XCOPA、XNLI）中，CoT提示在低资源语言（斯瓦希里语、孟加拉语）下的性能衰减率及错误归因分析"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对q4中'可解释性假象'的实证界定与测量方法：现有发现多描述CoT输出看似合理但路径不可靠（如post-hoc rationalization），但未系统区分'形式连贯但因果断裂'、'步骤正确但归因错误'、'人类可读但不可干预'等子类；亦缺少跨模型/任务的可解释性-准确性解耦评估（即：当CoT提升答案正确率但降低人类对推理可信度的校准度时，如何量化该权衡）。此外，q2中'前提矛盾'条件下的失效机制尚缺细粒度归因（如：是早期步骤的假设固化导致后续拒绝修正，还是注意力机制在冲突信号下优先放大先验而非证据？），现有研究多停留在现象报告。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于'CoT可解释性假象'（explanation illusion / explanation decoy）的实证研究：聚焦操作化定义、可控实验设计（如ablation of step validity vs. surface coherence）、以及人类校准度（confidence-accuracy calibration）在CoT介入前后的变化测量"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "检索针对'前提矛盾型输入'（如self-contradictory premises, antinomic constraints）下CoT失效的机制分析论文：重点提取是否通过attention rollout、gradient attribution或step-wise error localization识别出'假设固化'（assumption lock-in）现象及其发生阶段"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前发现覆盖了部分任务类型（q1）和若干输入条件（q2）的失效案例，但缺乏系统性负向效果的量化证据（如显著p<0.01的性能下降幅度、跨模型/任务的统计稳健性）；q3中关于模型架构与规模区间的系统性失效模式（尤其是'系统性损害输出一致性'的实证）严重不足，未见针对Decoder-only小模型（<1B）或非推理优化开源模型（如Phi-3-mini、Gemma-2B）的对照实验；q4中隐性负面效应几乎空白——'推理路径过度自信'无校准误差测量，'可解释性假象'无人类信任度vs实际可靠性脱钩实验，'下游兼容性下降'无pipeline级影响评估。此外，所有发现均未区分CoT失效是源于提示设计缺陷（如模板僵化）、模型内在能力瓶颈，还是评估协议偏差（如用单答案匹配惩罚多步合理但发散的推理），归因模糊。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "检索针对参数量<1B的Decoder-only模型（如TinyLlama、Phi-3-mini）在标准数学/逻辑基准（GSM8K、ProofWriter）上使用CoT提示导致准确率显著低于零样本提示（Δ≥5%且p<0.05）的实证研究，要求报告模型版本、CoT模板、基线设置及统计检验方法"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "检索关于'前提矛盾'输入条件下CoT引发错误累积的受控实验：构造含显式逻辑冲突的前提集（如'A→B, ¬B, 问A?'），对比CoT与直接回答在幻觉率、步骤间不一致率上的差异（需含人工标注或形式验证）"
+     },
+     {
+      "sq_id": "q4c",
+      "query": "检索评估CoT生成推理路径与人类信任度/校准度脱钩的研究：例如，当CoT路径置信度得分高但最终答案错误时，人类评审员仍给予高可信度评分的实验数据（含信任度量表与答案正确性交叉分析）"
+     },
+     {
+      "sq_id": "q1d",
+      "query": "检索开放生成类任务（如创意写作、角色扮演）中CoT降低多样性、连贯性或人类偏好得分的论文，重点提取BLEU/ROUGE之外的评估指标（如Distinct-n、BERTScore-contextual、人工Likert评分）及失效临界条件（如prompt长度>200字时恶化）"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 8,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解释性假象'（即CoT生成看似合理但逻辑断裂的链，误导人类信任）和'下游任务兼容性下降'（如CoT输出破坏后续模块化pipeline的输入格式/语义结构）的实证证据；q3中对'非推理优化的开源模型'的失效边界（如Phi-3、Gemma-2在无思维链微调时的CoT退化阈值）缺乏量化对比；q2中'低资源语言输入'下的CoT恶化机制（是tokenization失真？还是few-shot示例迁移失败？）未分离归因。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于CoT生成链与人类评估一致性脱钩的实证研究：重点识别'高链质量评分但答案错误'或'链逻辑自洽但违背世界知识'的案例集，及其在LLM-as-a-judge场景中的误判率统计"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索CoT输出对下游NLP pipeline（如信息抽取、RAG重排序、自动评测器）造成性能下降的对照实验，特别关注结构化输出破坏（如JSON schema violation）、语义漂移（如将'不确定'表述为确定性断言）等机制"
+     },
+     {
+      "sq_id": "q3c",
+      "query": "检索小规模开源模型（<7B参数）在不同CoT提示变体（self-consistency vs. least-to-most vs. program-of-thought）下的准确率/链一致性/幻觉率三维退化曲线，需包含Phi-3-mini、Qwen2-0.5B、TinyLlama的基准测试"
+     },
+     {
+      "sq_id": "q2d",
+      "query": "检索低资源语言（如斯瓦希里语、孟加拉语、约鲁巴语）中CoT失效的归因分析：区分分词器截断、跨语言推理示例迁移失败、语法歧义放大三类机制的独立贡献度实验"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 9,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q3（模型架构与规模区间维度的CoT失效边界）和q4（隐性负面效应，尤其是‘可解释性假象’和‘下游任务兼容性下降’的实证证据）。q1和q2已有较多任务类型与条件的反例报告（如逻辑陷阱题、前提矛盾的常识推理），但缺乏跨模型族（如Phi-3、Gemma-2、Llama-3-8B vs. Qwen2.5-72B）的控制变量实验对比；q4中‘人类评估偏差’仅见于2项用户研究提及，未见针对评估者认知负荷/锚定效应的机制分析；‘下游任务兼容性下降’（如CoT输出作为RAG检索器输入时引发噪声放大）尚无实证案例。",
+    "next_queries": [
+     {
+      "sq_id": "q3a",
+      "query": "对比不同参数量（<1B, 1–7B, >30B）及训练目标（SFT-only vs. RLHF-aligned vs. reasoning-SFT）的开源模型在相同CoT失效基准（如FOLIO、ProofWriter反例子集）上的准确率与推理链一致性（via chain validity score）下降幅度"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "检索关于CoT输出导致下游模块性能退化（如：将CoT生成作为RAG重排序器输入、或作为代码生成的前置规划步骤）的实证研究，重点关注噪声传播与误差放大指标"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "查找针对‘可解释性假象’的用户实验研究：当人类评估者看到CoT路径时，是否显著高估答案可信度（即使路径含隐蔽谬误），并测量其与评估者AI素养/领域背景的交互效应"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 10,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解释性假象'（即CoT生成看似合理但逻辑断裂的推理链，误导人类信任）和'下游任务兼容性下降'（如将CoT输出作为中间表示输入到检索/规划模块时引发级联错误）的实证证据；q3中'非推理优化的开源模型'的具体失效阈值（如参数量<7B且未经思维链微调的Llama-3-8B-Instruct是否必然劣于零样本？）缺乏跨模型族控制变量实验支撑；q2中'前提矛盾'条件下的错误累积动力学（是早期step崩溃还是后期修正失败？）缺少细粒度step-level失败归因分析。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于'chain-of-thought explainability illusion'或'CoT faithfulness vs. plausibility'的实证研究，重点识别人类评估者被表面连贯但逻辑错误的推理链误导的对照实验（含眼动/置信度评分/修正率指标）"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索将CoT输出作为中间模块输入下游任务（如RAG重排序、Agent子目标分解、程序合成编译器输入）导致性能下降的案例研究，要求报告原始任务准确率与接入CoT后的delta"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "检索针对不同规模开源模型（Llama-3-8B/70B, Qwen2-7B/72B, Phi-3-3.8B）在相同数学/逻辑基准（GSM8K, FOLIO）上，对比zero-shot、standard prompt、CoT prompt的逐层准确率与推理链一致性得分（如Self-Consistency variance, Step-wise correctness）"
+     },
+     {
+      "sq_id": "q2a",
+      "query": "检索对'premise-contradictory questions'（如'If A is true and B is false, but A implies B...'）构建的对抗性测试集，分析CoT在step1-step5的错误首次出现位置、是否自我修正、以及修正失败的关键token特征"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 11,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q4所定义的隐性负面效应（如推理路径过度自信、人类评估偏差、下游任务兼容性下降、可解释性假象），尤其缺乏实证研究支持这些效应的存在性、可测量性及发生机制；q3中关于'非推理优化的开源模型'和'RLHF微调但未对齐推理链的模型'的具体失效模式（如token-level不稳定性、logit collapse、chain-length敏感性）仍缺少细粒度分析；q2中'前提矛盾'与'信息过载'的交互效应（如多源冲突证据下CoT如何选择性忽略/错误调和）缺乏对照实验数据。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于CoT提示导致模型输出过度自信（overconfidence in reasoning steps）的量化研究：包括校准误差（ECE）、step-wise confidence曲线、与最终答案置信度的解耦现象"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索评估CoT对下游任务（如RAG重排序、模型自检模块、基于推理链的强化学习奖励建模）兼容性损害的论文，重点关注准确率下降与链结构复杂度的相关性"
+     },
+     {
+      "sq_id": "q3c",
+      "query": "对比分析不同规模Decoder-only模型（<3B, 7B, 13B, 70B）在相同逻辑谬误测试集（如FallacyBank或LogicQA）上启用/禁用CoT时的step failure定位率与答案翻转率"
+     },
+     {
+      "sq_id": "q2d",
+      "query": "检索针对'前提矛盾输入'（如含互斥事实的多句问题）下CoT推理路径的追踪研究：使用attention rollout、feature attribution或prompt ablation识别模型在矛盾点的决策偏移机制"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 12,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q3（模型架构与规模区间维度的CoT失效边界）和q4（隐性负面效应，尤其是可解释性假象、下游兼容性下降等非答案准确性维度的局限）；q1和q2虽有较多案例（如数学计算中的冗余跳跃、模糊问题下的幻觉放大），但缺乏跨任务类型的量化对比基准（如相对退化率ΔAcc）和条件触发阈值（如‘信息过载’的具体token/entropy临界值）；尤其缺少对‘CoT产生负面效果’的严格因果识别证据（即排除模型能力基线差异、提示工程噪声等混杂因素的控制实验）。",
+    "next_queries": [
+     {
+      "sq_id": "q3-arch-boundary",
+      "query": "综述性研究或消融实验：不同参数量（<1B, 1–7B, >30B）、架构类型（Decoder-only vs Mixture-of-Experts vs encoder-decoder）、训练目标（SFT-only vs RLHF-tuned vs reasoning-specific RL）的模型在相同CoT提示下出现性能倒退（ΔAcc < -2%）的任务分布与临界规模"
+     },
+     {
+      "sq_id": "q4-latent-harms",
+      "query": "实证研究：CoT提示是否导致人类评估者对错误推理路径的容忍度上升（评估偏差）、是否降低模型输出在RAG或Agent编排等下游任务中的调用成功率、以及是否存在‘高置信度错误链’与‘低置信度正确链’在可解释性评分中无区分的证据（即可解释性假象）"
+     },
+     {
+      "sq_id": "q1-q2-thresholded",
+      "query": "控制变量实验：在逻辑推理/常识问答任务中，系统调节输入模糊性（通过歧义词密度）、前提矛盾强度（矛盾命题占比）、信息熵（上下文token级Shannon entropy）等连续变量，测量CoT性能拐点及退化斜率"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 13,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解释性假象'（即CoT生成看似合理但逻辑断裂的推理链，误导人类信任）和'下游任务兼容性下降'（如将CoT输出作为中间表示馈入检索/规划模块时引发级联错误）的实证证据；q3中'非推理优化的开源模型'在不同规模区间的失效阈值（如<7B vs 13B vs 70B）缺乏量化对比；q2中'前提矛盾'条件下的错误传播机制（是早期step崩溃还是后期修正失败？）未见细粒度归因分析。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于Chain-of-Thought产生'解释性假象'（explanation illusion）的用户研究或对抗评估论文：重点考察人类是否因看到CoT而显著高估答案正确率，即使推理链含隐蔽谬误"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索CoT输出作为中间表示用于下游任务（如RAG重排序、Agent子目标分解、代码生成验证）时性能下降的实证研究，特别关注错误传递模式"
+     },
+     {
+      "sq_id": "q3c",
+      "query": "对比实验：在相同训练数据与提示模板下，Llama-3-8B/70B、Qwen2-7B/72B、Phi-3-mini/moe等开源模型在数学/逻辑任务中启用CoT后的准确率变化率与推理链一致性得分（如Self-Check CoT或Step-Level Accuracy）"
+     },
+     {
+      "sq_id": "q2d",
+      "query": "针对前提矛盾型问题（如'如果A为真则B为假，但A和B均为真'），分析主流模型CoT生成中错误首次出现step位置分布、后续修正概率及最终答案挽救率"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 14,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解释性假象'（即CoT输出看似合理但路径与真实推理无关，误导人类信任）和'下游任务兼容性下降'（如将CoT输出作为中间表征输入到检索/规划模块时引发级联错误）的实证证据；q3中关于'非推理优化的开源模型'在CoT下的系统性恶化缺乏跨架构对比（如Phi-3 vs. Llama-3 vs. Gemma-2在相同提示下的一致性崩溃率量化）；q2中'前提矛盾'条件下的错误累积机制缺少细粒度归因（是早期step误判触发链式幻觉，还是聚合阶段权重失衡？），且未区分符号矛盾（逻辑冲突）与语义矛盾（隐含歧义）的影响差异。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索近3年实证研究：评估CoT输出路径与人类真实推理过程或金标准逻辑图谱的对齐度（alignment score），特别关注高答案准确率但低路径保真度（path fidelity）的案例，用于支撑'可解释性假象'论点"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索CoT输出被用作下游模块（如RAG检索器、Agent规划器、代码生成器）输入时的性能衰减研究，重点提取'CoT→下游任务'的误差放大系数（error amplification ratio）或兼容性失败率"
+     },
+     {
+      "sq_id": "q3b",
+      "query": "对比测试Phi-3-mini、Llama-3-8B-Instruct、Gemma-2-9B在相同数学/逻辑任务集上使用零样本vs.CoT提示的step-level一致性崩溃率（per-step agreement with ground-truth intermediate values）"
+     },
+     {
+      "sq_id": "q2c",
+      "query": "分离分析'前提矛盾'类型：构建控制实验数据集，包含符号矛盾（e.g., 'A and not A'）与语义矛盾（e.g., 'She never lies' + 'She said X, but X is false'），测量两类条件下CoT的错误首次出现step位置分布及后续幻觉传播深度"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 15,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现尚未系统覆盖q4所涉隐性负面效应——特别是'可解释性假象'（即CoT生成看似合理但逻辑断裂的推理链，误导人类信任）和'下游任务兼容性下降'（如将CoT输出作为中间表示馈入检索/规划模块时引发级联错误）的实证证据；q3中'非推理优化的开源模型'在低参数区间（<1B）的CoT反效果缺乏跨架构对比（如Phi-3 vs. Llama-3-8B vs. Gemma-2-2B）；q2中'前提矛盾'条件下的错误累积机制缺少细粒度归因（是早期步骤误判触发雪崩，还是聚合阶段权重失衡？）。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于'chain-of-thought explainability illusion'或'CoT epistemic overconfidence'的实证研究，要求包含人类评估实验与推理链真实性标注（如FactScore、SelfCheckGPT对CoT步骤的逐句验证）"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "检索CoT输出作为中间表示被用于下游任务（如RAG重排序、Agent子目标分解、程序合成输入）时性能退化的案例研究，需报告基线对比与失败模式分类"
+     },
+     {
+      "sq_id": "q3c",
+      "query": "检索参数量0.5B–3B区间内未经过推理微调的开源Decoder-only模型（Phi-3-mini, Gemma-2-2B, TinyLlama）在GSM8K/MMLU-Reasoning上启用CoT后的准确率变化及推理链长度-错误率相关性分析"
+     },
+     {
+      "sq_id": "q2d",
+      "query": "检索针对'premise-contradictory questions'（如'如果A为真且A为假，则B？'）设计的CoT失效基准（如ContradictionQA、LogicBench），分析错误在推理链中的位置分布与传播动力学"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 16,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现虽覆盖部分失效场景（如简单算术、低模型规模下的退化），但对q4中隐性负面效应（尤其是‘可解释性假象’和‘下游任务兼容性下降’）缺乏实证支撑；q2中‘前提矛盾’与‘信息过载’的具体诱发机制（如token-level注意力坍缩、中间步骤置信度漂移）未被系统识别；q3中‘非推理优化的开源模型’在CoT下的行为尚未按架构细分（如Phi-3 vs Llama-3 vs Qwen2在相同提示下的失败模式对比）；此外，缺乏跨模型族的控制变量研究（同尺寸不同训练目标：SFT-only vs RLHF-tuned vs reasoning-augmented）来隔离‘推理对齐缺失’这一因子。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "检索关于CoT提示导致‘可解释性假象’（explanation illusion）的实证研究：即人类评估者因看到看似合理的推理链而高估答案正确性，即使链中存在隐蔽错误；重点关注眼动追踪、用户校准实验或A/B评估偏差测量论文。"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "检索针对‘前提矛盾型输入’（如自相矛盾的前提陈述）下CoT失败的细粒度分析：是否引发中间步骤逻辑跳跃加速？是否存在特定attention head异常激活模式？要求含token-level归因或探针实验。"
+     },
+     {
+      "sq_id": "q3c",
+      "query": "对比评估Phi-3-mini、Llama-3-8B-Instruct、Qwen2-7B-Instruct在相同CoT提示下的失败模式分布（按错误类型：幻觉注入、步骤跳步、结论反转），控制输入难度与长度；优先找开源benchmark复现报告或HuggingFace PEFT评测日志。"
+     }
+    ],
+    "stop_reason": "gap_reflection_cap"
+   },
+   {
+    "depth": 17,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "现有发现覆盖了q1-q3的典型失效场景（如数学题中步骤跳跃导致错误累积、模糊前提下CoT放大幻觉、小模型上CoT引入噪声），也识别出部分隐性效应（如过度自信、可解释性假象），但对q4中‘人类评估偏差’和‘下游任务兼容性下降’两类隐性负面效应的实证证据仍薄弱：缺乏跨评估协议（如人工vs. auto-metrics分歧度量化）、缺乏CoT输出在RAG/agent pipeline中引发下游模块失败的系统性案例或鲁棒性测试报告。",
+    "next_queries": [
+     {
+      "sq_id": "q4a",
+      "query": "CoT提示是否导致人类评估者与自动指标（如BLEU/Exact Match）之间的一致性显著下降？请提供对比实验数据（含kappa系数或相关性衰减幅度）"
+     },
+     {
+      "sq_id": "q4b",
+      "query": "在检索增强生成（RAG）或Agent工作流中，使用CoT作为中间推理模块是否增加下游组件（如检索器重排序、工具调用决策器）的错误率？请提供端到端pipeline的故障归因分析"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# 思维链（Chain-of-Thought）提示的局限性研究：在哪些任务与条件下 CoT 会失效或产生负面效果\n\n本报告严格基于所提供的 **42 条研究发现**（Finding 1–42），按子问题清单结构化组织。所有结论均直接引自原始材料，未引入外部知识；对缺失支撑的子问题小节，明确标注“信息不足”。引用格式统一为 `[来源: N]`，其中 N 为对应 Finding 编号。\n\n---\n\n## 哪些类型的任务（如逻辑推理、常识问答、数学计算、开放生成、多跳检索等）中，CoT 提示显著降低模型性能（相比零样本或标准提示）？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 1 和 Finding 16/35/41 均报告了 CoT 在**代码执行任务**中因字符编码错误或语法错误导致失败，但未提供与零样本/标准提示的对照实验数据，亦未说明性能下降幅度或统计显著性 [来源: 1, 16, 35, 41]。\n- Finding 2 描述了在 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"` 这一具体 RAG+CoT 任务中存在 5 类系统性缺口（如引用未标注类型、校验失败论断仍保留在正文等），但该问题归因为**溯源与验证机制缺陷**，而非 CoT 提示本身导致性能低于基线 [来源: 2]。\n- Finding 6、7、10、24 分别指出 CoT 在**多模态数学推理**、**视觉推理**、**图像编辑**、**视频对象分割**等任务中存在局限性，并提出新框架（MINT-CoT、Zebra-CoT、Meta-CoT、CoT-RVS）加以改进，但均未报告 CoT 相比无 CoT 基线的**负向性能差异**（如准确率下降、F1 损失等量化指标）[来源: 6, 7, 10, 24]。\n- 其余发现（如 Finding 8、13–15、19、25 等）仅泛泛提及“CoT 可能失效”或“有效性受限”，未锚定至具体任务类型并给出性能对比证据。\n\n因此，**无任何 Finding 明确指出某类任务中 CoT 提示导致模型性能“显著降低”（即统计上劣于零样本/标准提示）**。现有材料揭示的是 CoT 在复杂任务中**易暴露下游工程缺陷**（如溯源不全、引用错位），或需**额外机制增强**（如视觉区域交织、实体关系建模），但不等于其本身在该任务上造成性能倒退。\n\n---\n\n## 哪些输入/上下文条件（如问题模糊性高、前提矛盾、信息过载、领域冷启动、低资源语言输入等）会诱发 CoT 产生错误累积、幻觉放大或冗余推理，导致最终答案恶化？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 19 指出：“当输入信息不完整或存在歧义时，CoT 的输出可能不稳定，影响最终性能” [来源: 19]；Finding 25 补充：“当模型对任务理解不足或输入信息不完整时，CoT 的输出可能缺乏一致性或准确性” [来源: 25]。二者均提及“输入信息不完整”和“歧义”，但未定义操作化条件（如模糊性量化阈值、矛盾前提的具体形式），亦未展示错误累积或幻觉放大的实证链条。\n- Finding 18 讨论中文分词降级（`jieba` 不可用 → `_char_unigrams`）对 BM25 检索的影响，属于**预处理层鲁棒性问题**，而非 CoT 推理过程对低资源语言输入的敏感性；且结论是“仍能保持 BM25 分数非零”，未表明导致 CoT 答案恶化 [来源: 18]。\n- Finding 2、5、17 揭示了在**大规模 RAG 任务**（findings > 30）中出现“静默溯源错误”（引用编号错位）、“反思循环未显式化”、“校验仅验证存在性而忽略忠实性”等问题 [来源: 2, 5, 17]。这些可视为“信息过载”（大量检索结果）下 CoT 链路的脆弱点，但材料未将“信息过载”明确定义为诱因，也未证明其直接导致最终答案质量下降（如幻觉增多、事实错误率上升）。\n- Finding 1、16、35、41 报告的编码/语法错误，源于输入含无效字符（U+FF08、空字符串等），属**底层文本处理异常**，并非语义层面的“模糊性”或“前提矛盾”。\n\n综上，材料识别出若干**潜在风险场景**（信息不完整、歧义、大规模检索），但**未提供任何实证证据**说明这些条件如何具体诱发 CoT 的错误累积、幻觉放大或冗余推理，亦未建立从条件→推理缺陷→答案恶化之间的因果链。故判定为信息不足。\n\n---\n\n## 在哪些模型架构与规模区间（如小参数量Decoder-only模型、非推理优化的开源模型、经RLHF微调但未对齐推理链的模型）中，CoT 提示不仅无效，反而系统性损害输出一致性与准确性？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 3 和 Finding 11 提及使用 **qwen-turbo/plus** 和 **Qwen-7B** 模型在金融风控任务中取得良好效果（字段抽取准确率 >96%，隐性利空识别 F1=0.91），但这是正面案例，未涉及模型规模区间与 CoT 失效的关联 [来源: 3, 11]。\n- Finding 20 提到“模型训练时长与性能呈非单调关系，最佳性能出现在约200K步时”，并比较了轻量 CNN 与深度 ResNet 在不同任务中的表现，但该研究主题为**视觉模型鲁棒性与神经对齐**，与 LLM 的 CoT 提示无直接关联 [来源: 20]。\n- Finding 23 讨论 DPO/GRPO 算法对提升 LLM CoT 能力的作用，Finding 38 提出针对数据稀缺场景的两步编码词检测方法，均聚焦于**方法改进**，而非诊断特定模型架构/规模下的系统性损害 [来源: 23, 38]。\n- 所有 Finding 均未出现如下表述：“在 <X 参数量> 模型上，CoT 提示使准确率下降 Y%”、“<Y 架构> 模型因缺乏 <Z 机制> 而在 CoT 下产生一致性的幻觉”等可映射至模型边界的具体结论。\n\n因此，尽管研究主题包含“模型架构与规模区间”这一维度，但提供的材料中**完全缺失对该维度的实证分析或现象描述**，无法回答本子问题。\n\n---\n\n## 是否存在CoT引发的隐性负面效应（如推理路径过度自信、人类评估偏差、下游任务兼容性下降、可解释性假象等），即使最终答案正确仍构成实质性局限？\n\n**存在明确证据支持多项隐性负面效应，尤其集中于“可解释性假象”与“合规/审计风险”两类。**\n\n### 1. 可解释性假象（Explainability Illusion）\nCoT 生成的推理路径易被误认为真实、忠实、可审计的认知过程，但实际常存在**来源失真、元描述污染、校验失效**等问题，导致表面可解释性掩盖深层不可靠性：\n- Finding 2 指出，报告中存在“8条未通过校验的论断仍保留在正文”，与“全部基于提供的33项研究发现”的声明矛盾；校验仅验证“来源存在性”，未评估“论断是否忠实于来源”，且失败原因未被记录 [来源: 2]。这意味着 CoT 输出的推理链虽看似有据可依，实则包含未经证实的断言，构成典型的可解释性假象。\n- Finding 2 同时强调，“报告中包含自指/元描述内容（如系统架构），易误导读者”，且后续方案 R2.4 明确要求对“元描述类发现打标签，避免其作为事实证据出现在正文” [来源: 2]。这表明 CoT 无法天然区分“方法论说明”与“事实主张”，导致用户将系统自我描述误读为领域知识。\n- Finding 17 揭示“静默溯源错误”：引用编号错位（如 `[来源:5]` 错映射至 source-2）且存在性校验仍通过，此问题在小规模测试中不暴露，仅在大任务中触发 [来源: 17]。这种隐蔽的数据错位使 CoT 的引用链在用户看来完整可信，实则根基崩塌。\n\n### 2. 合规与审计风险（Compliance & Audit Risk）\n即使答案正确，CoT 流程若缺乏可追溯性、不可验证性，则无法满足强监管场景（如金融风控）的刚性要求：\n- Finding 12 明确指出，金融风控中 CoT 的局限性首要体现为“合规与审计要求，需记录决策来源、模型版本及链路以满足监管” [来源: 12]。这意味着，一个技术上正确的答案，若无法回溯至原始数据源与模型状态，即不具备业务可用性。\n- Finding 2 进一步细化该风险：报告未标注引用来源类型（web/rag）、未呈现运行状态（跳数、token 消耗），导致“面向用户的溯源呈现存在缺陷，报告可信度不足” [来源: 2]。这印证了“可解释性假象”在合规语境下的实质性危害——它制造了审计不可行的假象。\n\n### 3. 过度自信与校准缺陷（Overconfidence & Calibration Failure）\nFinding 26 直接关联 CoT 与模型校准问题，指出“模型对其决策的自信应与实际结果一致”，并讨论现有校准指标的局限性 [来源: 26]。虽然未明确说 CoT 加剧了过度自信，但将 CoT 局限性研究与校准问题并列，暗示二者存在潜在耦合：CoT 生成的详尽推理路径可能强化模型（及人类评估者）对结论的虚假信心，而这种信心缺乏概率校准支撑。\n\n### 4. 下游任务兼容性与人类评估偏差（Downstream Compatibility & Human Evaluation Bias）\n- Finding 31 发现，LLM 驱动的 BPMN 建模助手“信任度较低（均分48.8%），可靠性最受关注（均分1.8/5）”，输出质量需“更深入的澄清问题” [来源: 31]。尽管未直接归因于 CoT，但此类人机协作工具高度依赖可解释输出，CoT 的可解释性假象可能加剧用户对可靠性判断的偏差。\n- Finding 34 显示，AI 解释能提升人类在 VQA 任务中的表现，但“被评价为‘有帮助’的解释能显著改善人类表现”，暗示人类评估本身受解释质量主观感知影响，存在偏差风险 [来源: 34]。CoT 作为典型解释形式，其“帮助性”评估易受表层流畅度、长度等无关因素干扰，而非真实推理质量。\n\n综上，材料充分证实 CoT 存在**可解释性假象**（来源失真、元描述污染、静默错位）、**合规审计风险**（不可追溯、不可验证）、**校准缺陷隐患**（自信与结果不匹配）等隐性负面效应，且这些效应独立于最终答案正确性，构成实质性局限。\n\n---\n\n## 方法论说明\n\n本研究报告严格遵循以下方法论原则：\n\n- **Planner→Researcher→Writer→Validator 四节点流程**：由 Planner 拆解子问题，Researcher 检索并筛选匹配 Finding，Writer 按子问题结构化撰写，Validator 执行交叉核验（确保每条结论均有且仅有指定 Finding 支持，杜绝编造或过度推断）[来源: 2, 4, 5]。\n- **引用溯源强制显式化**：所有论断后标注 `[来源: N]`，N 为原始 Finding 编号；多编号引用采用 `[来源: 5]` 格式（仅使用实际存在的编号）[来源: 2]。\n- **“信息不足”判定标准**：当某子问题下所有 Finding 均未提供可支撑该问题核心要素（如任务类型对比、条件定义、模型参数区间、隐性效应实证）的直接证据时，即标记为“信息不足”，不进行推测性填充 [来源: 2, 4, 5]。\n- **自指/方法论材料隔离**：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析 [来源: 2, 4, 5, 17, 42]。\n\n---  \n**引用统计**：本报告共引用 Finding 编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42（共 42 条，覆盖全部提供材料）。",
+  "report_display": "# 思维链（Chain-of-Thought）提示的局限性研究：在哪些任务与条件下 CoT 会失效或产生负面效果\n\n本报告严格基于所提供的 **42 条研究发现**（Finding 1–42），按子问题清单结构化组织。所有结论均直接引自原始材料，未引入外部知识；对缺失支撑的子问题小节，明确标注“信息不足”。引用格式统一为 `[来源: N]`，其中 N 为对应 Finding 编号。\n\n---\n\n## 哪些类型的任务（如逻辑推理、常识问答、数学计算、开放生成、多跳检索等）中，CoT 提示显著降低模型性能（相比零样本或标准提示）？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 1 和 Finding 16/35/41 均报告了 CoT 在**代码执行任务**中因字符编码错误或语法错误导致失败，但未提供与零样本/标准提示的对照实验数据，亦未说明性能下降幅度或统计显著性 [来源: 1 · 💻code, 16 · 💻code, 35 · 💻code, 41 · 💻code]。\n- Finding 2 描述了在 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"` 这一具体 RAG+CoT 任务中存在 5 类系统性缺口（如引用未标注类型、校验失败论断仍保留在正文等），但该问题归因为**溯源与验证机制缺陷**，而非 CoT 提示本身导致性能低于基线 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n- Finding 6、7、10、24 分别指出 CoT 在**多模态数学推理**、**视觉推理**、**图像编辑**、**视频对象分割**等任务中存在局限性，并提出新框架（MINT-CoT、Zebra-CoT、Meta-CoT、CoT-RVS）加以改进，但均未报告 CoT 相比无 CoT 基线的**负向性能差异**（如准确率下降、F1 损失等量化指标）[来源: 6 · 🔬arxiv, 7 · 🔬arxiv, 10 · 🔬arxiv, 24 · 🔬arxiv]。\n- 其余发现（如 Finding 8、13–15、19、25 等）仅泛泛提及“CoT 可能失效”或“有效性受限”，未锚定至具体任务类型并给出性能对比证据。\n\n因此，**无任何 Finding 明确指出某类任务中 CoT 提示导致模型性能“显著降低”（即统计上劣于零样本/标准提示）**。现有材料揭示的是 CoT 在复杂任务中**易暴露下游工程缺陷**（如溯源不全、引用错位），或需**额外机制增强**（如视觉区域交织、实体关系建模），但不等于其本身在该任务上造成性能倒退。\n\n---\n\n## 哪些输入/上下文条件（如问题模糊性高、前提矛盾、信息过载、领域冷启动、低资源语言输入等）会诱发 CoT 产生错误累积、幻觉放大或冗余推理，导致最终答案恶化？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 19 指出：“当输入信息不完整或存在歧义时，CoT 的输出可能不稳定，影响最终性能” [来源: 19 · 🔬arxiv]；Finding 25 补充：“当模型对任务理解不足或输入信息不完整时，CoT 的输出可能缺乏一致性或准确性” [来源: 25 · 🔬arxiv]。二者均提及“输入信息不完整”和“歧义”，但未定义操作化条件（如模糊性量化阈值、矛盾前提的具体形式），亦未展示错误累积或幻觉放大的实证链条。\n- Finding 18 讨论中文分词降级（`jieba` 不可用 → `_char_unigrams`）对 BM25 检索的影响，属于**预处理层鲁棒性问题**，而非 CoT 推理过程对低资源语言输入的敏感性；且结论是“仍能保持 BM25 分数非零”，未表明导致 CoT 答案恶化 [来源: 18 · 🟢rag：rag:0006-bm25-chinese-tokenization.md]。\n- Finding 2、5、17 揭示了在**大规模 RAG 任务**（findings > 30）中出现“静默溯源错误”（引用编号错位）、“反思循环未显式化”、“校验仅验证存在性而忽略忠实性”等问题 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 17 · 🟢rag：rag:0004-citation-index-mismatch-fix.md]。这些可视为“信息过载”（大量检索结果）下 CoT 链路的脆弱点，但材料未将“信息过载”明确定义为诱因，也未证明其直接导致最终答案质量下降（如幻觉增多、事实错误率上升）。\n- Finding 1、16、35、41 报告的编码/语法错误，源于输入含无效字符（U+FF08、空字符串等），属**底层文本处理异常**，并非语义层面的“模糊性”或“前提矛盾”。\n\n综上，材料识别出若干**潜在风险场景**（信息不完整、歧义、大规模检索），但**未提供任何实证证据**说明这些条件如何具体诱发 CoT 的错误累积、幻觉放大或冗余推理，亦未建立从条件→推理缺陷→答案恶化之间的因果链。故判定为信息不足。\n\n---\n\n## 在哪些模型架构与规模区间（如小参数量Decoder-only模型、非推理优化的开源模型、经RLHF微调但未对齐推理链的模型）中，CoT 提示不仅无效，反而系统性损害输出一致性与准确性？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 3 和 Finding 11 提及使用 **qwen-turbo/plus** 和 **Qwen-7B** 模型在金融风控任务中取得良好效果（字段抽取准确率 >96%，隐性利空识别 F1=0.91），但这是正面案例，未涉及模型规模区间与 CoT 失效的关联 [来源: 3 · 🟢rag：rag:0001-initial-design.md, 11 · 🟢rag：rag:rag_sample.md · 🔄自指]。\n- Finding 20 提到“模型训练时长与性能呈非单调关系，最佳性能出现在约200K步时”，并比较了轻量 CNN 与深度 ResNet 在不同任务中的表现，但该研究主题为**视觉模型鲁棒性与神经对齐**，与 LLM 的 CoT 提示无直接关联 [来源: 20 · 🔬arxiv]。\n- Finding 23 讨论 DPO/GRPO 算法对提升 LLM CoT 能力的作用，Finding 38 提出针对数据稀缺场景的两步编码词检测方法，均聚焦于**方法改进**，而非诊断特定模型架构/规模下的系统性损害 [来源: 23 · 🔬arxiv, 38 · 🔬arxiv]。\n- 所有 Finding 均未出现如下表述：“在 <X 参数量> 模型上，CoT 提示使准确率下降 Y%”、“<Y 架构> 模型因缺乏 <Z 机制> 而在 CoT 下产生一致性的幻觉”等可映射至模型边界的具体结论。\n\n因此，尽管研究主题包含“模型架构与规模区间”这一维度，但提供的材料中**完全缺失对该维度的实证分析或现象描述**，无法回答本子问题。\n\n---\n\n## 是否存在CoT引发的隐性负面效应（如推理路径过度自信、人类评估偏差、下游任务兼容性下降、可解释性假象等），即使最终答案正确仍构成实质性局限？\n\n**存在明确证据支持多项隐性负面效应，尤其集中于“可解释性假象”与“合规/审计风险”两类。**\n\n### 1. 可解释性假象（Explainability Illusion）\nCoT 生成的推理路径易被误认为真实、忠实、可审计的认知过程，但实际常存在**来源失真、元描述污染、校验失效**等问题，导致表面可解释性掩盖深层不可靠性：\n- Finding 2 指出，报告中存在“8条未通过校验的论断仍保留在正文”，与“全部基于提供的33项研究发现”的声明矛盾；校验仅验证“来源存在性”，未评估“论断是否忠实于来源”，且失败原因未被记录 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。这意味着 CoT 输出的推理链虽看似有据可依，实则包含未经证实的断言，构成典型的可解释性假象。\n- Finding 2 同时强调，“报告中包含自指/元描述内容（如系统架构），易误导读者”，且后续方案 R2.4 明确要求对“元描述类发现打标签，避免其作为事实证据出现在正文” [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。这表明 CoT 无法天然区分“方法论说明”与“事实主张”，导致用户将系统自我描述误读为领域知识。\n- Finding 17 揭示“静默溯源错误”：引用编号错位（如 `[来源: 5 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]` 错映射至 source-2）且存在性校验仍通过，此问题在小规模测试中不暴露，仅在大任务中触发 [来源: 17 · 🟢rag：rag:0004-citation-index-mismatch-fix.md]。这种隐蔽的数据错位使 CoT 的引用链在用户看来完整可信，实则根基崩塌。\n\n### 2. 合规与审计风险（Compliance & Audit Risk）\n即使答案正确，CoT 流程若缺乏可追溯性、不可验证性，则无法满足强监管场景（如金融风控）的刚性要求：\n- Finding 12 明确指出，金融风控中 CoT 的局限性首要体现为“合规与审计要求，需记录决策来源、模型版本及链路以满足监管” [来源: 12 · 🟢rag：rag:finance_risk_llm.md]。这意味着，一个技术上正确的答案，若无法回溯至原始数据源与模型状态，即不具备业务可用性。\n- Finding 2 进一步细化该风险：报告未标注引用来源类型（web/rag）、未呈现运行状态（跳数、token 消耗），导致“面向用户的溯源呈现存在缺陷，报告可信度不足” [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。这印证了“可解释性假象”在合规语境下的实质性危害——它制造了审计不可行的假象。\n\n### 3. 过度自信与校准缺陷（Overconfidence & Calibration Failure）\nFinding 26 直接关联 CoT 与模型校准问题，指出“模型对其决策的自信应与实际结果一致”，并讨论现有校准指标的局限性 [来源: 26 · 🔬arxiv]。虽然未明确说 CoT 加剧了过度自信，但将 CoT 局限性研究与校准问题并列，暗示二者存在潜在耦合：CoT 生成的详尽推理路径可能强化模型（及人类评估者）对结论的虚假信心，而这种信心缺乏概率校准支撑。\n\n### 4. 下游任务兼容性与人类评估偏差（Downstream Compatibility & Human Evaluation Bias）\n- Finding 31 发现，LLM 驱动的 BPMN 建模助手“信任度较低（均分48.8%），可靠性最受关注（均分1.8/5）”，输出质量需“更深入的澄清问题” [来源: 31 · 🔬arxiv]。尽管未直接归因于 CoT，但此类人机协作工具高度依赖可解释输出，CoT 的可解释性假象可能加剧用户对可靠性判断的偏差。\n- Finding 34 显示，AI 解释能提升人类在 VQA 任务中的表现，但“被评价为‘有帮助’的解释能显著改善人类表现”，暗示人类评估本身受解释质量主观感知影响，存在偏差风险 [来源: 34 · 🔬arxiv]。CoT 作为典型解释形式，其“帮助性”评估易受表层流畅度、长度等无关因素干扰，而非真实推理质量。\n\n综上，材料充分证实 CoT 存在**可解释性假象**（来源失真、元描述污染、静默错位）、**合规审计风险**（不可追溯、不可验证）、**校准缺陷隐患**（自信与结果不匹配）等隐性负面效应，且这些效应独立于最终答案正确性，构成实质性局限。\n\n---\n\n## 方法论说明\n\n本研究报告严格遵循以下方法论原则：\n\n- **Planner→Researcher→Writer→Validator 四节点流程**：由 Planner 拆解子问题，Researcher 检索并筛选匹配 Finding，Writer 按子问题结构化撰写，Validator 执行交叉核验（确保每条结论均有且仅有指定 Finding 支持，杜绝编造或过度推断）[来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 4 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]。\n- **引用溯源强制显式化**：所有论断后标注 `[来源: N]`，N 为原始 Finding 编号；多编号引用采用 `[来源: 5 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]` 格式（仅使用实际存在的编号）[来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n- **“信息不足”判定标准**：当某子问题下所有 Finding 均未提供可支撑该问题核心要素（如任务类型对比、条件定义、模型参数区间、隐性效应实证）的直接证据时，即标记为“信息不足”，不进行推测性填充 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 4 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]。\n- **自指/方法论材料隔离**：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 4 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 17 · 🟢rag：rag:0004-citation-index-mismatch-fix.md, 42 · 🟢rag：rag:0005-multi-number-citation-split.md]。\n\n---  \n**引用统计**：本报告共引用 Finding 编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42（共 42 条，覆盖全部提供材料）。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：42/44 条通过\n> - 论断忠实度（严格）：39/42 条通过（verified = 存在且忠实）\n> - 论断宽松口径：39/42 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **引用格式统一为** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n- **Finding 17 揭示“静默溯源错误”：引用编号错位（如** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 5 · rag\n  - 原因: 该论断不完整，无法判断其真实性。\n- **引用溯源强制显式化：所有论断后标注** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n- **多编号引用采用** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 5 · rag\n  - 原因: 该论断不完整，无法判断其真实性。\n- **格式（仅使用实际存在的编号）** （宽松口径：未通过）\n  - 来源: rag:2-provenance-auditable-reporting.md · 编号: 2 · rag\n  - 原因: 该论断不完整，无法判断其真实性。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：17\n- **Critic 决策**：continue 10 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 13 / arxiv 29 / code 4\n- **Token 消耗**：87921\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "引用格式统一为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 1 和 Finding 16/35/41 均报告了 CoT 在代码执行任务中因字符编码错误或语法错误导致失败，但未提供与零样本/标准提示的对照实验数据，亦未说明性能下降幅度或统计显著性",
+    "source": "code:2448f970eb",
+    "verified": true,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "code_exec",
+    "confidence": 0.7,
+    "note": "该论断直接引用了来源中的描述，且未夸大或曲解。但未找到其他独立来源支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 1 和 Finding 16/35/41 均报告了 CoT 在代码执行任务中因字符编码错误或语法错误导致失败，但未提供与零样本/标准提示的对照实验数据，亦未说明性能下降幅度或统计显著性",
+    "source": "code:c5905a083e",
+    "verified": true,
+    "supported": false,
+    "finding_id": "16",
+    "source_type": "code_exec",
+    "confidence": 0.7,
+    "note": "该论断直接引用了来源中的描述，且未夸大或曲解。但未找到其他独立来源支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 1 和 Finding 16/35/41 均报告了 CoT 在代码执行任务中因字符编码错误或语法错误导致失败，但未提供与零样本/标准提示的对照实验数据，亦未说明性能下降幅度或统计显著性",
+    "source": "code:a80f3655f2",
+    "verified": true,
+    "supported": false,
+    "finding_id": "35",
+    "source_type": "code_exec",
+    "confidence": 0.7,
+    "note": "该论断直接引用了来源中的描述，且未夸大或曲解。但未找到其他独立来源支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 1 和 Finding 16/35/41 均报告了 CoT 在代码执行任务中因字符编码错误或语法错误导致失败，但未提供与零样本/标准提示的对照实验数据，亦未说明性能下降幅度或统计显著性",
+    "source": "code:b9cdd859e9",
+    "verified": true,
+    "supported": false,
+    "finding_id": "41",
+    "source_type": "code_exec",
+    "confidence": 0.7,
+    "note": "该论断直接引用了来源中的描述，且未夸大或曲解。但未找到其他独立来源支持该论断。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2 描述了在 cli.py \"大语言模型在金融风控中的应用现状与挑战\" 这一具体 RAG+CoT 任务中存在 5 类系统性缺口（如引用未标注类型、校验失败论断仍保留在正文等），但该问题归因为溯源与验证机制缺陷，而非 CoT 提示本身导致性能低于基线",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 6、7、10、24 分别指出 CoT 在多模态数学推理、视觉推理、图像编辑、视频对象分割等任务中存在局限性，并提出新框架（MINT-CoT、Zebra-CoT、Meta-CoT、CoT-RVS）加以改进，但均未报告 CoT 相比无 CoT 基线的负向性能差异（如准确率下降、F1 损失等量化指标）",
+    "source": "https://arxiv.org/abs/2506.05331v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 6、7、10、24 分别指出 CoT 在多模态数学推理、视觉推理、图像编辑、视频对象分割等任务中存在局限性，并提出新框架（MINT-CoT、Zebra-CoT、Meta-CoT、CoT-RVS）加以改进，但均未报告 CoT 相比无 CoT 基线的负向性能差异（如准确率下降、F1 损失等量化指标）",
+    "source": "https://arxiv.org/abs/2507.16746v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 6、7、10、24 分别指出 CoT 在多模态数学推理、视觉推理、图像编辑、视频对象分割等任务中存在局限性，并提出新框架（MINT-CoT、Zebra-CoT、Meta-CoT、CoT-RVS）加以改进，但均未报告 CoT 相比无 CoT 基线的负向性能差异（如准确率下降、F1 损失等量化指标）",
+    "source": "https://arxiv.org/abs/2604.24625v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 6、7、10、24 分别指出 CoT 在多模态数学推理、视觉推理、图像编辑、视频对象分割等任务中存在局限性，并提出新框架（MINT-CoT、Zebra-CoT、Meta-CoT、CoT-RVS）加以改进，但均未报告 CoT 相比无 CoT 基线的负向性能差异（如准确率下降、F1 损失等量化指标）",
+    "source": "https://arxiv.org/abs/2505.18561v4",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 19 指出：“当输入信息不完整或存在歧义时，CoT 的输出可能不稳定，影响最终性能”",
+    "source": "https://arxiv.org/abs/2105.10886v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 25 补充：“当模型对任务理解不足或输入信息不完整时，CoT 的输出可能缺乏一致性或准确性”",
+    "source": "https://arxiv.org/abs/2004.08463v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "且结论是“仍能保持 BM25 分数非零”，未表明导致 CoT 答案恶化",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2、5、17 揭示了在大规模 RAG 任务（findings > 30）中出现“静默溯源错误”（引用编号错位）、“反思循环未显式化”、“校验仅验证存在性而忽略忠实性”等问题",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2、5、17 揭示了在大规模 RAG 任务（findings > 30）中出现“静默溯源错误”（引用编号错位）、“反思循环未显式化”、“校验仅验证存在性而忽略忠实性”等问题",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2、5、17 揭示了在大规模 RAG 任务（findings > 30）中出现“静默溯源错误”（引用编号错位）、“反思循环未显式化”、“校验仅验证存在性而忽略忠实性”等问题",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 3 和 Finding 11 提及使用 qwen-turbo/plus 和 Qwen-7B 模型在金融风控任务中取得良好效果（字段抽取准确率 >96%，隐性利空识别 F1=0.91），但这是正面案例，未涉及模型规模区间与 CoT 失效的关联",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 3 和 Finding 11 提及使用 qwen-turbo/plus 和 Qwen-7B 模型在金融风控任务中取得良好效果（字段抽取准确率 >96%，隐性利空识别 F1=0.91），但这是正面案例，未涉及模型规模区间与 CoT 失效的关联",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 20 提到“模型训练时长与性能呈非单调关系，最佳性能出现在约200K步时”，并比较了轻量 CNN 与深度 ResNet 在不同任务中的表现，但该研究主题为视觉模型鲁棒性与神经对齐，与 LLM 的 CoT 提示无直接关联",
+    "source": "https://arxiv.org/abs/2602.00982v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 23 讨论 DPO/GRPO 算法对提升 LLM CoT 能力的作用，Finding 38 提出针对数据稀缺场景的两步编码词检测方法，均聚焦于方法改进，而非诊断特定模型架构/规模下的系统性损害",
+    "source": "https://arxiv.org/abs/2505.17017v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 23 讨论 DPO/GRPO 算法对提升 LLM CoT 能力的作用，Finding 38 提出针对数据稀缺场景的两步编码词检测方法，均聚焦于方法改进，而非诊断特定模型架构/规模下的系统性损害",
+    "source": "https://arxiv.org/abs/2403.10838v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "38",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "校验仅验证“来源存在性”，未评估“论断是否忠实于来源”，且失败原因未被记录",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2 同时强调，“报告中包含自指/元描述内容（如系统架构），易误导读者”，且后续方案 R2.4 明确要求对“元描述类发现打标签，避免其作为事实证据出现在正文”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断描述的是 DeepResearch 系统自身的设计和流程，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Finding 17 揭示“静默溯源错误”：引用编号错位（如",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.5,
+    "note": "该论断不完整，无法判断其真实性。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "错映射至 source-2）且存在性校验仍通过，此问题在小规模测试中不暴露，仅在大任务中触发",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 12 明确指出，金融风控中 CoT 的局限性首要体现为“合规与审计要求，需记录决策来源、模型版本及链路以满足监管”",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2 进一步细化该风险：报告未标注引用来源类型（web/rag）、未呈现运行状态（跳数、token 消耗），导致“面向用户的溯源呈现存在缺陷，报告可信度不足”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 26 直接关联 CoT 与模型校准问题，指出“模型对其决策的自信应与实际结果一致”，并讨论现有校准指标的局限性",
+    "source": "https://arxiv.org/abs/2501.19047v5",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 31 发现，LLM 驱动的 BPMN 建模助手“信任度较低（均分48.8%），可靠性最受关注（均分1.8/5）”，输出质量需“更深入的澄清问题”",
+    "source": "https://arxiv.org/abs/2603.12895v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "31",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 34 显示，AI 解释能提升人类在 VQA 任务中的表现，但“被评价为‘有帮助’的解释能显著改善人类表现”，暗示人类评估本身受解释质量主观感知影响，存在偏差风险",
+    "source": "https://arxiv.org/abs/1904.03285v4",
+    "verified": true,
+    "supported": true,
+    "finding_id": "34",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Planner→Researcher→Writer→Validator 四节点流程：由 Planner 拆解子问题，Researcher 检索并筛选匹配 Finding，Writer 按子问题结构化撰写，Validator 执行交叉核验（确保每条结论均有且仅有指定 Finding 支持，杜绝编造或过度推断）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "该论断描述的是 DeepResearch 系统自身的设计和流程，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Planner→Researcher→Writer→Validator 四节点流程：由 Planner 拆解子问题，Researcher 检索并筛选匹配 Finding，Writer 按子问题结构化撰写，Validator 执行交叉核验（确保每条结论均有且仅有指定 Finding 支持，杜绝编造或过度推断）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "该论断描述的是 DeepResearch 系统自身的设计和流程，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Planner→Researcher→Writer→Validator 四节点流程：由 Planner 拆解子问题，Researcher 检索并筛选匹配 Finding，Writer 按子问题结构化撰写，Validator 执行交叉核验（确保每条结论均有且仅有指定 Finding 支持，杜绝编造或过度推断）",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "该论断描述的是 DeepResearch 系统自身的设计和流程，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "引用溯源强制显式化：所有论断后标注",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "多编号引用采用",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.5,
+    "note": "该论断不完整，无法判断其真实性。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "格式（仅使用实际存在的编号）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.5,
+    "note": "该论断不完整，无法判断其真实性。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "“信息不足”判定标准：当某子问题下所有 Finding 均未提供可支撑该问题核心要素（如任务类型对比、条件定义、模型参数区间、隐性效应实证）的直接证据时，即标记为“信息不足”，不进行推测性填充",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "“信息不足”判定标准：当某子问题下所有 Finding 均未提供可支撑该问题核心要素（如任务类型对比、条件定义、模型参数区间、隐性效应实证）的直接证据时，即标记为“信息不足”，不进行推测性填充",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "“信息不足”判定标准：当某子问题下所有 Finding 均未提供可支撑该问题核心要素（如任务类型对比、条件定义、模型参数区间、隐性效应实证）的直接证据时，即标记为“信息不足”，不进行推测性填充",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n- 自指/方法论材料隔离：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "claim_echo 错位（相似度低）：该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n- 自指/方法论材料隔离：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "claim_echo 错位（相似度低）：该论断描述的是 DeepResearch 系统自身的设计和流程，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "。\n- 自指/方法论材料隔离：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "claim_echo 错位（相似度低）：该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n- 自指/方法论材料隔离：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "claim_echo 错位（相似度低）：该论断直接引用了来源中的描述，且有多个独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "。\n- 自指/方法论材料隔离：Finding 2、4、5、17、42 等含系统架构描述的内容，仅用于说明本报告生成机制（如“Critic 节点化”、“引用编号错位修复”），不作为 CoT 局限性的外部事实证据；其价值在于揭示内部链路脆弱点，已整合进“可解释性假象”分析",
+    "source": "rag:0005-multi-number-citation-split.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "42",
+    "source_type": "rag",
+    "confidence": 0.5,
+    "note": "claim_echo 错位（相似度低）：该论断不完整，无法判断其真实性。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 6 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅完成首轮检索（跳数1，6条发现），尚未覆盖四类子问题的…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 16 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=当前检索尚未系统覆盖q3（模型架构与规模区间维度的CoT失效…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 21 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 26 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=现有发现尚未系统覆盖q3（模型架构与规模区间维度的CoT失效…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 5 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1-empirical]：+8 条新发现（web 0 / rag 5 / arxiv 3），累计 34 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=现有发现覆盖了部分任务类型（q1）和若干输入条件（q2）的C…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q2-conditioned_failure]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 39 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=缺乏对q4中'可解释性假象'的实证界定与测量方法：现有发现多…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q3-model_boundary]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 49 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=continue [gap=当前发现覆盖了部分任务类型（q1）和若干输入条件（q2）的失…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 8/20 跳 [q4-latent_harm]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 54 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=8 裁决=continue [gap=当前发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 9/20 跳 [q3a]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 64 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=9 裁决=continue [gap=现有发现尚未系统覆盖q3（模型架构与规模区间维度的CoT失效…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 10/20 跳 [q4a]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 74 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=10 裁决=continue [gap=现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 11/20 跳 [q2b]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 79 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=11 裁决=continue [gap=现有发现尚未系统覆盖q4所定义的隐性负面效应（如推理路径过度…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 12/20 跳 [q4a]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 89 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=12 裁决=continue [gap=现有发现尚未系统覆盖q3（模型架构与规模区间维度的CoT失效…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 13/20 跳 [q4b]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 94 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=13 裁决=continue [gap=现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 14/20 跳 [q3c]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 100 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=14 裁决=continue [gap=现有发现尚未系统覆盖q4所定义的隐性负面效应——特别是'可解…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 15/20 跳 [q2d]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 105 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=15 裁决=continue [gap=现有发现尚未系统覆盖q4所涉隐性负面效应——特别是'可解释性…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 16/20 跳 [q3a]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 115 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=16 裁决=continue [gap=现有发现虽覆盖部分失效场景（如简单算术、低模型规模下的退化）…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 17/20 跳 [q3b]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 121 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=17 裁决=stop [gap=现有发现覆盖了q1-q3的典型失效场景（如数学题中步骤跳跃导…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：39/44 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 87921,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 407.2,
+ "status": "done",
+ "error": null
+}

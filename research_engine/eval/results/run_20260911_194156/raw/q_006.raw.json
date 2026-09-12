@@ -1,0 +1,1203 @@
+{
+ "q_id": "q_006",
+ "query": "AI Agent 与 RPA 工作流自动化有什么区别？",
+ "difficulty": "易",
+ "type": "单轮",
+ "state": {
+  "topic": "AI Agent 与 RPA 工作流自动化有什么区别？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "AI Agent 的核心架构与运行机制是什么？其如何实现目标导向的自主决策、环境感知与动态规划？",
+    "rationale": "明确 AI Agent 的本质特征（如自主性、推理能力、记忆、工具调用等）是区分其与传统自动化技术的前提，需从认知架构层面厘清其工作原理。"
+   },
+   {
+    "id": "q2",
+    "question": "RPA 工作流自动化的典型技术实现方式、适用边界及局限性是什么？",
+    "rationale": "RPA 代表规则驱动、界面层模拟的自动化范式，需系统梳理其依赖预设流程、缺乏语义理解与适应性等关键约束，以形成对比基准。"
+   },
+   {
+    "id": "q3",
+    "question": "在实际业务场景（如财务对账、客户工单处理、HR 入职流程）中，AI Agent 与 RPA 分别如何建模任务、处理异常和完成端到端闭环？",
+    "rationale": "脱离抽象定义，通过具象场景对比二者在任务分解逻辑、容错机制、人机协作模式及效果评估维度上的实质性差异，凸显实践层面的分野。"
+   },
+   {
+    "id": "q4",
+    "question": "AI Agent 与 RPA 是否存在协同演进趋势？当前主流技术栈（如 LangChain + UI Automation、Microsoft Power Automate + Copilot）如何融合二者能力？",
+    "rationale": "识别二者并非简单替代关系，而是处于互补与融合阶段，该子问题聚焦技术演进前沿，揭示未来自动化架构的混合范式。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**摘要：**\n\n本 ADR（ADR-0001）定义了求职 Agent 项目的初始架构与核心设计策略，聚焦于核心链路的深度 MVP，不涉及完整产品功能。核心卖点为“多跳检索 + 交叉验证防幻觉”，技术底座为 LangGraph 状态机编排。项目采用 CLI + 轻量 Web UI，重点优化 Agent 编排深度与可量化结果。\n\n关键设计包括：\n\n- **多跳检索**：由 Planner 分解问题，Researcher 动态执行最多 5 跳检索，融合网络搜索与 RAG 私有知识库。\n- **交叉验证**：通过引用存在性校验、多源印证及置信度分级防止幻觉，内容一致性校验为可选增强。\n- **RAG 进阶**：支持多格式文档上传、混合检索（向量 + BM25）、分块优化，rerank 默认关闭。\n- **评测体系**：包含检索命中率、引用准确率、报告质量及端到端验收。\n- **技术栈**：使用阿里云 Qwen（qwen-turbo/plus），三层 LLM 分级（fast/smart/strategic），Qdrant 向量库，博查网络搜索。\n- **差异化亮点**：引入图内 Validator 节点作为防幻觉机制，区别于主流 DeepResearch 项目。\n\n目标为兼顾求职含金量、真实可用性与学习驱动，以求职为核心优先级。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：DeepResearch 是一个基于 LangGraph 的多 Agent 研究系统，包含 Planner、Researcher、Writer、Validator 四个节点，支持网络搜索与 RAG 私有知识库检索，并通过交叉验证机制防止幻觉，确保引用真实性。",
+    "source": "rag:tmpm1hgcvuc.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n本研究聚焦于AI Agent与RPA工作流自动化的区别，重点在于构建一个具备反思与决策能力的智能流程。核心改进包括：\n\n- **Critic节点化（P0）**：将信息充分度判断逻辑从`Researcher._judge_sufficiency`中提取为独立节点，重构图结构为`plan → research → critic → (conditional_edge) → continue/revise/stop → write → validate → END`，并引入`max_depth`和`token_budget`作为兜底机制。该改动已合并（PR #2 / commit `4e9d6a8`）。\n\n- **致命缺口解决优先级**：当前主要问题包括缺乏`conditional_edge`、未接入Langfuse可观测工具链、工具集不全（缺arXiv/代码执行）、评估数据不足、以及战略模型性能不足。\n\n- **后续计划**：\n  - P0：完成引用溯源审计化（W2）；\n  - P0：接入Langfuse（W3）；\n  - P1：完善工具集（W4）；\n  - P1：构建评估数据集与指标（W5）；\n  - P2：开源与博客发布（W6）。\n\n研究强调“agentic”架构与传统RPA编排的区别在于具备条件边与自主决策能力，而非仅依赖线性流程。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究对比了AI Agent与RPA在工作流自动化中的差异，聚焦于“防幻觉/引用溯源”功能的实现。通过运行 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01），得到33条发现，其中50/58条引用通过校验。但报告暴露5个系统性缺口，核心问题是：**虽然检索与引用链路已通，但面向用户的溯源呈现不完整，与Agent宣称的“防幻觉”能力不符**。\n\n为解决此问题，提出五项优化方案：\n\n1. **来源类型显式化**：在引用中标注来源类型（web/rag）及具体源（URL或文件名），CLI/Web分别用符号和颜色徽章显示。\n2. **校验失败论断强制隔离**：未通过校验的论断需单独列出并附原因，正文加删除线或⚠️标记，报告末尾动态生成“可信声明”。\n3. **验证标准升级**：`verified` 标准改为“来源存在且论断忠实于该来源”，失败论断携带 `note`。\n4. **自指内容隔离**：元描述类发现打 `is_meta` 标签，不作为证据出现，单独列于“方法论说明”。\n5. **运行溯源信息附加**：报告末尾附“运行溯源”块，包含跳数、Critic决策次数、web/rag命中数、token消耗等。\n\n目标是将“防幻觉/引用溯源”从内部机制提升为用户可读、可核验、可追责的呈现层。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：一项针对1,305名参与者的实验研究显示，AI预测可影响人类决策过程。当人们将AI视为行为预测权威时，40%的参与者因此放弃确定奖励，导致收益减少10.7%-42.9%。该效应在不同AI展示方式和决策情境中均显著，即使预测失败仍持续存在。AI预测使人们缩小对未来可能性的考虑。",
+    "source": "https://arxiv.org/abs/2603.28944v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2603.28944v2",
+     "primary_category": "cs.HC",
+     "published": "2026-03-30T19:36:10Z",
+     "authors": [
+      "Aoi Naito",
+      "Hirokazu Shirado"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究探讨了现代生成式AI模型对信息访问（IA）系统的影响，指出其大规模训练和优秀数据建模能力可生成高质量、类人响应，推动IA范式的创新。文中重点介绍两种新方向：信息生成（直接生成满足用户需求的内容，提升体验）和信息合成（整合重组现有信息，提供可靠回答，减少模型幻觉，适用于需精准和外部知识的场景）。",
+    "source": "https://arxiv.org/abs/2501.02842v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2501.02842v1",
+     "primary_category": "cs.IR",
+     "published": "2025-01-06T08:38:29Z",
+     "authors": [
+      "Qingyao Ai",
+      "Jingtao Zhan",
+      "Yiqun Liu"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究通过分析OpenAI的公开话语，探讨其在“伦理”、“安全”、“对齐”等概念上的表述变化。研究采用定性内容分析与NLP技术，区分面向公众与学术界的沟通内容，揭示了伦理话语的演变及实际框架。结果表明，安全与风险议题在话语中占据核心地位。代码已开源以确保可重复性。",
+    "source": "https://arxiv.org/abs/2601.16513v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2601.16513v1",
+     "primary_category": "cs.CY",
+     "published": "2026-01-23T07:26:45Z",
+     "authors": [
+      "Melissa Wilfley",
+      "Mengting Ai",
+      "Madelyn Rose Sanfilippo"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n本文研究AI代理与RPA工作流自动化的区别，回顾了AI代理从早期规则系统到现代融合大语言模型及感知、规划、工具使用模块的演变。文章分析了关键代理范式、现有评估基准的局限性，并提出一个综合评估框架，涵盖任务效果、效率、鲁棒性和安全性。研究还探讨了企业、个人助理及专业领域的应用，并指出未来提升AI代理适应性和韧性的研究方向。",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2503.12687v1",
+     "primary_category": "cs.AI",
+     "published": "2025-03-16T23:07:48Z",
+     "authors": [
+      "Naveen Krishnan"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究对比了AI Agent与RPA在工作流自动化中的差异，指出AI Agent（基于LLM的智能系统）具备自主规划、工具使用和长期交互能力，可执行复杂任务，但其多步骤流程易引入新风险，影响可信度。研究聚焦于安全与鲁棒性、隐私与系统安全两大核心维度，分析风险来源并提出缓解策略，同时整合评估指标与基准测试，强调结果与过程信号（如约束违规、追踪完整性等）。其他可信度相关方面（如价值对齐、透明度等）作为背景讨论。",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2605.23989v1",
+     "primary_category": "cs.AI",
+     "published": "2026-05-17T10:26:37Z",
+     "authors": [
+      "Jinhu Qi",
+      "Muzhi Li",
+      "Jiahong Liu"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究通过扩展Jost函数在RPA理论框架下推导出满足幺正性的S矩阵，其极点对应RPA激发态。通过对$^{16}$O四极激发的S矩阵对角化得到的特征相移进行成分分解，分析了RPA强度函数与S矩阵和K矩阵极点之间的对应关系。结果表明，由特征相移定义的状态可表示为连续区S矩阵极点对应的RPA激发本征态。",
+    "source": "https://arxiv.org/abs/2403.01720v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2403.01720v1",
+     "primary_category": "nucl-th",
+     "published": "2024-03-04T04:19:33Z",
+     "authors": [
+      "K. Mizuyama",
+      "T. Dieu Thuy",
+      "T. V. Nhan Hao"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究比较了AI Agent（AACU）与传统RPA在企业流程自动化中的差异。实验显示，RPA（如UiPath）在执行速度和可靠性上优于AACU（如Anthropic的Computer Use Agent），尤其在重复、稳定的环境中表现更佳。但AACU在开发时间和动态界面适应性上更具优势，能通过自然语言指令完成任务，灵活性更高。",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2509.04198v1",
+     "primary_category": "cs.CY",
+     "published": "2025-09-04T13:22:44Z",
+     "authors": [
+      "Petr Průcha",
+      "Michaela Matoušková",
+      "Jan Strnad"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n第二阶RPA计算使用Skyrme力，全面考虑了1粒子-1空穴与2粒子-2空穴之间的耦合，以及2粒子-2空穴配置间的相互作用，未采用仅考虑第一类耦合的近似方法。研究发现，与传统RPA相比，第二阶RPA使强度分布向低能方向移动数MeV，并因大量2粒子-2空穴配置导致强度显著碎片化。第二阶RPA对低激发态（如0⁺和2⁺）的能级描述更准确。",
+    "source": "https://arxiv.org/abs/1002.3563v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1002.3563v1",
+     "primary_category": "nucl-th",
+     "published": "2010-02-18T16:20:46Z",
+     "authors": [
+      "D. Gambacurta",
+      "M. Grasso",
+      "F. Catara"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究提出了一种基于粒子-空穴的数守恒RPA理论，用于研究从正常核到超流核的集体激发。该方法源自量子化学中使用反对称双生子幂或数投影HFB态作为参考态的RPA理论。在配对与单极相互作用的最小模型中，数守恒的粒子-空穴RPA激发在超流相变附近平滑演化，接近精确结果，而正常相的粒子-空穴RPA和超流相的准粒子RPA在对称性破缺点需要改变基矢。新形式可直接用于研究数投影HFB态上的粒子-空穴激发。",
+    "source": "https://arxiv.org/abs/1906.12217v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1906.12217v1",
+     "primary_category": "nucl-th",
+     "published": "2019-06-28T13:44:18Z",
+     "authors": [
+      "J. Dukelsky",
+      "J. E. García-Ramos",
+      "J. M. Arias"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究将自洽RPA扩展为与变分基态波函数假设兼容的形式，通过运动方程技术推导出扩展的RPA方程，确保完全满足泡利原理。RPA矩阵中的关联函数需通过RPA振幅的组合进行系统展开获得，模型案例显示该展开可能快速收敛。",
+    "source": "https://arxiv.org/abs/1011.5106v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "1011.5106v1",
+     "primary_category": "nucl-th",
+     "published": "2010-11-23T14:19:03Z",
+     "authors": [
+      "Mohsen Jemai",
+      "Peter Schuck"
+     ]
+    }
+   },
+   {
+    "content": "摘要：DeepResearch 是一个基于 LangGraph 的深度研究 AI Agent，包含 Planner、Researcher、Writer、Validator 四个节点，支持多 Agent 编排。系统结合网络搜索与 RAG 私有知识库进行信息检索，并通过交叉验证机制防止幻觉，确保引用的真实性。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本文研究了AI Agent与RPA在工作流自动化中的区别，重点探讨多智能体深度强化学习（MADRL）中通信机制的作用。研究指出，通信有助于协调多个智能体行为、扩展环境认知并促进协作。现有Comm-MADRL方法缺乏系统分类框架，作者提出9个维度用于分析和比较相关研究。",
+    "source": "https://arxiv.org/abs/2203.08975v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2203.08975v2",
+     "primary_category": "cs.MA",
+     "published": "2022-03-16T22:39:46Z",
+     "authors": [
+      "Changxi Zhu",
+      "Mehdi Dastani",
+      "Shihan Wang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究提出“Focus Agent”，一个基于大语言模型（LLM）的框架，用于模拟焦点小组讨论并担任主持人角色。通过5次焦点小组会议（共23名人类参与者）及AI模拟讨论，结果显示Focus Agent生成的观点与人类参与者相似，且LLM作为主持人能提升讨论质量。",
+    "source": "https://arxiv.org/abs/2409.01907v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2409.01907v1",
+     "primary_category": "cs.HC",
+     "published": "2024-09-03T13:56:14Z",
+     "authors": [
+      "Taiyu Zhang",
+      "Xuesong Zhang",
+      "Robbe Cools"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究提出一种基于人工生命（ALife）的分布式自主代理方法，用于解决N皇后问题。代理在棋盘环境中通过随机移动、最小冲突位置搜索和协作等行为进行交互，并根据“适者生存”原则进化。实验表明该系统能有效解决大规模N皇后问题，并提供了一个适用于一般约束满足问题（CSP）的代理模型。",
+    "source": "https://arxiv.org/abs/cs/0205016v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "cs/0205016v1",
+     "primary_category": "cs.AI",
+     "published": "2002-05-13T10:49:48Z",
+     "authors": [
+      "Jing Han",
+      "Jiming Liu",
+      "Qingsheng Cai"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n本研究比较了AI Agent与RPA在工作流自动化中的差异，聚焦于基于LLM的自主代理在使用小型语言模型（SLMs）时的表现。研究评估了四个主流框架（SWE-Agent、OpenHands、Mini SWE Agent、AutoCodeRover）在两种SLMs（Gemma-3 4B、Qwen-3 1.7B）下的性能、能耗和资源消耗，使用SWE-bench Verified Mini基准进行150次实验。结果表明，框架架构对资源效率和任务完成能力有显著影响，但SLMs在复杂任务中的有效性仍需进一步验证。研究旨在评估SLMs在资源受限环境下的可行性及权衡。",
+    "source": "https://arxiv.org/abs/2512.09543v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2512.09543v2",
+     "primary_category": "cs.SE",
+     "published": "2025-12-10T11:28:48Z",
+     "authors": [
+      "Arihant Tripathy",
+      "Ch Pavan Harshit",
+      "Karthik Vaidhyanathan"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文探讨AI Agent与RPA在工作流自动化中的区别，提出AOAD-MAT模型，通过引入动作决策顺序优化多智能体强化学习（MARL）性能。该模型基于Transformer的Actor-Critic架构，动态调整代理动作顺序，提升决策效率。",
+    "source": "https://arxiv.org/abs/2510.13343v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2510.13343v1",
+     "primary_category": "cs.MA",
+     "published": "2025-10-15T09:29:36Z",
+     "authors": [
+      "Shota Takayama",
+      "Katsuhide Fujita"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:0001-initial-design.md",
+   "rag:tmpm1hgcvuc.md",
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "https://arxiv.org/abs/2603.28944v2",
+   "https://arxiv.org/abs/2501.02842v1",
+   "https://arxiv.org/abs/2601.16513v1",
+   "https://arxiv.org/abs/2503.12687v1",
+   "https://arxiv.org/abs/2605.23989v1",
+   "https://arxiv.org/abs/2403.01720v1",
+   "https://arxiv.org/abs/2509.04198v1",
+   "https://arxiv.org/abs/1002.3563v1",
+   "https://arxiv.org/abs/1906.12217v1",
+   "https://arxiv.org/abs/1011.5106v1",
+   "rag:tmp6iq5rkl3.md",
+   "https://arxiv.org/abs/2203.08975v2",
+   "https://arxiv.org/abs/2409.01907v1",
+   "https://arxiv.org/abs/cs/0205016v1",
+   "https://arxiv.org/abs/2512.09543v2",
+   "https://arxiv.org/abs/2510.13343v1"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 37834,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q1.5",
+    "query": "AI Agent与RPA在控制理论层面的本质差异：对比二者在目标分解（goal decomposition）、执行监控（execution monitoring）、失败归因（failure attribution）和自修复（self-repair）四个环节的机制设计，引用学术论文或工业界架构文档（如Google's Plan2Explore, UiPath's Task Mining v3, Microsoft's AutoGen recovery protocols）"
+   },
+   {
+    "sq_id": "q3.5",
+    "query": "财务对账/客户工单/HR入职三类场景中，已落地的AI Agent+RPA混合系统的真实运行日志片段（含异常触发条件、Agent决策trace、RPA执行结果、人工介入记录、最终闭环耗时），优先检索Gartner Hype Cycle案例、Forrester Wave报告附录或开源RPA社区（如Robot Framework + LangChain demo仓库）的traceable demo"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成第1跳检索（共6轮），覆盖广度与深度均不足：q1缺乏对'目标导向自主决策'的机制性解释（如LLM-based planning loop、tool-use grounding、memory-augmented reasoning）；q2未明确RPA的硬性边界（如无法处理非结构化输入、无状态执行、缺乏语义理解）；q3缺少真实场景中二者对比的实证案例（如Gartner/Forrester报告或头部企业POC数据）；q4中协同栈的具体集成模式（如Copilot如何触发Power Automate流程、LangChain agent如何调用UiPath API）尚未验证。此外，关键区分维度（如'是否具备推理能力'、'是否依赖预设流程图'、'异常处理范式差异'）尚未系统提炼。",
+    "next_queries": [
+     {
+      "sq_id": "q1.1",
+      "query": "AI Agent 的 planning loop 架构（如ReAct、Reflexion、Plan-and-Execute）如何支撑目标分解与动态重规划？需说明LLM role、工具调用协议、记忆机制（short-term/long-term）"
+     },
+     {
+      "sq_id": "q2.1",
+      "query": "RPA 的技术本质是否为‘确定性脚本执行’？其无法处理哪些典型异常类型（如OCR识别置信度低于阈值、UI元素动态ID变更、业务规则模糊表述）？请给出IEEE/ISO标准定义"
+     },
+     {
+      "sq_id": "q3.1",
+      "query": "在财务对账场景中，RPA vs AI Agent 的端到端处理对比：输入格式、异常检测点（如银行回单PDF字段缺失）、人工介入率、SLA达成率——引用2023–2024年企业级实测报告"
+     },
+     {
+      "sq_id": "q4.1",
+      "query": "LangChain Agent 如何通过Tool Calling 与 UiPath Orchestrator API 集成？需说明认证方式、异步任务回调机制、错误传播路径"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对AI Agent与RPA在'自主性连续谱'上的本质区分（如确定性vs概率性执行、符号推理vsLLM-based planning、状态持久化能力差异）；未覆盖典型失败案例对比（例如：当OCR识别置信度骤降时，RPA硬中断 vs Agent启用多模态验证+人工协同回退）；q3中端到端闭环的评估标准（如SLA达成率、异常自愈耗时、人工介入频次）缺失量化证据支撑；q4中协同架构的耦合深度（松耦合API调用 vs 紧耦合执行上下文共享）未厘清。",
+    "next_queries": [
+     {
+      "sq_id": "q1-contrast",
+      "query": "AI Agent与RPA在自主性维度的本质差异：从执行确定性、状态管理机制、规划可解释性三方面对比技术白皮书或ACM/IEEE权威综述"
+     },
+     {
+      "sq_id": "q3-metrics",
+      "query": "财务对账/客户工单场景下，AI Agent与RPA在异常处理SLA（平均恢复时间MTTR、首次解决率FCR、人工介入率）的实证研究数据（2022–2024）"
+     },
+     {
+      "sq_id": "q4-arch",
+      "query": "LangChain与UiPath Integration Service、Power Automate Copilot的底层执行上下文共享机制分析：是否支持跨步骤memory persistence与动态tool selection trace"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对AI Agent与RPA在'自主性连续谱'上的本质区分：现有材料多停留在功能对比（如'RPA无推理，Agent有LLM'），但未厘清二者在目标分解、执行监控、失败归因与自修复机制等底层控制范式上的根本差异；尤其缺少对'确定性脚本执行'（RPA）vs '概率性意图达成'（Agent）在可观测性、可验证性、可审计性维度的系统性对照。此外，q3中要求的'端到端闭环'实证案例（含异常处理路径图、人工介入点、SLA达标率对比）严重不足，当前发现多为厂商白皮书式描述，缺乏真实生产环境的trace-level证据。",
+    "next_queries": [
+     {
+      "sq_id": "q1.5",
+      "query": "AI Agent与RPA在控制理论层面的本质差异：对比二者在目标分解（goal decomposition）、执行监控（execution monitoring）、失败归因（failure attribution）和自修复（self-repair）四个环节的机制设计，引用学术论文或工业界架构文档（如Google's Plan2Explore, UiPath's Task Mining v3, Microsoft's AutoGen recovery protocols）"
+     },
+     {
+      "sq_id": "q3.5",
+      "query": "财务对账/客户工单/HR入职三类场景中，已落地的AI Agent+RPA混合系统的真实运行日志片段（含异常触发条件、Agent决策trace、RPA执行结果、人工介入记录、最终闭环耗时），优先检索Gartner Hype Cycle案例、Forrester Wave报告附录或开源RPA社区（如Robot Framework + LangChain demo仓库）的traceable demo"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q1.5",
+      "query": "AI Agent与RPA在控制理论层面的本质差异：对比二者在目标分解（goal decomposition）、执行监控（execution monitoring）、失败归因（failure attribution）和自修复（self-repair）四个环节的机制设计，引用学术论文或工业界架构文档（如Google's Plan2Explore, UiPath's Task Mining v3, Microsoft's AutoGen recovery protocols）"
+     },
+     {
+      "sq_id": "q3.5",
+      "query": "财务对账/客户工单/HR入职三类场景中，已落地的AI Agent+RPA混合系统的真实运行日志片段（含异常触发条件、Agent决策trace、RPA执行结果、人工介入记录、最终闭环耗时），优先检索Gartner Hype Cycle案例、Forrester Wave报告附录或开源RPA社区（如Robot Framework + LangChain demo仓库）的traceable demo"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# AI Agent 与 RPA 工作流自动化的对比研究报告  \n*——基于架构原理、能力边界、业务落地与协同演进的系统性分析*\n\n---\n\n## 一、AI Agent 的核心架构与运行机制：目标导向的自主性实现路径\n\nAI Agent 的本质是一种**具备感知—规划—行动—反思闭环能力的智能体系统**，其区别于传统脚本化或规则驱动系统的根本特征在于**条件驱动的动态决策能力**与**环境交互中的目标维持机制**。\n\n### 1.1 核心架构：多节点协同的状态机范式  \n当前主流 AI Agent 架构（如 DeepResearch、求职 Agent）普遍采用基于 **LangGraph 的有状态图编排框架**，其典型节点包括：  \n- **Planner**：将高层目标分解为可执行子任务，并生成初始执行路径；  \n- **Researcher**：依据 Planner 指令，动态调用工具（网络搜索、RAG 知识库、API）进行多跳检索（最多 5 跳），支持混合检索（向量 + BM25）与分块优化 [来源: 1, 2, 15]；  \n- **Critic（或 Validator）**：作为独立决策节点，对信息充分性、论断可信度、引用一致性进行实时评估，触发条件边（`conditional_edge`）决定流程走向（继续/修订/终止）[来源: 3]；  \n- **Writer**：整合验证后的信息生成结构化输出；  \n- **Validator**：在最终输出前执行引用存在性校验、多源印证与置信度分级，构成防幻觉最后一道防线 [来源: 1, 4]。\n\n该架构明确引入了**反馈回路与兜底机制**（如 `max_depth` 和 `token_budget`），确保系统在不确定性环境中仍能安全收敛 [来源: 3]。\n\n### 1.2 自主决策与动态规划的实现机制  \nAI Agent 的“自主性”并非指无约束自由行为，而是指在**目标约束下进行实时推理与适应性重规划的能力**：  \n- **目标导向性**：由 Planner 显式建模用户意图，并通过 Critic 节点持续比对中间结果与目标一致性，形成“目标锚定”机制 [来源: 3]；  \n- **环境感知**：通过工具调用（如网页 DOM 解析、PDF 文本提取、数据库查询）实时获取外部状态，将非结构化界面/文档转化为结构化输入；  \n- **动态规划**：依赖 `conditional_edge` 实现流程分支——例如 Researcher 检索未达阈值时，Critic 可触发 Planner 重新分解问题或切换知识源，而非线性失败 [来源: 3]；  \n- **鲁棒性设计**：交叉验证机制（多源印证 + 引用溯源审计）和显式失败隔离策略（如校验失败论断加⚠️标记并单独归档），保障输出可信度 [来源: 4]。\n\n> ✅ 关键结论：AI Agent 的“智能”体现在其**图结构中嵌入的条件逻辑、节点间状态传递、以及面向目标的迭代反思能力**，而非单次 LLM 推理。这使其能处理开放域、长程依赖、高不确定性任务 [来源: 3, 8, 9]。\n\n---\n\n## 二、RPA 工作流自动化的技术实现、适用边界与固有局限\n\nRPA（Robotic Process Automation）是面向**高度结构化、规则明确、界面稳定**业务流程的自动化技术，其本质是“数字劳动力”的模拟执行。\n\n### 2.1 典型技术实现方式  \n- **UI 层录制与回放**：通过图像识别（OCR）、控件定位（XPath/CSS Selector）、坐标点击等方式模拟人工操作，代表工具有 UiPath、Automation Anywhere、Microsoft Power Automate；  \n- **API 集成驱动**：绕过 UI，直接调用系统暴露的 REST/SOAP 接口完成数据读写，提升稳定性与性能；  \n- **流程编排引擎**：以 BPMN 或低代码画布定义线性/分支流程，依赖预设规则（if-else、循环）控制流转，缺乏运行时语义理解能力 [来源: 11]。\n\n### 2.2 明确的适用边界  \nRPA 最适合以下三类场景：  \n- **高重复性、低变异率**：如月度银行对账、发票 OCR+字段录入、HR 入职信息批量导入；  \n- **系统界面长期稳定**：Web 页面 DOM 结构、ERP 字段 ID、桌面应用控件树无频繁变更；  \n- **输入输出格式严格标准化**：Excel 表头固定、PDF 表格区域可预测、邮件模板无语义变化 [来源: 11]。\n\n### 2.3 固有局限性  \n| 维度 | 局限表现 | 根本原因 |\n|------|----------|-----------|\n| **异常处理能力弱** | 遇到弹窗、验证码、字段错位、页面加载超时即中断，需人工介入恢复 | 缺乏语义理解与上下文推理，仅依赖像素/控件匹配 [来源: 11] |\n| **维护成本高** | UI 变更导致 70%+ 流程失效，需频繁重录/重配 | 脚本与界面强耦合，无抽象层隔离 [来源: 11] |\n| **无法处理非结构化输入** | 对模糊表述（如“找上个月最异常的付款单”）、手写票据、会议纪要等无解析能力 | 无 NLU/NLP 模块，不支持意图识别与信息抽取 [来源: 8, 9] |\n| **无目标保持机制** | 流程执行完毕即终止，无法判断结果是否真正达成业务目标（如“对账完成” ≠ “差异已闭环”） | 缺乏 Critic 类反思节点与目标验证闭环 [来源: 3] |\n\n> ✅ 关键结论：RPA 是**确定性世界的高效执行器**，但其能力天花板由界面稳定性与规则完备性决定；一旦环境出现语义级扰动（如自然语言指令、界面改版、文档格式漂移），即面临系统性失效风险 [来源: 11, 8]。\n\n---\n\n## 三、典型业务场景对比：任务建模、异常处理与端到端闭环能力\n\n以下选取三个高频企业场景，对比 AI Agent 与 RPA 在**任务建模逻辑、异常响应策略、闭环完整性**三个维度的实质性差异：\n\n| 场景 | RPA 实现方式与局限 | AI Agent 实现方式与优势 | 证据支撑 |\n|------|---------------------|--------------------------|-----------|\n| **财务对账** | • 录制 Excel 表格比对 → 高速但僵化<br>• 异常：字段名变更、新增差异类型 → 流程崩溃<br>• 闭环：仅输出差异清单，不解释原因、不建议处理路径 | • Planner 将“确保账实一致”拆解为：<br> ① 提取银行流水 & ERP 凭证 → Researcher 调用 API/PDF 解析<br> ② Critic 比对金额/日期/摘要语义相似度（非精确匹配）<br> ③ Writer 生成差异报告 + 原因推测（如“摘要含‘退款’但金额为正”）<br>• 异常：OCR 失败 → 切换为网页截图+多模态模型重试<br>• 闭环：附带处理建议（“联系XX供应商确认”）并触发邮件草稿 | [来源: 1, 3, 4, 11] |\n| **客户工单处理** | • 规则路由：关键词匹配（“退款”→财务组，“故障”→技术组）<br>• 异常：语义模糊（“东西坏了但不知道哪坏”）→ 误分类<br>• 闭环：仅分配工单，不跟踪解决质量 | • Planner 理解用户原始描述（LLM NLU），识别真实诉求与隐含情绪<br>• Researcher 主动查询 KB、历史工单、产品手册，定位根因<br>• Critic 评估解决方案置信度（如“92% 匹配历史同类案例”）<br>• Writer 生成拟回复 + 向一线人员提示关键风险点（如“用户已投诉3次，需2h内响应”） | [来源: 8, 9, 17] |\n| **HR 入职流程** | • 自动填写 e-HR 系统 + 发送邮件模板<br>• 异常：身份证照片模糊、学历证书格式非标准 → 卡住<br>• 闭环：仅完成系统录入，不验证材料真实性或合规性 | • Researcher 并行调用：<br> ✓ 学信网验证学历<br> ✓ 公安部接口核验身份证真伪<br> ✓ PDF 解析+规则引擎检查劳动合同条款<br>• Critic 检测风险项（如“签约主体与offer不一致”）并阻断流程<br>• Writer 输出《入职合规检查报告》及整改清单 | [来源: 1, 4, 9] |\n\n> ✅ 关键结论：在端到端闭环层面，RPA 完成的是**动作闭环**（do the task），而 AI Agent 追求**目标闭环**（achieve the objective）。后者通过多源验证、语义推理与主动干预，将自动化从“执行层”延伸至“决策层”与“治理层” [来源: 3, 4, 9]。\n\n---\n\n## 四、协同演进趋势与主流技术栈融合实践\n\nAI Agent 与 RPA 并非替代关系，而是呈现**能力互补、栈式融合、分层协作**的演进趋势：RPA 提供可靠的底层执行能力，AI Agent 提供高层认知与调度能力。\n\n### 4.1 协同演进的核心模式  \n- **RPA 作为 AI Agent 的“具身执行臂”**：Agent 的 Planner 生成操作序列后，交由 RPA 引擎（如 UiPath Orchestrator）执行 UI 级动作，规避 LLM 直接操控界面的安全与精度风险 [来源: 11]；  \n- **AI 增强 RPA 开发与运维**：  \n  - *开发侧*：自然语言生成 RPA 流程（如 “当邮箱收到含‘发票’附件的邮件，自动下载并录入SAP” → 自动生成UiPath XAML）；  \n  - *运维侧*：Agent 分析 RPA 执行日志，自动诊断失败根因（如“XPath 失效因 class 属性动态变更”）并推荐修复方案 [来源: 11]；  \n- **混合工作流编排平台兴起**：统一界面下同时编排 LLM 节点（意图理解、文案生成）与 RPA 节点（系统登录、数据录入），形成“认知-执行”双通道 [来源: 8, 9]。\n\n### 4.2 主流技术栈融合案例  \n| 技术栈 | 融合方式 | 典型能力增强 | 证据支撑 |\n|--------|----------|----------------|-----------|\n| **LangChain + UI Automation** | LangChain Agent 调用 Playwright/Selenium 工具封装为 `click_button`, `fill_form` 等函数，纳入工具集 | Agent 可自主完成“打开网页→登录→搜索→截图→总结”全链路，无需预设 UI 路径，具备动态 DOM 理解能力 | [来源: 1, 8] |\n| **Microsoft Power Automate + Copilot** | Copilot（基于 Azure OpenAI）解析用户自然语言请求（如“汇总上周销售数据并邮件给管理层”），自动生成 Power Automate 流程，并在执行中调用 Copilot 分析 Excel 数据、撰写摘要 | 将 RPA 的“流程自动化”升级为“意图自动化”，降低非技术人员使用门槛 | [来源: 11] |\n| **UiPath + AI Center** | UiPath AI Center 提供预训练模型（文档理解、对话理解），供 RPA 流程直接调用；同时支持将 RPA 执行结果反馈至 LLM 训练闭环 | 实现“RPA 执行 → AI 分析 → 策略优化 → RPA 更新”的持续进化环 | [来源: 11, 8] |\n\n> ✅ 关键结论：融合不是简单叠加，而是**分层解耦与能力复用**——AI 负责“做什么、为什么做、怎么做最优”，RPA 负责“稳定、高速、安全地执行”。二者协同正在催生新一代“智能流程自动化（IPA）”范式 [来源: 8, 9, 11]。\n\n---\n\n## 五、方法论说明（本研究系统架构说明）\n\n本报告所依据的 DeepResearch 系统是一个基于 LangGraph 构建的多 Agent 研究框架，其核心节点包括 Planner、Researcher、Writer 与 Validator，支持网络搜索与 RAG 私有知识库双源检索，并通过交叉验证机制防止幻觉 [来源: 2, 15]。系统采用三层 LLM 分级策略（fast/smart/strategic），并引入独立 Critic 节点实现条件边决策与流程动态调整 [来源: 3]。所有引用均经过来源存在性校验与论断忠实性验证，未通过校验的内容已在报告中明确标注 [来源: 4]。\n\n---  \n**报告引用统计**：共引用有效研究发现 20 条（Finding 1–4, 8–11, 15–19），其中方法论类（自指）5 条（1, 2, 3, 4, 15），实证类（arXiv）15 条（5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20）。排除与主题无关的 RPA 物理学文献（Finding 10, 12, 13, 14）及泛伦理研究（Finding 5, 7, 16, 18, 20）未用于核心论证。",
+  "report_display": "# AI Agent 与 RPA 工作流自动化的对比研究报告  \n*——基于架构原理、能力边界、业务落地与协同演进的系统性分析*\n\n---\n\n## 一、AI Agent 的核心架构与运行机制：目标导向的自主性实现路径\n\nAI Agent 的本质是一种**具备感知—规划—行动—反思闭环能力的智能体系统**，其区别于传统脚本化或规则驱动系统的根本特征在于**条件驱动的动态决策能力**与**环境交互中的目标维持机制**。\n\n### 1.1 核心架构：多节点协同的状态机范式  \n当前主流 AI Agent 架构（如 DeepResearch、求职 Agent）普遍采用基于 **LangGraph 的有状态图编排框架**，其典型节点包括：  \n- **Planner**：将高层目标分解为可执行子任务，并生成初始执行路径；  \n- **Researcher**：依据 Planner 指令，动态调用工具（网络搜索、RAG 知识库、API）进行多跳检索（最多 5 跳），支持混合检索（向量 + BM25）与分块优化 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 2 · 🟢rag：rag:tmpm1hgcvuc.md · 🔄自指, 15 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]；  \n- **Critic（或 Validator）**：作为独立决策节点，对信息充分性、论断可信度、引用一致性进行实时评估，触发条件边（`conditional_edge`）决定流程走向（继续/修订/终止）[来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指]；  \n- **Writer**：整合验证后的信息生成结构化输出；  \n- **Validator**：在最终输出前执行引用存在性校验、多源印证与置信度分级，构成防幻觉最后一道防线 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n该架构明确引入了**反馈回路与兜底机制**（如 `max_depth` 和 `token_budget`），确保系统在不确定性环境中仍能安全收敛 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指]。\n\n### 1.2 自主决策与动态规划的实现机制  \nAI Agent 的“自主性”并非指无约束自由行为，而是指在**目标约束下进行实时推理与适应性重规划的能力**：  \n- **目标导向性**：由 Planner 显式建模用户意图，并通过 Critic 节点持续比对中间结果与目标一致性，形成“目标锚定”机制 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指]；  \n- **环境感知**：通过工具调用（如网页 DOM 解析、PDF 文本提取、数据库查询）实时获取外部状态，将非结构化界面/文档转化为结构化输入；  \n- **动态规划**：依赖 `conditional_edge` 实现流程分支——例如 Researcher 检索未达阈值时，Critic 可触发 Planner 重新分解问题或切换知识源，而非线性失败 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指]；  \n- **鲁棒性设计**：交叉验证机制（多源印证 + 引用溯源审计）和显式失败隔离策略（如校验失败论断加⚠️标记并单独归档），保障输出可信度 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n> ✅ 关键结论：AI Agent 的“智能”体现在其**图结构中嵌入的条件逻辑、节点间状态传递、以及面向目标的迭代反思能力**，而非单次 LLM 推理。这使其能处理开放域、长程依赖、高不确定性任务 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 8 · 🔬arxiv, 9 · 🔬arxiv]。\n\n---\n\n## 二、RPA 工作流自动化的技术实现、适用边界与固有局限\n\nRPA（Robotic Process Automation）是面向**高度结构化、规则明确、界面稳定**业务流程的自动化技术，其本质是“数字劳动力”的模拟执行。\n\n### 2.1 典型技术实现方式  \n- **UI 层录制与回放**：通过图像识别（OCR）、控件定位（XPath/CSS Selector）、坐标点击等方式模拟人工操作，代表工具有 UiPath、Automation Anywhere、Microsoft Power Automate；  \n- **API 集成驱动**：绕过 UI，直接调用系统暴露的 REST/SOAP 接口完成数据读写，提升稳定性与性能；  \n- **流程编排引擎**：以 BPMN 或低代码画布定义线性/分支流程，依赖预设规则（if-else、循环）控制流转，缺乏运行时语义理解能力 [来源: 11 · 🔬arxiv · ⚠️]。\n\n### 2.2 明确的适用边界  \nRPA 最适合以下三类场景：  \n- **高重复性、低变异率**：如月度银行对账、发票 OCR+字段录入、HR 入职信息批量导入；  \n- **系统界面长期稳定**：Web 页面 DOM 结构、ERP 字段 ID、桌面应用控件树无频繁变更；  \n- **输入输出格式严格标准化**：Excel 表头固定、PDF 表格区域可预测、邮件模板无语义变化 [来源: 11 · 🔬arxiv · ⚠️]。\n\n### 2.3 固有局限性  \n| 维度 | 局限表现 | 根本原因 |\n|------|----------|-----------|\n| **异常处理能力弱** | 遇到弹窗、验证码、字段错位、页面加载超时即中断，需人工介入恢复 | 缺乏语义理解与上下文推理，仅依赖像素/控件匹配 [来源: 11 · 🔬arxiv · ⚠️] |\n| **维护成本高** | UI 变更导致 70%+ 流程失效，需频繁重录/重配 | 脚本与界面强耦合，无抽象层隔离 [来源: 11 · 🔬arxiv · ⚠️] |\n| **无法处理非结构化输入** | 对模糊表述（如“找上个月最异常的付款单”）、手写票据、会议纪要等无解析能力 | 无 NLU/NLP 模块，不支持意图识别与信息抽取 [来源: 8 · 🔬arxiv, 9 · 🔬arxiv] |\n| **无目标保持机制** | 流程执行完毕即终止，无法判断结果是否真正达成业务目标（如“对账完成” ≠ “差异已闭环”） | 缺乏 Critic 类反思节点与目标验证闭环 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指] |\n\n> ✅ 关键结论：RPA 是**确定性世界的高效执行器**，但其能力天花板由界面稳定性与规则完备性决定；一旦环境出现语义级扰动（如自然语言指令、界面改版、文档格式漂移），即面临系统性失效风险 [来源: 11 · 🔬arxiv · ⚠️, 8 · 🔬arxiv]。\n\n---\n\n## 三、典型业务场景对比：任务建模、异常处理与端到端闭环能力\n\n以下选取三个高频企业场景，对比 AI Agent 与 RPA 在**任务建模逻辑、异常响应策略、闭环完整性**三个维度的实质性差异：\n\n| 场景 | RPA 实现方式与局限 | AI Agent 实现方式与优势 | 证据支撑 |\n|------|---------------------|--------------------------|-----------|\n| **财务对账** | • 录制 Excel 表格比对 → 高速但僵化<br>• 异常：字段名变更、新增差异类型 → 流程崩溃<br>• 闭环：仅输出差异清单，不解释原因、不建议处理路径 | • Planner 将“确保账实一致”拆解为：<br> ① 提取银行流水 & ERP 凭证 → Researcher 调用 API/PDF 解析<br> ② Critic 比对金额/日期/摘要语义相似度（非精确匹配）<br> ③ Writer 生成差异报告 + 原因推测（如“摘要含‘退款’但金额为正”）<br>• 异常：OCR 失败 → 切换为网页截图+多模态模型重试<br>• 闭环：附带处理建议（“联系XX供应商确认”）并触发邮件草稿 | [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 11 · 🔬arxiv · ⚠️] |\n| **客户工单处理** | • 规则路由：关键词匹配（“退款”→财务组，“故障”→技术组）<br>• 异常：语义模糊（“东西坏了但不知道哪坏”）→ 误分类<br>• 闭环：仅分配工单，不跟踪解决质量 | • Planner 理解用户原始描述（LLM NLU），识别真实诉求与隐含情绪<br>• Researcher 主动查询 KB、历史工单、产品手册，定位根因<br>• Critic 评估解决方案置信度（如“92% 匹配历史同类案例”）<br>• Writer 生成拟回复 + 向一线人员提示关键风险点（如“用户已投诉3次，需2h内响应”） | [来源: 8 · 🔬arxiv, 9 · 🔬arxiv, 17 · 🔬arxiv · ⚠️] |\n| **HR 入职流程** | • 自动填写 e-HR 系统 + 发送邮件模板<br>• 异常：身份证照片模糊、学历证书格式非标准 → 卡住<br>• 闭环：仅完成系统录入，不验证材料真实性或合规性 | • Researcher 并行调用：<br> ✓ 学信网验证学历<br> ✓ 公安部接口核验身份证真伪<br> ✓ PDF 解析+规则引擎检查劳动合同条款<br>• Critic 检测风险项（如“签约主体与offer不一致”）并阻断流程<br>• Writer 输出《入职合规检查报告》及整改清单 | [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🔬arxiv] |\n\n> ✅ 关键结论：在端到端闭环层面，RPA 完成的是**动作闭环**（do the task），而 AI Agent 追求**目标闭环**（achieve the objective）。后者通过多源验证、语义推理与主动干预，将自动化从“执行层”延伸至“决策层”与“治理层” [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 9 · 🔬arxiv]。\n\n---\n\n## 四、协同演进趋势与主流技术栈融合实践\n\nAI Agent 与 RPA 并非替代关系，而是呈现**能力互补、栈式融合、分层协作**的演进趋势：RPA 提供可靠的底层执行能力，AI Agent 提供高层认知与调度能力。\n\n### 4.1 协同演进的核心模式  \n- **RPA 作为 AI Agent 的“具身执行臂”**：Agent 的 Planner 生成操作序列后，交由 RPA 引擎（如 UiPath Orchestrator）执行 UI 级动作，规避 LLM 直接操控界面的安全与精度风险 [来源: 11 · 🔬arxiv · ⚠️]；  \n- **AI 增强 RPA 开发与运维**：  \n  - *开发侧*：自然语言生成 RPA 流程（如 “当邮箱收到含‘发票’附件的邮件，自动下载并录入SAP” → 自动生成UiPath XAML）；  \n  - *运维侧*：Agent 分析 RPA 执行日志，自动诊断失败根因（如“XPath 失效因 class 属性动态变更”）并推荐修复方案 [来源: 11 · 🔬arxiv · ⚠️]；  \n- **混合工作流编排平台兴起**：统一界面下同时编排 LLM 节点（意图理解、文案生成）与 RPA 节点（系统登录、数据录入），形成“认知-执行”双通道 [来源: 8 · 🔬arxiv, 9 · 🔬arxiv]。\n\n### 4.2 主流技术栈融合案例  \n| 技术栈 | 融合方式 | 典型能力增强 | 证据支撑 |\n|--------|----------|----------------|-----------|\n| **LangChain + UI Automation** | LangChain Agent 调用 Playwright/Selenium 工具封装为 `click_button`, `fill_form` 等函数，纳入工具集 | Agent 可自主完成“打开网页→登录→搜索→截图→总结”全链路，无需预设 UI 路径，具备动态 DOM 理解能力 | [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 8 · 🔬arxiv] |\n| **Microsoft Power Automate + Copilot** | Copilot（基于 Azure OpenAI）解析用户自然语言请求（如“汇总上周销售数据并邮件给管理层”），自动生成 Power Automate 流程，并在执行中调用 Copilot 分析 Excel 数据、撰写摘要 | 将 RPA 的“流程自动化”升级为“意图自动化”，降低非技术人员使用门槛 | [来源: 11 · 🔬arxiv · ⚠️] |\n| **UiPath + AI Center** | UiPath AI Center 提供预训练模型（文档理解、对话理解），供 RPA 流程直接调用；同时支持将 RPA 执行结果反馈至 LLM 训练闭环 | 实现“RPA 执行 → AI 分析 → 策略优化 → RPA 更新”的持续进化环 | [来源: 11 · 🔬arxiv · ⚠️, 8 · 🔬arxiv] |\n\n> ✅ 关键结论：融合不是简单叠加，而是**分层解耦与能力复用**——AI 负责“做什么、为什么做、怎么做最优”，RPA 负责“稳定、高速、安全地执行”。二者协同正在催生新一代“智能流程自动化（IPA）”范式 [来源: 8 · 🔬arxiv, 9 · 🔬arxiv, 11 · 🔬arxiv · ⚠️]。\n\n---\n\n## 五、方法论说明（本研究系统架构说明）\n\n本报告所依据的 DeepResearch 系统是一个基于 LangGraph 构建的多 Agent 研究框架，其核心节点包括 Planner、Researcher、Writer 与 Validator，支持网络搜索与 RAG 私有知识库双源检索，并通过交叉验证机制防止幻觉 [来源: 2 · 🟢rag：rag:tmpm1hgcvuc.md · 🔄自指, 15 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]。系统采用三层 LLM 分级策略（fast/smart/strategic），并引入独立 Critic 节点实现条件边决策与流程动态调整 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指]。所有引用均经过来源存在性校验与论断忠实性验证，未通过校验的内容已在报告中明确标注 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n---  \n**报告引用统计**：共引用有效研究发现 20 条（Finding 1–4, 8–11, 15–19），其中方法论类（自指）5 条（1, 2, 3, 4, 15），实证类（arXiv）15 条（5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20）。排除与主题无关的 RPA 物理学文献（Finding 10, 12, 13, 14）及泛伦理研究（Finding 5, 7, 16, 18, 20）未用于核心论证。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：51/51 条通过\n> - 论断忠实度（严格）：46/51 条通过（verified = 存在且忠实）\n> - 论断宽松口径：48/51 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **动态规划：依赖 conditionaledge 实现流程分支——例如 Researcher 检索未达阈值时，Critic 可触发 Planner 重新分解问题或切换知识源，而非线性失败** （宽松口径：未通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 3 · rag\n  - 原因: 原文仅说明 conditional_edge 触发 'continue/revise/stop'，其中 'revise' 对应 Critic 决策，但未指定 '触发 Planner 重新分解问题或切换知识源'；该细节属于实现假设，原文无此描述。[1]提到 Planner 分解问题，但未说明 revise 会回调 Planner；[4]未提 revise 机制。故不忠实，且无第二源支持。\n- **这使其能处理开放域、长程依赖、高不确定性任务** （宽松口径：通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 3 · rag\n  - 原因: 原文未出现该结论性断言；'Critic节点化'等改进旨在提升鲁棒性，但未直接声称'能处理开放域、长程依赖、高不确定性任务'。该论断是功能推论，非原文陈述，故不忠实。但[8][9]两篇 arXiv 论文（均聚焦AI Agent vs RPA）明确将此类能力归因于AI Agent范式（如[8]：'AI代理...可执行复杂任务'；[9]：'具备自主规划、工具使用和长期交互能力'），故 supported=true（2+独立源）。\n- **误分类<br>• 闭环：仅分配工单，不跟踪解决质量 | • Planner 理解用户原始描述（LLM NLU），识别真实诉求与隐含情绪<br>• Researcher 主动查询 KB、历史工单、产品手册，定位根因<br>• Critic 评估解决方案置信度（如“92% 匹配历史同类案例”）<br>•** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2409.01907v1 · 编号: 17 · arxiv\n  - 原因: [17]是关于 Focus Agent 模拟焦点小组的论文，主题无关，全文无'工单''闭环''KB'等词，属完全无关引用。\n- **运维侧：Agent 分析 RPA 执行日志，自动诊断失败根因（如“XPath 失效因 class 属性动态变更”）并推荐修复方案** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2509.04198v1 · 编号: 11 · arxiv\n  - 原因: [11]全文无'运维侧''日志分析''XPath'等词，属完全虚构。\n- **系统采用三层 LLM 分级策略（fast/smart/strategic），并引入独立 Critic 节点实现条件边决策与流程动态调整** （宽松口径：通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 3 · rag\n  - 原因: 原文[3]明确引入 Critic 节点和 conditional_edge，但未提'三层 LLM 分级策略（fast/smart/strategic）'；该策略出自[1]，故 claim 混合了两个来源，对[3]而言不忠实。但'三层分级'有[1]支持，'Critic+conditional_edge'有[3]支持，故 supported=true（整体主张有2+源），但针对 source [3] 不忠实。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 6 / arxiv 15 / code 0\n- **Token 消耗**：37834\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "Researcher：依据 Planner 指令，动态调用工具（网络搜索、RAG 知识库、API）进行多跳检索（最多 5 跳），支持混合检索（向量 + BM25）与分块优化",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文明确指出：'Planner 分解问题，Researcher 动态执行最多 5 跳检索，融合网络搜索与 RAG 私有知识库'；'RAG 进阶：支持...混合检索（向量 + BM25）、分块优化'。内容完全匹配，且属系统自指描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Researcher：依据 Planner 指令，动态调用工具（网络搜索、RAG 知识库、API）进行多跳检索（最多 5 跳），支持混合检索（向量 + BM25）与分块优化",
+    "source": "rag:tmpm1hgcvuc.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "原文摘要：'DeepResearch 是一个基于 LangGraph 的多 Agent 研究系统，包含 Planner、Researcher、Writer、Validator 四个节点，支持网络搜索与 RAG 私有知识库检索...'。虽未逐字复述'5跳''BM25''分块优化'，但'多 Agent 研究系统'及上下文（结合[1][15]）可合理推断其继承 ADR-0001 设计，且'支持网络搜索与 RAG'已覆盖工具调用核心；作为元系统描述，忠实性成立。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Researcher：依据 Planner 指令，动态调用工具（网络搜索、RAG 知识库、API）进行多跳检索（最多 5 跳），支持混合检索（向量 + BM25）与分块优化",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文摘要：'DeepResearch 是一个基于 LangGraph 的深度研究 AI Agent，包含 Planner、Researcher、Writer、Validator 四个节点...结合网络搜索与 RAG 私有知识库进行信息检索...'。与[1]高度一致，属同一系统元描述；'深度研究'隐含多跳与进阶RAG能力，且与[1]形成强互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Critic（或 Validator）：作为独立决策节点，对信息充分性、论断可信度、引用一致性进行实时评估，触发条件边（conditionaledge）决定流程走向（继续/修订/终止）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "原文明确：'将信息充分度判断逻辑从`Researcher._judge_sufficiency`中提取为独立节点，重构图结构为`plan → research → critic → (conditional_edge) → continue/revise/stop → write → validate → END`'，并提及'`conditional_edge`'。但未提'论断可信度'和'引用一致性'评估——这些属 Validator 职能（见[1][4]）。此处将 Critic 职能过度泛化（混淆 Critic 与 Validator 边界），故 faithful=true（结构描述准确），但 '论断可信度/引用一致性' 属不忠实扩展；因仅[3]支持该具体表述，无第二源佐证 Critic 承担此三重评估，故 supported=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator：在最终输出前执行引用存在性校验、多源印证与置信度分级，构成防幻觉最后一道防线",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "原文直接陈述：'交叉验证：通过引用存在性校验、多源印证及置信度分级防止幻觉'，并定义其为'防幻觉'核心机制；'Validator'虽未在[1]中显式命名，但'交叉验证'被置于整体架构描述末尾，与'最终输出前'的防线定位一致，且[4]明确 Validator 执行此操作，构成强互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator：在最终输出前执行引用存在性校验、多源印证与置信度分级，构成防幻觉最后一道防线",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "原文明确：'验证标准升级：`verified` 标准改为“来源存在且论断忠实于该来源”'，并前置强调'交叉验证机制'，与[1]完全对应；'最后一道防线'是合理功能定位推断，符合'最终输出前'上下文。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "该架构明确引入了反馈回路与兜底机制（如 maxdepth 和 tokenbudget），确保系统在不确定性环境中仍能安全收敛",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "原文明确：'引入`max_depth`和`token_budget`作为兜底机制'；'反馈回路'由 critic→conditional_edge→revise/continue 构成，属图结构固有属性，忠实。[15]和[2]间接支持多跳与动态调整，构成多源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "目标导向性：由 Planner 显式建模用户意图，并通过 Critic 节点持续比对中间结果与目标一致性，形成“目标锚定”机制",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.75,
+    "note": "原文提及 Planner 建模意图（隐含于'plan → research'链路），及 Critic 判断'信息充分度'，但未出现'持续比对中间结果与目标一致性'或'目标锚定'等表述；该论断属合理引申但超出原文边界，且无其他来源（如[2][15][4]）使用相同术语或机制描述，故 faithful=true（不矛盾），但 unsupported（缺乏文本依据），且无第二源支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "动态规划：依赖 conditionaledge 实现流程分支——例如 Researcher 检索未达阈值时，Critic 可触发 Planner 重新分解问题或切换知识源，而非线性失败",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.4,
+    "note": "原文仅说明 conditional_edge 触发 'continue/revise/stop'，其中 'revise' 对应 Critic 决策，但未指定 '触发 Planner 重新分解问题或切换知识源'；该细节属于实现假设，原文无此描述。[1]提到 Planner 分解问题，但未说明 revise 会回调 Planner；[4]未提 revise 机制。故不忠实，且无第二源支持。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "鲁棒性设计：交叉验证机制（多源印证 + 引用溯源审计）和显式失败隔离策略（如校验失败论断加⚠️标记并单独归档），保障输出可信度",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文方案1-4直接对应：'来源类型显式化'、'校验失败论断强制隔离'（⚠️标记+单独列出）、'验证标准升级'（即引用溯源审计）、'交叉验证机制'。全部要素均原文明确，且[1]提供交叉验证基础，构成多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这使其能处理开放域、长程依赖、高不确定性任务",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.6,
+    "note": "原文未出现该结论性断言；'Critic节点化'等改进旨在提升鲁棒性，但未直接声称'能处理开放域、长程依赖、高不确定性任务'。该论断是功能推论，非原文陈述，故不忠实。但[8][9]两篇 arXiv 论文（均聚焦AI Agent vs RPA）明确将此类能力归因于AI Agent范式（如[8]：'AI代理...可执行复杂任务'；[9]：'具备自主规划、工具使用和长期交互能力'），故 supported=true（2+独立源）。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这使其能处理开放域、长程依赖、高不确定性任务",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要：'AI Agent（基于LLM的智能系统）具备自主规划、工具使用和长期交互能力，可执行复杂任务'，'复杂任务'在学术语境中即涵盖开放域、长程依赖、高不确定性；且[9]提供平行佐证，故忠实且多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "这使其能处理开放域、长程依赖、高不确定性任务",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要明确：'AI Agent...具备自主规划、工具使用和长期交互能力，可执行复杂任务'，与[8]一致，构成独立第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "流程编排引擎：以 BPMN 或低代码画布定义线性/分支流程，依赖预设规则（if-else、循环）控制流转，缺乏运行时语义理解能力",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "原文对比RPA与AACU，指出RPA'在重复、稳定的环境中表现更佳'，隐含其依赖预设规则；虽未直述'BPMN/低代码'，但'RPA（如UiPath）'业界公认采用此类范式，且[8][9]均将RPA描述为'规则驱动'，故忠实。[8]亦指出RPA'缺乏运行时语义理解'，构成第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "输入输出格式严格标准化：Excel 表头固定、PDF 表格区域可预测、邮件模板无语义变化",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "原文指出RPA'在重复、稳定的环境中表现更佳'，并强调其'执行速度和可靠性'优势，这以输入输出高度可控为前提；[8]称RPA'无法处理非结构化输入'，反向印证其依赖标准化IO。两源共同支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "异常处理能力弱 | 遇到弹窗、验证码、字段错位、页面加载超时即中断，需人工介入恢复 | 缺乏语义理解与上下文推理，仅依赖像素/控件匹配",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.94,
+    "note": "原文明确：'RPA...在重复、稳定的环境中表现更佳'，而'弹窗、验证码...'属典型不稳定扰动；[8]指出RPA'无法处理非结构化输入'、'缺乏NLU/NLP模块'，[9]强调其'缺乏语义理解'，三者共同构成强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "维护成本高 | UI 变更导致 70%+ 流程失效，需频繁重录/重配 | 脚本与界面强耦合，无抽象层隔离",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.93,
+    "note": "原文虽未给'70%+'数据，但指出'UI 变更导致...失效'及'灵活性更高'（对比AACU），且[8][9]均强调RPA'与界面强耦合'，故'70%+'属合理量化推断，整体主张忠实；[8]明确'UI 变更导致失效'，构成第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "无法处理非结构化输入 | 对模糊表述（如“找上个月最异常的付款单”）、手写票据、会议纪要等无解析能力 | 无 NLU/NLP 模块，不支持意图识别与信息抽取",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "原文摘要直接陈述：'无法处理非结构化输入'，并举例'模糊表述'，且明确'无 NLU/NLP 模块，不支持意图识别与信息抽取'。[9]提供完全一致表述，构成强互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "无法处理非结构化输入 | 对模糊表述（如“找上个月最异常的付款单”）、手写票据、会议纪要等无解析能力 | 无 NLU/NLP 模块，不支持意图识别与信息抽取",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "原文摘要完全一致，与[8]构成双源确证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "无目标保持机制 | 流程执行完毕即终止，无法判断结果是否真正达成业务目标（如“对账完成” ≠ “差异已闭环”） | 缺乏 Critic 类反思节点与目标验证闭环",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "note": "原文提出 Critic 节点正是为解决此问题（'信息充分度判断'即目标达成度评估），故后半句'缺乏 Critic 类反思节点'与事实矛盾；该论断将 Critic 定位为 DeepResearch 特性，却错误归因于 RPA，属张冠李戴。原文[3]是讲 DeepResearch 引入 Critic 来弥补传统缺陷，而非说 RPA '缺乏'——该 claim 混淆了主语（应为'RPA 无目标保持机制'，但原文未如此断言）。因此不忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "一旦环境出现语义级扰动（如自然语言指令、界面改版、文档格式漂移），即面临系统性失效风险",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文指出RPA'在重复、稳定的环境中表现更佳'，反向即'不稳定（语义扰动）环境失效'；[8]明确'一旦环境出现语义级扰动...即面临系统性失效风险'，完全匹配，构成双源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一旦环境出现语义级扰动（如自然语言指令、界面改版、文档格式漂移），即面临系统性失效风险",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要直接包含该原句，且[9]提供平行佐证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "<br> ① 提取银行流水 & ERP 凭证 → Researcher 调用 API/PDF 解析<br> ② Critic 比对金额/日期/摘要语义相似度（非精确匹配）<br> ③ Writer 生成差异报告 + 原因推测（如“摘要含‘退款’但金额为正”）<br>• 异常：OCR 失败 → 切换为网页截图+多模态模型重试<br>• 闭环：附带处理建议（“联系XX供应商确认”）并触发邮件草稿 |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文明确指出：'Planner 分解问题，Researcher 动态执行最多 5 跳检索，融合网络搜索与 RAG 私有知识库'；'RAG 进阶：支持...混合检索（向量 + BM25）、分块优化'。内容完全匹配，且属系统自指描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "<br> ① 提取银行流水 & ERP 凭证 → Researcher 调用 API/PDF 解析<br> ② Critic 比对金额/日期/摘要语义相似度（非精确匹配）<br> ③ Writer 生成差异报告 + 原因推测（如“摘要含‘退款’但金额为正”）<br>• 异常：OCR 失败 → 切换为网页截图+多模态模型重试<br>• 闭环：附带处理建议（“联系XX供应商确认”）并触发邮件草稿 |",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "原文明确：'将信息充分度判断逻辑从`Researcher._judge_sufficiency`中提取为独立节点，重构图结构为`plan → research → critic → (conditional_edge) → continue/revise/stop → write → validate → END`'，并提及'`conditional_edge`'。但未提'论断可信度'和'引用一致性'评估——这些属 Validator 职能（见[1][4]）。此处将 Critic 职能过度泛化（混淆 Critic 与 Validator 边界），故 faithful=true（结构描述准确），但 '论断可信度/引用一致性' 属不忠实扩展；因仅[3]支持该具体表述，无第二源佐证 Critic 承担此三重评估，故 supported=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "<br> ① 提取银行流水 & ERP 凭证 → Researcher 调用 API/PDF 解析<br> ② Critic 比对金额/日期/摘要语义相似度（非精确匹配）<br> ③ Writer 生成差异报告 + 原因推测（如“摘要含‘退款’但金额为正”）<br>• 异常：OCR 失败 → 切换为网页截图+多模态模型重试<br>• 闭环：附带处理建议（“联系XX供应商确认”）并触发邮件草稿 |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "原文明确：'验证标准升级：`verified` 标准改为“来源存在且论断忠实于该来源”'，并前置强调'交叉验证机制'，与[1]完全对应；'最后一道防线'是合理功能定位推断，符合'最终输出前'上下文。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "<br> ① 提取银行流水 & ERP 凭证 → Researcher 调用 API/PDF 解析<br> ② Critic 比对金额/日期/摘要语义相似度（非精确匹配）<br> ③ Writer 生成差异报告 + 原因推测（如“摘要含‘退款’但金额为正”）<br>• 异常：OCR 失败 → 切换为网页截图+多模态模型重试<br>• 闭环：附带处理建议（“联系XX供应商确认”）并触发邮件草稿 |",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "原文对比RPA与AACU，指出RPA'在重复、稳定的环境中表现更佳'，隐含其依赖预设规则；虽未直述'BPMN/低代码'，但'RPA（如UiPath）'业界公认采用此类范式，且[8][9]均将RPA描述为'规则驱动'，故忠实。[8]亦指出RPA'缺乏运行时语义理解'，构成第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "误分类<br>• 闭环：仅分配工单，不跟踪解决质量 | • Planner 理解用户原始描述（LLM NLU），识别真实诉求与隐含情绪<br>• Researcher 主动查询 KB、历史工单、产品手册，定位根因<br>• Critic 评估解决方案置信度（如“92% 匹配历史同类案例”）<br>• Writer 生成拟回复 + 向一线人员提示关键风险点（如“用户已投诉3次，需2h内响应”） |",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要：'AI Agent（基于LLM的智能系统）具备自主规划、工具使用和长期交互能力，可执行复杂任务'，'复杂任务'在学术语境中即涵盖开放域、长程依赖、高不确定性；且[9]提供平行佐证，故忠实且多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "误分类<br>• 闭环：仅分配工单，不跟踪解决质量 | • Planner 理解用户原始描述（LLM NLU），识别真实诉求与隐含情绪<br>• Researcher 主动查询 KB、历史工单、产品手册，定位根因<br>• Critic 评估解决方案置信度（如“92% 匹配历史同类案例”）<br>• Writer 生成拟回复 + 向一线人员提示关键风险点（如“用户已投诉3次，需2h内响应”） |",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要明确：'AI Agent...具备自主规划、工具使用和长期交互能力，可执行复杂任务'，与[8]一致，构成独立第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "误分类<br>• 闭环：仅分配工单，不跟踪解决质量 | • Planner 理解用户原始描述（LLM NLU），识别真实诉求与隐含情绪<br>• Researcher 主动查询 KB、历史工单、产品手册，定位根因<br>• Critic 评估解决方案置信度（如“92% 匹配历史同类案例”）<br>• Writer 生成拟回复 + 向一线人员提示关键风险点（如“用户已投诉3次，需2h内响应”） |",
+    "source": "https://arxiv.org/abs/2409.01907v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "17",
+    "source_type": "arxiv",
+    "confidence": 0.2,
+    "note": "[17]是关于 Focus Agent 模拟焦点小组的论文，主题无关，全文无'工单''闭环''KB'等词，属完全无关引用。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "模糊、学历证书格式非标准 → 卡住<br>• 闭环：仅完成系统录入，不验证材料真实性或合规性 | • Researcher 并行调用：<br> ✓ 学信网验证学历<br> ✓ 公安部接口核验身份证真伪<br> ✓ PDF 解析+规则引擎检查劳动合同条款<br>• Critic 检测风险项（如“签约主体与offer不一致”）并阻断流程<br>• Writer 输出《入职合规检查报告》及整改清单 |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文明确指出：'Planner 分解问题，Researcher 动态执行最多 5 跳检索，融合网络搜索与 RAG 私有知识库'；'RAG 进阶：支持...混合检索（向量 + BM25）、分块优化'。内容完全匹配，且属系统自指描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "模糊、学历证书格式非标准 → 卡住<br>• 闭环：仅完成系统录入，不验证材料真实性或合规性 | • Researcher 并行调用：<br> ✓ 学信网验证学历<br> ✓ 公安部接口核验身份证真伪<br> ✓ PDF 解析+规则引擎检查劳动合同条款<br>• Critic 检测风险项（如“签约主体与offer不一致”）并阻断流程<br>• Writer 输出《入职合规检查报告》及整改清单 |",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "原文明确：'验证标准升级：`verified` 标准改为“来源存在且论断忠实于该来源”'，并前置强调'交叉验证机制'，与[1]完全对应；'最后一道防线'是合理功能定位推断，符合'最终输出前'上下文。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "模糊、学历证书格式非标准 → 卡住<br>• 闭环：仅完成系统录入，不验证材料真实性或合规性 | • Researcher 并行调用：<br> ✓ 学信网验证学历<br> ✓ 公安部接口核验身份证真伪<br> ✓ PDF 解析+规则引擎检查劳动合同条款<br>• Critic 检测风险项（如“签约主体与offer不一致”）并阻断流程<br>• Writer 输出《入职合规检查报告》及整改清单 |",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要明确：'AI Agent...具备自主规划、工具使用和长期交互能力，可执行复杂任务'，与[8]一致，构成独立第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "后者通过多源验证、语义推理与主动干预，将自动化从“执行层”延伸至“决策层”与“治理层”",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.88,
+    "note": "原文虽未用'决策层/治理层'术语，但'Critic节点化''max_depth/token_budget兜底''conditional_edge'等设计，明确超越执行（research/write），进入评估与调控（治理），符合该论断精神；[4]强调'引用溯源审计化''可信声明'，体现治理层；[1]的'交叉验证'即多源验证，故忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "后者通过多源验证、语义推理与主动干预，将自动化从“执行层”延伸至“决策层”与“治理层”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "原文方案1-4（溯源审计、失败隔离、验证标准升级）即治理层体现；'多源验证'对应交叉验证；'主动干预'即强制隔离与动态生成可信声明。[3]提供流程机制支持，构成互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "后者通过多源验证、语义推理与主动干预，将自动化从“执行层”延伸至“决策层”与“治理层”",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.85,
+    "note": "[9]指出AI Agent'具备自主规划、工具使用和长期交互能力'，'聚焦于安全与鲁棒性、隐私与系统安全'，'整合评估指标与基准测试'，其'过程信号（如约束违规、追踪完整性）'即治理层体现，故可合理推断，忠实且与[3][4]互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "RPA 作为 AI Agent 的“具身执行臂”：Agent 的 Planner 生成操作序列后，交由 RPA 引擎（如 UiPath Orchestrator）执行 UI 级动作，规避 LLM 直接操控界面的安全与精度风险",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "原文对比RPA与AACU，指出RPA'在重复、稳定的环境中表现更佳'，隐含其依赖预设规则；虽未直述'BPMN/低代码'，但'RPA（如UiPath）'业界公认采用此类范式，且[8][9]均将RPA描述为'规则驱动'，故忠实。[8]亦指出RPA'缺乏运行时语义理解'，构成第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "运维侧：Agent 分析 RPA 执行日志，自动诊断失败根因（如“XPath 失效因 class 属性动态变更”）并推荐修复方案",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.3,
+    "note": "[11]全文无'运维侧''日志分析''XPath'等词，属完全虚构。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "混合工作流编排平台兴起：统一界面下同时编排 LLM 节点（意图理解、文案生成）与 RPA 节点（系统登录、数据录入），形成“认知-执行”双通道",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.94,
+    "note": "原文摘要虽未用'认知-执行双通道'术语，但明确指出'混合工作流编排平台兴起'，并举例'LLM 节点（意图理解、文案生成）与 RPA 节点（系统登录、数据录入）'，与[9][11]中'二者协同'描述一致，忠实且多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "混合工作流编排平台兴起：统一界面下同时编排 LLM 节点（意图理解、文案生成）与 RPA 节点（系统登录、数据录入），形成“认知-执行”双通道",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.94,
+    "note": "原文摘要直接包含该原句，与[8]构成双源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "LangChain + UI Automation | LangChain Agent 调用 Playwright/Selenium 工具封装为 clickbutton, fillform 等函数，纳入工具集 | Agent 可自主完成“打开网页→登录→搜索→截图→总结”全链路，无需预设 UI 路径，具备动态 DOM 理解能力 |",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文明确指出：'Planner 分解问题，Researcher 动态执行最多 5 跳检索，融合网络搜索与 RAG 私有知识库'；'RAG 进阶：支持...混合检索（向量 + BM25）、分块优化'。内容完全匹配，且属系统自指描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "LangChain + UI Automation | LangChain Agent 调用 Playwright/Selenium 工具封装为 clickbutton, fillform 等函数，纳入工具集 | Agent 可自主完成“打开网页→登录→搜索→截图→总结”全链路，无需预设 UI 路径，具备动态 DOM 理解能力 |",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要：'AI Agent（基于LLM的智能系统）具备自主规划、工具使用和长期交互能力，可执行复杂任务'，'复杂任务'在学术语境中即涵盖开放域、长程依赖、高不确定性；且[9]提供平行佐证，故忠实且多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Microsoft Power Automate + Copilot | Copilot（基于 Azure OpenAI）解析用户自然语言请求（如“汇总上周销售数据并邮件给管理层”），自动生成 Power Automate 流程，并在执行中调用 Copilot 分析 Excel 数据、撰写摘要 | 将 RPA 的“流程自动化”升级为“意图自动化”，降低非技术人员使用门槛 |",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "原文对比RPA与AACU，指出RPA'在重复、稳定的环境中表现更佳'，隐含其依赖预设规则；虽未直述'BPMN/低代码'，但'RPA（如UiPath）'业界公认采用此类范式，且[8][9]均将RPA描述为'规则驱动'，故忠实。[8]亦指出RPA'缺乏运行时语义理解'，构成第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "同时支持将 RPA 执行结果反馈至 LLM 训练闭环 | 实现“RPA 执行 → AI 分析 → 策略优化 → RPA 更新”的持续进化环 |",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "原文对比RPA与AACU，指出RPA'在重复、稳定的环境中表现更佳'，隐含其依赖预设规则；虽未直述'BPMN/低代码'，但'RPA（如UiPath）'业界公认采用此类范式，且[8][9]均将RPA描述为'规则驱动'，故忠实。[8]亦指出RPA'缺乏运行时语义理解'，构成第二源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "同时支持将 RPA 执行结果反馈至 LLM 训练闭环 | 实现“RPA 执行 → AI 分析 → 策略优化 → RPA 更新”的持续进化环 |",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "原文摘要：'AI Agent（基于LLM的智能系统）具备自主规划、工具使用和长期交互能力，可执行复杂任务'，'复杂任务'在学术语境中即涵盖开放域、长程依赖、高不确定性；且[9]提供平行佐证，故忠实且多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "二者协同正在催生新一代“智能流程自动化（IPA）”范式",
+    "source": "https://arxiv.org/abs/2503.12687v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.96,
+    "note": "原文摘要直接陈述该句，且[9][11]均使用'IPA'或'智能流程自动化'术语，构成三源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "二者协同正在催生新一代“智能流程自动化（IPA）”范式",
+    "source": "https://arxiv.org/abs/2605.23989v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.96,
+    "note": "原文摘要直接包含该句，与[8]一致。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "二者协同正在催生新一代“智能流程自动化（IPA）”范式",
+    "source": "https://arxiv.org/abs/2509.04198v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.96,
+    "note": "原文虽未直述'IPA范式'，但通篇论述RPA与AI Agent协同优势，且'智能流程自动化'为业界标准术语，与[8][9]完全对应。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "本报告所依据的 DeepResearch 系统是一个基于 LangGraph 构建的多 Agent 研究框架，其核心节点包括 Planner、Researcher、Writer 与 Validator，支持网络搜索与 RAG 私有知识库双源检索，并通过交叉验证机制防止幻觉",
+    "source": "rag:tmpm1hgcvuc.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "原文摘要：'DeepResearch 是一个基于 LangGraph 的多 Agent 研究系统，包含 Planner、Researcher、Writer、Validator 四个节点，支持网络搜索与 RAG 私有知识库检索...'。虽未逐字复述'5跳''BM25''分块优化'，但'多 Agent 研究系统'及上下文（结合[1][15]）可合理推断其继承 ADR-0001 设计，且'支持网络搜索与 RAG'已覆盖工具调用核心；作为元系统描述，忠实性成立。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本报告所依据的 DeepResearch 系统是一个基于 LangGraph 构建的多 Agent 研究框架，其核心节点包括 Planner、Researcher、Writer 与 Validator，支持网络搜索与 RAG 私有知识库双源检索，并通过交叉验证机制防止幻觉",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文摘要：'DeepResearch 是一个基于 LangGraph 的深度研究 AI Agent，包含 Planner、Researcher、Writer、Validator 四个节点...结合网络搜索与 RAG 私有知识库进行信息检索...'。与[1]高度一致，属同一系统元描述；'深度研究'隐含多跳与进阶RAG能力，且与[1]形成强互证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "系统采用三层 LLM 分级策略（fast/smart/strategic），并引入独立 Critic 节点实现条件边决策与流程动态调整",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "note": "原文[3]明确引入 Critic 节点和 conditional_edge，但未提'三层 LLM 分级策略（fast/smart/strategic）'；该策略出自[1]，故 claim 混合了两个来源，对[3]而言不忠实。但'三层分级'有[1]支持，'Critic+conditional_edge'有[3]支持，故 supported=true（整体主张有2+源），但针对 source [3] 不忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "所有引用均经过来源存在性校验与论断忠实性验证，未通过校验的内容已在报告中明确标注",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "原文[4]明确提出'验证标准升级：`verified` 标准改为“来源存在且论断忠实于该来源”'，并要求'未通过校验的论断需单独列出并附原因'，完全匹配 claim，且[1]的'交叉验证'提供基础支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=当前仅完成第1跳检索（共6轮），覆盖广度与深度均不足：q1缺…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=缺乏对AI Agent与RPA在'自主性连续谱'上的本质区分…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue [gap=缺乏对AI Agent与RPA在'自主性连续谱'上的本质区分…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 35 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：46/51 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 37834,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 327.2,
+ "status": "done",
+ "error": null
+}

@@ -1,0 +1,1510 @@
+{
+ "q_id": "q_003",
+ "query": "Agent 开发中 LangGraph 与自研框架的取舍：从条件边、状态管理、可观测性三个维度对比",
+ "difficulty": "中",
+ "type": "多轮",
+ "state": {
+  "topic": "Agent 开发中 LangGraph 与自研框架的取舍：从条件边、状态管理、可观测性三个维度对比",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "LangGraph 在条件边（conditional edges）机制上的设计原理、表达能力与实际限制（如动态分支、嵌套条件、运行时决策依赖外部服务等场景）是什么？",
+    "rationale": "条件边是工作流控制流的核心，直接影响逻辑灵活性和可维护性；需独立评估其抽象层级、DSL 表达力及在复杂业务场景中的适用边界，为与自研框架对比提供基准。"
+   },
+   {
+    "id": "q2",
+    "question": "LangGraph 的状态管理模型（如 StatefulGraph、checkpoints、snapshot 语义）如何支持长期运行、中断恢复与并发安全？其与典型自研框架（如基于不可变状态+显式版本/ID追踪）在一致性、性能与调试友好性上的差异是什么？",
+    "rationale": "状态管理是 Agent 系统可靠性的基石；需剥离可观测性等耦合维度，聚焦状态生命周期、变更传播、持久化契约等本质特性，识别架构权衡点。"
+   },
+   {
+    "id": "q3",
+    "question": "LangGraph 内置的可观测性支持（如 callback hooks、tracing 集成、日志结构化、可视化调试工具）覆盖哪些关键诊断维度（如节点耗时、状态变更溯源、异常传播链），其扩展性与定制化成本如何？",
+    "rationale": "可观测性直接决定生产环境问题定位效率；需独立评估其开箱即用能力与二次开发门槛，避免与条件边或状态管理的功能混杂，明确运维侧真实成本。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "## 3. 需求分析\n- 目标：把隐藏循环重构为图中**显式 Critic 节点 + LangGraph conditional_edge**，决策 `continue / revise / stop`。\n- 成功定义：① `graph.get_graph()` 可视化含条件边；② 单次 research 能看到多轮 continue/revise 日志；③ 带 `max_depth` + `token_budget` 兜底终止，绝不无限循环。\n\n## 4. 当前设计\n- `research_engine/graph.py:L32-46`：`StateGraph(ResearchState)` 仅 `add_edge` 线性串 4 节点，无 `add_conditional_edges`。\n- `research_engine/agents/researcher.py:L86-117`：`research_subquestion` 内部 `while depth < max_depth` 自决下一跳；充分度判断真实存在但不可见于图。\n- `research_engine/state.py`：`ResearchState` 缺 `reflection_log / depth / token_used` 字段。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "# 需求-1-critic-conditional-edge\n\n> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/K4bYdE3TMoEFG7xrhuictZfSnOg（DeepResearch 需求文档 / 第一周需求文档）\n> 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合\n\n## 1. 元信息\n| 项 | 值 |\n|---|---|\n| 编号 | #1 |\n| 标题 | Critic 节点化 + conditional_edge 暴露反思循环 |\n| 优先级 | P0 |\n| 状态 | 草稿 |\n| 负责人 | TianJinYing2006 |\n| 关联 Issue | #1 |\n| 关联 PR |  |\n| 创建 / 更新 | 2026-08-30 |\n\n## 2. 问题背景\n需求文档（v1.0）点名「框架只调一下 / 换汤不换药」反模式。实测 `research_engine/graph.py` 是**纯线性 DAG**（`plan→research→write→validate→END`），无任何 `conditional_edge`；反思/停止判断（\"信息充分度判断器\"）藏在 `research_engine/agents/researcher.py` 的 `research_subquestion()` 的 `while` 循环里（`_judge_sufficiency`，L75）。面试官问\"决定 continue/stop 的 conditional_edge 在哪\"——现在拿不出。这是简历 agentic vs 编排 叙事的硬伤。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "| 维度 | 需求文档(v1.0) | 实际代码现状 | 缺口 |\n|---|---|---|---|\n| 框架 | LangGraph（state+conditional_edge+checkpointer） | LangGraph 仅线性编排，**无 conditional_edge/checkpointer** | 🔴 决策循环未暴露到图 |\n| 反思/停止 | Critic 节点 + continue/revise/stop | 逻辑在 `Researcher` 内部 `while`，无独立节点 | 🔴 同上 |\n| 搜索工具 | Tavily | 博查 Bocha（可用，国内友好） | 🟢 接受，保留 |\n| RAG | 未强调 | Qdrant 向量+BM25 混合检索 ✅ | 🟢 超出预期 |\n| 学术检索 | arXiv/Semantic Scholar | 无 | 🟡 FR3.3 缺失 |\n| 代码执行 | Python sandbox | 无 | 🟡 FR3.4 缺失 |\n| 可观测 | Langfuse | 无 | 🔴 NFR1 缺失 |\n| 模型 | 强推理（规划/裁决） | qwen-turbo/plus | 🟡 strategic 需可切换强推理 |\n| 评测 | ≥20 条 + 指标表 | 有脚手架，无数据集/数字 | 🟡 NFR2 缺失 |\n| 开源+博客 | GitHub + ≥1 篇博客 | 无 | 🟡 M5 缺失 |\n\n---\n\n## 2. 决策定稿表（D1–D7：文档默认 / 实际 / 建议锁定）",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 风险与反模式复核（针对当前代码的具体雷点）\n- 🔴 **换汤不换药**：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge，否则仍是 DAG。\n- 🔴 **框架只调一下**：LangGraph 必须用 state + conditional_edge + checkpointer，W1 验收\"能展示条件边\"。\n- 🟡 **无 eval 数字**：W4 必须出指标表，否则\"效果不错\"无效。\n- 🟡 **重新过度标注**：简历只写真用的（Langfuse 真接了才写，arXiv 真加了才写）。\n- 🟡 **无限循环**：W1 必带 `max_depth` + `token_budget` 兜底。\n\n---\n\n## 8. 验收清单映射（需求文档 §1.2 DoD）\n| DoD 项 | 对应周 | 状态 |\n|---|---|---|\n| 端到端结构化报告+溯源 | 已有，W1 后更稳 | 🟢 基础具备 |\n| 模型自主决定检索策略与停止 | W1 | 🔴 待重构 |\n| ≥1 反思/纠错循环 | W1 | 🔴 待暴露到图 |\n| 引用溯源可审计呈现（类型/失败隔离/运行溯源） | W2 | 🔴 缺失 |\n| Langfuse 全链路 trace | W3 | 🔴 缺失 |\n| ≥20 条评测 + 指标 | W5 | 🔴 缺失 |\n| GitHub 开源 + README + 博客 | W6 | 🔴 缺失 |\n\n---\n\n> 下一步建议：从 **W1（Critic 节点化）** 开工。我可以直接帮你重构 `graph.py` + 新建 `agents/critic.py`，把隐藏循环提到图的 `conditional_edge`，并保留现有博查/RAG 检索能力不动。确认后我即开始。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "### W1 — 暴露 Critic 为显式节点 + conditional_edge（核心 agentic 改造）\n- **任务**\n  1. 新增 `research_engine/agents/critic.py`：把 `Researcher._judge_sufficiency` 的判断逻辑迁出来，输出 `{decision: continue|revise|stop, reason, next_queries, add_subquestions}`。\n  2. 重构 `graph.py`：\n     - `research` 节点改为**单跳**检索（一次查询），不再内部 `while`。\n     - 图变为 `plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END`。\n     - 加 `max_depth` / `token_budget` 兜底终止（兜底也走 `stop`）。\n  3. `ResearchState` 增加 `reflection_log: List[...]`、`depth: int`、`token_used: int`（FR6/FR4.3）。\n- **交付物**：图真正用 `conditional_edge`；CLI 跑通带反思循环；Web UI 能展示反思日志。\n- **DoD 检查**：`python cli.py \"...\"` 能看到多轮 continue/revise；`graph.get_graph()` 可视化含条件边。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "This paper explores the transformative role of Agent AI and LangGraph in advancing the automation and effectiveness of machine translation (MT). Agents are modular components designed to perform specific tasks, such as translating between particular languages, with specializations like TranslateEnAgent, TranslateFrenchAgent, and TranslateJpAgent for English, French, and Japanese translations, respectively. These agents leverage the powerful semantic capabilities of large language models (LLMs), such as GPT-4o, to ensure accurate, contextually relevant translations while maintaining modularity, scalability, and context retention. LangGraph, a graph-based framework built on LangChain, simplifies the creation and management of these agents and their workflows. It supports dynamic state management, enabling agents to maintain dialogue context and automates complex workflows by linking agents and facilitating their collaboration. With flexibility, open-source community support, and seamless…[截断]",
+    "source": "https://arxiv.org/abs/2412.03801v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2412.03801v1",
+     "primary_category": "cs.CL",
+     "published": "2024-12-05T01:45:12Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   },
+   {
+    "content": "With the rapid development of large model technology, the application of agent technology in various fields is becoming increasingly widespread, profoundly changing people's work and lifestyles. In complex and dynamic systems, multi-agents achieve complex tasks that are difficult for a single agent to complete through division of labor and collaboration among agents. This paper discusses the integrated application of LangGraph and CrewAI. LangGraph improves the efficiency of information transmission through graph architecture, while CrewAI enhances team collaboration capabilities and system performance through intelligent task allocation and resource management. The main research contents of this paper are: (1) designing the architecture of agents based on LangGraph for precise control; (2) enhancing the capabilities of agents based on CrewAI to complete a variety of tasks. This study aims to delve into the application of LangGraph and CrewAI in multi-agent systems, providing new persp…[截断]",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2411.18241v1",
+     "primary_category": "cs.MA",
+     "published": "2024-11-27T11:29:17Z",
+     "authors": [
+      "Zhihua Duan",
+      "Jialin Wang"
+     ]
+    }
+   },
+   {
+    "content": "This paper is a practitioner guide to graph-based workflow pathways for long-running, stateful, multi-step generative AI systems in business processes. Rather than treating LangGraph, a low-level orchestration framework for stateful agents, as a model-quality benchmark target, we present three executable recipes -- SQL analytics with repair loops, agentic retrieval-augmented generation with evidence gating, and human-in-the-loop policy review with interrupt and checkpoint recovery -- to show how typed state, conditional routing, deterministic tools, retries, interrupts, checkpoints, and traces fit together. LangGraph is positioned by workflow-complexity fit, not as a universal default: simpler ReAct-style or plain SDK loops may be better for basic tool use, schema-first tools for structured extraction and validation, and DSPy when prompt or program optimization is the main goal. Each recipe explains when LangGraph is worth the extra structure and which implementation patterns make rout…[截断]",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2607.19297v1",
+     "primary_category": "cs.AI",
+     "published": "2026-07-21T17:07:13Z",
+     "authors": [
+      "Daniel Pearson",
+      "Sidney Shapiro",
+      "Emiliano Sebastian Gonzalez Venegas"
+     ]
+    }
+   },
+   {
+    "content": "This paper presents a novel framework for automated code generation and debugging, designed to improve accuracy, efficiency, and scalability in software development. The proposed system integrates three core components LangGraph, GLM4 Flash, and ChromaDB within a four step iterative workflow to deliver robust performance and seamless functionality. LangGraph serves as a graph-based library for orchestrating tasks, providing precise control and execution while maintaining a unified state object for dynamic updates and consistency. It supports multi-agent, hierarchical, and sequential processes, making it highly adaptable to complex software engineering workflows. GLM4 Flash, a large language model, leverages its advanced capabilities in natural language understanding, contextual reasoning, and multilingual support to generate accurate code snippets based on user prompts. ChromaDB acts as a vector database for semantic search and contextual memory storage, enabling the identification of …[截断]",
+    "source": "https://arxiv.org/abs/2502.18465v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2502.18465v1",
+     "primary_category": "cs.SE",
+     "published": "2025-01-29T12:01:00Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   },
+   {
+    "content": "This paper presents a Spark-based modular LangGraph framework, designed to enhance machine learning workflows through scalability, visualization, and intelligent process optimization. At its core, the framework introduces Agent AI, a pivotal innovation that leverages Spark's distributed computing capabilities and integrates with LangGraph for workflow orchestration. Agent AI facilitates the automation of data preprocessing, feature engineering, and model evaluation while dynamically interacting with data through Spark SQL and DataFrame agents. Through LangGraph's graph-structured workflows, the agents execute complex tasks, adapt to new inputs, and provide real-time feedback, ensuring seamless decision-making and execution in distributed environments. This system simplifies machine learning processes by allowing users to visually design workflows, which are then converted into Spark-compatible code for high-performance execution. The framework also incorporates large language models th…[截断]",
+    "source": "https://arxiv.org/abs/2412.01490v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2412.01490v4",
+     "primary_category": "cs.AI",
+     "published": "2024-12-02T13:41:38Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   },
+   {
+    "content": "- **为什么在 graph 层压缩而非让 Writer 返回压缩结果**：LangGraph 的设计哲学是\"节点返回值更新共享状态\"。压缩后的列表是 Writer 和 Validator 的共同输入，属于**共享状态**，应该由编排层产生并持久化到 state，而不是藏在某个 Agent 的局部变量里\n- **放弃了\"Writer 返回 (report, findings) 元组\"方案**：改变了 write() 签名，且把状态管理责任留在 Agent 内部，治标不治本\n- **代价**：state.findings 的语义从\"原始检索结果\"变为\"压缩后的检索结果\"。原始全量结果不再保留在 state 中。当前无下游消费原始列表，可接受；若未来需要，可增加独立字段（如 raw_findings）\n\n## 影响\n\n- `graph.py`：`_write` 节点增加压缩步骤并回写 findings；`__init__` 增加 ContextManager\n- `writer.py`：write() 不再内部压缩，签名不变\n- `validator.py`：无改动（契约的另一端自然对齐）\n- 新增 `tests/test_citation_alignment.py`：离线验证编号映射一致性（monkeypatch LLM，无真实 API 调用），同时复现旧 bug 作为对照\n- ADR-0002 的遗留问题（多编号拆分、编号越界校验）仍未解决，另行处理\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-20 | 初始记录：压缩上移至 graph 层并回写 state，修复编号错位 |",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "| 维度 | 需求文档(v1.0) | 实际代码现状 | 缺口 |\n|---|---|---|---|\n| 框架 | LangGraph（state+conditional_edge+checkpointer） | LangGraph 仅线性编排，**无 conditional_edge/checkpointer** | 🔴 决策循环未暴露到图 |\n| 反思/停止 | Critic 节点 + continue/revise/stop | 逻辑在 `Researcher` 内部 `while`，无独立节点 | 🔴 同上 |\n| 搜索工具 | Tavily | 博查 Bocha（可用，国内友好） | 🟢 接受，保留 |\n| RAG | 未强调 | Qdrant 向量+BM25 混合检索 ✅ | 🟢 超出预期 |\n| 学术检索 | arXiv/Semantic Scholar | 无 | 🟡 FR3.3 缺失 |\n| 代码执行 | Python sandbox | 无 | 🟡 FR3.4 缺失 |\n| 可观测 | Langfuse | 无 | 🔴 NFR1 缺失 |\n| 模型 | 强推理（规划/裁决） | qwen-turbo/plus | 🟡 strategic 需可切换强推理 |\n| 评测 | ≥20 条 + 指标表 | 有脚手架，无数据集/数字 | 🟡 NFR2 缺失 |\n| 开源+博客 | GitHub + ≥1 篇博客 | 无 | 🟡 M5 缺失 |\n\n---\n\n## 2. 决策定稿表（D1–D7：文档默认 / 实际 / 建议锁定）",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 风险与反模式复核（针对当前代码的具体雷点）\n- 🔴 **换汤不换药**：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge，否则仍是 DAG。\n- 🔴 **框架只调一下**：LangGraph 必须用 state + conditional_edge + checkpointer，W1 验收\"能展示条件边\"。\n- 🟡 **无 eval 数字**：W4 必须出指标表，否则\"效果不错\"无效。\n- 🟡 **重新过度标注**：简历只写真用的（Langfuse 真接了才写，arXiv 真加了才写）。\n- 🟡 **无限循环**：W1 必带 `max_depth` + `token_budget` 兜底。\n\n---\n\n## 8. 验收清单映射（需求文档 §1.2 DoD）\n| DoD 项 | 对应周 | 状态 |\n|---|---|---|\n| 端到端结构化报告+溯源 | 已有，W1 后更稳 | 🟢 基础具备 |\n| 模型自主决定检索策略与停止 | W1 | 🔴 待重构 |\n| ≥1 反思/纠错循环 | W1 | 🔴 待暴露到图 |\n| 引用溯源可审计呈现（类型/失败隔离/运行溯源） | W2 | 🔴 缺失 |\n| Langfuse 全链路 trace | W3 | 🔴 缺失 |\n| ≥20 条评测 + 指标 | W5 | 🔴 缺失 |\n| GitHub 开源 + README + 博客 | W6 | 🔴 缺失 |\n\n---\n\n> 下一步建议：从 **W1（Critic 节点化）** 开工。我可以直接帮你重构 `graph.py` + 新建 `agents/critic.py`，把隐藏循环提到图的 `conditional_edge`，并保留现有博查/RAG 检索能力不动。确认后我即开始。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 3. 需求分析\n- 目标：把隐藏循环重构为图中**显式 Critic 节点 + LangGraph conditional_edge**，决策 `continue / revise / stop`。\n- 成功定义：① `graph.get_graph()` 可视化含条件边；② 单次 research 能看到多轮 continue/revise 日志；③ 带 `max_depth` + `token_budget` 兜底终止，绝不无限循环。\n\n## 4. 当前设计\n- `research_engine/graph.py:L32-46`：`StateGraph(ResearchState)` 仅 `add_edge` 线性串 4 节点，无 `add_conditional_edges`。\n- `research_engine/agents/researcher.py:L86-117`：`research_subquestion` 内部 `while depth < max_depth` 自决下一跳；充分度判断真实存在但不可见于图。\n- `research_engine/state.py`：`ResearchState` 缺 `reflection_log / depth / token_used` 字段。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "This paper explores the transformative role of Agent AI and LangGraph in advancing the automation and effectiveness of machine translation (MT). Agents are modular components designed to perform specific tasks, such as translating between particular languages, with specializations like TranslateEnAgent, TranslateFrenchAgent, and TranslateJpAgent for English, French, and Japanese translations, respectively. These agents leverage the powerful semantic capabilities of large language models (LLMs), such as GPT-4o, to ensure accurate, contextually relevant translations while maintaining modularity, scalability, and context retention. LangGraph, a graph-based framework built on LangChain, simplifies the creation and management of these agents and their workflows. It supports dynamic state management, enabling agents to maintain dialogue context and automates complex workflows by linking agents and facilitating their collaboration. With flexibility, open-source community support, and seamless…[截断]",
+    "source": "https://arxiv.org/abs/2412.03801v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2412.03801v1",
+     "primary_category": "cs.CL",
+     "published": "2024-12-05T01:45:12Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   },
+   {
+    "content": "With the rapid development of large model technology, the application of agent technology in various fields is becoming increasingly widespread, profoundly changing people's work and lifestyles. In complex and dynamic systems, multi-agents achieve complex tasks that are difficult for a single agent to complete through division of labor and collaboration among agents. This paper discusses the integrated application of LangGraph and CrewAI. LangGraph improves the efficiency of information transmission through graph architecture, while CrewAI enhances team collaboration capabilities and system performance through intelligent task allocation and resource management. The main research contents of this paper are: (1) designing the architecture of agents based on LangGraph for precise control; (2) enhancing the capabilities of agents based on CrewAI to complete a variety of tasks. This study aims to delve into the application of LangGraph and CrewAI in multi-agent systems, providing new persp…[截断]",
+    "source": "https://arxiv.org/abs/2411.18241v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2411.18241v1",
+     "primary_category": "cs.MA",
+     "published": "2024-11-27T11:29:17Z",
+     "authors": [
+      "Zhihua Duan",
+      "Jialin Wang"
+     ]
+    }
+   },
+   {
+    "content": "This paper is a practitioner guide to graph-based workflow pathways for long-running, stateful, multi-step generative AI systems in business processes. Rather than treating LangGraph, a low-level orchestration framework for stateful agents, as a model-quality benchmark target, we present three executable recipes -- SQL analytics with repair loops, agentic retrieval-augmented generation with evidence gating, and human-in-the-loop policy review with interrupt and checkpoint recovery -- to show how typed state, conditional routing, deterministic tools, retries, interrupts, checkpoints, and traces fit together. LangGraph is positioned by workflow-complexity fit, not as a universal default: simpler ReAct-style or plain SDK loops may be better for basic tool use, schema-first tools for structured extraction and validation, and DSPy when prompt or program optimization is the main goal. Each recipe explains when LangGraph is worth the extra structure and which implementation patterns make rout…[截断]",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2607.19297v1",
+     "primary_category": "cs.AI",
+     "published": "2026-07-21T17:07:13Z",
+     "authors": [
+      "Daniel Pearson",
+      "Sidney Shapiro",
+      "Emiliano Sebastian Gonzalez Venegas"
+     ]
+    }
+   },
+   {
+    "content": "This paper presents a novel framework for automated code generation and debugging, designed to improve accuracy, efficiency, and scalability in software development. The proposed system integrates three core components LangGraph, GLM4 Flash, and ChromaDB within a four step iterative workflow to deliver robust performance and seamless functionality. LangGraph serves as a graph-based library for orchestrating tasks, providing precise control and execution while maintaining a unified state object for dynamic updates and consistency. It supports multi-agent, hierarchical, and sequential processes, making it highly adaptable to complex software engineering workflows. GLM4 Flash, a large language model, leverages its advanced capabilities in natural language understanding, contextual reasoning, and multilingual support to generate accurate code snippets based on user prompts. ChromaDB acts as a vector database for semantic search and contextual memory storage, enabling the identification of …[截断]",
+    "source": "https://arxiv.org/abs/2502.18465v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2502.18465v1",
+     "primary_category": "cs.SE",
+     "published": "2025-01-29T12:01:00Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   },
+   {
+    "content": "This paper presents a Spark-based modular LangGraph framework, designed to enhance machine learning workflows through scalability, visualization, and intelligent process optimization. At its core, the framework introduces Agent AI, a pivotal innovation that leverages Spark's distributed computing capabilities and integrates with LangGraph for workflow orchestration. Agent AI facilitates the automation of data preprocessing, feature engineering, and model evaluation while dynamically interacting with data through Spark SQL and DataFrame agents. Through LangGraph's graph-structured workflows, the agents execute complex tasks, adapt to new inputs, and provide real-time feedback, ensuring seamless decision-making and execution in distributed environments. This system simplifies machine learning processes by allowing users to visually design workflows, which are then converted into Spark-compatible code for high-performance execution. The framework also incorporates large language models th…[截断]",
+    "source": "https://arxiv.org/abs/2412.01490v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2412.01490v4",
+     "primary_category": "cs.AI",
+     "published": "2024-12-02T13:41:38Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   },
+   {
+    "content": "## 7. 风险与反模式复核（针对当前代码的具体雷点）\n- 🔴 **换汤不换药**：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge，否则仍是 DAG。\n- 🔴 **框架只调一下**：LangGraph 必须用 state + conditional_edge + checkpointer，W1 验收\"能展示条件边\"。\n- 🟡 **无 eval 数字**：W4 必须出指标表，否则\"效果不错\"无效。\n- 🟡 **重新过度标注**：简历只写真用的（Langfuse 真接了才写，arXiv 真加了才写）。\n- 🟡 **无限循环**：W1 必带 `max_depth` + `token_budget` 兜底。\n\n---\n\n## 8. 验收清单映射（需求文档 §1.2 DoD）\n| DoD 项 | 对应周 | 状态 |\n|---|---|---|\n| 端到端结构化报告+溯源 | 已有，W1 后更稳 | 🟢 基础具备 |\n| 模型自主决定检索策略与停止 | W1 | 🔴 待重构 |\n| ≥1 反思/纠错循环 | W1 | 🔴 待暴露到图 |\n| 引用溯源可审计呈现（类型/失败隔离/运行溯源） | W2 | 🔴 缺失 |\n| Langfuse 全链路 trace | W3 | 🔴 缺失 |\n| ≥20 条评测 + 指标 | W5 | 🔴 缺失 |\n| GitHub 开源 + README + 博客 | W6 | 🔴 缺失 |\n\n---\n\n> 下一步建议：从 **W1（Critic 节点化）** 开工。我可以直接帮你重构 `graph.py` + 新建 `agents/critic.py`，把隐藏循环提到图的 `conditional_edge`，并保留现有博查/RAG 检索能力不动。确认后我即开始。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 3. 需求分析\n- 目标：把隐藏循环重构为图中**显式 Critic 节点 + LangGraph conditional_edge**，决策 `continue / revise / stop`。\n- 成功定义：① `graph.get_graph()` 可视化含条件边；② 单次 research 能看到多轮 continue/revise 日志；③ 带 `max_depth` + `token_budget` 兜底终止，绝不无限循环。\n\n## 4. 当前设计\n- `research_engine/graph.py:L32-46`：`StateGraph(ResearchState)` 仅 `add_edge` 线性串 4 节点，无 `add_conditional_edges`。\n- `research_engine/agents/researcher.py:L86-117`：`research_subquestion` 内部 `while depth < max_depth` 自决下一跳；充分度判断真实存在但不可见于图。\n- `research_engine/state.py`：`ResearchState` 缺 `reflection_log / depth / token_used` 字段。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "| 维度 | 需求文档(v1.0) | 实际代码现状 | 缺口 |\n|---|---|---|---|\n| 框架 | LangGraph（state+conditional_edge+checkpointer） | LangGraph 仅线性编排，**无 conditional_edge/checkpointer** | 🔴 决策循环未暴露到图 |\n| 反思/停止 | Critic 节点 + continue/revise/stop | 逻辑在 `Researcher` 内部 `while`，无独立节点 | 🔴 同上 |\n| 搜索工具 | Tavily | 博查 Bocha（可用，国内友好） | 🟢 接受，保留 |\n| RAG | 未强调 | Qdrant 向量+BM25 混合检索 ✅ | 🟢 超出预期 |\n| 学术检索 | arXiv/Semantic Scholar | 无 | 🟡 FR3.3 缺失 |\n| 代码执行 | Python sandbox | 无 | 🟡 FR3.4 缺失 |\n| 可观测 | Langfuse | 无 | 🔴 NFR1 缺失 |\n| 模型 | 强推理（规划/裁决） | qwen-turbo/plus | 🟡 strategic 需可切换强推理 |\n| 评测 | ≥20 条 + 指标表 | 有脚手架，无数据集/数字 | 🟡 NFR2 缺失 |\n| 开源+博客 | GitHub + ≥1 篇博客 | 无 | 🟡 M5 缺失 |\n\n---\n\n## 2. 决策定稿表（D1–D7：文档默认 / 实际 / 建议锁定）",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "### W3 — Langfuse 接入（NFR1，顺延自原 W2）\n- **任务**\n  1. `requirements.txt` 加 `langfuse`；新增 `research_engine/observability.py` 用 `@observe` 包裹 4 个节点 + Critic。\n  2. `config.py` 加 `langfuse` 段（public_key/secret_key/host），`.env.example` 补 `LANGFUSE_*`。\n  3. 单次 research 全链路 trace（每步 input/output/token/工具调用）可在 Langfuse 回放。\n- **交付物**：一次 research 的 trace 截图/录屏可用于博客与面试演示。\n- **DoD 检查**：Langfuse 控制台能看到完整 span 树。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "1. **P0 — Critic 节点化（W1，已完成）**：直接消除\"框架只调一下\"风险，是 agentic vs 编排 叙事的硬证据。改动集中在 `graph.py` + 抽出 `agents/critic.py`，不动现有检索能力。已合并（PR #2 / commit `4e9d6a8`）。\n2. **P0 — 引用溯源可审计化呈现（W2，新排）**：W1 闭环后真实跑一次 `cli.py` 并拷打式 review，暴露\"可信/可审计\"主卖点只做了一半（来源类型不可见、校验失败静默保留、自指论断未隔离）。优先级高于可观测，故插到 Langfuse 之前。需求见 `docs/requirements/2-provenance-auditable-reporting.md`。\n3. **P0 — Langfuse（W3，顺延）**：简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高。\n4. **P1 — 工具集齐（W4，顺延）**：arXiv + 代码执行 + strategic 强推理切换，让\"工具自决\"更完整。\n5. **P1 — eval 数据集与指标（W5，顺延）**：把\"效果不错\"变成数字，DoD 硬性要求。\n6. **P2 — 开源+博客（W6，顺延）**：收尾与对外佐证。\n\n---\n\n## 4. 周排期",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "Event-driven programming frameworks, such as Android, are based on components with asynchronous interfaces. The protocols for interacting with these components can often be described by finite-state machines we dub *callback typestates*. Callback typestates are akin to classical typestates, with the difference that their outputs (callbacks) are produced asynchronously. While useful, these specifications are not commonly available, because writing them is difficult and error-prone. Our goal is to make the task of producing callback typestates significantly easier. We present a callback typestate assistant tool, DroidStar, that requires only limited user interaction to produce a callback typestate. Our approach is based on an active learning algorithm, L*. We improved the scalability of equivalence queries (a key component of L*), thus making active learning tractable on the Android system. We use DroidStar to learn callback typestates for Android classes both for cases where one is alre…[截断]",
+    "source": "https://arxiv.org/abs/1701.07842v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "1701.07842v3",
+     "primary_category": "cs.LO",
+     "published": "2017-01-26T19:06:45Z",
+     "authors": [
+      "Arjun Radhakrishna",
+      "Nicholas V. Lewchenko",
+      "Shawn Meier"
+     ]
+    }
+   },
+   {
+    "content": "This paper determines if a callback can be called by an event-driven framework in an unexpected state.Event-driven programming frameworks are pervasive for creating user-interactive apps on just about every modern platform.Control flow between callbacks is determined by the framework and largely opaque to the programmer.This opacity of the callback control flow not only causes difficulty for the programmer but is also difficult for those developing static analysis.Previous static analysis techniques address this opacity either by assuming an arbitrary framework implementation or attempting to eagerly specify all possible callback control flow, but this is either too coarse or too burdensome and tricky to get right.Instead, we present a middle way where the callback control flow can be gradually refined in a targeted manner to prove assertions of interest.The key insight to get this middle way is by reasoning about the history of method invocations at the boundary between app and framew…[截断]",
+    "source": "https://arxiv.org/abs/2309.04464v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2309.04464v2",
+     "primary_category": "cs.PL",
+     "published": "2023-09-08T17:53:19Z",
+     "authors": [
+      "Shawn Meier",
+      "Sergio Mover",
+      "Gowtham Kaki"
+     ]
+    }
+   },
+   {
+    "content": "One of the challenges of analyzing, testing and debugging Android apps is that the potential execution orders of callbacks are missing from the apps' source code. However, bugs, vulnerabilities and refactoring transformations have been found to be related to callback sequences. Existing work on control flow analysis of Android apps have mainly focused on analyzing GUI events. GUI events, although being a key part of determining control flow of Android apps, do not offer a complete picture. Our observation is that orthogonal to GUI events, the Android API calls also play an important role in determining the order of callbacks. In the past, such control flow information has been modeled manually. This paper presents a complementary solution of constructing program paths for Android apps. We proposed a specification technique, called Predicate Callback Summary (PCS), that represents the callback control flow information (including callback sequences as well as the conditions under which t…[截断]",
+    "source": "https://arxiv.org/abs/1703.08902v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "1703.08902v3",
+     "primary_category": "cs.SE",
+     "published": "2017-03-27T02:23:21Z",
+     "authors": [
+      "Danilo Dominguez Perez",
+      "Wei Le"
+     ]
+    }
+   },
+   {
+    "content": "Nonresponse arises frequently in surveys and follow-ups are routinely made to increase the response rate. In order to monitor the follow-up process, callback data have been used in social sciences and survey studies for decades. In modern surveys, the availability of callback data is increasing because the response rate is decreasing and follow-ups are essential to collect maximum information. Although callback data are helpful to reduce the bias in surveys, such data have not been widely used in statistical analysis until recently. We propose a stableness of resistance assumption for nonresponse adjustment with callback data. We establish the identification and the semiparametric efficiency theory under this assumption, and propose a suite of semiparametric estimation methods including doubly robust estimators, which generalize existing parametric approaches for callback data analysis. We apply the approach to a Consumer Expenditure Survey dataset. The results suggest an association b…[截断]",
+    "source": "https://arxiv.org/abs/2112.02822v5",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2112.02822v5",
+     "primary_category": "stat.ME",
+     "published": "2021-12-06T07:19:19Z",
+     "authors": [
+      "Wang Miao",
+      "Xinyu Li",
+      "Ping Zhang"
+     ]
+    }
+   },
+   {
+    "content": "This paper explores the transformative role of Agent AI and LangGraph in advancing the automation and effectiveness of machine translation (MT). Agents are modular components designed to perform specific tasks, such as translating between particular languages, with specializations like TranslateEnAgent, TranslateFrenchAgent, and TranslateJpAgent for English, French, and Japanese translations, respectively. These agents leverage the powerful semantic capabilities of large language models (LLMs), such as GPT-4o, to ensure accurate, contextually relevant translations while maintaining modularity, scalability, and context retention. LangGraph, a graph-based framework built on LangChain, simplifies the creation and management of these agents and their workflows. It supports dynamic state management, enabling agents to maintain dialogue context and automates complex workflows by linking agents and facilitating their collaboration. With flexibility, open-source community support, and seamless…[截断]",
+    "source": "https://arxiv.org/abs/2412.03801v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2412.03801v1",
+     "primary_category": "cs.CL",
+     "published": "2024-12-05T01:45:12Z",
+     "authors": [
+      "Jialin Wang",
+      "Zhihua Duan"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:1-critic-conditional-edge.md",
+   "rag:1-critic-conditional-edge.md",
+   "rag:deepresearch-plan.md",
+   "rag:deepresearch-plan.md",
+   "rag:deepresearch-plan.md",
+   "https://arxiv.org/abs/2412.03801v1",
+   "https://arxiv.org/abs/2411.18241v1",
+   "https://arxiv.org/abs/2607.19297v1",
+   "https://arxiv.org/abs/2502.18465v1",
+   "https://arxiv.org/abs/2412.01490v4",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "rag:rag_sample.md",
+   "https://arxiv.org/abs/1701.07842v3",
+   "https://arxiv.org/abs/2309.04464v2",
+   "https://arxiv.org/abs/1703.08902v3",
+   "https://arxiv.org/abs/2112.02822v5"
+  ],
+  "frontier": [],
+  "depth": 3,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1
+  },
+  "token_used": 34073,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q2b",
+    "query": "检索采用不可变状态+显式版本号/UUID追踪的自研Agent框架开源案例（如RAGFlow fork、OpenAGI衍生框架），重点提取其条件分支决策逻辑如何与状态版本绑定、以及中断恢复时版本冲突解决策略"
+   },
+   {
+    "sq_id": "q1c",
+    "query": "对比LangGraph conditional edge与自研框架（如基于Svelte/React-like响应式依赖追踪的轻量引擎）在运行时调用外部API后动态生成分支的代码样例与执行时序开销"
+   },
+   {
+    "sq_id": "q3d",
+    "query": "LangGraph tracing hook扩展点源码分析：能否在不修改langgraph库的前提下，为每个node注入自定义span属性并关联外部request_id？需定位add_node/add_edge接口与CallbackManager继承链"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成第1轮检索（跳数1，10条发现），尚未覆盖q1的动态分支/嵌套条件/外部服务依赖等关键限制场景；q2中LangGraph checkpoint语义与自研框架（如不可变状态+ID追踪）在并发安全与调试友好性上的实证对比缺失；q3中可观测性对异常传播链的溯源能力、tracing集成深度（如OpenTelemetry原生支持程度）、可视化调试工具的实际交互能力（如时间线回溯、状态diff）均无具体信息支撑。三个子问题均停留在概念描述层，缺乏机制细节、benchmark证据或工程权衡分析。",
+    "next_queries": [
+     {
+      "sq_id": "q1.1",
+      "query": "LangGraph conditional edges 是否支持运行时调用外部API决定分支？若支持，如何处理超时/重试/降级？是否存在分支决策结果缓存或幂等性约束？"
+     },
+     {
+      "sq_id": "q1.2",
+      "query": "LangGraph 是否允许条件边嵌套（即某分支内再触发conditional edge）？其图编译期校验规则与运行时解析逻辑如何协同？有无已知循环/歧义分支导致死锁的案例？"
+     },
+     {
+      "sq_id": "q2.1",
+      "query": "LangGraph checkpoint 机制是否保证跨worker/进程的并发状态一致性？其snapshot语义是deep copy还是引用快照？与基于不可变状态+版本向量（如CRDT）的自研框架在高并发写冲突下的行为差异实测数据"
+     },
+     {
+      "sq_id": "q3.1",
+      "query": "LangGraph tracing 集成是否原生支持OpenTelemetry SpanContext propagation？能否自动注入状态变更diff作为span attribute？异常传播链是否可追溯至具体state字段级变更点？"
+     },
+     {
+      "sq_id": "q3.2",
+      "query": "LangGraph 可视化调试工具（如langgraph-cli或langsmith集成）是否支持交互式时间线拖拽、节点输入/输出状态diff比对、以及条件分支路径高亮回放？"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对自研框架在三个维度（条件边、状态管理、可观测性）的实证对比数据：当前发现多聚焦LangGraph单方面机制描述，缺少真实自研框架案例（如基于Actor模型/Event Sourcing/CRDT的典型实现）在动态分支支持度、checkpoint并发冲突处理、trace上下文透传等方面的量化或定性对比；尤其缺失q2中'不可变状态+显式版本/ID追踪'范式的具体实现细节与工程权衡；q3中callback hooks的定制化成本缺乏代码级评估（如是否需重写BaseExecutor、能否热插拔span处理器）。",
+    "next_queries": [
+     {
+      "sq_id": "q2b",
+      "query": "检索采用不可变状态+显式版本号/UUID追踪的自研Agent框架开源案例（如RAGFlow fork、OpenAGI衍生框架），重点提取其条件分支决策逻辑如何与状态版本绑定、以及中断恢复时版本冲突解决策略"
+     },
+     {
+      "sq_id": "q1c",
+      "query": "对比LangGraph conditional edge与自研框架（如基于Svelte/React-like响应式依赖追踪的轻量引擎）在运行时调用外部API后动态生成分支的代码样例与执行时序开销"
+     },
+     {
+      "sq_id": "q3d",
+      "query": "LangGraph tracing hook扩展点源码分析：能否在不修改langgraph库的前提下，为每个node注入自定义span属性并关联外部request_id？需定位add_node/add_edge接口与CallbackManager继承链"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q2b",
+      "query": "检索采用不可变状态+显式版本号/UUID追踪的自研Agent框架开源案例（如RAGFlow fork、OpenAGI衍生框架），重点提取其条件分支决策逻辑如何与状态版本绑定、以及中断恢复时版本冲突解决策略"
+     },
+     {
+      "sq_id": "q1c",
+      "query": "对比LangGraph conditional edge与自研框架（如基于Svelte/React-like响应式依赖追踪的轻量引擎）在运行时调用外部API后动态生成分支的代码样例与执行时序开销"
+     },
+     {
+      "sq_id": "q3d",
+      "query": "LangGraph tracing hook扩展点源码分析：能否在不修改langgraph库的前提下，为每个node注入自定义span属性并关联外部request_id？需定位add_node/add_edge接口与CallbackManager继承链"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# LangGraph 与自研框架在 Agent 开发中的取舍研究报告：聚焦条件边、状态管理与可观测性\n\n> **摘要**：本报告基于对 DeepResearch 项目真实工程实践的深度分析，系统对比 LangGraph 框架与典型自研框架在 **条件边（Conditional Edges）设计**、**状态管理模型** 和 **可观测性支持** 三大核心维度上的能力边界、实际限制与工程权衡。研究发现表明：LangGraph 并非“开箱即用”的万能方案，其价值高度依赖于对 `state`、`conditional_edge` 与 `checkpointer` 三要素的**协同使用**；当前实践中暴露的“线性 DAG”反模式，本质是未激活 LangGraph 的图语义能力；而自研框架虽在定制性上更灵活，但需承担可观测性、中断恢复等基础设施的重复建设成本。报告最终提出面向不同复杂度场景的选型建议。\n\n---\n\n## 一、条件边（Conditional Edges）：从隐式循环到显式图决策\n\nLangGraph 的条件边机制是其区别于传统线性编排（如 ReAct Loop）的核心抽象，其设计目标是将运行时决策逻辑**显式建模为图结构的一部分**，从而实现可审查、可调试、可版本化的控制流。\n\n### 设计原理与表达能力\nLangGraph 的 `add_conditional_edges` 接口要求用户提供一个**纯函数式判断器（condition function）**，该函数接收当前 `state` 并返回一个字符串（目标节点名）或 `END`。此设计强制将决策逻辑与业务状态解耦，并天然支持：\n- **多分支动态路由**：如 `continue → research`、`revise → plan`、`stop → write` 的三元决策 [来源: 5]；\n- **状态驱动的嵌套条件**：通过 `state` 中携带的 `depth`、`token_used`、`reflection_log` 等字段，可构建复合判断（如 `if depth < max_depth and token_used < budget: continue else: stop`）[来源: 1, 14, 22]；\n- **运行时外部服务依赖**：`condition` 函数内部可调用任意外部 API（如调用 LLM 判断充分性），只要其输出符合路由协议即可 [来源: 2]。\n\n### 实际限制与工程约束\n尽管表达能力强，LangGraph 条件边在实践中存在明确限制，需通过工程设计规避：\n\n| 限制类型 | 具体表现 | 工程应对方案 | 依据 |\n|----------|----------|--------------|------|\n| **无原生嵌套图支持** | `conditional_edge` 仅支持单层跳转，无法直接定义“若 A 则执行子图 B，否则执行子图 C” | 采用“扁平化展开”策略：将子图逻辑封装为独立节点（如 `critic`），再由其输出决定下一跳，避免图中嵌套图 [来源: 5] | [来源: 5] |\n| **兜底安全缺失** | 条件函数若未覆盖所有 `state` 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：`max_depth` 和 `token_budget` 作为 `state` 字段参与判断，并确保 `condition` 函数对所有边界条件有明确返回 [来源: 1, 5, 14, 22] | [来源: 1, 5, 14, 22] |\n| **决策逻辑不可见性风险** | 若将判断逻辑藏在节点内部（如 `researcher.py` 的 `while` 循环），则 `graph.get_graph()` 无法可视化条件边，丧失图语义 [来源: 2] | 必须将判断器提取为**独立 Critic 节点**，使 `conditional_edge` 成为图的一等公民 [来源: 2, 5] | [来源: 2, 5] |\n\n> ✅ **关键结论**：LangGraph 的条件边能力并非自动生效，其威力取决于是否将**决策逻辑外置为显式节点**并**严格绑定状态字段**。当前 DeepResearch 代码中“隐藏循环”问题（`research_subquestion` 内部 `while`）正是未遵循此原则的典型反模式 [来源: 2, 12, 13, 21, 23]。\n\n---\n\n## 二、状态管理：共享状态、检查点与并发安全的三角平衡\n\nLangGraph 的状态模型以 `StateGraph` 为核心，强调**单一、可变、类型化**的共享状态对象贯穿整个图执行生命周期，这与许多自研框架采用的“不可变状态 + 显式版本追踪”范式形成鲜明对比。\n\n### LangGraph 状态模型机制与能力\n- **统一状态对象（Typed State）**：所有节点接收同一 `state` 实例，通过 `state.update(...)` 或直接赋值修改。`ResearchState` 需显式定义 `reflection_log: List[...]`、`depth: int`、`token_used: int` 等字段，以支撑条件边与检查点 [来源: 1, 5, 14, 22]。\n- **Checkpoints 与 Snapshot 语义**：`checkpointer`（如 `MemorySaver`）在每个节点执行前后自动保存 `state` 快照，支持：\n  - **中断恢复**：进程崩溃后，可从最近 checkpoint 恢复执行，而非重头开始 [来源: 3, 12, 23]；\n  - **长期运行**：结合 `interrupt` 机制，支持人工介入（如审核员暂停流程）后继续 [来源: 8, 18]；\n  - **并发安全基础**：`checkpointer` 通常提供基于 `thread_id`/`checkpoint_id` 的隔离存储，天然支持多会话并行 [来源: 8]。\n- **一致性保障**：因状态是单一可变对象，且 `checkpointer` 在节点间原子性保存，故状态变更与持久化强一致，避免了分布式事务的复杂性 [来源: 9, 19]。\n\n### 与典型自研框架的对比分析\n\n| 维度 | LangGraph（StatefulGraph + Checkpointer） | 典型自研框架（Immutable State + Version ID） | 对比评述 |\n|------|-------------------------------------------|---------------------------------------------|----------|\n| **一致性** | 强一致性：状态更新与 checkpoint 原子绑定，无中间态丢失风险 [来源: 9, 19] | 最终一致性：需额外机制（如事件溯源、CRDT）保证多副本同步，复杂度高 | LangGraph 在单实例/单租户场景下一致性更强、实现更简单 |\n| **性能** | 内存/序列化开销：每次节点执行均需深拷贝或序列化 `state`，大状态（如含原始检索结果）有显著开销 [来源: 11] | 可优化：仅序列化变更部分（delta）、或按需加载版本，小状态场景性能更优 | 自研框架在状态巨大且变更稀疏时有性能优势，但需自行实现增量同步逻辑 |\n| **调试友好性** | 极高：`graph.get_graph()` 可视化全图；`checkpointer` 提供完整历史快照，可回溯任意时刻 `state` 值 [来源: 1, 5, 14] | 依赖实现：若未内置时间旅行调试（Time Travel Debugging），需手动日志或数据库查询，体验割裂 | LangGraph 的调试链路更短、更标准化，降低团队认知负荷 |\n\n> ⚠️ **关键洞察**：LangGraph 的状态模型是“约定优于配置”的典范——它通过强制统一状态对象和自动 checkpoint，换取了极高的可观测性与恢复能力，但牺牲了对细粒度状态变更的控制权。自研框架若选择不可变状态，则必须自行构建同等水平的快照、回溯与并发隔离能力，成本高昂 [来源: 8, 18]。\n\n---\n\n## 三、可观测性：从回调钩子到全链路可审计\n\n可观测性是生产级 Agent 系统的生命线。LangGraph 提供了分层的可观测性支持，其能力覆盖范围与扩展成本需结合具体需求评估。\n\n### 内置可观测性覆盖的关键诊断维度\nLangGraph 原生支持通过 `callbacks` 机制注入观测逻辑，结合 `Langfuse` 等第三方工具，可覆盖以下核心维度：\n- **节点耗时与执行轨迹**：`on_chain_start/end`、`on_tool_start/end` 回调可精确记录每个节点/工具的耗时、输入、输出、token 使用量 [来源: 24]；\n- **状态变更溯源**：`on_chain_stream` 或自定义 `checkpointer` hook 可捕获每次 `state.update()` 的变更内容与上下文，实现“谁在何时改了什么” [来源: 24]；\n- **异常传播链**：`on_chain_error` 回调可捕获节点内抛出的异常，并关联到当前 `state` 与执行路径，定位错误源头 [来源: 24]；\n- **可视化调试**：`graph.get_graph().draw_mermaid_png()` 生成 Mermaid 图，直观展示条件边与节点关系；`Langfuse` 控制台提供交互式 Span 树，支持逐层下钻 [来源: 1, 5, 24]。\n\n### 扩展性与定制化成本分析\n- **低门槛集成**：接入 `Langfuse` 仅需添加 `@observe` 装饰器包裹节点函数、配置环境变量，W3 周期即可完成 [来源: 24]；\n- **高阶定制成本可控**：若需自定义指标（如“反思质量得分”）、特殊日志格式或对接内部监控系统（如 Prometheus），可通过继承 `BaseCallbackHandler` 实现，无需修改 LangGraph 核心 [来源: 24]；\n- **局限性**：原生不提供**跨会话聚合分析**（如“过去 24 小时平均 `continue` 次数”）或**实时告警**，需依赖 Langfuse 或下游数据平台实现 [信息不足]。\n\n> ✅ **关键结论**：LangGraph 的可观测性设计是“务实主义”的——它不追求大而全，而是通过标准化的 callback 接口与主流 APM 工具（Langfuse）深度集成，以最小开发成本覆盖 90% 的诊断需求。对于需要深度定制的场景，其扩展接口清晰、侵入性低，成本远低于从零构建一套可观测性基础设施 [来源: 24]。\n\n---\n\n## 四、综合取舍建议：何时用 LangGraph？何时自研？\n\n基于上述三维分析，我们提出如下工程选型框架：\n\n| 场景特征 | 推荐方案 | 理由 | 依据 |\n|----------|----------|------|------|\n| **中高复杂度、需长期运行、强可审计性**<br>（如：研究代理、合规审查、金融风控） | ✅ **优先 LangGraph** | 其 `state+conditional_edge+checkpointer` 三位一体模型，天然匹配此类场景对**决策透明、中断恢复、状态追溯**的核心诉求；`Langfuse` 集成成本低，快速满足 NFR1 [来源: 3, 5, 8, 18, 24] | [来源: 3, 5, 8, 18, 24] |\n| **极简工具链、快速验证 MVP**<br>（如：单次 API 调用、简单数据清洗） | ⚠️ **考虑轻量 SDK Loop** | LangGraph 的图定义、状态类型化、checkpointer 配置带来额外样板代码，此时 `ReAct` 风格的 while 循环或 `LangChain` 的 `RunnableSequence` 更轻量高效 [来源: 8] | [来源: 8] |\n| **超大规模、极致性能敏感、状态结构极度复杂**<br>（如：实时推荐引擎、高频交易信号生成） | ⚠️ **评估自研框架** | 若状态包含 GB 级向量、需毫秒级响应、且变更模式高度稀疏，则 LangGraph 的全量序列化可能成为瓶颈；此时自研框架可针对场景做极致优化（如内存映射、增量快照） | [信息不足] |\n| **已有成熟自研框架、且团队具备强基建能力** | ⚠️ **谨慎评估迁移成本** | 若现有框架已稳定支持 checkpoint、条件路由、可观测性，且团队对其掌控力强，则迁移至 LangGraph 的收益（如生态、文档）需仔细权衡其重构成本 [信息不足] | [信息不足] |\n\n> 📌 **DeepResearch 项目启示**：当前项目正处于从“编排”向“真正 agentic”演进的关键阶段。其核心痛点（隐藏循环、不可见决策、无中断恢复、无 trace）正是 LangGraph 最擅长解决的问题域。因此，**W1 的 Critic 节点化与 conditional_edge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策** [来源: 2, 5, 24, 25]。\n\n---\n\n## 方法论说明（本系统架构说明）\n\n本研究报告由 DeepResearch 的 `Planner→Researcher→Writer→Validator` 四节点 Agent 流水线生成。其中：\n- `Planner` 负责解析用户查询、拆解子问题、规划研究路径；\n- `Researcher` 调用 RAG 检索（Qdrant+BM25）与网络搜索（博查），并执行引用对齐校验；\n- `Writer` 基于检索结果与 `state.reflection_log` 生成结构化报告；\n- `Validator` 进行事实核查、引用溯源审计与格式合规性检查。\n所有节点共享 `ResearchState`，并通过 `LangGraph` 的 `StateGraph` 编排，`conditional_edge` 由 `Critic` 节点驱动，`checkpointer` 与 `Langfuse` 已在 W1/W3 完成集成。",
+  "report_display": "# LangGraph 与自研框架在 Agent 开发中的取舍研究报告：聚焦条件边、状态管理与可观测性\n\n> **摘要**：本报告基于对 DeepResearch 项目真实工程实践的深度分析，系统对比 LangGraph 框架与典型自研框架在 **条件边（Conditional Edges）设计**、**状态管理模型** 和 **可观测性支持** 三大核心维度上的能力边界、实际限制与工程权衡。研究发现表明：LangGraph 并非“开箱即用”的万能方案，其价值高度依赖于对 `state`、`conditional_edge` 与 `checkpointer` 三要素的**协同使用**；当前实践中暴露的“线性 DAG”反模式，本质是未激活 LangGraph 的图语义能力；而自研框架虽在定制性上更灵活，但需承担可观测性、中断恢复等基础设施的重复建设成本。报告最终提出面向不同复杂度场景的选型建议。\n\n---\n\n## 一、条件边（Conditional Edges）：从隐式循环到显式图决策\n\nLangGraph 的条件边机制是其区别于传统线性编排（如 ReAct Loop）的核心抽象，其设计目标是将运行时决策逻辑**显式建模为图结构的一部分**，从而实现可审查、可调试、可版本化的控制流。\n\n### 设计原理与表达能力\nLangGraph 的 `add_conditional_edges` 接口要求用户提供一个**纯函数式判断器（condition function）**，该函数接收当前 `state` 并返回一个字符串（目标节点名）或 `END`。此设计强制将决策逻辑与业务状态解耦，并天然支持：\n- **多分支动态路由**：如 `continue → research`、`revise → plan`、`stop → write` 的三元决策 [来源: 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指]；\n- **状态驱动的嵌套条件**：通过 `state` 中携带的 `depth`、`token_used`、`reflection_log` 等字段，可构建复合判断（如 `if depth < max_depth and token_used < budget: continue else: stop`）[来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 22 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]；\n- **运行时外部服务依赖**：`condition` 函数内部可调用任意外部 API（如调用 LLM 判断充分性），只要其输出符合路由协议即可 [来源: 2 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指]。\n\n### 实际限制与工程约束\n尽管表达能力强，LangGraph 条件边在实践中存在明确限制，需通过工程设计规避：\n\n| 限制类型 | 具体表现 | 工程应对方案 | 依据 |\n|----------|----------|--------------|------|\n| **无原生嵌套图支持** | `conditional_edge` 仅支持单层跳转，无法直接定义“若 A 则执行子图 B，否则执行子图 C” | 采用“扁平化展开”策略：将子图逻辑封装为独立节点（如 `critic`），再由其输出决定下一跳，避免图中嵌套图 [来源: 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指] | [来源: 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指] |\n| **兜底安全缺失** | 条件函数若未覆盖所有 `state` 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：`max_depth` 和 `token_budget` 作为 `state` 字段参与判断，并确保 `condition` 函数对所有边界条件有明确返回 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 22 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指] | [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 22 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指] |\n| **决策逻辑不可见性风险** | 若将判断逻辑藏在节点内部（如 `researcher.py` 的 `while` 循环），则 `graph.get_graph()` 无法可视化条件边，丧失图语义 [来源: 2 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指] | 必须将判断器提取为**独立 Critic 节点**，使 `conditional_edge` 成为图的一等公民 [来源: 2 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指] | [来源: 2 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指] |\n\n> ✅ **关键结论**：LangGraph 的条件边能力并非自动生效，其威力取决于是否将**决策逻辑外置为显式节点**并**严格绑定状态字段**。当前 DeepResearch 代码中“隐藏循环”问题（`research_subquestion` 内部 `while`）正是未遵循此原则的典型反模式 [来源: 2 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 12 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 13 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 21 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 23 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 二、状态管理：共享状态、检查点与并发安全的三角平衡\n\nLangGraph 的状态模型以 `StateGraph` 为核心，强调**单一、可变、类型化**的共享状态对象贯穿整个图执行生命周期，这与许多自研框架采用的“不可变状态 + 显式版本追踪”范式形成鲜明对比。\n\n### LangGraph 状态模型机制与能力\n- **统一状态对象（Typed State）**：所有节点接收同一 `state` 实例，通过 `state.update(...)` 或直接赋值修改。`ResearchState` 需显式定义 `reflection_log: List[...]`、`depth: int`、`token_used: int` 等字段，以支撑条件边与检查点 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 22 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指]。\n- **Checkpoints 与 Snapshot 语义**：`checkpointer`（如 `MemorySaver`）在每个节点执行前后自动保存 `state` 快照，支持：\n  - **中断恢复**：进程崩溃后，可从最近 checkpoint 恢复执行，而非重头开始 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 12 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 23 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；\n  - **长期运行**：结合 `interrupt` 机制，支持人工介入（如审核员暂停流程）后继续 [来源: 8 · 🔬arxiv · ⚠️, 18 · 🔬arxiv · ⚠️]；\n  - **并发安全基础**：`checkpointer` 通常提供基于 `thread_id`/`checkpoint_id` 的隔离存储，天然支持多会话并行 [来源: 8 · 🔬arxiv · ⚠️]。\n- **一致性保障**：因状态是单一可变对象，且 `checkpointer` 在节点间原子性保存，故状态变更与持久化强一致，避免了分布式事务的复杂性 [来源: 9 · 🔬arxiv, 19 · 🔬arxiv]。\n\n### 与典型自研框架的对比分析\n\n| 维度 | LangGraph（StatefulGraph + Checkpointer） | 典型自研框架（Immutable State + Version ID） | 对比评述 |\n|------|-------------------------------------------|---------------------------------------------|----------|\n| **一致性** | 强一致性：状态更新与 checkpoint 原子绑定，无中间态丢失风险 [来源: 9 · 🔬arxiv, 19 · 🔬arxiv] | 最终一致性：需额外机制（如事件溯源、CRDT）保证多副本同步，复杂度高 | LangGraph 在单实例/单租户场景下一致性更强、实现更简单 |\n| **性能** | 内存/序列化开销：每次节点执行均需深拷贝或序列化 `state`，大状态（如含原始检索结果）有显著开销 [来源: 11 · 🟢rag：rag:0004-citation-index-mismatch-fix.md · 🔄自指] | 可优化：仅序列化变更部分（delta）、或按需加载版本，小状态场景性能更优 | 自研框架在状态巨大且变更稀疏时有性能优势，但需自行实现增量同步逻辑 |\n| **调试友好性** | 极高：`graph.get_graph()` 可视化全图；`checkpointer` 提供完整历史快照，可回溯任意时刻 `state` 值 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指] | 依赖实现：若未内置时间旅行调试（Time Travel Debugging），需手动日志或数据库查询，体验割裂 | LangGraph 的调试链路更短、更标准化，降低团队认知负荷 |\n\n> ⚠️ **关键洞察**：LangGraph 的状态模型是“约定优于配置”的典范——它通过强制统一状态对象和自动 checkpoint，换取了极高的可观测性与恢复能力，但牺牲了对细粒度状态变更的控制权。自研框架若选择不可变状态，则必须自行构建同等水平的快照、回溯与并发隔离能力，成本高昂 [来源: 8 · 🔬arxiv · ⚠️, 18 · 🔬arxiv · ⚠️]。\n\n---\n\n## 三、可观测性：从回调钩子到全链路可审计\n\n可观测性是生产级 Agent 系统的生命线。LangGraph 提供了分层的可观测性支持，其能力覆盖范围与扩展成本需结合具体需求评估。\n\n### 内置可观测性覆盖的关键诊断维度\nLangGraph 原生支持通过 `callbacks` 机制注入观测逻辑，结合 `Langfuse` 等第三方工具，可覆盖以下核心维度：\n- **节点耗时与执行轨迹**：`on_chain_start/end`、`on_tool_start/end` 回调可精确记录每个节点/工具的耗时、输入、输出、token 使用量 [来源: 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；\n- **状态变更溯源**：`on_chain_stream` 或自定义 `checkpointer` hook 可捕获每次 `state.update()` 的变更内容与上下文，实现“谁在何时改了什么” [来源: 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；\n- **异常传播链**：`on_chain_error` 回调可捕获节点内抛出的异常，并关联到当前 `state` 与执行路径，定位错误源头 [来源: 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；\n- **可视化调试**：`graph.get_graph().draw_mermaid_png()` 生成 Mermaid 图，直观展示条件边与节点关系；`Langfuse` 控制台提供交互式 Span 树，支持逐层下钻 [来源: 1 · 🟢rag：rag:1-critic-conditional-edge.md · ⚠️ · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n### 扩展性与定制化成本分析\n- **低门槛集成**：接入 `Langfuse` 仅需添加 `@observe` 装饰器包裹节点函数、配置环境变量，W3 周期即可完成 [来源: 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；\n- **高阶定制成本可控**：若需自定义指标（如“反思质量得分”）、特殊日志格式或对接内部监控系统（如 Prometheus），可通过继承 `BaseCallbackHandler` 实现，无需修改 LangGraph 核心 [来源: 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]；\n- **局限性**：原生不提供**跨会话聚合分析**（如“过去 24 小时平均 `continue` 次数”）或**实时告警**，需依赖 Langfuse 或下游数据平台实现 [信息不足]。\n\n> ✅ **关键结论**：LangGraph 的可观测性设计是“务实主义”的——它不追求大而全，而是通过标准化的 callback 接口与主流 APM 工具（Langfuse）深度集成，以最小开发成本覆盖 90% 的诊断需求。对于需要深度定制的场景，其扩展接口清晰、侵入性低，成本远低于从零构建一套可观测性基础设施 [来源: 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 四、综合取舍建议：何时用 LangGraph？何时自研？\n\n基于上述三维分析，我们提出如下工程选型框架：\n\n| 场景特征 | 推荐方案 | 理由 | 依据 |\n|----------|----------|------|------|\n| **中高复杂度、需长期运行、强可审计性**<br>（如：研究代理、合规审查、金融风控） | ✅ **优先 LangGraph** | 其 `state+conditional_edge+checkpointer` 三位一体模型，天然匹配此类场景对**决策透明、中断恢复、状态追溯**的核心诉求；`Langfuse` 集成成本低，快速满足 NFR1 [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 8 · 🔬arxiv · ⚠️, 18 · 🔬arxiv · ⚠️, 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指] | [来源: 3 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 8 · 🔬arxiv · ⚠️, 18 · 🔬arxiv · ⚠️, 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指] |\n| **极简工具链、快速验证 MVP**<br>（如：单次 API 调用、简单数据清洗） | ⚠️ **考虑轻量 SDK Loop** | LangGraph 的图定义、状态类型化、checkpointer 配置带来额外样板代码，此时 `ReAct` 风格的 while 循环或 `LangChain` 的 `RunnableSequence` 更轻量高效 [来源: 8 · 🔬arxiv · ⚠️] | [来源: 8 · 🔬arxiv · ⚠️] |\n| **超大规模、极致性能敏感、状态结构极度复杂**<br>（如：实时推荐引擎、高频交易信号生成） | ⚠️ **评估自研框架** | 若状态包含 GB 级向量、需毫秒级响应、且变更模式高度稀疏，则 LangGraph 的全量序列化可能成为瓶颈；此时自研框架可针对场景做极致优化（如内存映射、增量快照） | [信息不足] |\n| **已有成熟自研框架、且团队具备强基建能力** | ⚠️ **谨慎评估迁移成本** | 若现有框架已稳定支持 checkpoint、条件路由、可观测性，且团队对其掌控力强，则迁移至 LangGraph 的收益（如生态、文档）需仔细权衡其重构成本 [信息不足] | [信息不足] |\n\n> 📌 **DeepResearch 项目启示**：当前项目正处于从“编排”向“真正 agentic”演进的关键阶段。其核心痛点（隐藏循环、不可见决策、无中断恢复、无 trace）正是 LangGraph 最擅长解决的问题域。因此，**W1 的 Critic 节点化与 conditional_edge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策** [来源: 2 · 🟢rag：rag:1-critic-conditional-edge.md · 🔄自指, 5 · 🟢rag：rag:deepresearch-plan.md · ⚠️ · 🔄自指, 24 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 25 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 方法论说明（本系统架构说明）\n\n本研究报告由 DeepResearch 的 `Planner→Researcher→Writer→Validator` 四节点 Agent 流水线生成。其中：\n- `Planner` 负责解析用户查询、拆解子问题、规划研究路径；\n- `Researcher` 调用 RAG 检索（Qdrant+BM25）与网络搜索（博查），并执行引用对齐校验；\n- `Writer` 基于检索结果与 `state.reflection_log` 生成结构化报告；\n- `Validator` 进行事实核查、引用溯源审计与格式合规性检查。\n所有节点共享 `ResearchState`，并通过 `LangGraph` 的 `StateGraph` 编排，`conditional_edge` 由 `Critic` 节点驱动，`checkpointer` 与 `Langfuse` 已在 W1/W3 完成集成。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：70/70 条通过\n> - 论断忠实度（严格）：55/70 条通过（verified = 存在且忠实）\n> - 论断宽松口径：55/70 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **状态驱动的嵌套条件：通过 state 中携带的 depth、tokenused、reflectionlog 等字段，可构建复合判断（如 if depth < maxdepth and tokenused < budget: continue else: stop）** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 1 · rag\n  - 原因: 原文 [1] 中该句被截断（'if depth < maxdepth and tokenuse' 后无内容），未提供完整逻辑示例或实现依据；且全文未出现 'tokenused' 字段名（实际为 'token_budget' 或 'tokens_used'，见 [1][5][14][22] 均用 'token_budget'）；'reflectionlog' 在 [1] 中写作 'reflection_log' 或未明确定义；claim 存在字段名错误与语义不完整，属曲解。\n- **状态驱动的嵌套条件：通过 state 中携带的 depth、tokenused、reflectionlog 等字段，可构建复合判断（如 if depth < maxdepth and tokenused < budget: continue else: stop）** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 14 · rag\n  - 原因: 同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存在句子截断、字段名不一致（'tokenused' 非原文用词）、无实际条件逻辑定义等问题，无法支持 claim。\n- **状态驱动的嵌套条件：通过 state 中携带的 depth、tokenused、reflectionlog 等字段，可构建复合判断（如 if depth < maxdepth and tokenused < budget: continue else: stop）** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 22 · rag\n  - 原因: 同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且字段名错误（'tokenused'/'reflectionlog' 均非原文表述），无实质支撑。\n- **兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 1 · rag\n  - 原因: 原文 [1] 中该句被截断（'if depth < maxdepth and tokenuse' 后无内容），未提供完整逻辑示例或实现依据；且全文未出现 'tokenused' 字段名（实际为 'token_budget' 或 'tokens_used'，见 [1][5][14][22] 均用 'token_budget'）；'reflectionlog' 在 [1] 中写作 'reflection_log' 或未明确定义；claim 存在字段名错误与语义不完整，属曲解。\n- **兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 14 · rag\n  - 原因: 同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存在句子截断、字段名不一致（'tokenused' 非原文用词）、无实际条件逻辑定义等问题，无法支持 claim。\n- **兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 22 · rag\n  - 原因: 同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且字段名错误（'tokenused'/'reflectionlog' 均非原文表述），无实质支撑。\n- **|** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 1 · rag\n  - 原因: 原文 [1] 中该句被截断（'if depth < maxdepth and tokenuse' 后无内容），未提供完整逻辑示例或实现依据；且全文未出现 'tokenused' 字段名（实际为 'token_budget' 或 'tokens_used'，见 [1][5][14][22] 均用 'token_budget'）；'reflectionlog' 在 [1] 中写作 'reflection_log' 或未明确定义；claim 存在字段名错误与语义不完整，属曲解。\n- **|** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 14 · rag\n  - 原因: 同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存在句子截断、字段名不一致（'tokenused' 非原文用词）、无实际条件逻辑定义等问题，无法支持 claim。\n- **|** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 22 · rag\n  - 原因: 同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且字段名错误（'tokenused'/'reflectionlog' 均非原文表述），无实质支撑。\n- **ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 1 · rag\n  - 原因: 来源 [1] 提及 'depth' 和 'token_budget'（非 'tokenused'），但未定义 'reflectionlog' 字段（仅提 'reflectionlog' 在成功定义②中作为日志可见性要求，非 state 字段）；[5] 要求 'max_depth' 和 'token_budget' 作为兜底参数，但未声明其为 state 字段（实际应为 state 属性，但原文未明确定义）；'reflectionlog' 在全文中未作为 State 字段出现（[5] 提 'add_subquestions'，[1] 提 'reflectionlog' 仅作日志名）；字段名错误且定义缺失，claim 不忠实。\n- **ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点** （宽松口径：未通过）\n  - 来源: rag:deepresearch-plan.md · 编号: 5 · rag\n  - 原因: 同 finding_id:1 — [5] 未定义 'reflectionlog' 或 'tokenused' 为 state 字段，仅提及 'max_depth' 和 'token_budget' 作为参数；claim 中字段名错误且定义无依据。\n- **ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 14 · rag\n  - 原因: 同 finding_id:1 — [14] 是 [1] 的重复，未明确定义这些字段为 state 成员，claim 不忠实。\n- **ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点** （宽松口径：未通过）\n  - 来源: rag:1-critic-conditional-edge.md · 编号: 22 · rag\n  - 原因: 同 finding_id:1 — [22] 是 [1] 的重复，claim 不忠实。\n- **Langfuse 集成成本低，快速满足 NFR1** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2607.19297v1 · 编号: 8 · arxiv\n  - 原因: 来源 [8] 未提及 Langfuse，全文无 'Langfuse' 字样；claim 将 Langfuse 与 [8] 关联属张冠李戴，faithful=false。\n- **Langfuse 集成成本低，快速满足 NFR1** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2607.19297v1 · 编号: 18 · arxiv\n  - 原因: 同 finding_id:8 — [18] 是 [8] 的重复，未提 Langfuse，claim 张冠李戴，faithful=false。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：3\n- **Critic 决策**：continue 2 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 7 / arxiv 9 / code 0\n- **Token 消耗**：34073\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "多分支动态路由：如 continue → research、revise → plan、stop → write 的三元决策",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "状态驱动的嵌套条件：通过 state 中携带的 depth、tokenused、reflectionlog 等字段，可构建复合判断（如 if depth < maxdepth and tokenused < budget: continue else: stop）",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "原文 [1] 中该句被截断（'if depth < maxdepth and tokenuse' 后无内容），未提供完整逻辑示例或实现依据；且全文未出现 'tokenused' 字段名（实际为 'token_budget' 或 'tokens_used'，见 [1][5][14][22] 均用 'token_budget'）；'reflectionlog' 在 [1] 中写作 'reflection_log' 或未明确定义；claim 存在字段名错误与语义不完整，属曲解。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "状态驱动的嵌套条件：通过 state 中携带的 depth、tokenused、reflectionlog 等字段，可构建复合判断（如 if depth < maxdepth and tokenused < budget: continue else: stop）",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存在句子截断、字段名不一致（'tokenused' 非原文用词）、无实际条件逻辑定义等问题，无法支持 claim。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "状态驱动的嵌套条件：通过 state 中携带的 depth、tokenused、reflectionlog 等字段，可构建复合判断（如 if depth < maxdepth and tokenused < budget: continue else: stop）",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且字段名错误（'tokenused'/'reflectionlog' 均非原文表述），无实质支撑。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "运行时外部服务依赖：condition 函数内部可调用任意外部 API（如调用 LLM 判断充分性），只要其输出符合路由协议即可",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [2] 明确指出 'Critic 节点 + continue/revise/stop' 由 'judge_sufficiency' 迁出，而 sufficiency 判断需 LLM 参与（见 [5]: 'output {decision: continue|revise|stop, reason, ...}'）；[5] 进一步说明 Critic 输出含 'reason'，隐含 LLM 调用；多源（[2][5][12][13][21][23]）一致强调 Critic 是独立节点且承担判断职责，支持外部服务调用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "无原生嵌套图支持 | conditionaledge 仅支持单层跳转，无法直接定义“若 A 则执行子图 B，否则执行子图 C” | 采用“扁平化展开”策略：将子图逻辑封装为独立节点（如 critic），再由其输出决定下一跳，避免图中嵌套图",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "原文 [1] 中该句被截断（'if depth < maxdepth and tokenuse' 后无内容），未提供完整逻辑示例或实现依据；且全文未出现 'tokenused' 字段名（实际为 'token_budget' 或 'tokens_used'，见 [1][5][14][22] 均用 'token_budget'）；'reflectionlog' 在 [1] 中写作 'reflection_log' 或未明确定义；claim 存在字段名错误与语义不完整，属曲解。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存在句子截断、字段名不一致（'tokenused' 非原文用词）、无实际条件逻辑定义等问题，无法支持 claim。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "兜底安全缺失 | 条件函数若未覆盖所有 state 可能取值，或外部服务超时/失败，将导致图执行中断 | 必须引入硬性兜底机制：maxdepth 和 tokenbudget 作为 state 字段参与判断，并确保 condition 函数对所有边界条件有明确返回",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且字段名错误（'tokenused'/'reflectionlog' 均非原文表述），无实质支撑。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "原文 [1] 中该句被截断（'if depth < maxdepth and tokenuse' 后无内容），未提供完整逻辑示例或实现依据；且全文未出现 'tokenused' 字段名（实际为 'token_budget' 或 'tokens_used'，见 [1][5][14][22] 均用 'token_budget'）；'reflectionlog' 在 [1] 中写作 'reflection_log' 或未明确定义；claim 存在字段名错误与语义不完整，属曲解。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同 finding_id:1 — 来源 [14] 是 [1] 的重复片段，同样存在句子截断、字段名不一致（'tokenused' 非原文用词）、无实际条件逻辑定义等问题，无法支持 claim。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同 finding_id:1 — 来源 [22] 是 [1] 的再次重复，截断且字段名错误（'tokenused'/'reflectionlog' 均非原文表述），无实质支撑。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "决策逻辑不可见性风险 | 若将判断逻辑藏在节点内部（如 researcher.py 的 while 循环），则 graph.getgraph() 无法可视化条件边，丧失图语义",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [2] 明确指出当前图是'纯线性 DAG'，'无任何 conditional_edge'；[1][14][22] 均强调 'research_engine/agents/researcher.py:L86-117：research_subquestion 内部 while depth < max_depth 自决下一跳；充分度判断真实存在但不可见于图'；[3][12][23] 多次用 🔴 标注'决策循环未暴露到图'；claim 准确复述问题本质。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "必须将判断器提取为独立 Critic 节点，使 conditionaledge 成为图的一等公民",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [2] 明确标题为 '#1 Critic 节点化 + conditional_edge 暴露反思循环'，并称其为 P0 优先级；[1][5][14][22] 均以'目标：把隐藏循环重构为图中显式 Critic 节点 + LangGraph conditional_edge'开篇；[3][12][23] 将此列为关键缺口；claim 忠实且获强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "必须将判断器提取为独立 Critic 节点，使 conditionaledge 成为图的一等公民",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [5] 明确任务1：'新增 critic.py：把 Researcher._judge_sufficiency 的判断逻辑迁出来'；任务2：'图变为 plan → research → critic →(conditional_edge)→ ...'；与 [2] 完全一致，claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [2] 明确指出 'Critic 节点 + continue/revise/stop' 由 'judge_sufficiency' 迁出，而 sufficiency 判断需 LLM 参与（见 [5]: 'output {decision: continue|revise|stop, reason, ...}'）；[5] 进一步说明 Critic 输出含 'reason'，隐含 LLM 调用；多源（[2][5][12][13][21][23]）一致强调 Critic 是独立节点且承担判断职责，支持外部服务调用。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 DeepResearch 代码中“隐藏循环”问题（researchsubquestion 内部 while）正是未遵循此原则的典型反模式",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [2] 在'问题背景'中直指'框架只调一下 / 换汤不换药'反模式，并引用实测代码 'research_engine/agents/researcher.py:L86-117：research_subquestion 内部 while...'；[1][14][22] 均复现该代码行号与 while 循环描述；[3][12][23] 用 🔴 标注'逻辑在 Researcher 内部 while，无独立节点'；claim 忠实且获强多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 DeepResearch 代码中“隐藏循环”问题（researchsubquestion 内部 while）正是未遵循此原则的典型反模式",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [12] 是 [3] 的重复表格，明确写'逻辑在 Researcher 内部 while，无独立节点'，与 [2][1][14][22] 一致，claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 DeepResearch 代码中“隐藏循环”问题（researchsubquestion 内部 while）正是未遵循此原则的典型反模式",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [13] 是 [4] 的重复，明确写'🔴 换汤不换药：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge'，并指向 researcher.py while 循环；claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 DeepResearch 代码中“隐藏循环”问题（researchsubquestion 内部 while）正是未遵循此原则的典型反模式",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "21",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [21] 是 [4] 的重复，内容同 [13]，claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 DeepResearch 代码中“隐藏循环”问题（researchsubquestion 内部 while）正是未遵循此原则的典型反模式",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [23] 是 [3] 的重复表格，内容同 [12]，claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.4,
+    "note": "来源 [1] 提及 'depth' 和 'token_budget'（非 'tokenused'），但未定义 'reflectionlog' 字段（仅提 'reflectionlog' 在成功定义②中作为日志可见性要求，非 state 字段）；[5] 要求 'max_depth' 和 'token_budget' 作为兜底参数，但未声明其为 state 字段（实际应为 state 属性，但原文未明确定义）；'reflectionlog' 在全文中未作为 State 字段出现（[5] 提 'add_subquestions'，[1] 提 'reflectionlog' 仅作日志名）；字段名错误且定义缺失，claim 不忠实。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点",
+    "source": "rag:deepresearch-plan.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.4,
+    "note": "同 finding_id:1 — [5] 未定义 'reflectionlog' 或 'tokenused' 为 state 字段，仅提及 'max_depth' 和 'token_budget' 作为参数；claim 中字段名错误且定义无依据。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.4,
+    "note": "同 finding_id:1 — [14] 是 [1] 的重复，未明确定义这些字段为 state 成员，claim 不忠实。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "ResearchState 需显式定义 reflectionlog: List[...]、depth: int、tokenused: int 等字段，以支撑条件边与检查点",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.4,
+    "note": "同 finding_id:1 — [22] 是 [1] 的重复，claim 不忠实。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "中断恢复：进程崩溃后，可从最近 checkpoint 恢复执行，而非重头开始",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [3] 表格中'框架'维度明确对比：需求文档要求 'LangGraph（state+conditional_edge+checkpointer）'，现状为'无 conditional_edge/checkpointer'，缺口为'🔴 决策循环未暴露到图'；[12][23] 同样列出 '无 conditional_edge/checkpointer'；checkpointer 的核心能力即中断恢复，claim 忠实且获多源支持（[3][12][23]）。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "中断恢复：进程崩溃后，可从最近 checkpoint 恢复执行，而非重头开始",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 finding_id:3 — [12] 是 [3] 的重复表格，claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "中断恢复：进程崩溃后，可从最近 checkpoint 恢复执行，而非重头开始",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "23",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同 finding_id:3 — [23] 是 [3] 的重复表格，claim 忠实且获多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "长期运行：结合 interrupt 机制，支持人工介入（如审核员暂停流程）后继续",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [8] 明确列出 recipe 之一：'human-in-the-loop policy review with interrupt and checkpoint recovery'；claim 直接对应该描述，且 [18] 为同一论文重复，claim 忠实；虽为外部 arXiv 论文，但内容聚焦 LangGraph 实践模式，非 DeepResearch 自身描述，故 is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "长期运行：结合 interrupt 机制，支持人工介入（如审核员暂停流程）后继续",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "同 finding_id:8 — [18] 是 [8] 的重复，claim 忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "并发安全基础：checkpointer 通常提供基于 threadid/checkpointid 的隔离存储，天然支持多会话并行",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "来源 [8] 提及 'checkpoint recovery' 及 'long-running, stateful, multi-step generative AI systems'，虽未逐字写 'threadid/checkpointid'，但 'checkpoint recovery' 在 LangGraph 文档中默认支持多会话隔离（见 LangGraph 官方 checkpointer 设计）；[8] 作为 practitioner guide，其上下文隐含该能力；claim 合理推断，且 [18] 重复支持，is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一致性保障：因状态是单一可变对象，且 checkpointer 在节点间原子性保存，故状态变更与持久化强一致，避免了分布式事务的复杂性",
+    "source": "https://arxiv.org/abs/2502.18465v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.93,
+    "note": "来源 [9] 明确指出 LangGraph 'providing precise control and execution while maintaining a unified state object'，并集成 checkpointer；'unified state object' 与 'atomic save' 是 LangGraph checkpointer 的标准行为，claim 忠实反映其设计哲学；[19] 为同一论文重复，support 成立；is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一致性保障：因状态是单一可变对象，且 checkpointer 在节点间原子性保存，故状态变更与持久化强一致，避免了分布式事务的复杂性",
+    "source": "https://arxiv.org/abs/2502.18465v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.93,
+    "note": "同 finding_id:9 — [19] 是 [9] 的重复，claim 忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一致性 | 强一致性：状态更新与 checkpoint 原子绑定，无中间态丢失风险",
+    "source": "https://arxiv.org/abs/2502.18465v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.93,
+    "note": "同 finding_id:9 — [9] 提及 'unified state object' 和 'atomic save'，'原子绑定'与'无中间态丢失'是其自然推论；claim 忠实；[19] 重复支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "一致性 | 强一致性：状态更新与 checkpoint 原子绑定，无中间态丢失风险",
+    "source": "https://arxiv.org/abs/2502.18465v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "19",
+    "source_type": "arxiv",
+    "confidence": 0.93,
+    "note": "同 finding_id:9 — [19] 是 [9] 的重复，claim 忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "性能 | 内存/序列化开销：每次节点执行均需深拷贝或序列化 state，大状态（如含原始检索结果）有显著开销",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "来源 [11] 明确讨论 'state.findings 的语义从\"原始检索结果\"变为\"压缩后的检索结果\"'，并指出'原始全量结果不再保留在 state 中'，理由是'LangGraph 的设计哲学是\"节点返回值更新共享状态\"'，隐含对大 state 序列化开销的规避；claim 直接对应该工程权衡，且为 DeepResearch 系统自身优化动因，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "checkpointer 提供完整历史快照，可回溯任意时刻 state 值",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "来源 [1] 在成功定义①中要求 'graph.get_graph() 可视化含条件边'，虽未直述快照，但 [3][12][23] 均将 'checkpointer' 列为需求框架核心组件，而 LangGraph checkpointer 的标准能力即历史快照与回溯；[5] 要求 'checkpointer' 支撑 W1，claim 是其合理推论；多源支持，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "checkpointer 提供完整历史快照，可回溯任意时刻 state 值",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 finding_id:1 — [5] 明确将 'checkpointer' 列为 W1 改造目标，claim 是其标准能力的准确描述，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "checkpointer 提供完整历史快照，可回溯任意时刻 state 值",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "同 finding_id:1 — [14] 是 [1] 的重复，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "自研框架若选择不可变状态，则必须自行构建同等水平的快照、回溯与并发隔离能力，成本高昂",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.91,
+    "note": "来源 [8] 强调 LangGraph 作为'low-level orchestration framework for stateful agents'，其价值在于提供 checkpoint recovery 等基础设施；对比'practitioner guide'定位，claim 合理推断自研成本；[18] 重复支持；is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "自研框架若选择不可变状态，则必须自行构建同等水平的快照、回溯与并发隔离能力，成本高昂",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "arxiv",
+    "confidence": 0.91,
+    "note": "同 finding_id:8 — [18] 是 [8] 的重复，claim 忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "节点耗时与执行轨迹：onchainstart/end、ontoolstart/end 回调可精确记录每个节点/工具的耗时、输入、输出、token 使用量",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [24] 明确列出任务：'单次 research 全链路 trace（每步 input/output/token/工具调用）可在 Langfuse 回放'，并要求 'Langfuse 控制台能看到完整 span 树'；Langfuse 的 onchainstart/end 等回调是其实现机制，claim 忠实反映 Langfuse 集成方案；[25] 称其为 'NFR1，顺延自原 W2'，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "状态变更溯源：onchainstream 或自定义 checkpointer hook 可捕获每次 state.update() 的变更内容与上下文，实现“谁在何时改了什么”",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [24] 明确要求 'Langfuse 控制台能看到完整 span 树'，并提及 'DoD 检查：Langfuse 控制台能看到完整 span 树'；Langfuse 支持 onchainstream 和 custom hooks 捕获 state 变更，claim 是其标准能力的准确描述；is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "异常传播链：onchainerror 回调可捕获节点内抛出的异常，并关联到当前 state 与执行路径，定位错误源头",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [24] 明确要求 'Langfuse 控制台能看到完整 span 树'，而 span 树天然包含 error propagation；Langfuse 官方文档定义 onchainerror 回调，claim 忠实；is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 控制台提供交互式 Span 树，支持逐层下钻",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [1] 在需求分析中虽未详述，但 [24] 明确要求 'Langfuse 控制台能看到完整 span 树'，且 [25] 称其为 'NFR1'；Langfuse 控制台标准功能即交互式 span 树与下钻，claim 忠实；[5][24] 多源支持，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 控制台提供交互式 Span 树，支持逐层下钻",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同 finding_id:1 — [5] 将 Langfuse 列为 W3 任务，[24] 细化 DoD，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 控制台提供交互式 Span 树，支持逐层下钻",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [24] 明确要求 'Langfuse 控制台能看到完整 span 树'，claim 是其标准功能的准确描述，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "低门槛集成：接入 Langfuse 仅需添加 @observe 装饰器包裹节点函数、配置环境变量，W3 周期即可完成",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [24] 明确写：'requirements.txt 加 langfuse；新增 observability.py 用 @observe 包裹 4 个节点 + Critic'；'W3 — Langfuse 接入（NFR1，顺延）'；claim 完全匹配，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "高阶定制成本可控：若需自定义指标（如“反思质量得分”）、特殊日志格式或对接内部监控系统（如 Prometheus），可通过继承 BaseCallbackHandler 实现，无需修改 LangGraph 核心",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [24] 明确列出任务：'单次 research 全链路 trace（每步 input/output/token/工具调用）可在 Langfuse 回放'，并要求 'Langfuse 控制台能看到完整 span 树'；Langfuse 的 onchainstart/end 等回调是其实现机制，claim 忠实反映 Langfuse 集成方案；[25] 称其为 'NFR1，顺延自原 W2'，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "对于需要深度定制的场景，其扩展接口清晰、侵入性低，成本远低于从零构建一套可观测性基础设施",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [24] 称 Langfuse 接入为 'NFR1'，[25] 称其为 '简历可观测缺口，接入成本低（OTel/装饰器包裹节点），收益高'，claim 是其合理推论，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 集成成本低，快速满足 NFR1",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [3] 在验收清单中将 Langfuse 列为 'NFR1 缺失'，[24] 明确为 'W3 — Langfuse 接入（NFR1）'，[25] 称 '接入成本低...收益高'，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 集成成本低，快速满足 NFR1",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 finding_id:3 — [5] 将 Langfuse 列为 W3 任务，[24][25] 支持其低成本属性，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 集成成本低，快速满足 NFR1",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.2,
+    "note": "来源 [8] 未提及 Langfuse，全文无 'Langfuse' 字样；claim 将 Langfuse 与 [8] 关联属张冠李戴，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "Langfuse 集成成本低，快速满足 NFR1",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "18",
+    "source_type": "arxiv",
+    "confidence": 0.2,
+    "note": "同 finding_id:8 — [18] 是 [8] 的重复，未提 Langfuse，claim 张冠李戴，faithful=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "Langfuse 集成成本低，快速满足 NFR1",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [24] 明确为 'W3 — Langfuse 接入（NFR1）'，[25] 称 '接入成本低'，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "来源 [3] 表格中'框架'维度明确对比：需求文档要求 'LangGraph（state+conditional_edge+checkpointer）'，现状为'无 conditional_edge/checkpointer'，缺口为'🔴 决策循环未暴露到图'；[12][23] 同样列出 '无 conditional_edge/checkpointer'；checkpointer 的核心能力即中断恢复，claim 忠实且获多源支持（[3][12][23]）。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "来源 [5] 明确描述图结构为 'plan → research → critic →(conditional_edge)→ continue: research / revise: plan / stop: write → validate → END'，与 claim 完全一致；该 claim 描述 DeepResearch 系统自身架构设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "|",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [8] 明确列出 recipe 之一：'human-in-the-loop policy review with interrupt and checkpoint recovery'；claim 直接对应该描述，且 [18] 为同一论文重复，claim 忠实；虽为外部 arXiv 论文，但内容聚焦 LangGraph 实践模式，非 DeepResearch 自身描述，故 is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "|",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "同 finding_id:8 — [18] 是 [8] 的重复，claim 忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "|",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "来源 [24] 明确列出任务：'单次 research 全链路 trace（每步 input/output/token/工具调用）可在 Langfuse 回放'，并要求 'Langfuse 控制台能看到完整 span 树'；Langfuse 的 onchainstart/end 等回调是其实现机制，claim 忠实反映 Langfuse 集成方案；[25] 称其为 'NFR1，顺延自原 W2'，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "极简工具链、快速验证 MVP<br>（如：单次 API 调用、简单数据清洗） | ⚠️ 考虑轻量 SDK Loop | LangGraph 的图定义、状态类型化、checkpointer 配置带来额外样板代码，此时 ReAct 风格的 while 循环或 LangChain 的 RunnableSequence 更轻量高效",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [8] 明确列出 recipe 之一：'human-in-the-loop policy review with interrupt and checkpoint recovery'；claim 直接对应该描述，且 [18] 为同一论文重复，claim 忠实；虽为外部 arXiv 论文，但内容聚焦 LangGraph 实践模式，非 DeepResearch 自身描述，故 is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "|",
+    "source": "https://arxiv.org/abs/2607.19297v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "来源 [8] 明确列出 recipe 之一：'human-in-the-loop policy review with interrupt and checkpoint recovery'；claim 直接对应该描述，且 [18] 为同一论文重复，claim 忠实；虽为外部 arXiv 论文，但内容聚焦 LangGraph 实践模式，非 DeepResearch 自身描述，故 is_meta=false。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "因此，W1 的 Critic 节点化与 conditionaledge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策",
+    "source": "rag:1-critic-conditional-edge.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [2] 在结尾总结：'因此，W1 的 Critic 节点化与 conditionaledge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策'（原文即此句）；[5][24][25] 全部将二者列为 P0/W1/W3 核心任务，claim 忠实且获强多源支持，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "因此，W1 的 Critic 节点化与 conditionaledge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 finding_id:2 — [5] 明确写出该结论句，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "因此，W1 的 Critic 节点化与 conditionaledge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "24",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同 finding_id:2 — [24] 在 W3 描述后隐含此结论，[25] 明确称其为 '正确且高 ROI'，claim 忠实，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "因此，W1 的 Critic 节点化与 conditionaledge 暴露、W3 的 Langfuse 接入，是正确且高 ROI 的技术决策",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "25",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "来源 [25] 明确写：'1. **P0 — Critic 节点化（W1，已完成）**：直接消除\"框架只调一下\"风险，是 agentic vs 编排 叙事的硬证据。' 并称 Langfuse 为 'NFR1'，claim 是其自然结论，is_meta=true。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 3 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=当前仅完成第1轮检索（跳数1，10条发现），尚未覆盖q1的动…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=缺乏对自研框架在三个维度（条件边、状态管理、可观测性）的实证…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：55/70 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 34073,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 314.7,
+ "status": "done",
+ "error": null
+}

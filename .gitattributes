@@ -1,0 +1,10 @@
+# 实验数据与补丁：字节级原样存储，禁止行尾规范化
+#
+# 理由：
+#   ① .patch 文件的行尾若被 CRLF 转换，git apply 的上下文匹配会失败，
+#      复现链（docs/eval-w7-conclusion.md §2）随之断裂；
+#   ② curated/MANIFEST.md 记录了各产物的 sha256，行尾规范化会让校验失效。
+research_engine/eval/results/curated/** -text
+research_engine/eval/results/run_20260911_194156/** -text
+research_engine/eval/results/run_20260911_232515/** -text
+research_engine/eval/results/w7_experiment_20260911_194151/** -text

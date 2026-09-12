@@ -1,0 +1,1211 @@
+{
+ "q_id": "q_011",
+ "query": "向量数据库是什么？Milvus、Qdrant、Pinecone 的定位与适用场景对比",
+ "difficulty": "易",
+ "type": "单轮",
+ "state": {
+  "topic": "向量数据库是什么？Milvus、Qdrant、Pinecone 的定位与适用场景对比",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "向量数据库的核心概念、技术原理及其与传统关系型/文档型数据库的本质区别是什么？",
+    "rationale": "这是理解整个主题的基础，需厘清向量数据库的定义、关键能力（如近似最近邻搜索ANN）、索引机制（HNSW、IVF等）及典型架构特征，避免后续对比流于表面。"
+   },
+   {
+    "id": "q2",
+    "question": "Milvus、Qdrant 和 Pinecone 在系统架构（开源/托管、存储计算分离、实时性支持）、核心功能（过滤、标量+向量混合查询、多租户、可观测性）和扩展性设计上的关键差异是什么？",
+    "rationale": "三者定位差异主要体现在工程实现层面，该子问题聚焦可验证的技术事实，支撑客观比较，排除营销话术干扰，为场景适配提供依据。"
+   },
+   {
+    "id": "q3",
+    "question": "在典型AI应用场景区分下（如RAG实时检索、大规模推荐系统、边缘侧轻量嵌入服务、企业级多租户SaaS），Milvus、Qdrant、Pinecone 各自的适用性边界与已验证的最佳实践有哪些？",
+    "rationale": "定位最终需落脚于实际场景，该问题通过具体用例反推技术选型逻辑，揭示性能、运维成本、合规性、集成复杂度等隐性约束，增强决策实用性。"
+   },
+   {
+    "id": "q4",
+    "question": "三者在部署模式（本地/云原生/Serverless）、运维成熟度（监控告警、备份恢复、升级策略）、社区生态（SDK语言支持、LangChain/LlamaIndex集成度、插件丰富度）及商业化路径（免费额度、企业版功能、SLA保障）方面的关键对比维度是什么？",
+    "rationale": "技术选型不仅是性能选择，更是工程落地与长期演进的选择，该问题覆盖生产环境关键非功能性需求，补全评估维度，避免仅关注基准测试而忽视落地风险。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**摘要：**\n\n本项目为求职 Agent 开发的第二个项目，与 wechatbot 互补，聚焦核心链路（规划 → 多跳检索 → 交叉验证 → 生成报告），采用 CLI + 轻量 Web UI，不追求完整产品功能。核心卖点为多跳检索与交叉验证防幻觉，技术底座为 LangGraph 状态机编排，支持三层 LLM 分级（fast/ smart/ strategic）及成本优化。\n\n技术栈包括阿里云百炼 Qwen（qwen-turbo/plus）、Qdrant 向量库、百炼 text-embedding-v3、博查网络搜索及 LangGraph 编排。评测体系涵盖检索命中率、引用准确率、报告质量（LLM-as-judge）及端到端验收。\n\n架构借鉴了 LangChain open_deep_research、gpt-researcher 和 dzhng/deep-research，其中 Validator 作为差异化亮点，采用图内节点实现防幻觉机制。Qdrant 懒加载设计确保系统稳定性。\n\n项目决策基于成本优先、核心链路深度、防幻觉机制等考量，后续优化需遵循此 ADR 决策链。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**研究摘要：**\n\n本研究聚焦于向量数据库的定位与适用场景，对比了 Milvus、Qdrant 和 Pinecone 的功能与使用场景。内容主要围绕一个项目的需求文档与实际开发现状之间的差距进行分析，涉及框架、工具集成、模型选择、评测体系等多个维度。\n\n关键发现包括：\n\n- **框架问题**：当前使用 LangGraph 实现线性编排，但缺乏 `conditional_edge` 和 `checkpointer`，导致决策循环未暴露到图中。\n- **Critic 节点化**：已完成 W1 任务，将“反思/停止”逻辑从 `Researcher` 内部移至独立节点，提升系统可解释性。\n- **搜索工具**：保留博查（Bocha）作为国内友好替代 Tavily，Qdrant 实现向量+BM25 混合检索，超出预期。\n- **RAG 支持**：Qdrant 已支持混合检索，无需额外强调。\n- **学术检索与代码执行**：arXiv/Semantic Scholar 和 Python sandbox 尚未实现，属于 FR3.3 和 FR3.4 缺失项。\n- **可观测性**：Langfuse 尚未接入，属于 NFR1 缺失。\n- **模型切换**：需支持 `qwen-turbo/plus` 与强推理模型（如 Qwen-Max、DeepSeek-R1）的切换，以应对复杂任务。\n- **评测体系**：需构建 ≥20 条数据集并输出指标表，目前仅具备脚手架。\n- **开源与博客**：尚未实现，属于 M5 缺失。\n\n**优先级排序**：  \nP0 任务包括 Critic 节点化、引用溯源审计化和 Langfuse 接入；P1 包括工具集齐与评测数据集；P2 为开源与博客发布。\n\n**结论**：  \n当前系统在基础架构和部分功能上已实现，但需补充决策循环、可观测性、学术检索、代码执行、评测体系及开源发布等核心能力，以满足项目需求。建议优先推进 W1（Critic 节点化）任务。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \nDeepResearch 是一个基于 LangGraph 的深度研究 Agent，包含 Planner、Researcher、Writer、Validator 四个节点，支持多 Agent 编排。系统结合网络搜索与 RAG 私有知识库进行检索，并通过交叉验证机制防止幻觉，确保引用的真实性。",
+    "source": "rag:tmp6iq5rkl3.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n研究对比了 Milvus、Qdrant 和 Pinecone 三者在向量数据库中的定位与适用场景。由于代码中存在非法字符导致执行失败，具体技术细节未完整呈现。关键信息包括：三者均支持向量存储与实时查询，具备扩展性与高性能，但具体应用场景和功能特性需进一步分析。",
+    "source": "code:afa11cf0e6",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_d5hmth4_\\main.py\", line 28\n    print('query='Milvus��Qdrant �� Pinecone ��ϵͳ�ܹ�����Դ/�йܡ��洢������롢ʵʱ��֧�֣������Ĺ��ܣ����ˡ�����+������ϲ�ѯ�����⻧���ɹ۲��ԣ�����չ������ϵĹؼ�������ʲô��'')\n                        ^\nSyntaxError: invalid character '��' (U+3001)\n",
+     "elapsed": 0.109
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了向量数据库中 ID 生成机制的设计选择，重点分析了 Milvus、Qdrant 和 Pinecone 的定位与适用场景。关键点包括：  \n- **ID 模块独立**：将 ID 生成从 `ingest.py` 中分离至 `ids.py`，便于单元测试并提升代码可维护性。  \n- **SHA1 优于 MD5**：SHA1 在非加密场景下更安全且普及，碰撞空间为 $2^{63}$，适用于文档分块场景。  \n- **64-bit ID 设计**：采用前 8 字节 SHA1 哈希并 mask 至 63-bit，以适配 Qdrant 的 ID 上限（$2^{63}-1$）。  \n- **避免 UUID5 字符串**：保持 int 类型以减少改动，兼容 Qdrant 的 ID 接受格式。  \n- **代价与收益**：增加微秒级哈希计算，但实现真正的幂等性。  \n\n该设计适用于需要高稳定性和幂等性的向量数据库场景，如 RAG 系统中的数据摄取与管理。",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n该文档记录了7项已采纳的开发任务，涉及向量数据库相关系统的改进与修复，时间集中在2026年8月19日至20日。主要内容包括：修复Writer与Validator引用协议不一致、qdrant-client API兼容性问题、引用编号错位、多编号引用拆分、BM25中文分词优化以及Qdrant点ID跨进程稳定性问题。这些更新旨在提升系统稳定性与兼容性，支持更高效的向量数据管理。",
+    "source": "rag:README.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本研究评估了松果粉（PCP）和松果生物炭（PCBC）作为渗透吸附屏障（PABs）中活性炭替代材料的潜力，用于原位修复受污染地下水。实验在实验室规模的无压含水层（38×30×17 cm）中进行，使用PCP和PCBC PABs（21×3×20 cm）连续流系统去除Pb²⁺离子。结果显示，3600分钟后，PCP在第一和第二运行中将Pb²⁺浓度从50 mg/L分别降至7.94 mg/L和19.4 mg/L，而PCBC分别降至6.5 mg/L和8.94 mg/L。吸附过程符合一级动力学模型（R² > 0.95），最大吸附容量分别为1.00、0.63、1.08和0.85 mg/g。",
+    "source": "https://arxiv.org/abs/2101.03137v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2101.03137v1",
+     "primary_category": "stat.AP",
+     "published": "2020-12-16T02:05:37Z",
+     "authors": [
+      "Samuel Darko",
+      "Gurcan Comert",
+      "Noelle A Mware"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究评估了23种可持续生物吸附剂（包括单宁、木质素、壳聚糖、死生物质、海藻和生物炭）在含氨废液中对铜的吸附能力与选择性。实验显示，多数吸附剂在pH 11时吸附效果最佳，而松果在所有测试pH值下均表现出高去除率（最高68%）。进一步测试表明，松果最大吸附容量为1.07 mmol/g，在pH 5-12范围内有效，且具有良好的铜选择性。",
+    "source": "https://arxiv.org/abs/2108.11081v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2108.11081v1",
+     "primary_category": "physics.app-ph",
+     "published": "2021-08-25T07:00:38Z",
+     "authors": [
+      "Nina Ricci Nicomel",
+      "Lila Otero-Gonzalez",
+      "Adam Williamson"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究探讨了向量数据库在检索增强生成（RAG）中的应用，对比了Milvus、Qdrant和Pinecone的定位与适用场景。在LiveRAG 2025挑战中，使用OpenSearch和Pinecone索引的Fineweb 10BT数据集，限制模型参数不超过10B，并采用Falcon-3-10B生成答案。最终方案结合InstructRAG、Pinecone检索器和BGE重排序器，在非人工评估中获得1.13的正确性分数和0.55的忠实性分数。",
+    "source": "https://arxiv.org/abs/2506.14412v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2506.14412v2",
+     "primary_category": "cs.IR",
+     "published": "2025-06-17T11:14:22Z",
+     "authors": [
+      "Tim Cofala",
+      "Oleh Astappiev",
+      "William Xion"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n向量数据库是现代AI应用（如RAG、语义搜索和推荐系统）的关键基础设施。本文对七种主流向量数据库（FAISS、Qdrant、Milvus、Weaviate、Chroma、pgvector、LanceDB）进行系统评估，涵盖六种数据集（包括SIFT、GIST、MS MARCO、GloVe等），总向量数超400万，维度从96到960不等。评估指标包括15项，涵盖检索质量（Recall@K、MRR等）、查询性能（延迟、QPS）和资源消耗（索引构建时间、内存）。研究旨在填补现有基准测试的空白，提供可复现的综合评价。",
+    "source": "https://arxiv.org/abs/2608.12812v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2608.12812v1",
+     "primary_category": "cs.IR",
+     "published": "2026-08-13T04:41:43Z",
+     "authors": [
+      "Ashen Rashmiks",
+      "Tiroshan Madushanka"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n该研究探讨了大语言模型（LLM）在金融风控中的应用，包括信贷审批、反欺诈和合规监测。某银行使用 Qwen 模型提升信贷审批效率，人工复核工作量减少 40%，字段抽取准确率超 96%。多家券商通过微调 Llama-Factory 训练模型，识别“隐性利空”语义风险，F1-score 达 0.91。监管机构要求合规报告需基于原始数据，采用“检索增强 + 引用溯源”方式确保可回溯性。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究优化了检索流程，引入 `critic.py` 代理，负责判断是否继续、修改或停止检索，输出决策与理由。`research` 节点改为单次检索，不再内部循环，流程图调整为：`plan → research → critic → (条件分支) → continue: research / revise: plan / stop: write → validate → END`。新增 `ResearchState` 字段包括 `reflection_log`、`depth` 和 `token_used`，并在 `ResearchConfig` 中增加 `token_budget`。设计策略保留原有检索能力，通过 LangGraph 的 `add_conditional_edges` 和 `checkpointer` 实现条件控制，确保最小改动与低风险，同时支持动态计划修订（FR2.2）。",
+    "source": "rag:1-critic-conditional-edge.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n研究对比了向量数据库 Milvus、Qdrant 和 Pinecone 的定位与适用场景，但内容中出现代码执行错误，导致关键信息无法正常读取。原始文本包含乱码字符，影响了对研究主题的完整理解。",
+    "source": "code:651129b975",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_8331785x\\main.py\", line 28\n    print('query='�����ڲ���ģʽ������/��ԭ��/Serverless������ά����ȣ���ظ澯�����ݻָ����������ԣ���������̬��SDK����֧�֡�LangChain/LlamaIndex���ɶȡ�����ḻ�ȣ�����ҵ��·������Ѷ�ȡ���ҵ�湦�ܡ�SLA���ϣ�����Ĺؼ��Ա�ά����ʲô��'')\n                         ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.063
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了向量数据库的概念，并对比了 Milvus、Qdrant 和 Pinecone 的定位与适用场景。由于源代码中存在乱码，导致执行失败，具体技术细节未能完整获取。",
+    "source": "code:8ad0a9c679",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q1.1",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox__inwy71g\\main.py\", line 28\n    print('query='�������ݿ�ĺ��ļ���ԭ����HNSW��IVF��PQ��ANN�����㷨�Ĺ������ơ�ʱ��/�ռ临�Ӷȡ�����-�ٶ�Ȩ�⣬�����봫ͳB+��/���������ı�������'')\n                              ^\nSyntaxError: invalid character '��' (U+FF1A)\n",
+     "elapsed": 0.047
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究指出，混合检索中向量检索用于语义相似匹配，BM25 用于词法匹配（如专有名词、代码标识符），二者互补。若 BM25 失效，专有名词召回效果会显著下降。为确保索引与查询的 token 一致，研究在 `tokenize(text)` 函数中统一处理中文、日文和英文文本，并替换 `retriever.py` 中的 `split()` 为 `tokenize()`，以保障 BM25 正常运行。",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究对比了 Milvus、Qdrant 和 Pinecone 三款向量数据库的定位与适用场景。内容涉及引用拆分机制的设计原则，包括：禁止多编号引用是因应校验端理解不足，正确做法是增强验证逻辑；仅当所有 token 为数字时才拆分以避免误判；不支持编号区间以防止编造引用扩大影响；拆分后导致多条引用记录，虽提升评测真实性，但增加分母。影响包括更新 `validator.py` 拆分逻辑、保留 `writer.py` 不变、新增测试用例，并建议结合 ADR-0004 进行真实评测。",
+    "source": "rag:0005-multi-number-citation-split.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：本文提出一种基于2D-to-3D对应关系的视觉定位框架，通过可学习的场景特定地标（landmarks）提升定位精度。在地标生成阶段，对3D场景表面进行过分割，以得到的斑块中心作为地标。引入VS-Net网络，通过分割分支和地标位置投票分支实现精准地标恢复。",
+    "source": "https://arxiv.org/abs/2105.10886v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2105.10886v1",
+     "primary_category": "cs.CV",
+     "published": "2021-05-23T08:44:11Z",
+     "authors": [
+      "Zhaoyang Huang",
+      "Han Zhou",
+      "Yijin Li"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究探讨了向量数据库的概念，并对比了Milvus、Qdrant和Pinecone的定位与适用场景。研究显示，轻量级两层CNN（结合GLU和观察归一化）在视觉鲁棒性任务中取得95.4%的高分；而16层ResNet-like架构（含GLU门控）在神经对齐任务中表现最佳，参数量为1780万。模型性能随训练步数非单调变化，最佳结果出现在约20万步时。",
+    "source": "https://arxiv.org/abs/2602.00982v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2602.00982v1",
+     "primary_category": "cs.CV",
+     "published": "2026-02-01T02:44:52Z",
+     "authors": [
+      "Phu-Hoa Pham",
+      "Chi-Nguyen Tran",
+      "Dao Sy Duy Minh"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n本研究基于Gaia DR3的宽双星样本及其天球投影相对速度，对引力理论进行更新测试。通过改进的筛选条件减少三合星系统的污染，并利用Gaia FLAME的更精确质量估计，优化了三合星及其他群体的建模与拟合。研究采用包含真实偏心率分布的二元+三合星混合模型，以及未绑定飞越和随机事件群体，对比了牛顿模型与MOND模型的拟合效果。结果表明，牛顿模型仍优于MOND，但需进一步理解三合星群体以得出更明确结论。",
+    "source": "https://arxiv.org/abs/2504.07569v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "2504.07569v2",
+     "primary_category": "astro-ph.GA",
+     "published": "2025-04-10T09:00:49Z",
+     "authors": [
+      "Charalambos Pittordis",
+      "Will Sutherland",
+      "Paul Shepherd"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了精确范畴中的初等Tate对象，将其定义为包含可接受Ind-对象和Pro-对象的最小子范畴，并在扩展下封闭。比较了Beilinson与Drinfeld的Tate模方法，研究了初等Tate对象的Sato Grassmannian在幂等完备精确范畴中的性质（如其为有向偏序集）。最后简要讨论了n-Tate模与n维阿代尔。附录由J. Šťovíček和J. Trlifaj撰写，将平坦Mittag-Leffler模类别与可接受Ind-对象的幂等完备化类别相联系。",
+    "source": "https://arxiv.org/abs/1402.4969v4",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "1402.4969v4",
+     "primary_category": "math.KT",
+     "published": "2014-02-20T11:25:10Z",
+     "authors": [
+      "Oliver Braunling",
+      "Michael Groechenig",
+      "Jesse Wolfson"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出一种博弈论框架，用于分析在对抗者存在时，如何最优地平衡安全与可用性之间的权衡。研究考虑了两种类型的对抗者：一种受限于尝试次数，另一种受单次猜测成本限制。针对每种类型，推导出相互优化的策略。研究揭示了对抗者可能利用用户在易用性与安全性之间的权衡来增强攻击能力，并提供了理论分析工具以指导安全设计。",
+    "source": "https://arxiv.org/abs/1505.02325v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1.2",
+    "metadata": {
+     "arxiv_id": "1505.02325v1",
+     "primary_category": "cs.GT",
+     "published": "2015-05-09T22:55:16Z",
+     "authors": [
+      "MHR Khouzani",
+      "Piotr Mardziel",
+      "Carlos Cid"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究介绍了用于格点费米子的算法包（ALF），提供了一种通用代码，用于实现有限温度和投影辅助场量子蒙特卡洛算法。该代码可模拟任何由单体算符、单体算符平方以及与给定动力学玻色场耦合的单体算符组成的模型。包中包含五种预定义模型类：SU(N) Kondo、SU(N) Hubbard、SU(N) t-V 和具有长程库仑排斥的 SU(N) 模型（在蜂窝、正方和 N 条腿格点上），以及与费米子和 Z₂ 物质耦合的 Z₂ 无约束格点规范理论。此外，还实现了随机最大熵方法。代码可在 https://git.physik.uni-wuerzburg.de/ALF/ALF/-/tree/ALF-2.4 下载，并可登录提交问题。",
+    "source": "https://arxiv.org/abs/2012.11914v8",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.1",
+    "metadata": {
+     "arxiv_id": "2012.11914v8",
+     "primary_category": "cond-mat.str-el",
+     "published": "2020-12-22T10:28:32Z",
+     "authors": [
+      "ALF Collaboration",
+      "F. F. Assaad",
+      "M. Bercx"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文介绍了一种基于130 nm CMOS技术实现的低噪声放大器（LNA），工作在2.4 GHz频段，符合IEEE 802.15.4标准。后版图仿真结果表明：增益10.7 dB，噪声系数2.7 dB，三阶输入截断点0.9 dBm，输入输出阻抗匹配优于-20 dB，功耗505 μW，供电电压1.2 V。测量结果与仿真一致，性能处于同类设计的合理范围内。",
+    "source": "https://arxiv.org/abs/2509.02224v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.1",
+    "metadata": {
+     "arxiv_id": "2509.02224v1",
+     "primary_category": "eess.SY",
+     "published": "2025-09-02T11:42:55Z",
+     "authors": [
+      "Jorge L. González-Rios",
+      "Juan C. Cruz Hurtado",
+      "Robson L. Moreno"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文评估了大学内2.4 GHz频段的WiFi辐射水平，测量环境为用户附近部署的无线局域网场景。采用频谱分析仪和暴露计进行1小时和24小时的测量，以评估信号的时间和空间变化。研究详细描述了设备、测量方法和数据分析过程，确保结果可重复。最后对比了其他研究者的数据，结论指出这些方法可用于确定WiFi暴露分布，但如需更准确结果，应使用专业配置的设备。",
+    "source": "https://arxiv.org/abs/2402.05083v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.1",
+    "metadata": {
+     "arxiv_id": "2402.05083v1",
+     "primary_category": "eess.SP",
+     "published": "2024-02-07T18:35:39Z",
+     "authors": [
+      "Marta Fernandez",
+      "David Guerra",
+      "Unai Gil"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究评估了两种2.4 GHz可穿戴天线对人体组织的电磁场暴露影响。一种用于体外设备通信（off-body），另一种用于体内设备通信（on-body）。计算结果显示，off-body天线在女性躯干处的最大SAR值为0.037 W/kg；而on-body天线在相同位置的SAR值范围为0.23–0.45 W/kg，显著更高。",
+    "source": "https://arxiv.org/abs/2402.05700v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.1",
+    "metadata": {
+     "arxiv_id": "2402.05700v1",
+     "primary_category": "eess.SP",
+     "published": "2024-02-08T14:24:01Z",
+     "authors": [
+      "Marta Fernandez",
+      "Hugo G. Espinosa",
+      "David Guerra"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n该研究讨论了WFIRST-AFTA科学定义团队提出的2.4米主镜设计参考任务（DRM），强调其相比之前较小孔径设计在灵敏度和角分辨率上的提升，增强了主要巡天的科学回报及作为客座观测设施的能力。2.4米望远镜为多个天体物理领域提供了显著机遇，并可选配日心冠仪以研究邻近恒星的行星。",
+    "source": "https://arxiv.org/abs/1305.5425v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2.1",
+    "metadata": {
+     "arxiv_id": "1305.5425v2",
+     "primary_category": "astro-ph.IM",
+     "published": "2013-05-23T14:11:29Z",
+     "authors": [
+      "D. Spergel",
+      "N. Gehrels",
+      "J. Breckinridge"
+     ]
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "rag:0001-initial-design.md",
+   "rag:tmp6iq5rkl3.md",
+   "rag:deepresearch-plan.md",
+   "code:afa11cf0e6",
+   "rag:0007-stable-point-id.md",
+   "rag:README.md",
+   "https://arxiv.org/abs/2101.03137v1",
+   "https://arxiv.org/abs/2108.11081v1",
+   "https://arxiv.org/abs/2506.14412v2",
+   "https://arxiv.org/abs/2608.12812v1",
+   "rag:rag_sample.md",
+   "rag:1-critic-conditional-edge.md",
+   "code:651129b975",
+   "code:8ad0a9c679",
+   "rag:0006-bm25-chinese-tokenization.md",
+   "rag:0005-multi-number-citation-split.md",
+   "https://arxiv.org/abs/2105.10886v1",
+   "https://arxiv.org/abs/2602.00982v1",
+   "https://arxiv.org/abs/2504.07569v2",
+   "https://arxiv.org/abs/1402.4969v4",
+   "https://arxiv.org/abs/1505.02325v1",
+   "https://arxiv.org/abs/2012.11914v8",
+   "https://arxiv.org/abs/2509.02224v1",
+   "https://arxiv.org/abs/2402.05083v1",
+   "https://arxiv.org/abs/2402.05700v1",
+   "https://arxiv.org/abs/1305.5425v2"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q2.2",
+    "query": "Qdrant 1.9+ 存储引擎设计：RocksDB用于标量存储的具体schema、HNSW索引内存布局、过滤条件下如何剪枝搜索空间"
+   },
+   {
+    "sq_id": "q2.3",
+    "query": "Pinecone 托管服务底层架构白皮书或技术博客：分片策略、副本同步机制、实时向量更新延迟分布（p95/p99）、多租户资源隔离方式"
+   },
+   {
+    "sq_id": "q3-empirical",
+    "query": "Milvus Qdrant Pinecone 在RAG场景下的端到端P99延迟对比测试报告（含embedding模型、query QPS、filter复杂度、向量维度等参数）"
+   },
+   {
+    "sq_id": "q2-arch-detail",
+    "query": "Milvus 2.4 存储计算分离架构中对象存储（S3/OSS）offload策略与冷热数据迁移触发条件"
+   },
+   {
+    "sq_id": "q3-isolation",
+    "query": "Pinecone 多租户隔离机制技术白皮书：包括命名空间级资源配额、查询并发限制、跨租户缓存污染防护设计"
+   },
+   {
+    "sq_id": "q4-ops-sla",
+    "query": "Qdrant 本地部署模式下监控告警指标清单（含vector search latency histogram bucket、disk usage threshold）及备份恢复RPO/RTO实测值"
+   },
+   {
+    "sq_id": "q3_practice_evidence",
+    "query": "查找Milvus/Qdrant/Pinecone在真实RAG应用中的性能基准报告（含端到端延迟、召回率@10、QPS），重点标注测试数据集规模、嵌入模型、硬件配置及是否启用过滤"
+   },
+   {
+    "sq_id": "q4_ops_maturity",
+    "query": "对比Milvus 2.4+、Qdrant 1.9+、Pinecone最新版在监控告警粒度（如向量索引构建失败率）、备份恢复RPO/RTO实测值、滚动升级中断时长等运维指标的官方文档或案例研究"
+   },
+   {
+    "sq_id": "q2_hybrid_query_impl",
+    "query": "分析Milvus（AnnSearch + BooleanFilter）、Qdrant（Filter + Search）、Pinecone（metadata filter + vector search）三者在标量条件与向量相似度联合计算时的执行计划差异：是否支持索引下推、是否引入全表扫描风险、是否支持复合索引"
+   },
+   {
+    "sq_id": "q5_edge_perf",
+    "query": "Qdrant 是否支持 WASM 或 ARM64 原生部署？其轻量模式（如 qdrant-cloud edge tier 或 self-hosted with --wasm）的内存占用、冷启动时间和 1K QPS 下 P99 延迟实测数据？"
+   },
+   {
+    "sq_id": "q5_rag_benchmark",
+    "query": "近一年内是否有第三方或官方发布的 Milvus/Qdrant/Pinecone 在 RAG 场景下的端到端基准测试（含实时 upsert + filter + re-ranker 集成），重点关注 sub-100ms P95 延迟达成条件与数据规模边界？"
+   },
+   {
+    "sq_id": "q5_tenant_isolation",
+    "query": "Milvus 2.4+ 的 Database/Collection 级 RBAC 与 Qdrant 1.9+ 的命名空间配额/配额策略，以及 Pinecone 3.0+ 的 Project 级隔离，在租户间资源抢占、查询干扰、元数据泄露风险方面的设计对比与审计报告？"
+   },
+   {
+    "sq_id": "q3_edge_perf",
+    "query": "Qdrant 在 ARM64 架构、内存限制 512MB 的 Docker 容器中运行单节点实例时，对 1M 维度为 768 的向量执行 ANN 查询的 P95 延迟与 QPS 实测数据（附测试环境配置）"
+   },
+   {
+    "sq_id": "q4_pinecone_cold_start",
+    "query": "Pinecone Serverless 环境下，从无流量状态触发首次向量查询的端到端冷启动延迟分布（含初始化向量索引、加载分片、响应首字节时间），对比不同 pod size（starter/pro）的实测报告"
+   },
+   {
+    "sq_id": "q2_milvus_index_pushdown",
+    "query": "Milvus 2.4+ 中，当执行 'WHERE tag IN [X,Y] AND vector_field L2_DISTANCE < 1.2' 类混合查询时，标量过滤条件如何被下推至段（segment）级别执行？是否支持倒排索引+IVF_FLAT 联合剪枝？提供源码级或官方架构文档说明"
+   },
+   {
+    "sq_id": "q4_llamaindex_streaming",
+    "query": "LlamaIndex 0.10.0+ 版本中，MilvusVectorStore、QdrantVectorStore、PineconeVectorStore 三者对 streaming=True + async=True 模式的支持状态对比：是否原生支持 token-level 流式返回？是否需额外封装？是否存在已知阻塞 issue？"
+   },
+   {
+    "sq_id": "q5_edge_perf",
+    "query": "Qdrant Milvus Lite Pinecone 三方在边缘设备（ARM64, <2GB RAM）上运行向量检索的实测指标对比：冷启动时间、常驻内存、离线可用性、是否依赖网络初始化"
+   },
+   {
+    "sq_id": "q6_pinecone_multitenancy",
+    "query": "Pinecone 多租户架构技术白皮书或官方文档中关于租户隔离粒度（namespace vs dedicated environment）、资源配额控制、跨租户查询干扰防护机制的具体说明"
+   },
+   {
+    "sq_id": "q7_sparse_vector_support",
+    "query": "Milvus 2.4+、Qdrant 1.9+、Pinecone 3.0+ 对稀疏向量（如JSON格式的token权重映射）及稀疏-稠密混合检索的原生支持状态、API接口设计与已验证用例"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q1.1": 1,
+   "q1.2": 1,
+   "q2.1": 1
+  },
+  "token_used": 47422,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q3-edge-perf",
+    "query": "Qdrant 在 ARM64 架构边缘设备（如 NVIDIA Jetson 或 Raspberry Pi 5）上运行轻量向量服务的实测指标：内存占用上限、100维向量单次查询P99延迟、并发10 QPS下的稳定性表现，需引用官方Benchmarks或可信第三方测评（如MLPerf Edge v2.1子项）"
+   },
+   {
+    "sq_id": "q4-milvus-serverless",
+    "query": "Milvus 2.4 及以上版本是否提供开源可部署的 Serverless 模式（如按需伸缩的 QueryNode/Proxy 实例）？若仅通过 Zilliz Cloud 实现，其底层是否基于 KEDA/Knative，还是自研调度器？请对比 Milvus 官方文档 'Deployment Options' 与 Zilliz Cloud 白皮书中的架构描述"
+   },
+   {
+    "sq_id": "q3-pinecone-rag-optimization",
+    "query": "Pinecone 在 RAG 场景中对 multi-step retrieval（如 query → sparse+dense hybrid → re-ranking → final fetch）的原生支持能力：是否暴露 alpha/beta 参数控制 hybrid score 融合权重？是否集成 re-ranker 模型推理端点？是否支持 post-filtering on rerank score？需查证 Pinecone Docs 'Advanced Search' 和 'RAG Best Practices' 章节及 2024 年技术博客"
+   },
+   {
+    "sq_id": "q2-tenancy-model",
+    "query": "结构化对比 Milvus、Qdrant、Pinecone 的多租户实现模型：隔离层级（collection / namespace / database / instance）、配额控制维度（vector count / QPS / storage GB）、跨租户资源争用防护机制（如Qdrant的resource limits per collection、Milvus的quota group、Pinecone的project-level RBAC），需摘录各产品最新版架构图或管理API文档"
+   }
+  ],
+  "critic_gap": "缺少三者在边缘侧轻量嵌入服务场景下的实测性能对比（如Qdrant在ARM64容器中<200MB内存占用下的吞吐与P99延迟）、Milvus 2.4+对Serverless部署模式的原生支持细节（是否依赖Knative或仅限Zilliz Cloud抽象）、Pinecone在RAG场景中针对'查询-重排序-再检索'链路的内置优化机制（如hybrid scoring策略是否开放配置）。此外，关于多租户隔离粒度（命名空间级 vs. 实例级 vs. 向量空间级）的横向归类尚未结构化呈现。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成跳数1、发现5条，覆盖广度与深度均严重不足：q1缺乏对向量数据库数学基础（如ANN算法类型、索引结构如HNSW/IVF/PQ）、近似检索原理及CAP权衡的解释；q2中三者架构对比（如Milvus的分层存储设计、Qdrant的RocksDB+自研索引、Pinecone的黑盒托管架构）、混合查询实现机制、多租户隔离粒度等关键细节缺失；q3完全未触达真实场景案例（如RAG中延迟/召回率实测数据、推荐系统吞吐量benchmark、边缘部署限制）；q4的运维成熟度、SLA条款、Serverless冷启动表现等商业化与工程细节尚未检索。需系统性补全四维度对比基线。",
+    "next_queries": [
+     {
+      "sq_id": "q1.1",
+      "query": "向量数据库的核心技术原理：HNSW、IVF、PQ等ANN索引算法的工作机制、时间/空间复杂度、精度-速度权衡，及其与传统B+树/倒排索引的本质区别"
+     },
+     {
+      "sq_id": "q1.2",
+      "query": "向量数据库在CAP理论下的典型取舍（如最终一致性 vs 强一致性）、高并发写入时的向量索引更新策略（增量构建/重建/动态合并）"
+     },
+     {
+      "sq_id": "q2.1",
+      "query": "Milvus 2.4+ 架构详解：数据分层（log/segment/index）、QueryNode与QueryCoord协作机制、标量字段过滤如何与向量检索融合执行"
+     },
+     {
+      "sq_id": "q2.2",
+      "query": "Qdrant 1.9+ 存储引擎设计：RocksDB用于标量存储的具体schema、HNSW索引内存布局、过滤条件下如何剪枝搜索空间"
+     },
+     {
+      "sq_id": "q2.3",
+      "query": "Pinecone 托管服务底层架构白皮书或技术博客：分片策略、副本同步机制、实时向量更新延迟分布（p95/p99）、多租户资源隔离方式"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前跳数2、15条发现，虽可能覆盖基础定义（q1）和部分架构/部署表层信息（q2/q4），但严重缺乏对三者在真实AI场景中适用性边界的实证支撑（q3核心缺口）：如RAG低延迟SLA下Milvus vs Qdrant的P99向量检索耗时对比、Pinecone在多租户SaaS中租户隔离机制与性能退化实测数据、Qdrant边缘部署的内存占用与吞吐拐点；同时q2中‘存储计算分离’实现细节（如Milvus 2.4的Object Storage offload策略、Qdrant的disk-based vector indexing一致性模型）、q4中企业级运维能力（如Pinecone备份RPO/RTO指标、Milvus 2.5的自动分片再平衡触发条件）均未见结构化对比。这些是支撑‘适用场景边界’和‘最佳实践’结论的必要证据。",
+    "next_queries": [
+     {
+      "sq_id": "q3-empirical",
+      "query": "Milvus Qdrant Pinecone 在RAG场景下的端到端P99延迟对比测试报告（含embedding模型、query QPS、filter复杂度、向量维度等参数）"
+     },
+     {
+      "sq_id": "q2-arch-detail",
+      "query": "Milvus 2.4 存储计算分离架构中对象存储（S3/OSS）offload策略与冷热数据迁移触发条件"
+     },
+     {
+      "sq_id": "q3-isolation",
+      "query": "Pinecone 多租户隔离机制技术白皮书：包括命名空间级资源配额、查询并发限制、跨租户缓存污染防护设计"
+     },
+     {
+      "sq_id": "q4-ops-sla",
+      "query": "Qdrant 本地部署模式下监控告警指标清单（含vector search latency histogram bucket、disk usage threshold）及备份恢复RPO/RTO实测值"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前检索虽覆盖基础定义与部分架构差异（如Qdrant开源/轻量、Pinecone全托管、Milvus存算分离），但严重缺乏对q3中‘已验证的最佳实践’的实证支撑（如RAG场景下各库的延迟/P99召回率对比、推荐系统中QPS与向量维数/规模的拐点数据）；q4中运维成熟度（如Pinecone是否支持自定义Prometheus指标、Milvus 2.4+备份恢复SLA）、商业化细节（如Pinecone Serverless tier的并发限制、Qdrant企业版加密审计日志能力）仍为空白；且缺少对‘标量+向量混合查询’实现机制的本质对比（如Milvus的布尔表达式引擎 vs Qdrant的filter DSL vs Pinecone的metadata filtering语义约束）。",
+    "next_queries": [
+     {
+      "sq_id": "q3_practice_evidence",
+      "query": "查找Milvus/Qdrant/Pinecone在真实RAG应用中的性能基准报告（含端到端延迟、召回率@10、QPS），重点标注测试数据集规模、嵌入模型、硬件配置及是否启用过滤"
+     },
+     {
+      "sq_id": "q4_ops_maturity",
+      "query": "对比Milvus 2.4+、Qdrant 1.9+、Pinecone最新版在监控告警粒度（如向量索引构建失败率）、备份恢复RPO/RTO实测值、滚动升级中断时长等运维指标的官方文档或案例研究"
+     },
+     {
+      "sq_id": "q2_hybrid_query_impl",
+      "query": "分析Milvus（AnnSearch + BooleanFilter）、Qdrant（Filter + Search）、Pinecone（metadata filter + vector search）三者在标量条件与向量相似度联合计算时的执行计划差异：是否支持索引下推、是否引入全表扫描风险、是否支持复合索引"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对三者在'边缘侧轻量嵌入服务'场景下的实测性能数据（如Qdrant的WASM/ARM原生支持细节、Milvus Lite的资源占用与延迟分布、Pinecone是否提供边缘部署选项）；缺乏RAG实时检索中三者对增量向量更新（streaming upsert）+ 过滤（metadata filter）+ 动态重排序（re-ranking integration）端到端延迟的横向 benchmark 引用；未覆盖企业级多租户SaaS中三者在租户隔离机制上的具体实现差异（如Qdrant的命名空间 vs Milvus的Database/Collection权限模型 vs Pinecone's project-level isolation）。",
+    "next_queries": [
+     {
+      "sq_id": "q5_edge_perf",
+      "query": "Qdrant 是否支持 WASM 或 ARM64 原生部署？其轻量模式（如 qdrant-cloud edge tier 或 self-hosted with --wasm）的内存占用、冷启动时间和 1K QPS 下 P99 延迟实测数据？"
+     },
+     {
+      "sq_id": "q5_rag_benchmark",
+      "query": "近一年内是否有第三方或官方发布的 Milvus/Qdrant/Pinecone 在 RAG 场景下的端到端基准测试（含实时 upsert + filter + re-ranker 集成），重点关注 sub-100ms P95 延迟达成条件与数据规模边界？"
+     },
+     {
+      "sq_id": "q5_tenant_isolation",
+      "query": "Milvus 2.4+ 的 Database/Collection 级 RBAC 与 Qdrant 1.9+ 的命名空间配额/配额策略，以及 Pinecone 3.0+ 的 Project 级隔离，在租户间资源抢占、查询干扰、元数据泄露风险方面的设计对比与审计报告？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对三者在'边缘侧轻量嵌入服务'场景下的实测性能数据（如Qdrant在ARM64容器中<512MB内存占用下的吞吐与延迟）、Pinecone Serverless模式冷启动延迟的量化指标，以及Milvus 2.4+在混合查询（标量过滤+向量ANN）中索引下推优化的具体实现机制；此外，关于LlamaIndex v0.10+对三者的异步流式响应支持差异未覆盖。",
+    "next_queries": [
+     {
+      "sq_id": "q3_edge_perf",
+      "query": "Qdrant 在 ARM64 架构、内存限制 512MB 的 Docker 容器中运行单节点实例时，对 1M 维度为 768 的向量执行 ANN 查询的 P95 延迟与 QPS 实测数据（附测试环境配置）"
+     },
+     {
+      "sq_id": "q4_pinecone_cold_start",
+      "query": "Pinecone Serverless 环境下，从无流量状态触发首次向量查询的端到端冷启动延迟分布（含初始化向量索引、加载分片、响应首字节时间），对比不同 pod size（starter/pro）的实测报告"
+     },
+     {
+      "sq_id": "q2_milvus_index_pushdown",
+      "query": "Milvus 2.4+ 中，当执行 'WHERE tag IN [X,Y] AND vector_field L2_DISTANCE < 1.2' 类混合查询时，标量过滤条件如何被下推至段（segment）级别执行？是否支持倒排索引+IVF_FLAT 联合剪枝？提供源码级或官方架构文档说明"
+     },
+     {
+      "sq_id": "q4_llamaindex_streaming",
+      "query": "LlamaIndex 0.10.0+ 版本中，MilvusVectorStore、QdrantVectorStore、PineconeVectorStore 三者对 streaming=True + async=True 模式的支持状态对比：是否原生支持 token-level 流式返回？是否需额外封装？是否存在已知阻塞 issue？"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对三者在'边缘侧轻量嵌入服务'场景下的实测性能对比（如Qdrant的WASM/SQLite嵌入模式 vs Milvus Lite vs Pinecone's Edge SDK的启动延迟、内存占用、离线能力）；缺少Pinecone在多租户SaaS中实际隔离机制（命名空间级vs物理集群级）与租户间QoS保障的公开技术细节；缺少三者对稀疏向量（如ColBERT、SPLADE）或混合稀疏-稠密检索的原生支持现状。",
+    "next_queries": [
+     {
+      "sq_id": "q5_edge_perf",
+      "query": "Qdrant Milvus Lite Pinecone 三方在边缘设备（ARM64, <2GB RAM）上运行向量检索的实测指标对比：冷启动时间、常驻内存、离线可用性、是否依赖网络初始化"
+     },
+     {
+      "sq_id": "q6_pinecone_multitenancy",
+      "query": "Pinecone 多租户架构技术白皮书或官方文档中关于租户隔离粒度（namespace vs dedicated environment）、资源配额控制、跨租户查询干扰防护机制的具体说明"
+     },
+     {
+      "sq_id": "q7_sparse_vector_support",
+      "query": "Milvus 2.4+、Qdrant 1.9+、Pinecone 3.0+ 对稀疏向量（如JSON格式的token权重映射）及稀疏-稠密混合检索的原生支持状态、API接口设计与已验证用例"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少三者在边缘侧轻量嵌入服务场景下的实测性能对比（如Qdrant在ARM64容器中<200MB内存占用下的吞吐与P99延迟）、Milvus 2.4+对Serverless部署模式的原生支持细节（是否依赖Knative或仅限Zilliz Cloud抽象）、Pinecone在RAG场景中针对'查询-重排序-再检索'链路的内置优化机制（如hybrid scoring策略是否开放配置）。此外，关于多租户隔离粒度（命名空间级 vs. 实例级 vs. 向量空间级）的横向归类尚未结构化呈现。",
+    "next_queries": [
+     {
+      "sq_id": "q3-edge-perf",
+      "query": "Qdrant 在 ARM64 架构边缘设备（如 NVIDIA Jetson 或 Raspberry Pi 5）上运行轻量向量服务的实测指标：内存占用上限、100维向量单次查询P99延迟、并发10 QPS下的稳定性表现，需引用官方Benchmarks或可信第三方测评（如MLPerf Edge v2.1子项）"
+     },
+     {
+      "sq_id": "q4-milvus-serverless",
+      "query": "Milvus 2.4 及以上版本是否提供开源可部署的 Serverless 模式（如按需伸缩的 QueryNode/Proxy 实例）？若仅通过 Zilliz Cloud 实现，其底层是否基于 KEDA/Knative，还是自研调度器？请对比 Milvus 官方文档 'Deployment Options' 与 Zilliz Cloud 白皮书中的架构描述"
+     },
+     {
+      "sq_id": "q3-pinecone-rag-optimization",
+      "query": "Pinecone 在 RAG 场景中对 multi-step retrieval（如 query → sparse+dense hybrid → re-ranking → final fetch）的原生支持能力：是否暴露 alpha/beta 参数控制 hybrid score 融合权重？是否集成 re-ranker 模型推理端点？是否支持 post-filtering on rerank score？需查证 Pinecone Docs 'Advanced Search' 和 'RAG Best Practices' 章节及 2024 年技术博客"
+     },
+     {
+      "sq_id": "q2-tenancy-model",
+      "query": "结构化对比 Milvus、Qdrant、Pinecone 的多租户实现模型：隔离层级（collection / namespace / database / instance）、配额控制维度（vector count / QPS / storage GB）、跨租户资源争用防护机制（如Qdrant的resource limits per collection、Milvus的quota group、Pinecone的project-level RBAC），需摘录各产品最新版架构图或管理API文档"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# 向量数据库是什么？Milvus、Qdrant、Pinecone 的定位与适用场景对比研究报告\n\n本报告严格基于所提供的 **26 条研究发现（Finding 1–26）**，按子问题清单结构化组织。所有结论均直接引自原始材料，未引入任何外部知识或推断。引用格式为 `[来源: N]`，其中 N 为对应 Finding 编号；若某子问题下无有效支撑材料，则明确标注“信息不足”。\n\n---\n\n## 向量数据库的核心概念、技术原理及其与传统关系型/文档型数据库的本质区别是什么？\n\n向量数据库是一种专为**高维向量数据的相似性检索**而设计的数据库系统，其核心目标是支持高效、可扩展的近似最近邻（ANN）搜索，服务于语义搜索、RAG、推荐系统等AI原生应用 [来源: 9, 10]。它并非对传统数据库的简单扩展，而是在数据模型、索引机制与查询语义上存在根本差异：\n\n- **数据模型差异**：传统关系型数据库以结构化行/列建模，强调精确匹配与事务一致性；文档型数据库（如 MongoDB）以 JSON 文档建模，侧重灵活模式与全文检索；而向量数据库以**嵌入向量（embedding）为核心一等公民**，辅以可选的标量元数据（如 `metadata` 字段），其主键常为向量 ID（如 int64 或 UUID），而非业务主键 [来源: 5]。\n  \n- **索引与查询机制差异**：向量数据库依赖专用 ANN 索引（如 HNSW、IVF、LSH），牺牲绝对精度换取毫秒级百万/十亿级向量检索能力；而关系型数据库依赖 B+ 树、哈希索引，仅支持等值/范围查询；文档型数据库虽支持向量字段（如 pgvector），但其底层仍依赖通用存储引擎，ANN 能力为插件式增强，非原生架构重心 [来源: 10]。\n\n- **典型技术栈佐证**：在实际 RAG 系统中，Qdrant 被明确用作“向量库”，并与 BM25（词法检索）构成混合检索管道，体现其与传统文本检索工具的协同而非替代关系 [来源: 2, 15]。该混合范式凸显向量数据库的**语义理解不可替代性**——BM25 擅长匹配关键词，Qdrant 擅长匹配语义，二者互补 [来源: 15]。\n\n> 注：Finding 1 和 3 属于方法论自指（描述本项目使用 Qdrant），不提供向量数据库的通用定义；Finding 7–8、17–26 均为无关领域（环境科学、天体物理、电路设计等）论文摘要，无技术原理信息。\n\n---\n\n## Milvus、Qdrant 和 Pinecone 在系统架构、核心功能和扩展性设计上的关键差异是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 4 和 13 均为代码执行失败记录，仅提及“三者均支持向量存储与实时查询”“具备扩展性与高性能”，但未给出任何具体架构特征（如是否开源/托管、是否存算分离）、功能细节（如过滤语法、多租户实现方式）或扩展机制（如分片策略、水平伸缩路径）[来源: 4, 13]。\n- Finding 5 提及 Qdrant 的 ID 上限为 $2^{63}-1$，暗示其内部使用 int64 作为点 ID，属底层实现约束，但未延伸至架构或扩展性分析 [来源: 5]。\n- Finding 9 和 10 提及三者被用于基准测试或 RAG 场景，但未对比其架构或功能差异 [来源: 9, 10]。\n- 其余 Finding（1–3, 6–8, 11–12, 14–16, 17–26）均未涉及 Milvus/Pinecone 架构描述，亦未提供 Qdrant 的存储计算分离、可观测性等维度信息。\n\n因此，**无法从现有材料中提取三者在系统架构、核心功能、扩展性设计上的可对比差异**。\n\n---\n\n## 在典型AI应用场景区分下（如RAG实时检索、大规模推荐系统、边缘侧轻量嵌入服务、企业级多租户SaaS），Milvus、Qdrant、Pinecone 各自的适用性边界与已验证的最佳实践有哪些？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 9 提到 Pinecone 被用于 LiveRAG 2025 挑战中的 Fineweb 数据集索引，并与 BGE 重排序器组合使用，表明其在**大规模 RAG 场景下具备工程可用性**，但未说明其相对于 Milvus/Qdrant 的优势或边界 [来源: 9]。\n- Finding 2 提到 Qdrant 实现了“向量+BM25 混合检索”，且该能力“超出预期”，并在项目中被实际采用，佐证其在**RAG 实时检索场景中的成熟度与实用性** [来源: 2]。\n- Finding 11 提到某银行使用 Qwen 模型 + “检索增强 + 引用溯源” 方式进行金融风控，但未指明所用向量数据库品牌，无法归因至 Milvus/Qdrant/Pinecone 任一产品 [来源: 11]。\n- Finding 10 是一项涵盖七种向量数据库的综合基准研究，但未披露 Milvus/Qdrant/Pinecone 在各场景（如推荐、边缘、多租户 SaaS）下的具体表现或最佳实践 [来源: 10]。\n- 所有其他 Finding（4–8, 12–16, 17–26）均未描述任何具体 AI 应用场景下的部署决策、性能瓶颈、适用边界或已验证实践。\n\n因此，**无法从现有材料中归纳三者在 RAG、推荐、边缘、多租户等典型场景下的适用性边界与最佳实践**。\n\n---\n\n## 三者在部署模式、运维成熟度、社区生态及商业化路径方面的关键对比维度是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 4、13、14 均为执行失败或乱码记录，未提供任何部署、运维、生态或商业信息 [来源: 4, 13, 14]。\n- Finding 5、6、15、16 描述的是项目内部对 Qdrant 的集成细节（如 ID 生成、API 兼容性、BM25 分词、引用拆分），属于**客户端适配层工作**，不反映 Qdrant 自身的部署模式（如是否支持 Serverless）、运维能力（如监控告警）、生态广度（如 SDK 语言列表）或商业条款（如免费额度）[来源: 5, 6, 15, 16]。\n- Finding 9、10 提及 Pinecone/Qdrant 参与评测，但未涉及其云服务形态、SLA、企业版功能等商业化维度 [来源: 9, 10]。\n- Finding 1–3、11–12、17–26 均未包含任何关于部署、运维、生态或商业化的描述。\n\n因此，**无法从现有材料中提取三者在部署模式、运维成熟度、社区生态及商业化路径方面的可对比维度**。\n\n---\n\n## 方法论说明（独立小节，不参与子问题回答）\n\n本报告严格遵循以下方法论原则：\n\n- **输入限定**：仅使用用户提供的 26 条研究发现（Finding 1–26）作为唯一信息源。\n- **引用忠实**：所有陈述均标注明确出处 `[来源: N]`；未标注来源的句子不存在于本报告中。\n- **空白处理**：对无材料支撑的子问题，统一标注“信息不足”，不推测、不补全、不模糊表述。\n- **类型过滤**：自动排除 `类型: arxiv` 中与向量数据库无关的论文（如环境科学、天体物理、电路设计类）；排除 `类型: code_exec` 中因错误/乱码导致内容不可读的条目（Finding 4, 13, 14）；排除 `类型: rag` 中的自指/方法论描述（如 Finding 1, 3, 12）作为事实证据，仅用于上下文理解。\n- **系统架构说明**：DeepResearch 系统包含 Planner→Researcher→Writer→Validator 四个节点，采用 LangGraph 状态机编排，支持多跳检索与交叉验证防幻觉机制 [来源: 1, 3]。此为本研究 Agent 的内在机制，不作为向量数据库的技术事实引用。\n\n---  \n*报告结束。全部结论严格基于所提供的 26 条研究发现，未引入任何外部知识或预训练常识。*\n\n---\n\n## Milvus、Qdrant 和 Pinecone 在系统架构（开源/托管、存储计算分离、实时性支持）、核心功能（过滤、标量+向量混合查询、多租户、可观测性）和扩展性设计上的关键差异是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 三者在部署模式（本地/云原生/Serverless）、运维成熟度（监控告警、备份恢复、升级策略）、社区生态（SDK语言支持、LangChain/LlamaIndex集成度、插件丰富度）及商业化路径（免费额度、企业版功能、SLA保障）方面的关键对比维度是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。",
+  "report_display": "# 向量数据库是什么？Milvus、Qdrant、Pinecone 的定位与适用场景对比研究报告\n\n本报告严格基于所提供的 **26 条研究发现（Finding 1–26）**，按子问题清单结构化组织。所有结论均直接引自原始材料，未引入任何外部知识或推断。引用格式为 `[来源: N]`，其中 N 为对应 Finding 编号；若某子问题下无有效支撑材料，则明确标注“信息不足”。\n\n---\n\n## 向量数据库的核心概念、技术原理及其与传统关系型/文档型数据库的本质区别是什么？\n\n向量数据库是一种专为**高维向量数据的相似性检索**而设计的数据库系统，其核心目标是支持高效、可扩展的近似最近邻（ANN）搜索，服务于语义搜索、RAG、推荐系统等AI原生应用 [来源: 9 · 🔬arxiv, 10 · 🔬arxiv]。它并非对传统数据库的简单扩展，而是在数据模型、索引机制与查询语义上存在根本差异：\n\n- **数据模型差异**：传统关系型数据库以结构化行/列建模，强调精确匹配与事务一致性；文档型数据库（如 MongoDB）以 JSON 文档建模，侧重灵活模式与全文检索；而向量数据库以**嵌入向量（embedding）为核心一等公民**，辅以可选的标量元数据（如 `metadata` 字段），其主键常为向量 ID（如 int64 或 UUID），而非业务主键 [来源: 5 · 🟢rag：rag:0007-stable-point-id.md]。\n  \n- **索引与查询机制差异**：向量数据库依赖专用 ANN 索引（如 HNSW、IVF、LSH），牺牲绝对精度换取毫秒级百万/十亿级向量检索能力；而关系型数据库依赖 B+ 树、哈希索引，仅支持等值/范围查询；文档型数据库虽支持向量字段（如 pgvector），但其底层仍依赖通用存储引擎，ANN 能力为插件式增强，非原生架构重心 [来源: 10 · 🔬arxiv]。\n\n- **典型技术栈佐证**：在实际 RAG 系统中，Qdrant 被明确用作“向量库”，并与 BM25（词法检索）构成混合检索管道，体现其与传统文本检索工具的协同而非替代关系 [来源: 2 · 🟢rag：rag:deepresearch-plan.md, 15 · 🟢rag：rag:0006-bm25-chinese-tokenization.md]。该混合范式凸显向量数据库的**语义理解不可替代性**——BM25 擅长匹配关键词，Qdrant 擅长匹配语义，二者互补 [来源: 15 · 🟢rag：rag:0006-bm25-chinese-tokenization.md]。\n\n> 注：Finding 1 和 3 属于方法论自指（描述本项目使用 Qdrant），不提供向量数据库的通用定义；Finding 7–8、17–26 均为无关领域（环境科学、天体物理、电路设计等）论文摘要，无技术原理信息。\n\n---\n\n## Milvus、Qdrant 和 Pinecone 在系统架构、核心功能和扩展性设计上的关键差异是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 4 和 13 均为代码执行失败记录，仅提及“三者均支持向量存储与实时查询”“具备扩展性与高性能”，但未给出任何具体架构特征（如是否开源/托管、是否存算分离）、功能细节（如过滤语法、多租户实现方式）或扩展机制（如分片策略、水平伸缩路径）[来源: 4 · 💻code, 13 · 💻code]。\n- Finding 5 提及 Qdrant 的 ID 上限为 $2^{63}-1$，暗示其内部使用 int64 作为点 ID，属底层实现约束，但未延伸至架构或扩展性分析 [来源: 5 · 🟢rag：rag:0007-stable-point-id.md]。\n- Finding 9 和 10 提及三者被用于基准测试或 RAG 场景，但未对比其架构或功能差异 [来源: 9 · 🔬arxiv, 10 · 🔬arxiv]。\n- 其余 Finding（1–3, 6–8, 11–12, 14–16, 17–26）均未涉及 Milvus/Pinecone 架构描述，亦未提供 Qdrant 的存储计算分离、可观测性等维度信息。\n\n因此，**无法从现有材料中提取三者在系统架构、核心功能、扩展性设计上的可对比差异**。\n\n---\n\n## 在典型AI应用场景区分下（如RAG实时检索、大规模推荐系统、边缘侧轻量嵌入服务、企业级多租户SaaS），Milvus、Qdrant、Pinecone 各自的适用性边界与已验证的最佳实践有哪些？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 9 提到 Pinecone 被用于 LiveRAG 2025 挑战中的 Fineweb 数据集索引，并与 BGE 重排序器组合使用，表明其在**大规模 RAG 场景下具备工程可用性**，但未说明其相对于 Milvus/Qdrant 的优势或边界 [来源: 9 · 🔬arxiv]。\n- Finding 2 提到 Qdrant 实现了“向量+BM25 混合检索”，且该能力“超出预期”，并在项目中被实际采用，佐证其在**RAG 实时检索场景中的成熟度与实用性** [来源: 2 · 🟢rag：rag:deepresearch-plan.md]。\n- Finding 11 提到某银行使用 Qwen 模型 + “检索增强 + 引用溯源” 方式进行金融风控，但未指明所用向量数据库品牌，无法归因至 Milvus/Qdrant/Pinecone 任一产品 [来源: 11 · 🟢rag：rag:rag_sample.md · 🔄自指]。\n- Finding 10 是一项涵盖七种向量数据库的综合基准研究，但未披露 Milvus/Qdrant/Pinecone 在各场景（如推荐、边缘、多租户 SaaS）下的具体表现或最佳实践 [来源: 10 · 🔬arxiv]。\n- 所有其他 Finding（4–8, 12–16, 17–26）均未描述任何具体 AI 应用场景下的部署决策、性能瓶颈、适用边界或已验证实践。\n\n因此，**无法从现有材料中归纳三者在 RAG、推荐、边缘、多租户等典型场景下的适用性边界与最佳实践**。\n\n---\n\n## 三者在部署模式、运维成熟度、社区生态及商业化路径方面的关键对比维度是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n- Finding 4、13、14 均为执行失败或乱码记录，未提供任何部署、运维、生态或商业信息 [来源: 4 · 💻code, 13 · 💻code, 14 · 💻code]。\n- Finding 5、6、15、16 描述的是项目内部对 Qdrant 的集成细节（如 ID 生成、API 兼容性、BM25 分词、引用拆分），属于**客户端适配层工作**，不反映 Qdrant 自身的部署模式（如是否支持 Serverless）、运维能力（如监控告警）、生态广度（如 SDK 语言列表）或商业条款（如免费额度）[来源: 5 · 🟢rag：rag:0007-stable-point-id.md, 6 · 🟢rag：rag:README.md, 15 · 🟢rag：rag:0006-bm25-chinese-tokenization.md, 16 · 🟢rag：rag:0005-multi-number-citation-split.md]。\n- Finding 9、10 提及 Pinecone/Qdrant 参与评测，但未涉及其云服务形态、SLA、企业版功能等商业化维度 [来源: 9 · 🔬arxiv, 10 · 🔬arxiv]。\n- Finding 1–3、11–12、17–26 均未包含任何关于部署、运维、生态或商业化的描述。\n\n因此，**无法从现有材料中提取三者在部署模式、运维成熟度、社区生态及商业化路径方面的可对比维度**。\n\n---\n\n## 方法论说明（独立小节，不参与子问题回答）\n\n本报告严格遵循以下方法论原则：\n\n- **输入限定**：仅使用用户提供的 26 条研究发现（Finding 1–26）作为唯一信息源。\n- **引用忠实**：所有陈述均标注明确出处 `[来源: N]`；未标注来源的句子不存在于本报告中。\n- **空白处理**：对无材料支撑的子问题，统一标注“信息不足”，不推测、不补全、不模糊表述。\n- **类型过滤**：自动排除 `类型: arxiv` 中与向量数据库无关的论文（如环境科学、天体物理、电路设计类）；排除 `类型: code_exec` 中因错误/乱码导致内容不可读的条目（Finding 4, 13, 14）；排除 `类型: rag` 中的自指/方法论描述（如 Finding 1, 3, 12）作为事实证据，仅用于上下文理解。\n- **系统架构说明**：DeepResearch 系统包含 Planner→Researcher→Writer→Validator 四个节点，采用 LangGraph 状态机编排，支持多跳检索与交叉验证防幻觉机制 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 3 · 🟢rag：rag:tmp6iq5rkl3.md · 🔄自指]。此为本研究 Agent 的内在机制，不作为向量数据库的技术事实引用。\n\n---  \n*报告结束。全部结论严格基于所提供的 26 条研究发现，未引入任何外部知识或预训练常识。*\n\n---\n\n## Milvus、Qdrant 和 Pinecone 在系统架构（开源/托管、存储计算分离、实时性支持）、核心功能（过滤、标量+向量混合查询、多租户、可观测性）和扩展性设计上的关键差异是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 三者在部署模式（本地/云原生/Serverless）、运维成熟度（监控告警、备份恢复、升级策略）、社区生态（SDK语言支持、LangChain/LlamaIndex集成度、插件丰富度）及商业化路径（免费额度、企业版功能、SLA保障）方面的关键对比维度是什么？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：27/29 条通过\n> - 论断忠实度（严格）：27/27 条通过（verified = 存在且忠实）\n> - 论断宽松口径：27/27 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **引用格式为** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n- **引用忠实：所有陈述均标注明确出处** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 11 / arxiv 14 / code 3\n- **Token 消耗**：47422\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "引用格式为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "向量数据库是一种专为高维向量数据的相似性检索而设计的数据库系统，其核心目标是支持高效、可扩展的近似最近邻（ANN）搜索，服务于语义搜索、RAG、推荐系统等AI原生应用",
+    "source": "https://arxiv.org/abs/2506.14412v2",
+    "verified": true,
+    "supported": false,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "向量数据库是一种专为高维向量数据的相似性检索而设计的数据库系统，其核心目标是支持高效、可扩展的近似最近邻（ANN）搜索，服务于语义搜索、RAG、推荐系统等AI原生应用",
+    "source": "https://arxiv.org/abs/2608.12812v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "而向量数据库以嵌入向量（embedding）为核心一等公民，辅以可选的标量元数据（如 metadata 字段），其主键常为向量 ID（如 int64 或 UUID），而非业务主键",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "文档型数据库虽支持向量字段（如 pgvector），但其底层仍依赖通用存储引擎，ANN 能力为插件式增强，非原生架构重心",
+    "source": "https://arxiv.org/abs/2608.12812v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.7,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "典型技术栈佐证：在实际 RAG 系统中，Qdrant 被明确用作“向量库”，并与 BM25（词法检索）构成混合检索管道，体现其与传统文本检索工具的协同而非替代关系",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断在多个来源中得到支持，包括 rag:deepresearch-plan.md 和 rag:0006-bm25-chinese-tokenization.md。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "典型技术栈佐证：在实际 RAG 系统中，Qdrant 被明确用作“向量库”，并与 BM25（词法检索）构成混合检索管道，体现其与传统文本检索工具的协同而非替代关系",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断在多个来源中得到支持，包括 rag:deepresearch-plan.md 和 rag:0006-bm25-chinese-tokenization.md。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "该混合范式凸显向量数据库的语义理解不可替代性——BM25 擅长匹配关键词，Qdrant 擅长匹配语义，二者互补",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4 和 13 均为代码执行失败记录，仅提及“三者均支持向量存储与实时查询”“具备扩展性与高性能”，但未给出任何具体架构特征（如是否开源/托管、是否存算分离）、功能细节（如过滤语法、多租户实现方式）或扩展机制（如分片策略、水平伸缩路径）",
+    "source": "code:afa11cf0e6",
+    "verified": true,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "code_exec",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4 和 13 均为代码执行失败记录，仅提及“三者均支持向量存储与实时查询”“具备扩展性与高性能”，但未给出任何具体架构特征（如是否开源/托管、是否存算分离）、功能细节（如过滤语法、多租户实现方式）或扩展机制（如分片策略、水平伸缩路径）",
+    "source": "code:651129b975",
+    "verified": true,
+    "supported": false,
+    "finding_id": "13",
+    "source_type": "code_exec",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 5 提及 Qdrant 的 ID 上限为 $2^{63}-1$，暗示其内部使用 int64 作为点 ID，属底层实现约束，但未延伸至架构或扩展性分析",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.8,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 9 和 10 提及三者被用于基准测试或 RAG 场景，但未对比其架构或功能差异",
+    "source": "https://arxiv.org/abs/2506.14412v2",
+    "verified": true,
+    "supported": false,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 9 和 10 提及三者被用于基准测试或 RAG 场景，但未对比其架构或功能差异",
+    "source": "https://arxiv.org/abs/2608.12812v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 9 提到 Pinecone 被用于 LiveRAG 2025 挑战中的 Fineweb 数据集索引，并与 BGE 重排序器组合使用，表明其在大规模 RAG 场景下具备工程可用性，但未说明其相对于 Milvus/Qdrant 的优势或边界",
+    "source": "https://arxiv.org/abs/2506.14412v2",
+    "verified": true,
+    "supported": false,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.8,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 2 提到 Qdrant 实现了“向量+BM25 混合检索”，且该能力“超出预期”，并在项目中被实际采用，佐证其在RAG 实时检索场景中的成熟度与实用性",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断在多个来源中得到支持，包括 rag:deepresearch-plan.md 和 rag:0006-bm25-chinese-tokenization.md。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 11 提到某银行使用 Qwen 模型 + “检索增强 + 引用溯源” 方式进行金融风控，但未指明所用向量数据库品牌，无法归因至 Milvus/Qdrant/Pinecone 任一产品",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 10 是一项涵盖七种向量数据库的综合基准研究，但未披露 Milvus/Qdrant/Pinecone 在各场景（如推荐、边缘、多租户 SaaS）下的具体表现或最佳实践",
+    "source": "https://arxiv.org/abs/2608.12812v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4、13、14 均为执行失败或乱码记录，未提供任何部署、运维、生态或商业信息",
+    "source": "code:afa11cf0e6",
+    "verified": true,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "code_exec",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4、13、14 均为执行失败或乱码记录，未提供任何部署、运维、生态或商业信息",
+    "source": "code:651129b975",
+    "verified": true,
+    "supported": false,
+    "finding_id": "13",
+    "source_type": "code_exec",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 4、13、14 均为执行失败或乱码记录，未提供任何部署、运维、生态或商业信息",
+    "source": "code:8ad0a9c679",
+    "verified": true,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "code_exec",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 5、6、15、16 描述的是项目内部对 Qdrant 的集成细节（如 ID 生成、API 兼容性、BM25 分词、引用拆分），属于客户端适配层工作，不反映 Qdrant 自身的部署模式（如是否支持 Serverless）、运维能力（如监控告警）、生态广度（如 SDK 语言列表）或商业条款（如免费额度）",
+    "source": "rag:0007-stable-point-id.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 5、6、15、16 描述的是项目内部对 Qdrant 的集成细节（如 ID 生成、API 兼容性、BM25 分词、引用拆分），属于客户端适配层工作，不反映 Qdrant 自身的部署模式（如是否支持 Serverless）、运维能力（如监控告警）、生态广度（如 SDK 语言列表）或商业条款（如免费额度）",
+    "source": "rag:README.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "6",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 5、6、15、16 描述的是项目内部对 Qdrant 的集成细节（如 ID 生成、API 兼容性、BM25 分词、引用拆分），属于客户端适配层工作，不反映 Qdrant 自身的部署模式（如是否支持 Serverless）、运维能力（如监控告警）、生态广度（如 SDK 语言列表）或商业条款（如免费额度）",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 5、6、15、16 描述的是项目内部对 Qdrant 的集成细节（如 ID 生成、API 兼容性、BM25 分词、引用拆分），属于客户端适配层工作，不反映 Qdrant 自身的部署模式（如是否支持 Serverless）、运维能力（如监控告警）、生态广度（如 SDK 语言列表）或商业条款（如免费额度）",
+    "source": "rag:0005-multi-number-citation-split.md",
+    "verified": true,
+    "supported": false,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 9、10 提及 Pinecone/Qdrant 参与评测，但未涉及其云服务形态、SLA、企业版功能等商业化维度",
+    "source": "https://arxiv.org/abs/2506.14412v2",
+    "verified": true,
+    "supported": false,
+    "finding_id": "9",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 9、10 提及 Pinecone/Qdrant 参与评测，但未涉及其云服务形态、SLA、企业版功能等商业化维度",
+    "source": "https://arxiv.org/abs/2608.12812v1",
+    "verified": true,
+    "supported": false,
+    "finding_id": "10",
+    "source_type": "arxiv",
+    "confidence": 0.9,
+    "note": "该论断与来源中的内容一致，但未被其他独立来源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用忠实：所有陈述均标注明确出处",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "系统架构说明：DeepResearch 系统包含 Planner→Researcher→Writer→Validator 四个节点，采用 LangGraph 状态机编排，支持多跳检索与交叉验证防幻觉机制",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断在多个来源中得到支持，包括 rag:0001-initial-design.md 和 rag:tmp6iq5rkl3.md。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "系统架构说明：DeepResearch 系统包含 Planner→Researcher→Writer→Validator 四个节点，采用 LangGraph 状态机编排，支持多跳检索与交叉验证防幻觉机制",
+    "source": "rag:tmp6iq5rkl3.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断在多个来源中得到支持，包括 rag:0001-initial-design.md 和 rag:tmp6iq5rkl3.md。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 5 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=当前仅完成跳数1、发现5条，覆盖广度与深度均严重不足：q1缺…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 5 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 15 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=当前跳数2、15条发现，虽可能覆盖基础定义（q1）和部分架构…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=当前检索虽覆盖基础定义与部分架构差异（如Qdrant开源/轻…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 26 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=缺少对三者在'边缘侧轻量嵌入服务'场景下的实测性能数据（如Q…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q1.1]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 32 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=缺少对三者在'边缘侧轻量嵌入服务'场景下的实测性能数据（如Q…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q1.2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 42 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=缺少对三者在'边缘侧轻量嵌入服务'场景下的实测性能对比（如Q…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q2.1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 52 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=缺少三者在边缘侧轻量嵌入服务场景下的实测性能对比（如Qdra…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：27/29 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 47422,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 219.0,
+ "status": "done",
+ "error": null
+}

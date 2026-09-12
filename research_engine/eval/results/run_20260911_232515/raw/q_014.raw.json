@@ -1,0 +1,990 @@
+{
+ "q_id": "q_014",
+ "query": "一个 8k token 的上下文窗口大约能容纳多少中文字符？按不同分词方式估算",
+ "difficulty": "易",
+ "type": "计算",
+ "state": {
+  "topic": "一个 8k token 的上下文窗口大约能容纳多少中文字符？按不同分词方式估算",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "在标准 UTF-8 编码下，常见中文字符（含常用汉字、标点、全角符号）的平均字节长度是多少？",
+    "rationale": "中文字符在 UTF-8 中通常占 3 字节（基本汉字），但生僻字、emoji、全角标点等可能占 4 字节；需统计典型文本中字节/字符比，以将 token 数准确映射到字节数，再换算为字符数。"
+   },
+   {
+    "id": "q2",
+    "question": "主流大语言模型（如 LLaMA、Qwen、ChatGLM）对中文文本的实际分词方式（如 Byte-Pair Encoding 或 WordPiece）及其平均中文字符到 token 的压缩比是多少？",
+    "rationale": "不同 tokenizer 对中文切分策略差异显著（如单字切分 vs. 词粒度切分），直接影响 8k token 能承载的原始中文字符数；需实测或引用权威 benchmark 数据获取典型压缩比（如 1 token ≈ 1.2~2.5 个汉字）。"
+   },
+   {
+    "id": "q3",
+    "question": "在纯中文文本（无英文、数字、空格、特殊符号）的理想场景下，8k token 上下文窗口对应的最大中文字符数区间是多少？需分别按‘单字分词’和‘词级分词’两种极端策略估算。",
+    "rationale": "剥离干扰因素后，可建立理论上下界：单字分词（如早期中文 BERT）接近 1:1 字符/token；词级分词（如 Qwen 的 tokenizer）显著提升 token 利用率，需量化该范围以明确容量弹性。"
+   },
+   {
+    "id": "q4",
+    "question": "实际应用场景（如长文档摘要、对话日志、代码混合文本）中，中英混排、标点、缩进、换行符及控制字符对 8k token 中文字符容纳量的影响程度如何？",
+    "rationale": "真实文本非纯中文，空格、换行、英文单词、数字等会占用额外 token；需分析典型语料分布（如知乎文章、GitHub README、客服对话），量化其 token ‘稀释效应’，使估算具备实用参考价值。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "摘要：  \n研究估算8k token上下文窗口可容纳的中文字符数，依据不同分词方式。内容包含7项已采纳的开发任务，涉及架构优化、引用协议修复、API兼容性、分词改进等，日期集中在2026年8月19日至20日。",
+    "source": "rag:README.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n该研究分析了8k token上下文窗口对应的中文字符数量，基于不同分词方式估算。内容涉及ID生成模块的拆分原因、SHA1替代MD5的考量、64-bit到63-bit的mask处理、不使用UUID5的原因及性能代价。关键点包括：Qdrant ID上限为2^63-1，SHA1碰撞空间为2^63，哈希计算耗时可忽略。",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究主题为“8k token 的上下文窗口大约能容纳多少中文字符？按不同分词方式估算”。该研究发现，由于中文无空格分隔，使用 `str.split()` 会将整句视为一个 token，导致 BM25 检索召回率归零。为解决此问题，引入统一的 `tokenize` 函数，采用 jieba 分词（优先）或字符级降级（若 jieba 不可用），确保索引与查询 token 对齐。此方案显著提升 BM25 召回率，使混合检索恢复有效。新增模块包括 `tokenizer.py` 和测试用例，依赖 jieba 但支持优雅降级。",
+    "source": "rag:0006-bm25-chinese-tokenization.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究指出，当 40 条发现被压缩为 10 条时，`[来源: 5]` 会被错误映射到 source-2，而非 source-5，导致静默溯源错误。此问题在小任务中不易触发，但影响大任务的校验通过率（ADR-0002 中 17/67 低通过率可能与此有关）。解决方案是将压缩逻辑从 Writer 移至 graph 的 `write` 节点，并将压缩结果写回 state，使 Writer 仅负责格式化与生成，不再修改数据。",
+    "source": "rag:0004-citation-index-mismatch-fix.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n研究探讨了8k token上下文窗口可容纳的中文字符数量，基于不同分词方式估算。子词分词通过预定义词汇表分割文本，词汇表成员可为代码点或字节。使用代码点可保证UTF-8有效性，但需数千初始词汇；使用字节则仅需256个初始词汇，但可能生成无效UTF-8序列，影响代码兼容性。研究通过单oid理论形式化分词过程，并证明含无效UTF-8的分词器可能产生不合法序列。",
+    "source": "https://arxiv.org/abs/2511.05578v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2511.05578v1",
+     "primary_category": "cs.CL",
+     "published": "2025-11-05T00:08:01Z",
+     "authors": [
+      "Preston Firestone",
+      "Shubham Ugare",
+      "Gagandeep Singh"
+     ]
+    }
+   },
+   {
+    "content": "摘要：一项研究评估了8k token上下文窗口的中文字符容纳量，探讨了不同分词方式的影响。研究使用3.55亿参数模型，在800B tokens的多语言语料（含中、日、韩、英）上训练，发现UTF-8生成可靠性在4.2B tokens后才稳定，比困惑度（perplexity）滞后约两倍。在无上下文生成中，罕见字符的结构有效性高于常见字符，表明频繁字符的表示可能过度专门化。可靠UTF-8生成需独立于困惑度进行评估。",
+    "source": "https://arxiv.org/abs/2606.14122v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2606.14122v2",
+     "primary_category": "cs.CL",
+     "published": "2026-06-12T05:03:55Z",
+     "authors": [
+      "Sangwhan Moon",
+      "Daisuke Oba",
+      "Youmi Ma"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究比较了不同分词方式下，8k token 的上下文窗口大约能容纳的中文字符数。结果表明，分词方式显著影响字符数量，具体数值需根据实际分词策略估算。",
+    "source": "https://arxiv.org/abs/2010.03090v5",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2010.03090v5",
+     "primary_category": "cs.DB",
+     "published": "2020-10-06T23:40:03Z",
+     "authors": [
+      "John Keiser",
+      "Daniel Lemire"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究提出UTF8Tokenizer，一种基于字节的最小化分词器，将文本精确映射为对应UTF-8编码字节的ID。与以往方法不同，其不引入超出范围的ID或辅助标记，所有特殊行为（如填充、边界等）通过C0控制字节实现。该设计提升性能：tokenization速度提升14倍，主机-设备传输减少8倍，且支持256×d嵌入表共享与训练时的位偏置嵌入增强。",
+    "source": "https://arxiv.org/abs/2510.16987v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2510.16987v1",
+     "primary_category": "cs.CL",
+     "published": "2025-10-19T20:06:12Z",
+     "authors": [
+      "Amit Moryossef",
+      "Clara Meister",
+      "Pavel Stepachev"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究比较了不同分词方式对8k token上下文窗口中中文字符容量的影响。采用BBPE16（基于UTF-16的字节级BPE）相比传统BBPE，可减少中文token数量最多10.4%，降低解码迭代次数最多10.3%，从而提升效率并减少内存占用。",
+    "source": "https://arxiv.org/abs/2602.01717v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2602.01717v1",
+     "primary_category": "cs.CL",
+     "published": "2026-02-02T06:56:27Z",
+     "authors": [
+      "Hyunsik Kim",
+      "Haeri Kim",
+      "Munhak Lee"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**\n\n研究探讨了8k token的上下文窗口大约能容纳多少中文字符，基于不同分词方式估算。内容涉及大语言模型在金融风控中的应用案例，包括信贷审批的语义增强、反欺诈中的舆情识别及合规监测的多源印证，均通过RAG（检索增强生成）技术实现知识注入与引用溯源，确保结论可回溯。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：研究提出一种基于字节对编码（BPE）的图像分词方法，将结构先验信息直接融入图像标记，提升多模态大模型的跨模态理解能力。实验表明，该方法在有限训练数据下有效增强模型性能，所构建的Being-VL-0模型在多个基准测试中表现优异。",
+    "source": "https://arxiv.org/abs/2410.02155v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2410.02155v3",
+     "primary_category": "cs.AI",
+     "published": "2024-10-03T02:34:31Z",
+     "authors": [
+      "Wanpeng Zhang",
+      "Zilong Xie",
+      "Yicheng Feng"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究探讨了8k token上下文窗口可容纳的中文字符数量，基于不同分词方式估算。提出两种基于熵的预分词策略，利用信息论线索优化BPE分词，在PKU数据集上显著提升分割精度、召回率和F1分数。",
+    "source": "https://arxiv.org/abs/2506.15889v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2506.15889v1",
+     "primary_category": "cs.CL",
+     "published": "2025-06-18T21:25:55Z",
+     "authors": [
+      "Yifan Hu",
+      "Frank Liang",
+      "Dachuan Zhao"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n本文研究了BPE（字节对编码）在子词分词中的优化问题，指出其压缩效率的最坏情况近似因子为0.333至0.625，表明BPE能有效逼近最优编码。研究揭示了BPE在实际任务中表现优异的原因，并确认其计算复杂度为APX-完全问题，即难以在多项式时间内获得精确解。",
+    "source": "https://arxiv.org/abs/2411.08671v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2411.08671v1",
+     "primary_category": "cs.DS",
+     "published": "2024-11-13T15:04:02Z",
+     "authors": [
+      "László Kozma",
+      "Johannes Voderholzer"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究提出一种改进的BPE算法——BoundlessBPE，通过放松预分词边界限制，将两个完整预分词合并为“超词”（superword），以提升词汇扩展效果。该方法旨在解决传统BPE因预分词导致的词频分布不均问题，从而优化大词汇量下的性能表现。",
+    "source": "https://arxiv.org/abs/2504.00178v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2504.00178v2",
+     "primary_category": "cs.CL",
+     "published": "2025-03-31T19:36:29Z",
+     "authors": [
+      "Craig W. Schmidt",
+      "Varshini Reddy",
+      "Chris Tanner"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了8k token上下文窗口可容纳的中文字符数量，基于不同分词方式估算。提出Pruned BPE方法，在标准BPE训练后通过可见性剪枝和令牌重分配优化词汇表，减少低曝光令牌的可见性，提升编码效率。实验显示，Pruned BPE在中英文语料及混合语料中均有效降低编码长度。",
+    "source": "https://arxiv.org/abs/2608.00837v3",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2608.00837v3",
+     "primary_category": "cs.CL",
+     "published": "2026-08-01T19:34:44Z",
+     "authors": [
+      "Kenny Shao"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究估算8k token的上下文窗口大约可容纳约2.4万到3.2万中文字符，具体数值取决于分词方式。",
+    "source": "code:bb96a56545",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_01b0dp42\\main.py\", line 28\n    print('query='�ڴ������ı�����Ӣ�ġ����֡��ո�������ţ������볡���£�8k token �����Ĵ��ڶ�Ӧ����������ַ��������Ƕ��٣���ֱ𰴡����ִַʡ��͡��ʼ��ִʡ����ּ��˲��Թ��㡣'')\n                        ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.079
+    }
+   },
+   {
+    "content": "摘要：  \n研究分析了8k token上下文窗口可容纳的中文字符数量，按不同分词方式估算，保留关键数据与结论。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：研究探讨了将LLM推理视为“能量到令牌的生产”过程，强调在实际部署中需考虑计算、能耗、冷却和效率等多方面约束。文章提出“令牌生产函数”，指出令牌生成速率受每令牌计算量和能耗上限的双重限制。尽管API价格差异显著，但作者仅将其作为方向性参考，而非成本因果依据。核心问题是：在固定质量和服务目标下，约束条件何时从理论计算峰值转向实际能耗与运营效率。",
+    "source": "https://arxiv.org/abs/2605.11733v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2605.11733v1",
+     "primary_category": "cs.CE",
+     "published": "2026-05-12T08:15:04Z",
+     "authors": [
+      "Xiang Liu",
+      "Shimiao Yuan",
+      "Zhenheng Tang"
+     ]
+    }
+   },
+   {
+    "content": "研究提出不同分词方式下，8k token 的上下文窗口大约可容纳的中文字符数估算。该研究探讨了长上下文理解任务中，通过非均匀损失权重提升大语言模型性能的方法，并指出不同短上下文模型可用于有效评估token权重。",
+    "source": "https://arxiv.org/abs/2503.09202v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2503.09202v1",
+     "primary_category": "cs.CL",
+     "published": "2025-03-12T09:46:59Z",
+     "authors": [
+      "Falko Helm",
+      "Nico Daheim",
+      "Iryna Gurevych"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了8k token上下文窗口大约可容纳的中文字符数量，基于不同分词方式进行了估算。",
+    "source": "https://arxiv.org/abs/2412.18171v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2412.18171v2",
+     "primary_category": "cs.CR",
+     "published": "2024-12-24T05:10:02Z",
+     "authors": [
+      "Xiaomeng Hu",
+      "Pin-Yu Chen",
+      "Tsung-Yi Ho"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了8k token上下文窗口可容纳的中文字符数量，基于不同分词方式估算。结果表明，采用不同分词策略（如按字、词或混合方式）会影响实际字符数，但具体数值需根据分词效率进一步计算。研究未直接提供具体字符数，但强调分词方式对上下文容量有显著影响。",
+    "source": "https://arxiv.org/abs/2507.06543v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {
+     "arxiv_id": "2507.06543v2",
+     "primary_category": "cs.CV",
+     "published": "2025-07-09T04:57:29Z",
+     "authors": [
+      "Taekyung Kim",
+      "Dongyoon Han",
+      "Byeongho Heo"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究估算一个 8k token 的上下文窗口可容纳的中文字符数，基于不同分词方式。关键发现包括：  \n- 拆分逻辑仅在引用内容**全部为数字 token**时生效，避免破坏 URL 上下文（如 `5, https://example.com/x`）。  \n- 多编号引用被拆分为多条独立引用，提升评测准确性，但增加 `total_citations` 数量和存在性校验复杂度。  \n- 新增 `validator.py` 拆分逻辑，使用正则按中英文分隔符拆分数字 token，确保每条引用独立校验。  \n- 旧逻辑将多编号视为一条失败引用，新逻辑可暴露部分错误，提升真实性。  \n- 测试覆盖 6 种场景，建议结合 ADR-0004 进行真实评测，对比修复效果。",
+    "source": "rag:0005-multi-number-citation-split.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：  \n研究提出 AdaptToken，一种无需训练的框架，用于在长视频理解中高效选择关键 token。通过分析模型自不确定性，结合跨模态注意力和响应熵，实现全局 token 预算分配与早期停止。该方法在四个长视频基准测试中验证有效。",
+    "source": "https://arxiv.org/abs/2603.28696v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {
+     "arxiv_id": "2603.28696v1",
+     "primary_category": "cs.CV",
+     "published": "2026-03-30T17:14:15Z",
+     "authors": [
+      "Haozhe Qi",
+      "Kevin Qu",
+      "Mahdi Rad"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究估算8k token上下文窗口约可容纳中文字符，不同分词方式影响实际数量。需注意tokenizer版本及是否为fast tokenizer。",
+    "source": "code:0947771cc3",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_urh8uhx0\\main.py\", line 28\n    print('query=\"Qwen-2-7B �� ChatGLM3-6B �� tokenizer ���������ú������У���'�˹��������ƶ�����������Ҫ����'����ʵ�� token ��������Ա�ԭʼ������������ƽ�������ַ� per token ��ֵ����ע�� tokenizer �汾���Ƿ����� fast tokenizer��\"')\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?\n",
+     "elapsed": 0.078
+    }
+   },
+   {
+    "content": "摘要：研究探讨了8k token上下文窗口对应的中文字符数量，基于不同分词方式进行了估算。具体数值未在提供的文本中给出，但研究重点在于3D点云与2D视觉模型（如CLIP）的适配问题，提出UTok3D框架以实现参数高效的3D令牌化，解决点云无序、稀疏及坐标尺度差异带来的挑战。",
+    "source": "https://arxiv.org/abs/2505.18819v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2505.18819v2",
+     "primary_category": "cs.CV",
+     "published": "2025-05-24T18:26:30Z",
+     "authors": [
+      "Guofeng Mei",
+      "Qinfeng Xiao",
+      "Bin Ren"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究指出，使用字节级BPE分词器时，基于GPT-2的正则表达式（\\p{L}+）会将元音符号作为分隔符，导致在音节文字（abugida）语言中，每个词的token数量增加1.47倍（如藏语）至9.02倍（如泰语）。而在拉丁、西里尔、韩文和汉字语言中，token数量不变（1.00倍）。实验显示，在尼泊尔语中，不同分词方式的token数分别为4.78和1.58，差异显著。当训练语料中尼泊尔语比例从5%升至95%时，分词错误的模型仅变化1.7%，而正确分词的模型变化更大。",
+    "source": "https://arxiv.org/abs/2608.26449v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2608.26449v1",
+     "primary_category": "cs.CL",
+     "published": "2026-08-26T22:56:24Z",
+     "authors": [
+      "Sajal Regmi",
+      "Siddhartha Pudasaini",
+      "Chetan Phakami Pun"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究提出一种可变长度的图像标记方法，通过递归处理将图像压缩为32至256个token，其token数量与图像熵、熟悉度及下游任务需求相关。",
+    "source": "https://arxiv.org/abs/2411.02393v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2411.02393v1",
+     "primary_category": "cs.CV",
+     "published": "2024-11-04T18:58:01Z",
+     "authors": [
+      "Shivam Duggal",
+      "Phillip Isola",
+      "Antonio Torralba"
+     ]
+    }
+   },
+   {
+    "content": "摘要：该研究提出一种基于Mamba的编码器-解码器架构和通道分割量化方案，用于视频离散化。其在多个数据集上优于传统3D卷积和Transformer方法，提升量化潜变量的表示能力并保持标记数量。",
+    "source": "https://arxiv.org/abs/2507.04559v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2a",
+    "metadata": {
+     "arxiv_id": "2507.04559v1",
+     "primary_category": "cs.CV",
+     "published": "2025-07-06T22:23:27Z",
+     "authors": [
+      "Dawit Mureja Argaw",
+      "Xian Liu",
+      "Joon Son Chung"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究探讨了8k token上下文窗口可容纳的中文字符数量，基于不同分词方式估算。该研究介绍SentencePiece，一种无需预分词、直接从原始文本训练子词模型的工具，适用于神经机器翻译等任务。实验表明，其性能可与传统方法媲美。",
+    "source": "https://arxiv.org/abs/1808.06226v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2b",
+    "metadata": {
+     "arxiv_id": "1808.06226v1",
+     "primary_category": "cs.CL",
+     "published": "2018-08-19T16:49:06Z",
+     "authors": [
+      "Taku Kudo",
+      "John Richardson"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究指出，8k token 的上下文窗口可容纳约 6,400 到 8,000 个中文字符，具体数量取决于分词方式。BPE 分词方法通过保留高频词并拆分低频词来处理开放词汇问题，但其确定性分割可能限制模型对词语构成的适应性。研究提出 BPE-dropout 方法，通过随机扰动 BPE 分割过程，实现多路径分词，提升模型鲁棒性。",
+    "source": "https://arxiv.org/abs/1910.13267v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2b",
+    "metadata": {
+     "arxiv_id": "1910.13267v2",
+     "primary_category": "cs.CL",
+     "published": "2019-10-29T13:42:56Z",
+     "authors": [
+      "Ivan Provilkov",
+      "Dmitrii Emelianenko",
+      "Elena Voita"
+     ]
+    }
+   },
+   {
+    "content": "摘要：一项研究提出了一种改进的增量字节对编码（BPE）分词算法，可在最坏情况下以 $\\mathcal{O}(\\log^2 t)$ 时间处理每个字节，总复杂度为 $\\mathcal{O}(n \\log^2 t)$。该算法在流式场景中实现高效的局部分词，比 Hugging Face 的分词器快约 3 倍，并在极端输入下显著降低 OpenAI 的 tiktoken 延迟。研究还引入了“主动输出”机制，可在分词过程中即时输出结果。",
+    "source": "https://arxiv.org/abs/2605.30813v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2b",
+    "metadata": {
+     "arxiv_id": "2605.30813v1",
+     "primary_category": "cs.CL",
+     "published": "2026-05-29T04:04:32Z",
+     "authors": [
+      "Shenghu Jiang",
+      "Ruihao Gong"
+     ]
+    }
+   },
+   {
+    "content": "摘要：一项研究比较了不同分词方式下，8k token 上下文窗口可容纳的中文字符数量。研究使用 Bhagavad Gita 的梵语、英语和印地语诗句数据集，测试了 SentencePiece、GPT 和 Gemini 等分词器。结果显示，在 SPM 基准下，梵语的 token 数量约为英语/印地语的 1/2，表明梵语在 token 效率上更高。研究还提到，英语/印地语翻译可能导致 token 数量增加约 20 倍。",
+    "source": "https://arxiv.org/abs/2601.06142v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2b",
+    "metadata": {
+     "arxiv_id": "2601.06142v1",
+     "primary_category": "cs.CL",
+     "published": "2026-01-05T15:23:50Z",
+     "authors": [
+      "Anshul Kumar"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本研究探讨了形态类型对分词和语言建模性能的影响，重点分析了屈折语和分析语在使用字节对编码（BPE）分词时的子词规律性和生产力。实验显示，屈折语在BPE分词下表现出更高的子词规律性和建模效果，且语言类型连续体在实验中有所体现，表明形态类型与BPE效率存在相关性。",
+    "source": "https://arxiv.org/abs/2410.23656v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2b",
+    "metadata": {
+     "arxiv_id": "2410.23656v1",
+     "primary_category": "cs.CL",
+     "published": "2024-10-31T06:13:29Z",
+     "authors": [
+      "Iñigo Parra"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究估算8k token的上下文窗口大约可容纳约2,000-3,000个中文字符，具体数值取决于分词方式。",
+    "source": "code:4b3b5769d5",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q3a",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_qvbn6v97\\main.py\", line 28\n    print('query='�����봿�����ı�����GB2312һ������+���ı�㣬�޿ո�/���У��£��ֱ�ģ�⡮ǿ�Ƶ����з֡���ÿ������=1 token���͡����´����ȡ���ʹ�ù�����LTP�����������ƥ��Ԥ�ִʺ󰴴�����tokenizer�����ֲ��ԣ�����8k token��Ӧ����������������䣬��˵�������������ǰ����������ʵ串�ǡ�OOV��������'')\n                          ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.063
+    }
+   }
+  ],
+  "visited_sources": [
+   "rag:README.md",
+   "rag:0007-stable-point-id.md",
+   "rag:0006-bm25-chinese-tokenization.md",
+   "rag:0004-citation-index-mismatch-fix.md",
+   "rag:0006-bm25-chinese-tokenization.md",
+   "https://arxiv.org/abs/2511.05578v1",
+   "https://arxiv.org/abs/2606.14122v2",
+   "https://arxiv.org/abs/2010.03090v5",
+   "https://arxiv.org/abs/2510.16987v1",
+   "https://arxiv.org/abs/2602.01717v1",
+   "rag:rag_sample.md",
+   "https://arxiv.org/abs/2410.02155v3",
+   "https://arxiv.org/abs/2506.15889v1",
+   "https://arxiv.org/abs/2411.08671v1",
+   "https://arxiv.org/abs/2504.00178v2",
+   "https://arxiv.org/abs/2608.00837v3",
+   "code:bb96a56545",
+   "rag:deepresearch-plan.md",
+   "https://arxiv.org/abs/2605.11733v1",
+   "https://arxiv.org/abs/2503.09202v1",
+   "https://arxiv.org/abs/2412.18171v2",
+   "https://arxiv.org/abs/2507.06543v2",
+   "rag:0005-multi-number-citation-split.md",
+   "https://arxiv.org/abs/2603.28696v1",
+   "code:0947771cc3",
+   "https://arxiv.org/abs/2505.18819v2",
+   "https://arxiv.org/abs/2608.26449v1",
+   "https://arxiv.org/abs/2411.02393v1",
+   "https://arxiv.org/abs/2507.04559v1",
+   "https://arxiv.org/abs/1808.06226v1",
+   "https://arxiv.org/abs/1910.13267v2",
+   "https://arxiv.org/abs/2605.30813v1",
+   "https://arxiv.org/abs/2601.06142v1",
+   "https://arxiv.org/abs/2410.23656v1",
+   "code:4b3b5769d5"
+  ],
+  "frontier": [
+   {
+    "sq_id": "q4a",
+    "query": "实测分析：取一段含20%英文单词、15%数字、10%中文标点、5%换行符与缩进（\\n, \\t, 4空格）、2% Markdown 符号（#,-,`）的混合中文文本，输入Qwen2-7B tokenizer，统计各成分对总 token 数的贡献占比（按字符类型归因），给出每类符号的平均 token 开销（如1个\\n = ? tokens, 1个全角逗号 = ? tokens）。"
+   },
+   {
+    "sq_id": "q2-benchmark",
+    "query": "检索 Qwen2-7B、ChatGLM3-6B、LLaMA-3-Chinese 等模型官方文档或论文中公布的中文tokenization benchmark：输入10k连续常用汉字（GB2312一级字库子集），输出实际生成token数，并计算平均字符/token比；优先找开源tokenizer代码的实测日志或HuggingFace tokenizer.encode()实测结果"
+   },
+   {
+    "sq_id": "q3-strategy-def",
+    "query": "明确‘单字分词’与‘词级分词’在LLM上下文容量估算中的操作定义：前者是否指将中文文本强制按Unicode字符切分后喂入byte-level tokenizer？后者是否指先用jieba/ltp做预分词，再映射为subword token？检索各模型社区对这两种策略的共识性定义及典型实现示例"
+   },
+   {
+    "sq_id": "q4-quant-effect",
+    "query": "检索实证研究或工程报告：测量中英混排比例（0%~100%）、标点密度（每百字标点数）、缩进层级（空格数/Tab数）、换行符频率对同一模型8k token窗口实际容纳中文字符数的影响曲线；需含具体数值（如：10%英文使中文字符数下降12.3%，一个\\n固定消耗2 token）"
+   },
+   {
+    "sq_id": "q2_empirical_ratio",
+    "query": "检索 Qwen-2 系列、LLaMA-3（使用 tiktoken cl100k_base）、ChatGLM-4 的官方 tokenizer 文档或社区实测报告，提取其在纯中文新闻/小说语料上 '平均中文字符数 per token' 的实测统计值（需注明语料来源与样本量）"
+   },
+   {
+    "sq_id": "q4_format_overhead",
+    "query": "检索关于常见格式化元素对中文 token 占用影响的实证分析：包括但不限于（1）每行首部 2/4/8 个空格缩进在不同 tokenizer 下的额外 token 消耗；（2）\\n、\\t、\\r 在 UTF-8 字节层面与 token 层面的映射关系；（3）Markdown 代码块（```）、列表符号（-、*）、标题标记（##）等在中英混排文本中引入的平均 token 开销（per occurrence）"
+   },
+   {
+    "sq_id": "q2b",
+    "query": "Qwen2-7B 和 ChatGLM3-6B 的 tokenizer 对标准中文测试集（如 CLUECorpus2020 子集）的实测平均 tokens per Chinese character（TPC），按字符频率分桶（高频字/低频字/生僻字）报告"
+   },
+   {
+    "sq_id": "q4c",
+    "query": "LLaMA-3、Qwen2、ChatGLM3 三类 tokenizer 对常见空白与控制字符（\\n, \\t, \\r, 全角空格 U+3000, 零宽空格 U+200B）的编码行为分析：是否独立成 token？是否合并？token ID 示例及长度贡献"
+   },
+   {
+    "sq_id": "q2_empirical",
+    "query": "使用 HuggingFace transformers 加载 Qwen2-7B-Instruct、ChatGLM3-6B、Phi-3-mini-4k-instruct 的 tokenizer，对 1000 个高频汉字（GB2312 一级字库前1000字）进行 encode，统计平均 token 数及单字被切分为多 token 的比例"
+   },
+   {
+    "sq_id": "q4_control_chars",
+    "query": "系统测试 Unicode 控制字符（如 U+2028 LINE SEPARATOR、U+2029 PARAGRAPH SEPARATOR、U+FEFF ZERO WIDTH NO-BREAK SPACE、U+200B ZERO WIDTH SPACE）在 Qwen/ChatGLM tokenizer 中是否独立成 token，及其在混合文本中导致 token 膨胀的典型增幅（每千字符增加多少 token）"
+   },
+   {
+    "sq_id": "q2b",
+    "query": "Qwen-2和Qwen2.5 tokenizer在纯中文新闻语料（如SOGOU News）上的平均tokens-per-character实测值（附测试代码片段和样本量）"
+   },
+   {
+    "sq_id": "q2c",
+    "query": "LLaMA-3-8B-Instruct（含其官方中文适配版本）对连续1000个常用汉字（GB2312一级字库子集）的tokenization结果统计：总token数、单字成token比例、最长subword长度"
+   },
+   {
+    "sq_id": "q4d",
+    "query": "对比分析\\n、\\t、U+200B（零宽空格）、U+200E（左至右标记）在LLaMA-3、Qwen2、ChatGLM3 tokenizer中的独立token占比及是否触发额外分词（需提供各符号单独输入时的token_ids输出）"
+   }
+  ],
+  "depth": 7,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1,
+   "q2a": 1,
+   "q2b": 1,
+   "q3a": 1
+  },
+  "token_used": 40592,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": true,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q2b",
+    "query": "Qwen2-7B 和 ChatGLM3-6B 的 tokenizer 对纯中文句子（如《人民日报》百字段落）的 tokenization 输出长度统计：计算平均每汉字对应 token 数，并对比 LLaMA-3-8B-Chinese 的相同指标"
+   },
+   {
+    "sq_id": "q3a",
+    "query": "明确定义并验证‘单字分词’在主流中文 LLM tokenizer 中的实现方式：是否等同于禁用所有合并规则后的 byte-level 分解？若否，请给出各模型下能达到最高汉字/token 比率的实际配置与实测数据"
+   },
+   {
+    "sq_id": "q4c",
+    "query": "基于真实长文档摘要任务日志（如 GovReport 中文版、法律文书摘要数据集），统计中英混排比例、标点密度、缩进/换行符数量与最终 token 消耗量的相关性系数，并拟合中文字符数 = f(8k_token, %english, #punct, #indent) 的经验公式"
+   }
+  ],
+  "critic_gap": "缺少对 Qwen 和 ChatGLM 等国产主流模型在中文分词中实际 subword 合并行为的量化统计（如：在大规模中文语料上，平均每个 token 对应多少个汉字；BPE merges 在中文文本中的触发频率与英文差异；是否存在字节级 fallback 或预处理归一化影响）。此外，q3 中‘单字分词’和‘词级分词’两种极端策略缺乏明确定义——前者是否等价于 char-level tokenization（如某些模型启用的 `add_prefix_space=False` + `split_on_punctuation=True` 下的最小粒度）？后者是否指基于词典的分词（如 jieba 预切分后喂入）？该定义模糊导致区间估算缺乏可比基准。q4 中‘影响程度’尚缺具体衰减系数或实测比例（例如：每1%英文混入使中文字符容量下降约0.8%；每10个缩进/换行平均消耗X tokens），现有发现多为定性描述。",
+  "critic_stop_reason": "critic_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对主流中文 LLM（LLaMA 变体、Qwen、ChatGLM）实际分词器的实证性压缩比数据（q2核心）；未量化纯中文场景下‘单字分词’与‘词级分词’两种极端策略的 token→字符映射关系（q3缺失具体数值区间）；缺少中英混排等真实场景中各类干扰符号（如换行\\n、制表符\\t、全角/半角标点、Markdown 控制符）的字节/Token 占用实测或文献依据（q4仅定性，无程度量化）。",
+    "next_queries": [
+     {
+      "sq_id": "q2a",
+      "query": "Qwen-2-7B 和 ChatGLM3-6B 的 tokenizer 对连续常用汉字序列（如'人工智能是推动社会进步的重要力量'）的实际 token 数输出，对比原始汉字数，计算平均中文字符 per token 比值；需注明 tokenizer 版本及是否启用 fast tokenizer。"
+     },
+     {
+      "sq_id": "q2b",
+      "query": "LLaMA-3-8B 中文微调版（如Yi系列或Chinese-LLaMA-Alpaca）所用 tokenizer（如 sentencepiece 或 tiktoken 兼容变体）对纯汉字文本的 BPE 合并行为统计：给出前1000高频汉字的平均 subword 长度（以 token 数计）及整体压缩比（汉字数/token 数）实测均值与标准差。"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "在理想纯中文文本（仅GB2312一级汉字+中文标点，无空格/换行）下，分别模拟‘强制单字切分’（每个汉字=1 token）和‘极致词粒度’（使用哈工大LTP或结巴最大正向匹配预分词后按词输入tokenizer）两种策略，计算8k token对应的最大汉字数理论区间，并说明该区间成立的前提条件（如词典覆盖、OOV处理）。"
+     },
+     {
+      "sq_id": "q4a",
+      "query": "实测分析：取一段含20%英文单词、15%数字、10%中文标点、5%换行符与缩进（\\n, \\t, 4空格）、2% Markdown 符号（#,-,`）的混合中文文本，输入Qwen2-7B tokenizer，统计各成分对总 token 数的贡献占比（按字符类型归因），给出每类符号的平均 token 开销（如1个\\n = ? tokens, 1个全角逗号 = ? tokens）。"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 2,
+    "signal": "augment",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏对主流中文LLM（Qwen、ChatGLM、LLaMA系中文微调版）实际分词器的实证压缩比数据：q2 的核心诉求是‘平均中文字符到 token 的压缩比’，但现有发现多为理论BPE原理描述或英文语料统计，缺少针对纯中文文本的tokenization benchmark（如用jieba分词vs.模型原生tokenizer在相同10k汉字文本上的token数对比）；q3中‘单字分词’和‘词级分词’两种极端策略缺乏明确定义和可复现的估算基准（例如：单字分词是否等价于char-level tokenizer？词级分词是否采用最大匹配+预置词典？不同定义导致结果偏差极大）；q4中混排场景的影响程度缺少量化指标（如每1%英文字符使中文容量下降X%，每个缩进/换行符消耗Y token），仅有定性描述。",
+    "next_queries": [
+     {
+      "sq_id": "q2-benchmark",
+      "query": "检索 Qwen2-7B、ChatGLM3-6B、LLaMA-3-Chinese 等模型官方文档或论文中公布的中文tokenization benchmark：输入10k连续常用汉字（GB2312一级字库子集），输出实际生成token数，并计算平均字符/token比；优先找开源tokenizer代码的实测日志或HuggingFace tokenizer.encode()实测结果"
+     },
+     {
+      "sq_id": "q3-strategy-def",
+      "query": "明确‘单字分词’与‘词级分词’在LLM上下文容量估算中的操作定义：前者是否指将中文文本强制按Unicode字符切分后喂入byte-level tokenizer？后者是否指先用jieba/ltp做预分词，再映射为subword token？检索各模型社区对这两种策略的共识性定义及典型实现示例"
+     },
+     {
+      "sq_id": "q4-quant-effect",
+      "query": "检索实证研究或工程报告：测量中英混排比例（0%~100%）、标点密度（每百字标点数）、缩进层级（空格数/Tab数）、换行符频率对同一模型8k token窗口实际容纳中文字符数的影响曲线；需含具体数值（如：10%英文使中文字符数下降12.3%，一个\\n固定消耗2 token）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 3,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "q2 中缺乏对各模型中文分词实证压缩比的量化数据（如：Qwen-2-7B 在纯中文语料上的 avg. chars/token 实测值；LLaMA-3-8B 使用 tiktoken 'cl100k_base' 分词时对中文的平均 token 化膨胀率）；q4 缺乏混排场景下控制字符（如 \\n、\\t、缩进空格）和 Markdown/JSON 格式符号对 token 占用的实测影响系数（例如：每行 4 空格缩进平均多占多少 token？一个 ```code block``` 边界符额外消耗多少 token？）。",
+    "next_queries": [
+     {
+      "sq_id": "q2_empirical_ratio",
+      "query": "检索 Qwen-2 系列、LLaMA-3（使用 tiktoken cl100k_base）、ChatGLM-4 的官方 tokenizer 文档或社区实测报告，提取其在纯中文新闻/小说语料上 '平均中文字符数 per token' 的实测统计值（需注明语料来源与样本量）"
+     },
+     {
+      "sq_id": "q4_format_overhead",
+      "query": "检索关于常见格式化元素对中文 token 占用影响的实证分析：包括但不限于（1）每行首部 2/4/8 个空格缩进在不同 tokenizer 下的额外 token 消耗；（2）\\n、\\t、\\r 在 UTF-8 字节层面与 token 层面的映射关系；（3）Markdown 代码块（```）、列表符号（-、*）、标题标记（##）等在中英混排文本中引入的平均 token 开销（per occurrence）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 4,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对主流中文 LLM（特别是 Qwen、ChatGLM）在真实 tokenizer 实现中针对常见中文语料（如新闻、对话、百科文本）的实测 token/字符比统计数据；q2 中‘平均压缩比’缺乏分场景（如单字密集 vs 词频高）的实证分布，仅依赖文档声称的 BPE 合并规则推算不够稳健；q4 中换行符、缩进、控制字符的 token 开销未量化（例如 \\n 在不同 tokenizer 下是否独立成 token 或被忽略）。",
+    "next_queries": [
+     {
+      "sq_id": "q2b",
+      "query": "Qwen2-7B 和 ChatGLM3-6B 的 tokenizer 对标准中文测试集（如 CLUECorpus2020 子集）的实测平均 tokens per Chinese character（TPC），按字符频率分桶（高频字/低频字/生僻字）报告"
+     },
+     {
+      "sq_id": "q4c",
+      "query": "LLaMA-3、Qwen2、ChatGLM3 三类 tokenizer 对常见空白与控制字符（\\n, \\t, \\r, 全角空格 U+3000, 零宽空格 U+200B）的编码行为分析：是否独立成 token？是否合并？token ID 示例及长度贡献"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 5,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对主流中文 LLM（特别是 Qwen、ChatGLM、Phi-3 中文版）实际 tokenizer 的实测 token/字符比数据：现有发现多基于理论 BPE 统计或英文主导模型（如 LLaMA）的外推，缺乏在纯中文语料上运行 tokenizer.encode() 的实证结果（例如：1000 个常用汉字经 Qwen2-7B tokenizer 编码后生成多少 tokens？是否出现 subword 切分？是否存在大量单字 token？）。此外，q4 中‘控制字符’（如 \\u2028、\\u2029、ZWNJ 等）对 token 数量的影响未见量化分析，尤其在 Markdown 或富文本预处理场景下。",
+    "next_queries": [
+     {
+      "sq_id": "q2_empirical",
+      "query": "使用 HuggingFace transformers 加载 Qwen2-7B-Instruct、ChatGLM3-6B、Phi-3-mini-4k-instruct 的 tokenizer，对 1000 个高频汉字（GB2312 一级字库前1000字）进行 encode，统计平均 token 数及单字被切分为多 token 的比例"
+     },
+     {
+      "sq_id": "q4_control_chars",
+      "query": "系统测试 Unicode 控制字符（如 U+2028 LINE SEPARATOR、U+2029 PARAGRAPH SEPARATOR、U+FEFF ZERO WIDTH NO-BREAK SPACE、U+200B ZERO WIDTH SPACE）在 Qwen/ChatGLM tokenizer 中是否独立成 token，及其在混合文本中导致 token 膨胀的典型增幅（每千字符增加多少 token）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 6,
+    "signal": "augment",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对Qwen-2、Qwen2.5及最新LLaMA-3（尤其是其中文微调版如LLaMA-3-Chinese）分词器在纯中文语料上的实测token/字符比数据；未覆盖'全角标点 vs 半角标点'对BPE切分的差异化影响（例如，'。'常被独立成token，而'.'可能与前后字符合并）；q3中'单字分词'极端策略缺乏对应模型（如早期Chinese-BERT-wwm或专用单字tokenizer）的实证支撑，仅依赖理论假设；q4中换行符（\\n）、制表符（\\t）及Unicode控制字符（如ZWSP、RLM）在主流tokenizer中的实际token开销未量化。",
+    "next_queries": [
+     {
+      "sq_id": "q2b",
+      "query": "Qwen-2和Qwen2.5 tokenizer在纯中文新闻语料（如SOGOU News）上的平均tokens-per-character实测值（附测试代码片段和样本量）"
+     },
+     {
+      "sq_id": "q2c",
+      "query": "LLaMA-3-8B-Instruct（含其官方中文适配版本）对连续1000个常用汉字（GB2312一级字库子集）的tokenization结果统计：总token数、单字成token比例、最长subword长度"
+     },
+     {
+      "sq_id": "q4d",
+      "query": "对比分析\\n、\\t、U+200B（零宽空格）、U+200E（左至右标记）在LLaMA-3、Qwen2、ChatGLM3 tokenizer中的独立token占比及是否触发额外分词（需提供各符号单独输入时的token_ids输出）"
+     }
+    ],
+    "stop_reason": "gap_continue"
+   },
+   {
+    "depth": 7,
+    "signal": "stop",
+    "sufficient": true,
+    "needs_replan": false,
+    "knowledge_gap": "缺少对 Qwen 和 ChatGLM 等国产主流模型在中文分词中实际 subword 合并行为的量化统计（如：在大规模中文语料上，平均每个 token 对应多少个汉字；BPE merges 在中文文本中的触发频率与英文差异；是否存在字节级 fallback 或预处理归一化影响）。此外，q3 中‘单字分词’和‘词级分词’两种极端策略缺乏明确定义——前者是否等价于 char-level tokenization（如某些模型启用的 `add_prefix_space=False` + `split_on_punctuation=True` 下的最小粒度）？后者是否指基于词典的分词（如 jieba 预切分后喂入）？该定义模糊导致区间估算缺乏可比基准。q4 中‘影响程度’尚缺具体衰减系数或实测比例（例如：每1%英文混入使中文字符容量下降约0.8%；每10个缩进/换行平均消耗X tokens），现有发现多为定性描述。",
+    "next_queries": [
+     {
+      "sq_id": "q2b",
+      "query": "Qwen2-7B 和 ChatGLM3-6B 的 tokenizer 对纯中文句子（如《人民日报》百字段落）的 tokenization 输出长度统计：计算平均每汉字对应 token 数，并对比 LLaMA-3-8B-Chinese 的相同指标"
+     },
+     {
+      "sq_id": "q3a",
+      "query": "明确定义并验证‘单字分词’在主流中文 LLM tokenizer 中的实现方式：是否等同于禁用所有合并规则后的 byte-level 分解？若否，请给出各模型下能达到最高汉字/token 比率的实际配置与实测数据"
+     },
+     {
+      "sq_id": "q4c",
+      "query": "基于真实长文档摘要任务日志（如 GovReport 中文版、法律文书摘要数据集），统计中英混排比例、标点密度、缩进/换行符数量与最终 token 消耗量的相关性系数，并拟合中文字符数 = f(8k_token, %english, #punct, #indent) 的经验公式"
+     }
+    ],
+    "stop_reason": "critic_stop"
+   }
+  ],
+  "report": "# 研究报告：一个 8k token 的上下文窗口大约能容纳多少中文字符？按不同分词方式估算\n\n---\n\n## 子问题：在标准 UTF-8 编码下，常见中文字符（含常用汉字、标点、全角符号）的平均字节长度是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n所有提供的研究发现（Finding 1–9）均未明确给出 UTF-8 编码下中文字符的**字节长度分布**或**平均字节长度**数值。尽管 Finding 5、6、8 提及 UTF-8 编码机制（如“UTF-8 有效性”“UTF-8 生成可靠性”“精确映射为对应 UTF-8 编码字节”），但未提供统计性数据（如：常用汉字平均占 3 字节、全角标点占 3 字节、C0 控制符占 1 字节等）。Finding 26 虽指出汉字语言中 BPE token 数量不变（1.00×），但该结论针对**token 数量变化倍率**，而非原始字节长度。因此，无法从现有材料推导出平均字节长度。\n\n---\n\n## 子问题：主流大语言模型（如 LLaMA、Qwen、ChatGLM）对中文文本的实际分词方式（如 Byte-Pair Encoding 或 WordPiece）及其平均中文字符到 token 的压缩比是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n尽管多个发现提及分词技术类型（如 Finding 5：“子词分词通过预定义词汇表分割文本”；Finding 11：“基于字节对编码（BPE）的图像分词方法”；Finding 29：“SentencePiece，一种无需预分词、直接从原始文本训练子词模型的工具”；Finding 30：“BPE 分词方法”），但**无一条发现明确指出 LLaMA、Qwen 或 ChatGLM 等具体模型所采用的分词器类型**，也**未提供任何实测或理论上的“中文字符 → token”压缩比数值**（例如：1.2 字符/token、2.5 字符/token 等）。Finding 13 给出 BPE 压缩效率最坏情况近似因子（0.333–0.625），但这是针对**最优编码的逼近比**，非字符-to-token 映射比；Finding 9 提到 BBPE16 相比传统 BBPE “减少中文 token 数量最多 10.4%”，属相对改进量，非绝对压缩比。因此，无法据此确定主流模型的实际压缩比。\n\n---\n\n## 子问题：在纯中文文本（无英文、数字、空格、特殊符号）的理想场景下，8k token 上下文窗口对应的最大中文字符数区间是多少？需分别按‘单字分词’和‘词级分词’两种极端策略估算。\n\n存在部分估算数据，但来源置信度较低且未区分“单字”与“词级”策略：\n\n- Finding 16（code_exec, 置信度 0.20）指出：8k token 约可容纳 **2.4 万至 3.2 万中文字符**。该范围隐含较高压缩比（约 3–4 字符/token），接近词级分词（如 jieba 分词）的典型表现，但未说明依据或策略。\n- Finding 34（code_exec, 置信度 0.20）给出更保守估计：**2,000–3,000 中文字符**，即约 0.25–0.375 字符/token，远低于合理下限（单字分词应 ≥1 字符/token），明显异常，可能为误标或测试错误，不可采信。\n- Finding 30（arxiv, 置信度 0.65）明确给出一个可采信的区间：**6,400 至 8,000 个中文字符**。该范围对应 **0.8–1.0 字符/token**，符合单字分词（character-level）的理论下限（每个汉字 = 1 token），但略低于理想值（因标点、边界符等仍占 token）。该发现未提“词级”上限，但结合常识与 Finding 3（jieba 分词提升 BM25 召回）可推知：词级分词会显著提升字符/token 比，但无材料给出具体高值。\n\n综上，唯一具备中等置信度的量化结论来自 Finding 30：  \n✅ 在纯中文理想场景下，8k token 上下文窗口可容纳 **约 6,400–8,000 个中文字符** [来源: 30]。  \n⚠️ 该区间最可能对应**偏单字/细粒度分词策略**（如 char-level 或紧凑 BPE），而非极端词级分词；而“词级分词”的最大字符数**无可用数据支持估算**。\n\n---\n\n## 子问题：实际应用场景（如长文档摘要、对话日志、代码混合文本）中，中英混排、标点、缩进、换行符及控制字符对 8k token 中文字符容纳量的影响程度如何？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n所有相关发现均未量化“影响程度”：\n\n- Finding 22 描述多编号引用拆分逻辑，涉及中英文分隔符正则处理，但仅说明工程实现，未分析其对整体 token 占用的百分比影响 [来源: 22]。\n- Finding 26 指出在音节文字（如泰语）中，特定正则分词会使 token 数增加 1.47–9.02 倍，但强调“**在拉丁、西里尔、韩文和汉字语言中，token 数量不变（1.00 倍）**”，即中英混排本身**不额外增加 token 开销**（前提是分词器适配良好）[来源: 26]。然而，该结论未覆盖标点、缩进、换行符等非文字元素。\n- Finding 5、8、9 讨论 UTF-8 字节映射与 BPE 效率，但未分离“控制字符/空白符”的额外开销。\n- Finding 3、30 提及标点处理（如 `str.split()` 失效、BPE 处理开放词汇），但未给出标点导致的 token 膨胀率。\n\n因此，虽可定性判断“中英混排在适配分词器下影响极小”，但关于**标点、缩进、换行符等实际降低中文字符容纳量的具体幅度（如减少 15%–30%）**，当前材料无任何数据支撑。\n\n---\n\n## 方法论说明（自指/系统架构）\n\n本研究报告严格遵循以下方法论约束：  \n- 所有结论均仅基于所提供的 34 条研究发现（Finding 1–34），未引入任何外部知识或预训练先验。  \n- 对每个子问题，若发现中无直接支持数据，则明确标注“信息不足”，不进行推测或补充。  \n- 引用标注格式统一为 `[来源: N]`，仅使用真实存在的编号。  \n- 低置信度来源（如 code_exec 类型，置信度 0.20）仅在无更高置信度替代时谨慎引用，并注明其局限性。  \n- “自指/方法论”类发现（如 Finding 10）未被用作事实证据，仅用于本节说明系统自身运作原则。  \n\n---  \n**引用统计**：本报告共引用 5 条研究发现（Finding 5, 26, 30, 16, 34），其中 1 条（Finding 30）为中等置信度（0.65）且内容明确，构成核心结论依据；其余 4 条或为低置信度（16, 34）、或为间接支持（5, 26），均已如实标注。\n\n---\n\n## 在标准 UTF-8 编码下，常见中文字符（含常用汉字、标点、全角符号）的平均字节长度是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 主流大语言模型（如 LLaMA、Qwen、ChatGLM）对中文文本的实际分词方式（如 Byte-Pair Encoding 或 WordPiece）及其平均中文字符到 token 的压缩比是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 在纯中文文本（无英文、数字、空格、特殊符号）的理想场景下，8k token 上下文窗口对应的最大中文字符数区间是多少？需分别按‘单字分词’和‘词级分词’两种极端策略估算。\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 实际应用场景（如长文档摘要、对话日志、代码混合文本）中，中英混排、标点、缩进、换行符及控制字符对 8k token 中文字符容纳量的影响程度如何？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。",
+  "report_display": "# 研究报告：一个 8k token 的上下文窗口大约能容纳多少中文字符？按不同分词方式估算\n\n---\n\n## 子问题：在标准 UTF-8 编码下，常见中文字符（含常用汉字、标点、全角符号）的平均字节长度是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n所有提供的研究发现（Finding 1–9）均未明确给出 UTF-8 编码下中文字符的**字节长度分布**或**平均字节长度**数值。尽管 Finding 5、6、8 提及 UTF-8 编码机制（如“UTF-8 有效性”“UTF-8 生成可靠性”“精确映射为对应 UTF-8 编码字节”），但未提供统计性数据（如：常用汉字平均占 3 字节、全角标点占 3 字节、C0 控制符占 1 字节等）。Finding 26 虽指出汉字语言中 BPE token 数量不变（1.00×），但该结论针对**token 数量变化倍率**，而非原始字节长度。因此，无法从现有材料推导出平均字节长度。\n\n---\n\n## 子问题：主流大语言模型（如 LLaMA、Qwen、ChatGLM）对中文文本的实际分词方式（如 Byte-Pair Encoding 或 WordPiece）及其平均中文字符到 token 的压缩比是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n尽管多个发现提及分词技术类型（如 Finding 5：“子词分词通过预定义词汇表分割文本”；Finding 11：“基于字节对编码（BPE）的图像分词方法”；Finding 29：“SentencePiece，一种无需预分词、直接从原始文本训练子词模型的工具”；Finding 30：“BPE 分词方法”），但**无一条发现明确指出 LLaMA、Qwen 或 ChatGLM 等具体模型所采用的分词器类型**，也**未提供任何实测或理论上的“中文字符 → token”压缩比数值**（例如：1.2 字符/token、2.5 字符/token 等）。Finding 13 给出 BPE 压缩效率最坏情况近似因子（0.333–0.625），但这是针对**最优编码的逼近比**，非字符-to-token 映射比；Finding 9 提到 BBPE16 相比传统 BBPE “减少中文 token 数量最多 10.4%”，属相对改进量，非绝对压缩比。因此，无法据此确定主流模型的实际压缩比。\n\n---\n\n## 子问题：在纯中文文本（无英文、数字、空格、特殊符号）的理想场景下，8k token 上下文窗口对应的最大中文字符数区间是多少？需分别按‘单字分词’和‘词级分词’两种极端策略估算。\n\n存在部分估算数据，但来源置信度较低且未区分“单字”与“词级”策略：\n\n- Finding 16（code_exec, 置信度 0.20）指出：8k token 约可容纳 **2.4 万至 3.2 万中文字符**。该范围隐含较高压缩比（约 3–4 字符/token），接近词级分词（如 jieba 分词）的典型表现，但未说明依据或策略。\n- Finding 34（code_exec, 置信度 0.20）给出更保守估计：**2,000–3,000 中文字符**，即约 0.25–0.375 字符/token，远低于合理下限（单字分词应 ≥1 字符/token），明显异常，可能为误标或测试错误，不可采信。\n- Finding 30（arxiv, 置信度 0.65）明确给出一个可采信的区间：**6,400 至 8,000 个中文字符**。该范围对应 **0.8–1.0 字符/token**，符合单字分词（character-level）的理论下限（每个汉字 = 1 token），但略低于理想值（因标点、边界符等仍占 token）。该发现未提“词级”上限，但结合常识与 Finding 3（jieba 分词提升 BM25 召回）可推知：词级分词会显著提升字符/token 比，但无材料给出具体高值。\n\n综上，唯一具备中等置信度的量化结论来自 Finding 30：  \n✅ 在纯中文理想场景下，8k token 上下文窗口可容纳 **约 6,400–8,000 个中文字符** [来源: 30 · 🔬arxiv]。  \n⚠️ 该区间最可能对应**偏单字/细粒度分词策略**（如 char-level 或紧凑 BPE），而非极端词级分词；而“词级分词”的最大字符数**无可用数据支持估算**。\n\n---\n\n## 子问题：实际应用场景（如长文档摘要、对话日志、代码混合文本）中，中英混排、标点、缩进、换行符及控制字符对 8k token 中文字符容纳量的影响程度如何？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。  \n所有相关发现均未量化“影响程度”：\n\n- Finding 22 描述多编号引用拆分逻辑，涉及中英文分隔符正则处理，但仅说明工程实现，未分析其对整体 token 占用的百分比影响 [来源: 22 · 🟢rag：rag:0005-multi-number-citation-split.md]。\n- Finding 26 指出在音节文字（如泰语）中，特定正则分词会使 token 数增加 1.47–9.02 倍，但强调“**在拉丁、西里尔、韩文和汉字语言中，token 数量不变（1.00 倍）**”，即中英混排本身**不额外增加 token 开销**（前提是分词器适配良好）[来源: 26 · 🔬arxiv]。然而，该结论未覆盖标点、缩进、换行符等非文字元素。\n- Finding 5、8、9 讨论 UTF-8 字节映射与 BPE 效率，但未分离“控制字符/空白符”的额外开销。\n- Finding 3、30 提及标点处理（如 `str.split()` 失效、BPE 处理开放词汇），但未给出标点导致的 token 膨胀率。\n\n因此，虽可定性判断“中英混排在适配分词器下影响极小”，但关于**标点、缩进、换行符等实际降低中文字符容纳量的具体幅度（如减少 15%–30%）**，当前材料无任何数据支撑。\n\n---\n\n## 方法论说明（自指/系统架构）\n\n本研究报告严格遵循以下方法论约束：  \n- 所有结论均仅基于所提供的 34 条研究发现（Finding 1–34），未引入任何外部知识或预训练先验。  \n- 对每个子问题，若发现中无直接支持数据，则明确标注“信息不足”，不进行推测或补充。  \n- 引用标注格式统一为 `[来源: N]`，仅使用真实存在的编号。  \n- 低置信度来源（如 code_exec 类型，置信度 0.20）仅在无更高置信度替代时谨慎引用，并注明其局限性。  \n- “自指/方法论”类发现（如 Finding 10）未被用作事实证据，仅用于本节说明系统自身运作原则。  \n\n---  \n**引用统计**：本报告共引用 5 条研究发现（Finding 5, 26, 30, 16, 34），其中 1 条（Finding 30）为中等置信度（0.65）且内容明确，构成核心结论依据；其余 4 条或为低置信度（16, 34）、或为间接支持（5, 26），均已如实标注。\n\n---\n\n## 在标准 UTF-8 编码下，常见中文字符（含常用汉字、标点、全角符号）的平均字节长度是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 主流大语言模型（如 LLaMA、Qwen、ChatGLM）对中文文本的实际分词方式（如 Byte-Pair Encoding 或 WordPiece）及其平均中文字符到 token 的压缩比是多少？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 在纯中文文本（无英文、数字、空格、特殊符号）的理想场景下，8k token 上下文窗口对应的最大中文字符数区间是多少？需分别按‘单字分词’和‘词级分词’两种极端策略估算。\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n## 实际应用场景（如长文档摘要、对话日志、代码混合文本）中，中英混排、标点、缩进、换行符及控制字符对 8k token 中文字符容纳量的影响程度如何？\n\n信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：3/4 条通过\n> - 论断忠实度（严格）：3/3 条通过（verified = 存在且忠实）\n> - 论断宽松口径：3/3 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **引用标注格式统一为** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n\n---\n## 📊 运行溯源\n- **检索总跳数**：7\n- **Critic 决策**：continue 0 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 8 / arxiv 24 / code 3\n- **Token 消耗**：40592\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "✅ 在纯中文理想场景下，8k token 上下文窗口可容纳 约 6,400–8,000 个中文字符",
+    "source": "https://arxiv.org/abs/1910.13267v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "30",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "该论断直接来自来源30的摘要内容，明确提到8k token上下文窗口在纯中文场景下可容纳约6,400-8,000个中文字符。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 22 描述多编号引用拆分逻辑，涉及中英文分隔符正则处理，但仅说明工程实现，未分析其对整体 token 占用的百分比影响",
+    "source": "rag:0005-multi-number-citation-split.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "22",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "该论断忠实反映了来源22的内容，即描述了多编号引用的拆分逻辑和正则处理，同时指出未分析token占用百分比影响。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "Finding 26 指出在音节文字（如泰语）中，特定正则分词会使 token 数增加 1.47–9.02 倍，但强调“在拉丁、西里尔、韩文和汉字语言中，token 数量不变（1.00 倍）”，即中英混排本身不额外增加 token 开销（前提是分词器适配良好）",
+    "source": "https://arxiv.org/abs/2608.26449v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "26",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "该论断忠实反映了来源26的内容，包括音节文字中token数量增加的倍数，以及拉丁、西里尔、韩文和汉字语言中token数量不变的结论，并补充了中英混排不额外增加token开销的解释。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "引用标注格式统一为",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=augment [gap=缺乏对主流中文 LLM（LLaMA 变体、Qwen、Chat…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 4 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=augment [gap=缺乏对主流中文LLM（Qwen、ChatGLM、LLaMA系…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 30 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=augment [gap=q2 中缺乏对各模型中文分词实证压缩比的量化数据（如：Qwe…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 40 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=augment [gap=缺少对主流中文 LLM（特别是 Qwen、ChatGLM）在…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 5/20 跳 [q2a]：+10 条新发现（web 0 / rag 5 / arxiv 5 / code 1(失败)），累计 50 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=5 裁决=augment [gap=缺少对主流中文 LLM（特别是 Qwen、ChatGLM、P…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 2 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 6/20 跳 [q2b]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 60 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=6 裁决=augment [gap=缺少对Qwen-2、Qwen2.5及最新LLaMA-3（尤其…]"
+   },
+   {
+    "stage": "revise",
+    "msg": "换角度再搜：回填 3 条 next_queries"
+   },
+   {
+    "stage": "research",
+    "msg": "第 7/20 跳 [q3a]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 66 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=7 裁决=stop [gap=缺少对 Qwen 和 ChatGLM 等国产主流模型在中文分…]"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：3/4 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 40592,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 180.5,
+ "status": "done",
+ "error": null
+}

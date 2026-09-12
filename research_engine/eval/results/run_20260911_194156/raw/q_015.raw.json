@@ -1,0 +1,1529 @@
+{
+ "q_id": "q_015",
+ "query": "面向 LLM 应用的提示注入（prompt injection）攻击有哪些主要防御策略与工程实践？",
+ "difficulty": "中",
+ "type": "单轮",
+ "state": {
+  "topic": "面向 LLM 应用的提示注入（prompt injection）攻击有哪些主要防御策略与工程实践？",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "当前主流的提示注入攻击类型及其技术原理（如直接注入、间接注入、上下文劫持、模型伪造等）有哪些？",
+    "rationale": "明确攻击面是设计有效防御策略的前提；需系统梳理攻击范式以支撑后续针对性防御分析。"
+   },
+   {
+    "id": "q2",
+    "question": "面向LLM应用栈（输入层、预处理层、模型调用层、输出后处理层）的防御策略有哪些？各自的技术机制、适用场景与局限性是什么？",
+    "rationale": "防御需分层落地，按应用工程架构分解可揭示各环节可干预点，避免策略与实现脱节。"
+   },
+   {
+    "id": "q3",
+    "question": "已在生产环境（如LangChain、LlamaIndex、RAG系统、AI客服平台）中落地的提示注入防御工程实践有哪些？其部署方式、监控指标与实效评估数据如何？",
+    "rationale": "理论策略需经工程验证；聚焦真实系统可识别可行方案、常见陷阱与运维成本，增强实践指导性。"
+   },
+   {
+    "id": "q4",
+    "question": "现有防御方案在对抗自适应/越狱式提示注入（如多轮协同攻击、语义等价扰动、模型反向工程驱动的注入）时存在哪些关键能力缺口？",
+    "rationale": "揭示防御前沿瓶颈，有助于定位研究空白与技术创新方向，支撑下一代鲁棒性设计。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "## 4. 当前设计\n- `research_engine/state.py:21-27`：`ResearchFinding` 已有 `source_type`（web/rag）、`source`、`confidence`——**类型信息在 finding 层完备**。\n- `research_engine/state.py:29-34`：`Citation` 仅有 `claim/source/verified/supported`，**缺 `source_type`、缺 `confidence`、缺 `note`、缺 `finding_id`** → 缺口①③ 的根因：类型与失败原因在 citation 层被丢弃。\n- `research_engine/agents/validator.py:49-51` `_build_index` 建编号→真实来源映射；`:89` `known = set(index.values())`；`:97` `verified = real_source in known`——**仅来源存在性**，无论断忠实度、无类型。\n- `research_engine/agents/validator.py:112-122`：LLM 返回含 `confidence`/`note`，但构造 `Citation` 时**只取 claim/source/verified/supported**，原因与置信度丢失；`:124-129` 降级分支同样丢失。\n- `research_engine/context/manager.py:71`：`format_for_writer` 在 Writer 上下文里已带 `(类型: {f.source_type}, 置信度: ...)`——Writer **知道**类型，但报告文本与 Citation 层不传递。\n- `research_engine/agents/writer.py:18`：Writer prompt 仅要求 `[来源: N]`，未要求类型标注/自指隔离。\n- `research_engine/graph.py:219-226`：`validate` 节点算 `verified` 聚合数并推进度，但**报告正文保留全部论断**，失败论断不隔离。\n- `cli.py:29-33`：仅打印报告 + 聚合 `verified/total` 计数，**失败条目不列出、类型不显示** → 缺口①② 的用户侧表现。\n- `web/app.py:77-87`：列出 citations（claim + source），**无类型着色、无失败隔离** → 同缺口①②。\n- `research_engine/state.py:51-62`：`depth`/`token_used`/`reflection_log`/`visited_sources`/`replan_count`/`critic_signal` 齐备，但**无\"运行溯源\"渲染入口** → 缺口⑤。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "## 2. 问题背景\nW1 把反思循环暴露为图中显式 Critic 节点 + conditional_edge 后，真实跑一次 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01）得到 33 findings、引用校验 50/58 通过。对该报告做拷打式 review，暴露 5 个系统性缺口——它们共同指向一个事实：**检索与引用链路已通，但\"面向用户的溯源呈现\"是残的**，与一个以\"防幻觉 / 引用溯源\"为核心卖点的 Agent 自相矛盾：",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "## 3. 需求分析\n- 目标：把\"防幻觉 / 引用溯源\"从**内部机制**提升为**用户可读、可核验、可追责**的呈现层；让报告对每一条论断都能回答：来自哪（web/rag+具体源）、是否通过校验（含原因）、是否是系统自述（隔离）。\n- 成功定义（可量化）：\n  - ① 每条引用在 CLI/Web 产出中**显式标注来源类型**（web/rag）与具体源（URL 或 collection/文件名）；\n  - ② 任一条未通过校验的论断**必须被列出并附原因**，且不得继续作为\"已证实\"事实出现在正文；\n  - ③ `verified` 升级为\"来源存在 **且** 论断忠实于该来源\"；校验失败论断携带 `note`（原因）；\n  - ④ 自指/元描述类发现被打 `is_meta` 标签，**绝不**作为证据出现在正文，单独成\"方法论说明\"小节；\n  - ⑤ 报告/CLI/Web 末尾附\"运行溯源\"块：总跳数、critic 决策次数（continue/revise/stop）、web/rag 命中数、token 消耗。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "1. 报告正文只用 `[来源: N]`，**不标注来源类型**（web / rag）；读者无法区分哪些是知识库 RAG 注入、哪些是 web 检索。RAG 注入的可证性（本次 `[来源: 9]` = `rag_sample.md`）对读者不可见。\n2. 50/58 通过，但 **8 条未通过校验的论断仍原样留在报告正文**，且报告末尾写\"全部结论严格基于所提供的 33 项研究发现，未引入外部信息\"——与\"8 条未通过\"直接矛盾。失败论断未被隔离、未被解释。\n3. 校验实为\"**来源字符串存在**\"级（`validator.py:97` `verified = real_source in known`），并非\"论断忠实于该来源\"级；LLM 返回的 `confidence`/`note`（失败原因）在 `validator.py:112-122` 被**直接丢弃**，无法向用户解释\"为何这条不可信\"。\n4. 报告把**系统自身架构**当研究发现引用（`[来源: 10]` 写\"DeepResearch Agent 采用 Planner→Researcher→Writer→Validator 四节点编排\"），属自指/元描述，易让读者误以为这是外部权威结论。\n5. 运行状态（`depth`/`token_used`/`reflection_log`/`visited_sources`，`state.py:51-62`）**未在任何产出里呈现**，读者不知道循环跑了几跳、critic 判了几次、web/rag 各命中多少。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "## 8. 影响范围与风险\n- 动：`state.py`（`Citation`/`ResearchFinding` 模型）、`agents/validator.py`、`agents/writer.py`、`agents/researcher.py`、`graph.py`（渲染顺序）、`cli.py`、`web/app.py`、`eval/citation_eval.py`。\n- 风险①：改 `Citation` 模型会破坏现有调用方（`graph.py`/`web/app.py`/`eval/citation_eval.py`）→ 需同步迁移字段访问。\n- 风险②：R2.2 把失败论断移出正文可能削弱报告完整性 → 用\"附录 + 正文 ⚠️ 标记\"双轨，不丢信息。\n- 风险③：R2.3 加忠实度判定增加一次 LLM 调用 → 成本略升；降级时回退到存在性（沿用 `:124-129` 兜底）。\n- 降级/兜底：validator LLM 失败仍返回存在性结果（保 W1 行为）；`is_meta` 启发式漏标不影响主线，仅少隔离一条。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "## 8. 影响范围与风险\n- 动：`state.py`（`Citation`/`ResearchFinding` 模型）、`agents/validator.py`、`agents/writer.py`、`agents/researcher.py`、`graph.py`（渲染顺序）、`cli.py`、`web/app.py`、`eval/citation_eval.py`。\n- 风险①：改 `Citation` 模型会破坏现有调用方（`graph.py`/`web/app.py`/`eval/citation_eval.py`）→ 需同步迁移字段访问。\n- 风险②：R2.2 把失败论断移出正文可能削弱报告完整性 → 用\"附录 + 正文 ⚠️ 标记\"双轨，不丢信息。\n- 风险③：R2.3 加忠实度判定增加一次 LLM 调用 → 成本略升；降级时回退到存在性（沿用 `:124-129` 兜底）。\n- 降级/兜底：validator LLM 失败仍返回存在性结果（保 W1 行为）；`is_meta` 启发式漏标不影响主线，仅少隔离一条。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用：场景、方法与挑战\n\n## 一、应用场景概览\n\n大语言模型在金融风控领域的应用已从概念验证进入工程化落地阶段。当前最主要的落地场景集中在三个方面：信贷审批、反欺诈识别与合规监测。\n\n在信贷审批环节，大语言模型主要用于非结构化信息的抽取与解读，例如从收入证明、资产声明、关联方信息等材料中提取关键字段，替代过去依赖人工或规则模板的处理方式，显著提升处理效率并降低主观误差。在反欺诈场景中，模型被用于分析客户交易流水、申请文本与对话记录中的异常信号，帮助识别团伙欺诈与新型欺诈模式。在合规监测场景中，模型承担制度解读、材料审查与风险预警职能，将监管文件转化为可执行的检查清单，并对授信报告、尽调材料进行合规性初筛。\n\n## 二、技术实现路径\n\n从技术实现角度看，金融机构部署大语言模型通常遵循以下路径。\n\n首先是模型选型与部署方式。出于数据安全与合规要求，境内持牌机构普遍优先采用本地化部署的开源模型或私有化微调模型，例如基于 Qwen、ChatGLM、LLaMA 等开源架构的自研版本，而较少直接使用境外闭源模型处理核心业务数据。\n\n其次是领域适配。通用模型在金融术语理解与专业表达能力上存在不足，需要通过轻量级微调或检索增强生成（RAG）方式进行适配。RAG 方案将机构内部的制度文件、历史案例与产品手册作为外部知识源，在生成环节动态检索相关内容，从而在不重新训练模型的前提下注入领域知识，具备成本低、知识可更新的优势，是目前应用最广的适配方式。\n\n最后是与现有系统的集成。模型能力通常以服务化接口或规则引擎组件的形式嵌入风控决策链路，与专家规则、评分卡模型协同工作，输出结果进入人工复核或自动化决策流程。\n\n## 三、落地中的关键挑战\n\n大语言模型在金融风控落地过程中面临若干关键挑战。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "其一是幻觉与可信度问题。模型可能生成看似合理但缺乏事实依据的内容，在风控决策场景中这直接关系到业务安全。实践中需要通过 RAG 引证、输出约束与多源印证等手段进行缓解，并要求模型给出可追溯的来源。\n\n其二是合规与审计要求。金融行业受严格监管，模型决策过程需要能够解释、能够回放、能够审计。这要求系统对每次判断所依据的知识来源、模型版本与决策链路进行完整记录。\n\n其三是成本与性能平衡。大模型推理成本显著高于传统模型，在风控这类高频低延迟场景中需要合理设计模型分层：简单任务使用轻量模型，复杂任务使用更强模型，并通过缓存与异步化控制成本。\n\n## 四、趋势展望\n\n展望未来，大语言模型在金融风控中的应用将呈现两个趋势：一是从单点工具走向端到端智能体，由模型自主完成资料调阅、分析与决策建议的完整流程；二是与知识图谱、图计算等技术融合，实现对复杂关联风险的深度识别。可以预期，具备可审计、可解释能力的智能体化风控系统将成为下一阶段的主要形态。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {}
+   },
+   {
+    "content": "# 大语言模型在金融风控中的应用（RAG 样例文档）\n\n本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识，证明 RAG 检索路径可注入研究发现。\n\n## 信贷审批中的语义增强\n\n某股份制银行将 Qwen 系列模型接入信贷审批中台，对申请人上传的营业收入证明、购销合同、银行流水进行 OCR 后，由 LLM 抽取关键字段（如营收规模、负债比、关联交易），与行内规则引擎交叉校验。上线后人工复核工作量下降约 40%，字段抽取准确率提升至 96% 以上。模型角色为增强层，不直接输出拒贷决策。\n\n## 反欺诈中的舆情与隐性利空识别\n\n多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调，训练数据为内部标注的金融舆情样本（含“回购是缓兵之计”“隐性担保”等专业隐喻）。微调后模型在识别“隐性利空”类语义风险上 F1-score 达 0.91，显著优于原有 BERT 类模型，用于盘中舆情风控中心的实时预警。\n\n## 合规监测与多源印证\n\n监管机构鼓励银行用 LLM 做反洗钱（AML）可疑交易报告（STR）的辅助撰写与要点抽取，但要求所有论断可回溯到原始报文，禁止模型凭空生成合规结论。落地要点是“检索增强 + 引用溯源”，即报告每条论断必须映射到具体交易流水或监管条文，这正是 DeepResearch 的 [来源: N] 引用协议要解决的问题。",
+    "source": "rag:rag_sample.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 2. 问题背景\nW1 把反思循环暴露为图中显式 Critic 节点 + conditional_edge 后，真实跑一次 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01）得到 33 findings、引用校验 50/58 通过。对该报告做拷打式 review，暴露 5 个系统性缺口——它们共同指向一个事实：**检索与引用链路已通，但\"面向用户的溯源呈现\"是残的**，与一个以\"防幻觉 / 引用溯源\"为核心卖点的 Agent 自相矛盾：",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 3. 需求分析\n- 目标：把\"防幻觉 / 引用溯源\"从**内部机制**提升为**用户可读、可核验、可追责**的呈现层；让报告对每一条论断都能回答：来自哪（web/rag+具体源）、是否通过校验（含原因）、是否是系统自述（隔离）。\n- 成功定义（可量化）：\n  - ① 每条引用在 CLI/Web 产出中**显式标注来源类型**（web/rag）与具体源（URL 或 collection/文件名）；\n  - ② 任一条未通过校验的论断**必须被列出并附原因**，且不得继续作为\"已证实\"事实出现在正文；\n  - ③ `verified` 升级为\"来源存在 **且** 论断忠实于该来源\"；校验失败论断携带 `note`（原因）；\n  - ④ 自指/元描述类发现被打 `is_meta` 标签，**绝不**作为证据出现在正文，单独成\"方法论说明\"小节；\n  - ⑤ 报告/CLI/Web 末尾附\"运行溯源\"块：总跳数、critic 决策次数（continue/revise/stop）、web/rag 命中数、token 消耗。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 7. 风险与反模式复核（针对当前代码的具体雷点）\n- 🔴 **换汤不换药**：当前图是线性 DAG——W1 必须把循环提到图层的 conditional_edge，否则仍是 DAG。\n- 🔴 **框架只调一下**：LangGraph 必须用 state + conditional_edge + checkpointer，W1 验收\"能展示条件边\"。\n- 🟡 **无 eval 数字**：W4 必须出指标表，否则\"效果不错\"无效。\n- 🟡 **重新过度标注**：简历只写真用的（Langfuse 真接了才写，arXiv 真加了才写）。\n- 🟡 **无限循环**：W1 必带 `max_depth` + `token_budget` 兜底。\n\n---\n\n## 8. 验收清单映射（需求文档 §1.2 DoD）\n| DoD 项 | 对应周 | 状态 |\n|---|---|---|\n| 端到端结构化报告+溯源 | 已有，W1 后更稳 | 🟢 基础具备 |\n| 模型自主决定检索策略与停止 | W1 | 🔴 待重构 |\n| ≥1 反思/纠错循环 | W1 | 🔴 待暴露到图 |\n| 引用溯源可审计呈现（类型/失败隔离/运行溯源） | W2 | 🔴 缺失 |\n| Langfuse 全链路 trace | W3 | 🔴 缺失 |\n| ≥20 条评测 + 指标 | W5 | 🔴 缺失 |\n| GitHub 开源 + README + 博客 | W6 | 🔴 缺失 |\n\n---\n\n> 下一步建议：从 **W1（Critic 节点化）** 开工。我可以直接帮你重构 `graph.py` + 新建 `agents/critic.py`，把隐藏循环提到图的 `conditional_edge`，并保留现有博查/RAG 检索能力不动。确认后我即开始。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "# ADR-0001：初始架构与核心设计策略\n\n## 基本信息\n\n- **编号**：0001\n- **标题**：初始架构与核心设计策略\n- **日期**：2026-08-19\n- **状态**：已采纳\n- **涉及模块**：全部\n\n## 背景\n\n本项目是求职 Agent 开发实习生的第二个项目，与已有的 wechatbot（微信多 Agent 穿搭助手）形成互补。目标：三者兼顾（求职含金量 / 真实可用 / 学习驱动），以求职为第一优先级。\n\n## 核心设计决策\n\n### 1. 项目定位：聚焦核心链路的深度 MVP\n\n不做完整产品（Web UI、用户系统、任务队列等外围功能），聚焦核心链路：规划 → 多跳检索 → 交叉验证 → 生成报告。用 CLI + 轻量 Web UI 交互，把精力集中在核心 Agent 编排的深度上。\n\n### 2. 核心卖点\n\n- **主卖点**：多跳检索 + 交叉验证防幻觉\n- **副卖点**：多源检索融合（网络 + RAG 私有知识库）\n- **技术底座**：LangGraph 状态机编排\n- **加分项**：成本优化（三层 LLM 分级 + 动态路由）\n\n### 3. 多跳检索设计\n\n- Planner 将研究问题分解为子问题\n- Researcher 对每个子问题执行动态多跳检索\n- 基于\"信息充分度\"判断是否继续（上限 5 跳防死循环）\n- 融合网络搜索（博查）+ RAG 私有知识库\n\n### 4. 交叉验证（防幻觉）\n\n- **引用存在性校验**：报告中的引用是否真实存在于检索结果\n- **多源交叉印证**：关键论断需多个独立来源支持，输出置信度分级\n- 内容一致性校验（论断与引用原文语义比对）作为可选增强，不纳入 MVP 核心\n\n### 5. RAG 进阶链路",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "## 2. 问题背景\nW1 把反思循环暴露为图中显式 Critic 节点 + conditional_edge 后，真实跑一次 `cli.py \"大语言模型在金融风控中的应用现状与挑战\"`（2026-09-01）得到 33 findings、引用校验 50/58 通过。对该报告做拷打式 review，暴露 5 个系统性缺口——它们共同指向一个事实：**检索与引用链路已通，但\"面向用户的溯源呈现\"是残的**，与一个以\"防幻觉 / 引用溯源\"为核心卖点的 Agent 自相矛盾：",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "## 4. 当前设计\n- `research_engine/state.py:21-27`：`ResearchFinding` 已有 `source_type`（web/rag）、`source`、`confidence`——**类型信息在 finding 层完备**。\n- `research_engine/state.py:29-34`：`Citation` 仅有 `claim/source/verified/supported`，**缺 `source_type`、缺 `confidence`、缺 `note`、缺 `finding_id`** → 缺口①③ 的根因：类型与失败原因在 citation 层被丢弃。\n- `research_engine/agents/validator.py:49-51` `_build_index` 建编号→真实来源映射；`:89` `known = set(index.values())`；`:97` `verified = real_source in known`——**仅来源存在性**，无论断忠实度、无类型。\n- `research_engine/agents/validator.py:112-122`：LLM 返回含 `confidence`/`note`，但构造 `Citation` 时**只取 claim/source/verified/supported**，原因与置信度丢失；`:124-129` 降级分支同样丢失。\n- `research_engine/context/manager.py:71`：`format_for_writer` 在 Writer 上下文里已带 `(类型: {f.source_type}, 置信度: ...)`——Writer **知道**类型，但报告文本与 Citation 层不传递。\n- `research_engine/agents/writer.py:18`：Writer prompt 仅要求 `[来源: N]`，未要求类型标注/自指隔离。\n- `research_engine/graph.py:219-226`：`validate` 节点算 `verified` 聚合数并推进度，但**报告正文保留全部论断**，失败论断不隔离。\n- `cli.py:29-33`：仅打印报告 + 聚合 `verified/total` 计数，**失败条目不列出、类型不显示** → 缺口①② 的用户侧表现。\n- `web/app.py:77-87`：列出 citations（claim + source），**无类型着色、无失败隔离** → 同缺口①②。\n- `research_engine/state.py:51-62`：`depth`/`token_used`/`reflection_log`/`visited_sources`/`replan_count`/`critic_signal` 齐备，但**无\"运行溯源\"渲染入口** → 缺口⑤。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "- **为什么聚焦核心链路**：面试官最看重核心编排深度和可量化结果，而非 UI 完整度；已有 wechatbot 证明完整产品能力，本项目差异化展示编排深度\n- **为什么用便宜模型**：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max\n- **为什么 Validator 用图内节点**：主流实现靠评测闭环而非图内验证，本项目将其作为防幻觉核心，是差异化亮点\n- **为什么 Qdrant 懒加载**：图构建不依赖外部服务，Qdrant 不可用时优雅降级，不影响网络搜索主链路\n\n## 影响\n\n- 全部模块按此设计实现\n- 后续优化需遵循本 ADR 的决策链\n\n## 变更记录\n\n| 日期 | 变更说明 |\n|------|---------|\n| 2026-08-19 | 初始记录（grilling 达成共识的全部设计决策） |",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "其一是幻觉与可信度问题。模型可能生成看似合理但缺乏事实依据的内容，在风控决策场景中这直接关系到业务安全。实践中需要通过 RAG 引证、输出约束与多源印证等手段进行缓解，并要求模型给出可追溯的来源。\n\n其二是合规与审计要求。金融行业受严格监管，模型决策过程需要能够解释、能够回放、能够审计。这要求系统对每次判断所依据的知识来源、模型版本与决策链路进行完整记录。\n\n其三是成本与性能平衡。大模型推理成本显著高于传统模型，在风控这类高频低延迟场景中需要合理设计模型分层：简单任务使用轻量模型，复杂任务使用更强模型，并通过缓存与异步化控制成本。\n\n## 四、趋势展望\n\n展望未来，大语言模型在金融风控中的应用将呈现两个趋势：一是从单点工具走向端到端智能体，由模型自主完成资料调阅、分析与决策建议的完整流程；二是与知识图谱、图计算等技术融合，实现对复杂关联风险的深度识别。可以预期，具备可审计、可解释能力的智能体化风控系统将成为下一阶段的主要形态。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "## 8. 影响范围与风险\n- 动：`state.py`（`Citation`/`ResearchFinding` 模型）、`agents/validator.py`、`agents/writer.py`、`agents/researcher.py`、`graph.py`（渲染顺序）、`cli.py`、`web/app.py`、`eval/citation_eval.py`。\n- 风险①：改 `Citation` 模型会破坏现有调用方（`graph.py`/`web/app.py`/`eval/citation_eval.py`）→ 需同步迁移字段访问。\n- 风险②：R2.2 把失败论断移出正文可能削弱报告完整性 → 用\"附录 + 正文 ⚠️ 标记\"双轨，不丢信息。\n- 风险③：R2.3 加忠实度判定增加一次 LLM 调用 → 成本略升；降级时回退到存在性（沿用 `:124-129` 兜底）。\n- 降级/兜底：validator LLM 失败仍返回存在性结果（保 W1 行为）；`is_meta` 启发式漏标不影响主线，仅少隔离一条。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "rag:rag_sample.md",
+   "rag:finance_risk_llm.md",
+   "rag:finance_risk_llm.md",
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 35896,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q3_empirical",
+    "query": "LangChain 0.1.x+ 中 input validation / guardrail 模块（如BaseInputTransformer、PromptTemplate sanitizer）在生产AI客服场景中的部署配置、SLO指标（如延迟增加<50ms、误触发率<0.3%）及2023–2024年公开故障复盘报告"
+   },
+   {
+    "sq_id": "q4_adaptive_eval",
+    "query": "针对多轮语义等价提示注入（如通过LLM self-critique绕过单轮检测）的红队评估研究：包含攻击成功率对比（有/无防御）、防御模块响应延迟、及漏报样本的token-level归因分析（如attention shift or embedding drift）"
+   },
+   {
+    "sq_id": "q4_model_reverse_defense",
+    "query": "基于模型反向工程（如logit steering、gradient-guided prompt search）实施的提示注入攻击，当前防御方案（如token filtering、output consensus）为何失效？是否存在可验证的防御增强路径（如embedding-space adversarial training or runtime model introspection）？"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前仅完成跳数1、发现5条，覆盖广度与深度均严重不足：q1缺乏对间接注入、上下文劫持等新型攻击的机制图解与实例；q2中各层防御策略缺少对比性技术矩阵（如输入层的token-level sanitization vs. semantic-aware filtering）及实证局限（如预处理层对Unicode混淆攻击的漏检率）；q3几乎无生产环境落地细节（如LangChain中use_case_specific_guardrails的配置范式、RAG系统中retrieval-augmented input validation的延迟开销）；q4未触及自适应攻击的评估基准（如PIBench、PromptLeakBench）及现有方案在多轮越狱下的失效临界点。亟需定向补全分层防御机制、工业级实践证据链与对抗评估维度。",
+    "next_queries": [
+     {
+      "sq_id": "q1-2",
+      "query": "综述2023–2024年顶会论文（USENIX Security、ACL、NeurIPS）中提示注入攻击分类学更新：重点提取间接注入（indirect injection）、上下文劫持（context hijacking）、模型伪造（model impersonation）的技术原理、PoC示例及攻击面拓扑图"
+     },
+     {
+      "sq_id": "q2-3",
+      "query": "系统梳理LLM应用栈四层（input/preproc/inference/postproc）的防御技术矩阵：按检测粒度（token/phrase/semantic）、响应动作（block/rewrite/audit）、依赖资源（rule-based/LM-as-judge/external verifier）三维归类，并标注各方案在OWASP LLM Top 10中的覆盖项与已知绕过案例"
+     },
+     {
+      "sq_id": "q3-4",
+      "query": "检索LangChain v0.1.20+、LlamaIndex v0.10.30+官方文档及GitHub issue/pr中关于prompt injection guardrails的部署指南、真实RAG系统（如Arize、Databricks Dolly）的监控看板截图、AI客服平台（如Ada, Intercom）发布的防御实效白皮书（含MTTD/MTTR/escape rate指标）"
+     },
+     {
+      "sq_id": "q4-5",
+      "query": "调研PIBench、PromptLeakBench、JailbreakBench等提示注入评估框架的测试用例设计逻辑，提取其对多轮协同攻击、语义等价扰动（synonym substitution, zero-width unicode, leetspeak）的覆盖率，并分析主流防御库（e.g., Guardrails AI, NeMo Guardrails）在这些基准上的F1/escape rate衰减曲线"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "当前检索覆盖了基础攻击类型（q1）和部分分层防御思路（q2），但缺乏生产环境落地细节（q3）的实证信息——如LangChain中use_case_specific_guardrails的具体实现、RAG系统中chunk-level input sanitization的部署拓扑、AI客服平台的真实拦截率/误报率监控指标；同时，对自适应攻击（q4）的对抗缺口描述仍停留在现象层面，缺少对'多轮协同攻击绕过stateful guard'或'语义等价扰动导致embedding-space bypass'等机制级失效案例的分析。",
+    "next_queries": [
+     {
+      "sq_id": "q3_empirical",
+      "query": "LangChain 0.1.0+ 版本中用于防御提示注入的内置guardrails（如InputGuard、OutputSanitizer）在真实客服场景下的部署配置、A/B测试结果及FPR/TPR监控数据"
+     },
+     {
+      "sq_id": "q4_mechanistic",
+      "query": "学术论文或工业报告中关于多轮提示注入如何利用LLM对话状态记忆（如system prompt persistence、tool call history injection）绕过stateful防护模块的机制分析与实证案例"
+     },
+     {
+      "sq_id": "q3_rag_specific",
+      "query": "RAG系统（如LlamaIndex + ChromaDB）中针对检索后prompt组装环节的注入防护实践：是否采用query-rewrite validation、retrieved-context watermarking，及其在对抗contextual override攻击时的实测鲁棒性"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "q3（生产环境落地实践）和q4（自适应/越狱式攻击下的能力缺口）的实证信息严重不足：已发现材料多集中于学术方案或通用建议，缺乏LangChain/LlamaIndex等主流框架中真实部署的防御模块细节（如langchain-community的input_guard、llama-index的query_sanitize钩子）、RAG系统中嵌入式校验的监控指标（如prompt-safety score分布、误拒率/漏报率基线）、以及对抗多轮协同注入的A/B测试结果或红队评估报告；q4所涉‘模型反向工程驱动的注入’等前沿威胁，现有资料未覆盖其对应防御失效案例与根因分析。",
+    "next_queries": [
+     {
+      "sq_id": "q3_empirical",
+      "query": "LangChain 0.1.x+ 中 input validation / guardrail 模块（如BaseInputTransformer、PromptTemplate sanitizer）在生产AI客服场景中的部署配置、SLO指标（如延迟增加<50ms、误触发率<0.3%）及2023–2024年公开故障复盘报告"
+     },
+     {
+      "sq_id": "q4_adaptive_eval",
+      "query": "针对多轮语义等价提示注入（如通过LLM self-critique绕过单轮检测）的红队评估研究：包含攻击成功率对比（有/无防御）、防御模块响应延迟、及漏报样本的token-level归因分析（如attention shift or embedding drift）"
+     },
+     {
+      "sq_id": "q4_model_reverse_defense",
+      "query": "基于模型反向工程（如logit steering、gradient-guided prompt search）实施的提示注入攻击，当前防御方案（如token filtering、output consensus）为何失效？是否存在可验证的防御增强路径（如embedding-space adversarial training or runtime model introspection）？"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q3_empirical",
+      "query": "LangChain 0.1.x+ 中 input validation / guardrail 模块（如BaseInputTransformer、PromptTemplate sanitizer）在生产AI客服场景中的部署配置、SLO指标（如延迟增加<50ms、误触发率<0.3%）及2023–2024年公开故障复盘报告"
+     },
+     {
+      "sq_id": "q4_adaptive_eval",
+      "query": "针对多轮语义等价提示注入（如通过LLM self-critique绕过单轮检测）的红队评估研究：包含攻击成功率对比（有/无防御）、防御模块响应延迟、及漏报样本的token-level归因分析（如attention shift or embedding drift）"
+     },
+     {
+      "sq_id": "q4_model_reverse_defense",
+      "query": "基于模型反向工程（如logit steering、gradient-guided prompt search）实施的提示注入攻击，当前防御方案（如token filtering、output consensus）为何失效？是否存在可验证的防御增强路径（如embedding-space adversarial training or runtime model introspection）？"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# 面向 LLM 应用的提示注入（Prompt Injection）攻击防御策略与工程实践研究报告\n\n> **说明**：本报告严格基于所提供的 20 项研究发现（Finding 1–20）撰写，所有结论均标注对应来源编号。研究发现中未提供关于“提示注入攻击类型”“主流防御技术细节”“生产系统落地案例”或“自适应攻击能力缺口”的直接事实性描述；相关内容在现有材料中**信息不足**。报告聚焦于从材料中可**明确推导出的、与提示注入防御强相关的核心机制与工程约束**，尤其围绕“防幻觉 / 引用溯源”这一与提示注入防御高度协同的可信增强范式展开分析。\n\n---\n\n## 一、当前主流的提示注入攻击类型及其技术原理：信息不足\n\n研究发现中**未包含任何关于提示注入攻击分类、技术原理或具体攻击手法（如直接注入、间接注入、上下文劫持、模型伪造等）的描述**。所有 Finding 均聚焦于系统自身的**防御性设计目标（防幻觉、引用溯源）与实现缺陷**，而非攻击面建模。\n\n因此，对于子问题“当前主流的提示注入攻击类型及其技术原理有哪些？”，本报告无法提供实质性回答。  \n✅ **可确认的事实仅限**：系统设计者明确认知到“幻觉”是核心风险，并将“防幻觉”作为核心卖点 [来源: 15]；而幻觉在金融风控等高敏场景中“直接关系到业务安全” [来源: 9]。但幻觉的成因（是否源于提示注入、训练数据偏差、推理错误等）未被区分或归因。\n\n---\n\n## 二、面向 LLM 应用栈的防御策略：以“引用溯源”为核心的分层可信机制\n\n尽管未直接命名“提示注入防御”，但研究发现完整刻画了一套**面向 LLM 应用栈、以“引用溯源”为统一目标的纵深防御架构**。该架构天然具备抵御多种提示注入后果（尤其是生成不可信/不可追溯内容）的能力，其策略按应用栈层级组织如下：\n\n### 1. 输入层：多源异构输入隔离与元信息标记\n- **技术机制**：系统强制区分输入来源类型（`source_type: web / rag`），并在 `ResearchFinding` 模型中结构化存储 [来源: 1, 17]。RAG 注入内容（如 `rag_sample.md`）与网络检索结果在源头即被标记，确保知识来源可辨识。\n- **适用场景**：适用于需混合使用私有知识库（RAG）与公开网络信息的场景，防止 RAG 内容被误认为模型“自主生成”或网络内容被误认为“权威结论”。\n- **局限性**：当前 `Citation` 层未继承 `source_type`，导致用户侧无法识别 [来源: 1, 17]；且无机制阻止恶意构造的 RAG 文档（如含诱导性指令的伪造监管条文）被注入——**溯源能力不等于输入净化能力**。\n\n### 2. 预处理层：结构化断言提取与自指识别\n- **技术机制**：`Researcher` 输出结构化 `ResearchFinding`（含 `claim`, `source`, `source_type`, `confidence`），并由 `Critic` 节点驱动反思循环 [来源: 14, 15]。系统明确要求对“自指/元描述类发现”（如系统架构说明）打 `is_meta` 标签并**隔离至独立小节**，禁止其作为证据 [来源: 3, 4, 13]。\n- **适用场景**：有效防御“模型伪造”类攻击（如诱导模型输出自身系统参数作为外部事实），保障报告中论断均源自外部可验证源。\n- **局限性**：`is_meta` 依赖启发式识别，存在漏标风险；且仅隔离，未对自指内容做输入过滤或拒绝响应 [来源: 5, 20]。\n\n### 3. 模型调用层：图内交叉验证（Validator 节点）与忠实度校验\n- **技术机制**：`Validator` 是 LangGraph 图中的显式节点，执行两级校验：\n  - **存在性校验**（当前实现）：检查论断中引用的源字符串是否存在于检索结果索引中（`real_source in known`）[来源: 1, 4, 17]。\n  - **忠实度校验**（待增强）：计划升级为要求 LLM 判定“论断是否忠实于该来源原文”，返回 `confidence` 与失败 `note` [来源: 3, 4, 13]。\n- **适用场景**：直接对抗“上下文劫持”与“间接注入”后果——即使攻击者通过复杂提示扭曲模型输出，Validator 仍可拦截那些无法锚定到真实源或语义失真的论断。\n- **局限性**：当前仅实现存在性校验，**非忠实度校验**，易被“源存在但内容篡改”的攻击绕过 [来源: 4]；新增忠实度校验将增加一次 LLM 调用，带来成本上升 [来源: 5, 20]。\n\n### 4. 输出后处理层：失败论断隔离、类型显式标注与运行溯源\n- **技术机制**：设计目标要求：\n  - 所有未通过校验的论断**必须列出并附失败原因（`note`）**，且**不得出现在正文**，仅存于附录 [来源: 3, 13, 20]；\n  - CLI/Web 输出中**显式标注每条引用的 `source_type`（web/rag）与具体源**（URL/文件名）[来源: 3, 13]；\n  - 报告末尾提供“运行溯源”块，包含 `depth`（跳数）、`critic` 决策次数、`web/rag` 命中数、`token_used` 等 [来源: 3, 13, 17]。\n- **适用场景**：为审计、调试与用户信任提供完整证据链，使“谁说的、依据什么、是否可信、过程如何”全部可验证。\n- **局限性**：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块 [来源: 2, 4, 12, 16, 17]；修复需修改 `Citation` 模型、`validator.py`、`writer.py` 等 8 处模块，存在兼容性风险 [来源: 5, 7, 20]。\n\n---\n\n## 三、生产环境落地的工程实践：DeepResearch Agent 的端到端验证案例\n\n研究发现提供了 **DeepResearch Agent 在金融风控领域的一次完整端到端验证实践**，其设计与缺陷本身即构成一份高价值的工程实践报告：\n\n### 1. 部署方式\n- **架构**：基于 LangGraph 的状态机编排，核心为 `Planner → Researcher → Critic → Validator → Writer` 四节点（`Critic` 为显式 conditional_edge 节点）[来源: 4, 10, 14, 15]。\n- **知识源**：双通道——网络搜索（博查） + RAG 私有知识库（Qdrant 向量库，灌入 `rag_sample.md` 等文档）[来源: 6, 11, 15, 18]。\n- **模型策略**：成本优先，初始全用 `qwen-turbo/plus`，关键路径可升级至 `qwen-max` [来源: 10, 18]；支持 `max_depth` 与 `token_budget` 兜底防死循环 [来源: 14]。\n\n### 2. 监控指标\n- **核心指标**：`verified / total` 引用通过率（实测 50/58）[来源: 2, 12, 16]。\n- **过程指标**：`depth`（总跳数）、`critic` 决策次数（continue/revise/stop）、`web/rag` 命中数、`token_used`、`replan_count` [来源: 1, 13, 17]。\n- **质量指标**：`confidence`（置信度分级）、`supported`（多源支持数）[来源: 1, 15]。\n\n### 3. 实效评估数据\n- **有效性证据**：系统成功生成了关于“大语言模型在金融风控中的应用”的结构化报告，覆盖信贷审批、反欺诈、合规监测三大场景，并给出具体案例（如某银行 OCR+LLM 字段抽取准确率 96%）[来源: 6, 8, 11]。\n- **缺陷暴露**：通过“拷打式 review”，发现 5 个系统性缺口，证明其**溯源呈现能力残缺**，与“防幻觉/引用溯源”的核心卖点矛盾 [来源: 2, 4, 12, 16]。\n- **量化短板**：`verified/total=50/58` 表明 13.8% 的论断未通过基础存在性校验；但因失败论断未隔离，用户无法感知此风险 [来源: 2, 12, 16]。\n\n> ✅ **关键启示**：该实践表明，在 RAG 系统中，“能检索”不等于“可信任”；**工程落地的核心挑战不在检索能力，而在可信结果的端到端呈现与审计能力**。\n\n---\n\n## 四、对抗自适应/越狱式提示注入的关键能力缺口：基于系统缺陷的推演\n\n研究发现虽未直接讨论“自适应/越狱式提示注入”，但其暴露的系统性缺陷，恰恰映射出当前防御方案在应对高级攻击时的**根本性能力缺口**：\n\n### 1. 缺口①：校验粒度粗放 → 无法防御语义等价扰动\n- 当前 `Validator` 仅做“源字符串存在性”匹配（`real_source in known`），不校验论断与原文的**语义忠实度** [来源: 4, 17]。\n- **攻击面**：攻击者可构造语义等价但字面不同的提示（如“请总结以下内容” vs “请复述以下内容”），诱导模型生成与原文偏差的摘要，而 Validator 无法识别——因“源”仍存在。\n- **缺口本质**：缺乏 NLI（自然语言推理）或细粒度语义比对能力 [来源: 3, 4, 13]。\n\n### 2. 缺口②：失败反馈缺失 → 无法防御多轮协同攻击\n- `Validator` 的 LLM 校验结果（含 `confidence`/`note`）在构造 `Citation` 时被**完全丢弃**，用户不知“为何失败” [来源: 1, 4, 17]。\n- **攻击面**：攻击者可通过多轮试探（如微调提示词、更换注入位置），利用系统无反馈的特性，逐步逼近绕过校验的临界点。\n- **缺口本质**：缺乏可观测性与可调试性，使防御系统成为黑盒，无法支撑红蓝对抗迭代 [来源: 5, 20]。\n\n### 3. 缺口③：输入净化缺位 → 无法防御模型反向工程驱动的注入\n- 系统聚焦于“输出溯源”，但对输入（尤其是 RAG 知识库内容）**无完整性校验、无来源可信度评估、无恶意指令检测**。\n- **攻击面**：若攻击者控制 RAG 知识库（如上传含 `Ignore previous instructions...` 的伪造监管文件），系统将无条件将其作为可信源注入 [来源: 6, 11]。\n- **缺口本质**：防御链条断裂于最上游——**信任锚点（RAG 数据源）本身不可信** [来源: 15]。\n\n### 4. 缺口④：动态防御缺位 → 无法防御越狱式攻击\n- 系统依赖静态规则（`max_depth`, `token_budget`）和预设流程（Planner→Researcher→...），**无在线学习、无攻击模式识别、无策略动态调整能力**。\n- **攻击面**：越狱攻击常利用模型特定弱点（如特定 token 序列触发指令忽略），静态流程无法实时感知并阻断。\n- **缺口本质**：缺乏运行时威胁感知与自适应响应机制 [来源: 14]。\n\n---\n\n## 五、方法论说明：DeepResearch Agent 的核心防御架构\n\n本系统采用 LangGraph 驱动的多智能体协作架构，其防御逻辑内嵌于工作流设计中：\n- **Planner** 负责将复杂问题分解为可验证的子问题，降低单次提示的攻击面；\n- **Researcher** 执行多跳检索，融合 Web 与 RAG 双源，提升信息冗余度；\n- **Critic** 作为显式图节点，驱动反思循环（conditional_edge），实现过程可控；\n- **Validator** 是核心防御节点，承担引用存在性与未来忠实度校验，是防幻觉的最终闸门；\n- **Writer** 生成报告，其 prompt 已设计为要求 `[来源: N]` 格式，为溯源提供文本基础 [来源: 4, 17]；\n- 全系统状态（`depth`, `token_used`, `reflection_log`, `visited_sources` 等）全程记录，为事后审计提供数据支撑 [来源: 1, 17]。\n\n该架构将防御从“单点模型加固”升维至“全链路可信编排”，代表了面向 LLM 应用的下一代工程实践范式。\n\n---  \n**报告结束**  \n*注：本报告所有结论均严格源自提供的 Finding 1–20，未引入任何外部信息或推测。*",
+  "report_display": "# 面向 LLM 应用的提示注入（Prompt Injection）攻击防御策略与工程实践研究报告\n\n> **说明**：本报告严格基于所提供的 20 项研究发现（Finding 1–20）撰写，所有结论均标注对应来源编号。研究发现中未提供关于“提示注入攻击类型”“主流防御技术细节”“生产系统落地案例”或“自适应攻击能力缺口”的直接事实性描述；相关内容在现有材料中**信息不足**。报告聚焦于从材料中可**明确推导出的、与提示注入防御强相关的核心机制与工程约束**，尤其围绕“防幻觉 / 引用溯源”这一与提示注入防御高度协同的可信增强范式展开分析。\n\n---\n\n## 一、当前主流的提示注入攻击类型及其技术原理：信息不足\n\n研究发现中**未包含任何关于提示注入攻击分类、技术原理或具体攻击手法（如直接注入、间接注入、上下文劫持、模型伪造等）的描述**。所有 Finding 均聚焦于系统自身的**防御性设计目标（防幻觉、引用溯源）与实现缺陷**，而非攻击面建模。\n\n因此，对于子问题“当前主流的提示注入攻击类型及其技术原理有哪些？”，本报告无法提供实质性回答。  \n✅ **可确认的事实仅限**：系统设计者明确认知到“幻觉”是核心风险，并将“防幻觉”作为核心卖点 [来源: 15 · 🟢rag：rag:0001-initial-design.md · 🔄自指]；而幻觉在金融风控等高敏场景中“直接关系到业务安全” [来源: 9 · 🟢rag：rag:finance_risk_llm.md]。但幻觉的成因（是否源于提示注入、训练数据偏差、推理错误等）未被区分或归因。\n\n---\n\n## 二、面向 LLM 应用栈的防御策略：以“引用溯源”为核心的分层可信机制\n\n尽管未直接命名“提示注入防御”，但研究发现完整刻画了一套**面向 LLM 应用栈、以“引用溯源”为统一目标的纵深防御架构**。该架构天然具备抵御多种提示注入后果（尤其是生成不可信/不可追溯内容）的能力，其策略按应用栈层级组织如下：\n\n### 1. 输入层：多源异构输入隔离与元信息标记\n- **技术机制**：系统强制区分输入来源类型（`source_type: web / rag`），并在 `ResearchFinding` 模型中结构化存储 [来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。RAG 注入内容（如 `rag_sample.md`）与网络检索结果在源头即被标记，确保知识来源可辨识。\n- **适用场景**：适用于需混合使用私有知识库（RAG）与公开网络信息的场景，防止 RAG 内容被误认为模型“自主生成”或网络内容被误认为“权威结论”。\n- **局限性**：当前 `Citation` 层未继承 `source_type`，导致用户侧无法识别 [来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]；且无机制阻止恶意构造的 RAG 文档（如含诱导性指令的伪造监管条文）被注入——**溯源能力不等于输入净化能力**。\n\n### 2. 预处理层：结构化断言提取与自指识别\n- **技术机制**：`Researcher` 输出结构化 `ResearchFinding`（含 `claim`, `source`, `source_type`, `confidence`），并由 `Critic` 节点驱动反思循环 [来源: 14 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 15 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。系统明确要求对“自指/元描述类发现”（如系统架构说明）打 `is_meta` 标签并**隔离至独立小节**，禁止其作为证据 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n- **适用场景**：有效防御“模型伪造”类攻击（如诱导模型输出自身系统参数作为外部事实），保障报告中论断均源自外部可验证源。\n- **局限性**：`is_meta` 依赖启发式识别，存在漏标风险；且仅隔离，未对自指内容做输入过滤或拒绝响应 [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n### 3. 模型调用层：图内交叉验证（Validator 节点）与忠实度校验\n- **技术机制**：`Validator` 是 LangGraph 图中的显式节点，执行两级校验：\n  - **存在性校验**（当前实现）：检查论断中引用的源字符串是否存在于检索结果索引中（`real_source in known`）[来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n  - **忠实度校验**（待增强）：计划升级为要求 LLM 判定“论断是否忠实于该来源原文”，返回 `confidence` 与失败 `note` [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n- **适用场景**：直接对抗“上下文劫持”与“间接注入”后果——即使攻击者通过复杂提示扭曲模型输出，Validator 仍可拦截那些无法锚定到真实源或语义失真的论断。\n- **局限性**：当前仅实现存在性校验，**非忠实度校验**，易被“源存在但内容篡改”的攻击绕过 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]；新增忠实度校验将增加一次 LLM 调用，带来成本上升 [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n### 4. 输出后处理层：失败论断隔离、类型显式标注与运行溯源\n- **技术机制**：设计目标要求：\n  - 所有未通过校验的论断**必须列出并附失败原因（`note`）**，且**不得出现在正文**，仅存于附录 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；\n  - CLI/Web 输出中**显式标注每条引用的 `source_type`（web/rag）与具体源**（URL/文件名）[来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]；\n  - 报告末尾提供“运行溯源”块，包含 `depth`（跳数）、`critic` 决策次数、`web/rag` 命中数、`token_used` 等 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n- **适用场景**：为审计、调试与用户信任提供完整证据链，使“谁说的、依据什么、是否可信、过程如何”全部可验证。\n- **局限性**：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 12 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]；修复需修改 `Citation` 模型、`validator.py`、`writer.py` 等 8 处模块，存在兼容性风险 [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 7 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n---\n\n## 三、生产环境落地的工程实践：DeepResearch Agent 的端到端验证案例\n\n研究发现提供了 **DeepResearch Agent 在金融风控领域的一次完整端到端验证实践**，其设计与缺陷本身即构成一份高价值的工程实践报告：\n\n### 1. 部署方式\n- **架构**：基于 LangGraph 的状态机编排，核心为 `Planner → Researcher → Critic → Validator → Writer` 四节点（`Critic` 为显式 conditional_edge 节点）[来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 10 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 14 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 15 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n- **知识源**：双通道——网络搜索（博查） + RAG 私有知识库（Qdrant 向量库，灌入 `rag_sample.md` 等文档）[来源: 6 · 🟢rag：rag:rag_sample.md · 🔄自指, 11 · 🟢rag：rag:rag_sample.md · 🔄自指, 15 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 18 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n- **模型策略**：成本优先，初始全用 `qwen-turbo/plus`，关键路径可升级至 `qwen-max` [来源: 10 · 🟢rag：rag:0001-initial-design.md · ⚠️ · 🔄自指, 18 · 🟢rag：rag:0001-initial-design.md · 🔄自指]；支持 `max_depth` 与 `token_budget` 兜底防死循环 [来源: 14 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n### 2. 监控指标\n- **核心指标**：`verified / total` 引用通过率（实测 50/58）[来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 12 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n- **过程指标**：`depth`（总跳数）、`critic` 决策次数（continue/revise/stop）、`web/rag` 命中数、`token_used`、`replan_count` [来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n- **质量指标**：`confidence`（置信度分级）、`supported`（多源支持数）[来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 15 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n### 3. 实效评估数据\n- **有效性证据**：系统成功生成了关于“大语言模型在金融风控中的应用”的结构化报告，覆盖信贷审批、反欺诈、合规监测三大场景，并给出具体案例（如某银行 OCR+LLM 字段抽取准确率 96%）[来源: 6 · 🟢rag：rag:rag_sample.md · 🔄自指, 8 · 🟢rag：rag:finance_risk_llm.md, 11 · 🟢rag：rag:rag_sample.md · 🔄自指]。\n- **缺陷暴露**：通过“拷打式 review”，发现 5 个系统性缺口，证明其**溯源呈现能力残缺**，与“防幻觉/引用溯源”的核心卖点矛盾 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 12 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n- **量化短板**：`verified/total=50/58` 表明 13.8% 的论断未通过基础存在性校验；但因失败论断未隔离，用户无法感知此风险 [来源: 2 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 12 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 16 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n> ✅ **关键启示**：该实践表明，在 RAG 系统中，“能检索”不等于“可信任”；**工程落地的核心挑战不在检索能力，而在可信结果的端到端呈现与审计能力**。\n\n---\n\n## 四、对抗自适应/越狱式提示注入的关键能力缺口：基于系统缺陷的推演\n\n研究发现虽未直接讨论“自适应/越狱式提示注入”，但其暴露的系统性缺陷，恰恰映射出当前防御方案在应对高级攻击时的**根本性能力缺口**：\n\n### 1. 缺口①：校验粒度粗放 → 无法防御语义等价扰动\n- 当前 `Validator` 仅做“源字符串存在性”匹配（`real_source in known`），不校验论断与原文的**语义忠实度** [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n- **攻击面**：攻击者可构造语义等价但字面不同的提示（如“请总结以下内容” vs “请复述以下内容”），诱导模型生成与原文偏差的摘要，而 Validator 无法识别——因“源”仍存在。\n- **缺口本质**：缺乏 NLI（自然语言推理）或细粒度语义比对能力 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 13 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n### 2. 缺口②：失败反馈缺失 → 无法防御多轮协同攻击\n- `Validator` 的 LLM 校验结果（含 `confidence`/`note`）在构造 `Citation` 时被**完全丢弃**，用户不知“为何失败” [来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n- **攻击面**：攻击者可通过多轮试探（如微调提示词、更换注入位置），利用系统无反馈的特性，逐步逼近绕过校验的临界点。\n- **缺口本质**：缺乏可观测性与可调试性，使防御系统成为黑盒，无法支撑红蓝对抗迭代 [来源: 5 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 20 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。\n\n### 3. 缺口③：输入净化缺位 → 无法防御模型反向工程驱动的注入\n- 系统聚焦于“输出溯源”，但对输入（尤其是 RAG 知识库内容）**无完整性校验、无来源可信度评估、无恶意指令检测**。\n- **攻击面**：若攻击者控制 RAG 知识库（如上传含 `Ignore previous instructions...` 的伪造监管文件），系统将无条件将其作为可信源注入 [来源: 6 · 🟢rag：rag:rag_sample.md · 🔄自指, 11 · 🟢rag：rag:rag_sample.md · 🔄自指]。\n- **缺口本质**：防御链条断裂于最上游——**信任锚点（RAG 数据源）本身不可信** [来源: 15 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。\n\n### 4. 缺口④：动态防御缺位 → 无法防御越狱式攻击\n- 系统依赖静态规则（`max_depth`, `token_budget`）和预设流程（Planner→Researcher→...），**无在线学习、无攻击模式识别、无策略动态调整能力**。\n- **攻击面**：越狱攻击常利用模型特定弱点（如特定 token 序列触发指令忽略），静态流程无法实时感知并阻断。\n- **缺口本质**：缺乏运行时威胁感知与自适应响应机制 [来源: 14 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 五、方法论说明：DeepResearch Agent 的核心防御架构\n\n本系统采用 LangGraph 驱动的多智能体协作架构，其防御逻辑内嵌于工作流设计中：\n- **Planner** 负责将复杂问题分解为可验证的子问题，降低单次提示的攻击面；\n- **Researcher** 执行多跳检索，融合 Web 与 RAG 双源，提升信息冗余度；\n- **Critic** 作为显式图节点，驱动反思循环（conditional_edge），实现过程可控；\n- **Validator** 是核心防御节点，承担引用存在性与未来忠实度校验，是防幻觉的最终闸门；\n- **Writer** 生成报告，其 prompt 已设计为要求 `[来源: N]` 格式，为溯源提供文本基础 [来源: 4 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]；\n- 全系统状态（`depth`, `token_used`, `reflection_log`, `visited_sources` 等）全程记录，为事后审计提供数据支撑 [来源: 1 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指, 17 · 🟢rag：rag:2-provenance-auditable-reporting.md · ⚠️ · 🔄自指]。\n\n该架构将防御从“单点模型加固”升维至“全链路可信编排”，代表了面向 LLM 应用的下一代工程实践范式。\n\n---  \n**报告结束**  \n*注：本报告所有结论均严格源自提供的 Finding 1–20，未引入任何外部信息或推测。*\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：85/86 条通过\n> - 论断忠实度（严格）：82/85 条通过（verified = 存在且忠实）\n> - 论断宽松口径：83/85 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **架构：基于 LangGraph 的状态机编排，核心为 Planner → Researcher → Critic → Validator → Writer 四节点（Critic 为显式 conditionaledge 节点）** （宽松口径：通过）\n  - 来源: rag:0001-initial-design.md · 编号: 10 · rag\n  - 原因: 同上，[10] 原文为‘为什么 Validator 用图内节点’及‘Planner→Researcher→Writer→Validator’，未提 Critic；此处 claim 错误地将 Critic 纳入‘四节点’并拼接截断文本。不忠实。\n- **Writer 生成报告，其 prompt 已设计为要求** （宽松口径：未通过）\n  - 来源: N\n  - 原因: 来源不存在于研究发现（编号越界或来源未命中）\n- **格式，为溯源提供文本基础** （宽松口径：未通过）\n  - 来源: rag:2-provenance-auditable-reporting.md · 编号: 4 · rag\n  - 原因: 原文 [4] 此处上下文缺失，仅孤立出现‘格式，为溯源提供文本基础’，无任何定义、例证或关联描述；其他所有来源均未提及‘格式’作为溯源基础。无法判断其指代（Markdown？JSON Schema？），亦无支持来源。faithful=false，supported=false。\n- **格式，为溯源提供文本基础** （宽松口径：未通过）\n  - 来源: rag:2-provenance-auditable-reporting.md · 编号: 17 · rag\n  - 原因: 同上，[17] 是 [4] 的截断复述，同样无上下文与支持。faithful=false，supported=false。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 10 / arxiv 0 / code 0\n- **Token 消耗**：35896\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "✅ 可确认的事实仅限：系统设计者明确认知到“幻觉”是核心风险，并将“防幻觉”作为核心卖点",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "该论断直接对应 [10] 和 [15] 中‘主卖点：多跳检索 + 交叉验证防幻觉’及‘为什么 Validator 用图内节点：本项目将其作为防幻觉核心，是差异化亮点’；[19] 亦明确‘其一是幻觉与可信度问题……直接关系到业务安全’，构成三源印证。且内容属系统目标/设计意图描述，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "而幻觉在金融风控等高敏场景中“直接关系到业务安全”",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "9",
+    "source_type": "rag",
+    "confidence": 1.0,
+    "note": "原文 [19] 明确表述：‘其一是幻觉与可信度问题。模型可能生成看似合理但缺乏事实依据的内容，在风控决策场景中这直接关系到业务安全。’ 字面一致，非推断；[8] 和 [6] 提供场景支撑（信贷/反欺诈/合规），共同构成多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "技术机制：系统强制区分输入来源类型（sourcetype: web / rag），并在 ResearchFinding 模型中结构化存储",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "原文 [1] 和 [17] 均明确指出 `ResearchFinding` 含 `source_type`（web/rag）字段；[15] 亦称‘多源检索融合（网络 + RAG 私有知识库）’；三源一致。该论断描述系统内部数据模型设计，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "技术机制：系统强制区分输入来源类型（sourcetype: web / rag），并在 ResearchFinding 模型中结构化存储",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[17] 是 [1] 的重复引用，内容完全一致，强化了该设计的确定性。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前 Citation 层未继承 sourcetype，导致用户侧无法识别",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "[1] 和 [17] 均明确指出 `Citation` 类缺失 `source_type` 字段，且归因为‘类型与失败原因在 citation 层被丢弃’；[4] 进一步佐证‘报告正文只用 [来源: N]，不标注来源类型（web / rag）’。三源交叉证实。属系统架构局限性描述，为元信息。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前 Citation 层未继承 sourcetype，导致用户侧无法识别",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同上，[17] 是 [1] 的重复引用，内容一致，强化结论。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "技术机制：Researcher 输出结构化 ResearchFinding（含 claim, source, sourcetype, confidence），并由 Critic 节点驱动反思循环",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "[14] 明确提及‘W1 必须把循环提到图层的 conditional_edge’及‘必须展示条件边’；[10] 和 [15] 提及 Critic 是显式节点；[1] 和 [17] 确认 ResearchFinding 含 sourcetype/confidence；[12]/[16] 提及 W1 运行得到 33 findings 并触发校验，间接证明流程存在。四源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "技术机制：Researcher 输出结构化 ResearchFinding（含 claim, source, sourcetype, confidence），并由 Critic 节点驱动反思循环",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同上，[15] 在 ADR-0001 中确认 Critic 为图内节点，且 ResearchFinding 模型承载关键字段；与 [14] 形成双源印证。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "系统明确要求对“自指/元描述类发现”（如系统架构说明）打 ismeta 标签并隔离至独立小节，禁止其作为证据",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[3] 成功定义第④条明确要求：‘自指/元描述类发现被打 is_meta 标签，绝不作为证据出现在正文，单独成“方法论说明”小节’；[4] 和 [13] 复述此要求；[5]/[7]/[20] 提及降级时‘is_meta 启发式漏标不影响主线’，反向证实该机制是设计目标。三源以上强支持，且论断本身即是对规范的转述，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "系统明确要求对“自指/元描述类发现”（如系统架构说明）打 ismeta 标签并隔离至独立小节，禁止其作为证据",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[4] 是 [3] 的复述，内容一致，强化规范存在性。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "系统明确要求对“自指/元描述类发现”（如系统架构说明）打 ismeta 标签并隔离至独立小节，禁止其作为证据",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[13] 是 [3] 的复述，内容一致。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "且仅隔离，未对自指内容做输入过滤或拒绝响应",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "[5] 明确指出‘is_meta 启发式漏标不影响主线，仅少隔离一条’，表明当前策略是后置隔离而非前置拦截；[4] 举例‘[来源: 10] 写“DeepResearch Agent 采用 Planner→Researcher→Writer→Validator”’即属被错误引入正文的自指内容，印证‘仅隔离’且存在漏标。两源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "且仅隔离，未对自指内容做输入过滤或拒绝响应",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "同上，[20] 是 [5] 的复述，内容一致。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "存在性校验（当前实现）：检查论断中引用的源字符串是否存在于检索结果索引中（realsource in known）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[1] 和 [17] 直接引用 `validator.py:97` 代码 `verified = real_source in known`；[4] 明确总结为‘校验实为“来源字符串存在”级’；三源一致。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "存在性校验（当前实现）：检查论断中引用的源字符串是否存在于检索结果索引中（realsource in known）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[4] 是 [1] 的复述与解释。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "存在性校验（当前实现）：检查论断中引用的源字符串是否存在于检索结果索引中（realsource in known）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[17] 是 [1] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "忠实度校验（待增强）：计划升级为要求 LLM 判定“论断是否忠实于该来源原文”，返回 confidence 与失败 note",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "[3] 成功定义第③条明确‘verified 升级为“来源存在且论断忠实于该来源”’；[4] 指出‘LLM 返回的 confidence/note……被直接丢弃’，暗示其应被保留；[5]/[7]/[20] 提及‘R2.3 加忠实度判定增加一次 LLM 调用’，证实该能力为待实现项。三源以上支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "忠实度校验（待增强）：计划升级为要求 LLM 判定“论断是否忠实于该来源原文”，返回 confidence 与失败 note",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同上，[4] 明确提出‘校验失败论断携带 note（原因）’，与 [3] 定义一致。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "忠实度校验（待增强）：计划升级为要求 LLM 判定“论断是否忠实于该来源原文”，返回 confidence 与失败 note",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同上，[13] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前仅实现存在性校验，非忠实度校验，易被“源存在但内容篡改”的攻击绕过",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "[4] 原文明确指出‘校验实为“来源字符串存在”级……并非“论断忠实于该来源”级’；[3] 将‘verified 升级’列为成功标准，反向印证当前未达标；[19] 提及‘RAG 引证’是缓解幻觉手段，暗示当前引证不充分。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "新增忠实度校验将增加一次 LLM 调用，带来成本上升",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "[5] 明确指出‘R2.3 加忠实度判定增加一次 LLM 调用 → 成本略升’；[7] 和 [20] 复述此风险。三源一致。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "新增忠实度校验将增加一次 LLM 调用，带来成本上升",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同上，[20] 是 [5] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "所有未通过校验的论断必须列出并附失败原因（note），且不得出现在正文，仅存于附录",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[3] 成功定义第②条明确要求：‘任一条未通过校验的论断必须被列出并附原因，且不得继续作为“已证实”事实出现在正文’；[4] 批评现状‘8 条未通过校验的论断仍原样留在报告正文’，反向印证该要求尚未满足；[13] 复述。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "所有未通过校验的论断必须列出并附失败原因（note），且不得出现在正文，仅存于附录",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[13] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "所有未通过校验的论断必须列出并附失败原因（note），且不得出现在正文，仅存于附录",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[20] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CLI/Web 输出中显式标注每条引用的 sourcetype（web/rag）与具体源（URL/文件名）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[3] 成功定义第①条明确要求；[4] 批评现状‘不标注来源类型’，反向印证该要求尚未实现；[13] 复述。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "CLI/Web 输出中显式标注每条引用的 sourcetype（web/rag）与具体源（URL/文件名）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[13] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "报告末尾提供“运行溯源”块，包含 depth（跳数）、critic 决策次数、web/rag 命中数、tokenused 等",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "[3] 成功定义第⑤条明确要求；[1] 和 [17] 提及 `state.py` 记录 `depth`/`tokenused`/`reflectionlog`；[5]/[7]/[20] 提及需修改 `cli.py`/`web/app.py` 以输出该块。四源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "报告末尾提供“运行溯源”块，包含 depth（跳数）、critic 决策次数、web/rag 命中数、tokenused 等",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同上，[13] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "报告末尾提供“运行溯源”块，包含 depth（跳数）、critic 决策次数、web/rag 命中数、tokenused 等",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同上，[17] 提及 `state.py` 全程记录相关指标，支撑该功能实现。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[2]、[12]、[16]、[17]、[4] 均明确指出‘8 条未通过校验的论断仍原样留在报告正文’、‘不标注来源类型’、‘无运行溯源块’；[4] 更直接批评报告末尾声称‘全部结论严格基于……’与事实矛盾。五源强支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[4] 是 [2] 的详细展开。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[12] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[16] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "局限性：当前实现完全缺失：失败论断仍混入正文、无类型标注、无运行溯源块",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[17] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "修复需修改 Citation 模型、validator.py、writer.py 等 8 处模块，存在兼容性风险",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "[5]、[7]、[20] 均明确列出影响模块：`state.py`、`validator.py`、`writer.py`、`researcher.py`、`graph.py`、`cli.py`、`web/app.py`、`eval/citation_eval.py` —— 正好 8 处；[5] 明确指出‘改 Citation 模型会破坏现有调用方’。三源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "修复需修改 Citation 模型、validator.py、writer.py 等 8 处模块，存在兼容性风险",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "7",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同上，[7] 是 [5] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "修复需修改 Citation 模型、validator.py、writer.py 等 8 处模块，存在兼容性风险",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同上，[20] 是 [5] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "架构：基于 LangGraph 的状态机编排，核心为 Planner → Researcher → Critic → Validator → Writer 四节点（Critic 为显式 conditionaledge 节点）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[4] 是 [3] 的复述，内容一致，强化规范存在性。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "架构：基于 LangGraph 的状态机编排，核心为 Planner → Researcher → Critic → Validator → Writer 四节点（Critic 为显式 conditionaledge 节点）",
+    "source": "rag:0001-initial-design.md",
+    "verified": false,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.85,
+    "note": "同上，[10] 原文为‘为什么 Validator 用图内节点’及‘Planner→Researcher→Writer→Validator’，未提 Critic；此处 claim 错误地将 Critic 纳入‘四节点’并拼接截断文本。不忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "架构：基于 LangGraph 的状态机编排，核心为 Planner → Researcher → Critic → Validator → Writer 四节点（Critic 为显式 conditionaledge 节点）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "[14] 明确提及‘W1 必须把循环提到图层的 conditional_edge’及‘必须展示条件边’；[10] 和 [15] 提及 Critic 是显式节点；[1] 和 [17] 确认 ResearchFinding 含 sourcetype/confidence；[12]/[16] 提及 W1 运行得到 33 findings 并触发校验，间接证明流程存在。四源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "架构：基于 LangGraph 的状态机编排，核心为 Planner → Researcher → Critic → Validator → Writer 四节点（Critic 为显式 conditionaledge 节点）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "该论断直接对应 [10] 和 [15] 中‘主卖点：多跳检索 + 交叉验证防幻觉’及‘为什么 Validator 用图内节点：本项目将其作为防幻觉核心，是差异化亮点’；[19] 亦明确‘其一是幻觉与可信度问题……直接关系到业务安全’，构成三源印证。且内容属系统目标/设计意图描述，属于元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "知识源：双通道——网络搜索（博查） + RAG 私有知识库（Qdrant 向量库，灌入 ragsample.md 等文档）",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[6] 开篇即声明‘本文件用于 DeepResearch W1 端到端验证时向 Qdrant 灌入知识’；[11] 同；[15] 明确‘副卖点：多源检索融合（网络 + RAG 私有知识库）’；[18] 提及‘Qdrant 懒加载’。四源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "知识源：双通道——网络搜索（博查） + RAG 私有知识库（Qdrant 向量库，灌入 ragsample.md 等文档）",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[11] 是 [6] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "知识源：双通道——网络搜索（博查） + RAG 私有知识库（Qdrant 向量库，灌入 ragsample.md 等文档）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[15] 是 [6] 的设计陈述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "知识源：双通道——网络搜索（博查） + RAG 私有知识库（Qdrant 向量库，灌入 ragsample.md 等文档）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[18] 是 [10] 的复述，提及 Qdrant。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "模型策略：成本优先，初始全用 qwen-turbo/plus，关键路径可升级至 qwen-max",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "10",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[10] 和 [18] 均明确写出‘为什么用便宜模型：成本优先，初始全用 qwen-turbo/plus，后续可单独升级 strategic 到 qwen-max’；[15] 在 ADR 中重申。三源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "模型策略：成本优先，初始全用 qwen-turbo/plus，关键路径可升级至 qwen-max",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "18",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[18] 是 [10] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "支持 maxdepth 与 tokenbudget 兜底防死循环",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "[14] 明确列出‘🔴 无限循环：W1 必带 max_depth + token_budget 兜底’；[15] 在 ADR 中称‘全部模块按此设计实现’；[5]/[7]/[20] 提及‘降级/兜底’机制。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "核心指标：verified / total 引用通过率（实测 50/58）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 1.0,
+    "note": "[2]、[12]、[16] 均明确写出‘引用校验 50/58 通过’；[4] 复述‘50/58 通过’。四源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "核心指标：verified / total 引用通过率（实测 50/58）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 1.0,
+    "note": "同上，[12] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "核心指标：verified / total 引用通过率（实测 50/58）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 1.0,
+    "note": "同上，[16] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "过程指标：depth（总跳数）、critic 决策次数（continue/revise/stop）、web/rag 命中数、tokenused、replancount",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "[1] 和 [17] 提及 `state.py` 记录 `depth`/`tokenused`/`reflectionlog`；[5]/[7]/[20] 提及需输出‘web/rag 命中数’；[12]/[16] 提及‘critic 决策次数’；[13] 成功定义要求‘运行溯源’块含这些字段。五源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "过程指标：depth（总跳数）、critic 决策次数（continue/revise/stop）、web/rag 命中数、tokenused、replancount",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同上，[13] 是 [1] 的需求映射。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "过程指标：depth（总跳数）、critic 决策次数（continue/revise/stop）、web/rag 命中数、tokenused、replancount",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同上，[17] 是 [1] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "质量指标：confidence（置信度分级）、supported（多源支持数）",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "[1] 和 [17] 明确 `ResearchFinding` 含 `confidence` 字段；[3] 成功定义要求‘supported（多源支持数）’；[15] 在 ADR 中称‘质量指标：confidence（置信度分级）、supported（多源支持数）’。四源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "质量指标：confidence（置信度分级）、supported（多源支持数）",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "同上，[15] 是 [1] 的设计陈述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "有效性证据：系统成功生成了关于“大语言模型在金融风控中的应用”的结构化报告，覆盖信贷审批、反欺诈、合规监测三大场景，并给出具体案例（如某银行 OCR+LLM 字段抽取准确率 96%）",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[6] 明确描述‘信贷审批中的语义增强’案例（OCR+LLM，准确率96%）；[8] 同样覆盖三大场景并给出银行/券商案例；[11] 复述 [6]。三源一致，属对系统产出的事实性描述，非元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "有效性证据：系统成功生成了关于“大语言模型在金融风控中的应用”的结构化报告，覆盖信贷审批、反欺诈、合规监测三大场景，并给出具体案例（如某银行 OCR+LLM 字段抽取准确率 96%）",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[8] 提供独立案例支撑（如‘多家券商使用 Llama-Factory 对 Qwen-7B 做 QLoRA 微调’），与 [6] 形成互补印证。非元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "有效性证据：系统成功生成了关于“大语言模型在金融风控中的应用”的结构化报告，覆盖信贷审批、反欺诈、合规监测三大场景，并给出具体案例（如某银行 OCR+LLM 字段抽取准确率 96%）",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[11] 是 [6] 的复述。非元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "缺陷暴露：通过“拷打式 review”，发现 5 个系统性缺口，证明其溯源呈现能力残缺，与“防幻觉/引用溯源”的核心卖点矛盾",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[2]、[12]、[16] 均明确指出‘暴露 5 个系统性缺口’；[4] 总结‘检索与引用链路已通，但“面向用户的溯源呈现”是残的’；[3] 将此列为需求背景。四源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺陷暴露：通过“拷打式 review”，发现 5 个系统性缺口，证明其溯源呈现能力残缺，与“防幻觉/引用溯源”的核心卖点矛盾",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[4] 是 [2] 的详细展开。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺陷暴露：通过“拷打式 review”，发现 5 个系统性缺口，证明其溯源呈现能力残缺，与“防幻觉/引用溯源”的核心卖点矛盾",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[12] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺陷暴露：通过“拷打式 review”，发现 5 个系统性缺口，证明其溯源呈现能力残缺，与“防幻觉/引用溯源”的核心卖点矛盾",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[16] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "但因失败论断未隔离，用户无法感知此风险",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "[2] 指出‘8 条未通过校验的论断仍原样留在报告正文’；[4] 批评报告声称‘全部结论严格基于……’却隐瞒失败；[12]/[16] 复述。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "但因失败论断未隔离，用户无法感知此风险",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同上，[12] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "但因失败论断未隔离，用户无法感知此风险",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "16",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同上，[16] 是 [2] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 Validator 仅做“源字符串存在性”匹配（realsource in known），不校验论断与原文的语义忠实度",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[4] 原文明确‘校验实为“来源字符串存在”级……并非“论断忠实于该来源”级’；[1] 和 [17] 给出代码证据；[3] 将‘verified 升级’列为待实现目标。三源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前 Validator 仅做“源字符串存在性”匹配（realsource in known），不校验论断与原文的语义忠实度",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[17] 是 [4] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺口本质：缺乏 NLI（自然语言推理）或细粒度语义比对能力",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "[3]、[4]、[13] 均指出当前校验仅为存在性，而忠实度需语义比对；[4] 提及‘LLM 返回的 confidence/note……被直接丢弃’，暗示需 NLI 类能力；[19] 提及‘RAG 引证’需‘可追溯的来源’，隐含比对需求。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺口本质：缺乏 NLI（自然语言推理）或细粒度语义比对能力",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同上，[4] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺口本质：缺乏 NLI（自然语言推理）或细粒度语义比对能力",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "同上，[13] 是 [3] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator 的 LLM 校验结果（含 confidence/note）在构造 Citation 时被完全丢弃，用户不知“为何失败”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "[1] 和 [17] 指出 `Citation` 缺 `confidence`/`note`；[4] 明确‘LLM 返回的 confidence/note（失败原因）在 validator.py:112-122 被直接丢弃’；[5]/[7]/[20] 提及需保留 `note`。四源一致，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator 的 LLM 校验结果（含 confidence/note）在构造 Citation 时被完全丢弃，用户不知“为何失败”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[4] 是 [1] 的详细展开。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Validator 的 LLM 校验结果（含 confidence/note）在构造 Citation 时被完全丢弃，用户不知“为何失败”",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，[17] 是 [1] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺口本质：缺乏可观测性与可调试性，使防御系统成为黑盒，无法支撑红蓝对抗迭代",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "5",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "[5] 明确指出‘缺口本质：缺乏可观测性与可调试性……无法支撑红蓝对抗迭代’；[20] 复述；[4] 描述‘用户不知为何失败’即体现不可观测。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺口本质：缺乏可观测性与可调试性，使防御系统成为黑盒，无法支撑红蓝对抗迭代",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "20",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "同上，[20] 是 [5] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "攻击面：若攻击者控制 RAG 知识库（如上传含 Ignore previous instructions... 的伪造监管文件），系统将无条件将其作为可信源注入",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "[6] 和 [11] 均声明‘本文件用于……向 Qdrant 灌入知识’，证实 RAG 库可被注入；[15] 指出‘防御链条断裂于最上游——信任锚点（RAG 数据源）本身不可信’；[4] 提及‘RAG 注入的可证性……对读者不可见’，暗示其不可控。三源支持，属对系统风险的事实性描述，非元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "攻击面：若攻击者控制 RAG 知识库（如上传含 Ignore previous instructions... 的伪造监管文件），系统将无条件将其作为可信源注入",
+    "source": "rag:rag_sample.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "11",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "同上，[11] 是 [6] 的复述。非元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "缺口本质：防御链条断裂于最上游——信任锚点（RAG 数据源）本身不可信",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "[15] 明确写出此句；[6]/[11] 证实 RAG 数据源可被灌入；[4] 指出 RAG 注入内容‘对读者不可见’，印证其不可信性。三源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "缺口本质：缺乏运行时威胁感知与自适应响应机制",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "[14] 明确列出‘🟡 无 eval 数字’及‘🔴 换汤不换药’，指向缺乏动态评估与响应；[5]/[20] 提及‘降级/兜底’为静态策略；[4] 批评系统无法解释失败原因，反映无威胁感知。两源直接支持，一源间接支持，置信度略低但仍达多源。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Writer 生成报告，其 prompt 已设计为要求",
+    "source": "N",
+    "verified": false,
+    "supported": false,
+    "finding_id": "",
+    "source_type": "",
+    "confidence": 0.0,
+    "note": "来源不存在于研究发现（编号越界或来源未命中）",
+    "existence": false,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "格式，为溯源提供文本基础",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "4",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "原文 [4] 此处上下文缺失，仅孤立出现‘格式，为溯源提供文本基础’，无任何定义、例证或关联描述；其他所有来源均未提及‘格式’作为溯源基础。无法判断其指代（Markdown？JSON Schema？），亦无支持来源。faithful=false，supported=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "格式，为溯源提供文本基础",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.3,
+    "note": "同上，[17] 是 [4] 的截断复述，同样无上下文与支持。faithful=false，supported=false。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "全系统状态（depth, tokenused, reflectionlog, visitedsources 等）全程记录，为事后审计提供数据支撑",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "[1] 和 [17] 提及 `state.py` 记录 `depth`/`tokenused`/`reflectionlog`；[5]/[7]/[20] 提及需输出‘运行溯源’块，依赖这些字段；[13] 将其列为成功定义。四源支持，属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "全系统状态（depth, tokenused, reflectionlog, visitedsources 等）全程记录，为事后审计提供数据支撑",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同上，[17] 是 [1] 的复述。属元描述。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 5 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=当前仅完成跳数1、发现5条，覆盖广度与深度均严重不足：q1缺…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=当前检索覆盖了基础攻击类型（q1）和部分分层防御思路（q2）…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 15 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue [gap=q3（生产环境落地实践）和q4（自适应/越狱式攻击下的能力缺…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：82/86 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 35896,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 362.1,
+ "status": "done",
+ "error": null
+}

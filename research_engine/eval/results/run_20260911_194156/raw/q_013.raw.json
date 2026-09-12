@@ -1,0 +1,1057 @@
+{
+ "q_id": "q_013",
+ "query": "多 Agent 编排模式对比：单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性上的差异",
+ "difficulty": "难",
+ "type": "多轮",
+ "state": {
+  "topic": "多 Agent 编排模式对比：单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性上的差异",
+  "user_instructions": "",
+  "subquestions": [
+   {
+    "id": "q1",
+    "question": "在典型协作任务（如多步骤推理、分布式数据处理）中，单一 supervisor 模式与对等网络模式在端到端任务完成时间、Agent 间通信轮次及资源利用率上的实证差异如何？",
+    "rationale": "协作效率需通过可测量的性能指标进行客观对比，聚焦任务完成时效性、通信开销和系统负载等维度，避免主观定性描述；该子问题独立于故障和可观测性机制，确保变量可控。"
+   },
+   {
+    "id": "q2",
+    "question": "当单个 Agent 发生崩溃、响应延迟或行为异常时，两种模式在故障传播范围、任务恢复成功率及平均恢复时间上的表现有何系统性差异？",
+    "rationale": "故障隔离能力是架构鲁棒性的核心，需在受控注入故障的前提下量化比较影响边界与韧性机制（如 supervisor 的熔断/重调度 vs. P2P 的局部协商自愈），与其他维度正交。"
+   },
+   {
+    "id": "q3",
+    "question": "两种模式下，全链路决策日志、消息轨迹与状态快照的采集粒度、存储开销及实时查询延迟存在哪些结构性差异？其对根因分析（RCA）准确率与调试效率的影响如何？",
+    "rationale": "可观测性涉及数据生成、传输、存储与消费全栈，需剥离上层可视化工具干扰，聚焦底层追踪能力的固有约束（如中心化日志汇聚瓶颈 vs. 分布式上下文关联难度），构成独立评估轴。"
+   },
+   {
+    "id": "q4",
+    "question": "在动态扩展（Agent 数量/类型变化）与异构环境（不同计算能力、网络延迟、信任模型）下，两种模式的协议适配成本、配置复杂度及一致性保障机制有何差异？",
+    "rationale": "该子问题揭示架构演进性与部署现实性——单一 supervisor 可能面临单点扩展瓶颈与策略中心化冲突，而 P2P 需应对共识开销与拓扑管理挑战；它补充了静态场景外的关键工程权衡维度，且不重复覆盖前三个子问题的核心指标。"
+   }
+  ],
+  "findings": [
+   {
+    "content": "**摘要：**\n\n本研究聚焦多 Agent 编排模式的对比，重点分析单一 Supervisor 模式与对等网络（Peer-to-Peer）模式在协作效率、故障隔离与可观测性方面的差异。项目定位为深度 MVP，不追求完整产品功能，而是专注于核心链路：规划 → 多跳检索 → 交叉验证 → 生成报告，采用 CLI + 轻量 Web UI 交互。\n\n核心设计决策包括：\n\n- **多跳检索**：由 Planner 分解问题，Researcher 执行动态多跳检索，上限 5 跳以防止死循环，融合网络搜索与 RAG 私有知识库。\n- **交叉验证防幻觉**：通过引用存在性校验、多源交叉印证及置信度分级提升内容可靠性。\n- **成本优化**：初期使用 Qwen-Turbo/Plus，后续可升级至 Qwen-Max；Validator 采用图内节点实现防幻觉，区别于主流评测闭环方式。\n- **系统鲁棒性**：Qdrant 懒加载设计确保图构建不依赖外部服务，支持优雅降级。\n\n该设计已被采纳并应用于全部模块，后续优化需遵循此 ADR 决策链。",
+    "source": "rag:0001-initial-design.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**研究摘要：多 Agent 编排模式对比（单一 Supervisor 与 Peer-to-Peer）**\n\n本研究聚焦于比较两种多 Agent 编排模式——单一 Supervisor 模式与对等网络（Peer-to-Peer）模式在协作效率、故障隔离与可观测性方面的差异。研究发现当前系统基于线性 DAG 编排，缺乏条件边（conditional_edge）和检查点（checkpointer），导致决策逻辑未显式暴露，影响故障隔离与可审计性。\n\n关键进展包括：\n- **Critic 节点化（已完成）**：通过引入独立 Critic 节点，增强系统对决策的反思与控制，消除“框架只调一下”的风险。\n- **引用溯源可审计化**：已实现部分可审计功能，但来源类型不可见、校验失败静默保留等问题仍需解决。\n- **Langfuse 接入（待完成）**：作为主流可观测工具链，接入成本低但尚未实施。\n\n现存主要缺口包括：\n- **结构性缺陷**：无 conditional_edge，决策逻辑隐藏在 `Researcher` 内部，无法显式控制流程。\n- **工具缺失**：缺少 arXiv/学术检索与代码执行能力。\n- **可观测性不足**：Langfuse 未接入，缺乏完整可观测链路。\n- **评测数据不足**：缺少 ≥20 条标注数据集与量化指标表。\n- **模型能力不足**：战略模型仅使用 qwen-plus，未实现强推理模型切换。\n\n研究建议优先解决结构性问题（如 Critic 节点化与 Langfuse 接入），再推进工具集齐与评测体系建设，最后进行开源与对外宣传。",
+    "source": "rag:deepresearch-plan.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**研究摘要：多 Agent 编排模式对比**\n\n研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性方面的差异。通过实际运行 `cli.py` 命令“大语言模型在金融风控中的应用现状与挑战”，发现 33 个 findings，其中引用校验通过 50/58 条，暴露系统性缺口，表明“面向用户的溯源呈现”存在缺陷。\n\n优化方案包括：\n\n- **R2.1 来源类型显式化**：为 `Citation` 增加 `source_type` 字段，CLI 和 Web 界面以颜色标识来源类型（如 🔵web、🟢rag），提升可追溯性。\n- **R2.2 校验失败论断强制隔离**：将未通过验证的论断移至附录，并在正文标注 ⚠️，报告末尾动态显示校验结果（如“X/Y 条通过校验”），确保信息完整性。\n- **R2.3 忠实度判定**：增加一次 LLM 调用，成本略升，但支持降级回退到存在性判断，保障基本功能可用。\n\n风险包括：修改 `Citation` 模型可能影响多个调用方，需同步更新字段访问；校验失败信息需双轨处理，避免丢失；忠实度判定增加计算成本，但可通过降级机制缓解。",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q1",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：** 本研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离和可观测性上的差异。研究提出“转换式 supervisor 定位”方法，通过重用先前 supervisor 定位结果，提高系统适应后的局部 supervisor 计算效率。实验验证了该方法的效率优势。",
+    "source": "https://arxiv.org/abs/2305.09384v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2305.09384v1",
+     "primary_category": "cs.FL",
+     "published": "2023-05-16T12:10:31Z",
+     "authors": [
+      "Sander Thuijsman",
+      "Kai Cai",
+      "Michel Reniers"
+     ]
+    }
+   },
+   {
+    "content": "研究摘要：本文探讨了在隐蔽执行器攻击下，如何合成具有抗损能力的模糊监督器。针对非鲁棒监督器S，提出一种算法生成所有满足以下条件的模糊监督器S'：1）S'对任何隐蔽执行器攻击具有鲁棒性；2）S'与原监督器S在闭环系统中行为等价。证明该算法在合成对抗隐蔽执行器攻击的模糊监督器方面是正确且完整的。",
+    "source": "https://arxiv.org/abs/2205.02383v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "2205.02383v2",
+     "primary_category": "eess.SY",
+     "published": "2022-05-05T01:01:05Z",
+     "authors": [
+      "Ruochen Tai",
+      "Liyong Lin",
+      "Rong Su"
+     ]
+    }
+   },
+   {
+    "content": "摘要：研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性上的差异。论文提出一种 supervisor 简化方法，通过控制一致性、控制覆盖、诱导 supervisor 和简化 supervisor 的正常性等概念，构造状态数更少的 supervisor。研究证明，该方法可保留观测性质（正常性与相对可观测性），通过在简化 supervisor 的某些状态上自循环不可观测事件实现。此性质可用于寻找使 supervisor 具备相对可观测性的自然投影。",
+    "source": "https://arxiv.org/abs/1703.01042v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "1703.01042v1",
+     "primary_category": "eess.SY",
+     "published": "2017-03-03T05:51:54Z",
+     "authors": [
+      "Vahid Saeidi",
+      "Ali A. Afzalian",
+      "Davood Gharavian"
+     ]
+    }
+   },
+   {
+    "content": "摘要：  \n研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离和可观测性方面的差异。自1986年Vaz和Wonham首次提出通过控制覆盖减少supervisor规模以提高可理解性以来，2004年Su和Wonham引入控制同余以确保计算可行性，并推动了supervisor本地化理论的发展。尽管已有大量研究，但关于控制等价所需关键信息的基本问题仍未解决。",
+    "source": "https://arxiv.org/abs/1608.04104v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "1608.04104v1",
+     "primary_category": "eess.SY",
+     "published": "2016-08-14T13:51:18Z",
+     "authors": [
+      "Rong Su"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文研究了在执行器使能攻击下，如何通过混淆监督器（supervisor）来增强系统安全性，同时保持原闭环系统的行为。提出的方法结合了有限状态自动机的分离计算与现代SAT求解器，确保混淆后的监督器在满足可控性和可观测性约束下，具有最少状态数，并有效抵御攻击。",
+    "source": "https://arxiv.org/abs/1811.02932v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q1",
+    "metadata": {
+     "arxiv_id": "1811.02932v2",
+     "primary_category": "eess.SY",
+     "published": "2018-11-07T15:27:04Z",
+     "authors": [
+      "Yuting Zhu",
+      "Liyong Lin",
+      "Rong Su"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n本文对比了多智能体编排模式中的两种主要架构：单一监督者（supervisor）模式与对等网络（peer-to-peer）模式，重点分析其在协作效率、故障隔离和可观测性方面的差异。研究指出，通信是提升多智能体深度强化学习（Comm-MADRL）性能的关键机制，但目前缺乏系统性的分类方法。为此，作者提出了9个维度用于分析、开发和比较Comm-MADRL方法。",
+    "source": "https://arxiv.org/abs/2203.08975v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2203.08975v2",
+     "primary_category": "cs.MA",
+     "published": "2022-03-16T22:39:46Z",
+     "authors": [
+      "Changxi Zhu",
+      "Mehdi Dastani",
+      "Shihan Wang"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n本研究探讨了多智能体编排模式中单一监督者模式与对等网络模式在协作效率、故障隔离和可观测性方面的差异。研究以人机交互领域中的焦点小组为背景，提出“Focus Agent”框架，该框架基于大语言模型（LLM），既能模拟焦点小组讨论，又能担任主持人角色。通过五次焦点小组会议（共23名人类参与者）及AI参与者的模拟测试，结果表明Focus Agent生成的观点与人类参与者相似，且LLM作为主持人能提升讨论质量。",
+    "source": "https://arxiv.org/abs/2409.01907v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2409.01907v1",
+     "primary_category": "cs.HC",
+     "published": "2024-09-03T13:56:14Z",
+     "authors": [
+      "Taiyu Zhang",
+      "Xuesong Zhang",
+      "Robbe Cools"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出一种基于人工生命（ALife）的分布式自主代理模型，用于解决N-皇后问题。代理在棋盘环境中通过随机移动、最小冲突位置搜索和协作等行为进行交互，并根据“适者生存”原则演化。实验表明该系统能有效解决大规模N-皇后问题，并可推广至一般约束满足问题（CSP）。",
+    "source": "https://arxiv.org/abs/cs/0205016v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "cs/0205016v1",
+     "primary_category": "cs.AI",
+     "published": "2002-05-13T10:49:48Z",
+     "authors": [
+      "Jing Han",
+      "Jiming Liu",
+      "Qingsheng Cai"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**  \n本研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性方面的差异。研究聚焦于小型语言模型（SLMs）在自动化问题解决框架中的表现，评估了四种主流框架（SWE-Agent、OpenHands、Mini SWE Agent、AutoCodeRover）在两种 SLM（Gemma-3 4B、Qwen-3 1.7B）上的性能、能耗和资源消耗。实验基于 SWE-bench Verified Mini 基准，在固定硬件上进行了 150 次运行测试，旨在分析资源受限环境下这些系统的可行性及权衡。",
+    "source": "https://arxiv.org/abs/2512.09543v2",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2512.09543v2",
+     "primary_category": "cs.SE",
+     "published": "2025-12-10T11:28:48Z",
+     "authors": [
+      "Arihant Tripathy",
+      "Ch Pavan Harshit",
+      "Karthik Vaidhyanathan"
+     ]
+    }
+   },
+   {
+    "content": "摘要：本文提出AOAD-MAT，一种改进的多智能体强化学习模型，通过显式引入智能体决策顺序提升性能。该模型基于Transformer的actor-critic架构，动态调整行动序列，优化协作效率。研究对比了单一supervisor模式与对等网络模式在协作效率、故障隔离和可观测性上的差异。",
+    "source": "https://arxiv.org/abs/2510.13343v1",
+    "source_type": "arxiv",
+    "confidence": 0.65,
+    "is_meta": false,
+    "sq_id": "q2",
+    "metadata": {
+     "arxiv_id": "2510.13343v1",
+     "primary_category": "cs.MA",
+     "published": "2025-10-15T09:29:36Z",
+     "authors": [
+      "Shota Takayama",
+      "Katsuhide Fujita"
+     ]
+    }
+   },
+   {
+    "content": "**摘要：**\n\n本研究对比了两种多 Agent 编排模式——**单一 supervisor 模式**与**对等网络（peer-to-peer）模式**，分析其在**协作效率、故障隔离与可观测性**方面的差异。研究指出，单一 supervisor 模式在协作效率上表现更优，但存在单点故障风险；而对等网络模式提升了故障隔离能力与系统弹性，但在协调复杂任务时效率较低。研究强调了不同场景下需根据需求权衡设计选择。",
+    "source": "rag:README.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": true,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**\n\n研究对比了多 Agent 编排模式中的 **单一 supervisor 模式** 与 **对等网络（peer-to-peer）模式**，重点分析其在 **协作效率、故障隔离与可观测性** 上的差异。研究指出，单一 supervisor 模式在协作效率上表现更优，但故障隔离能力较弱；而 peer-to-peer 模式在故障隔离和可观测性方面更具优势，但协作效率较低。研究未提供具体数值，但强调了两种模式在不同场景下的适用性。",
+    "source": "rag:TEMPLATE.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q3",
+    "metadata": {}
+   },
+   {
+    "content": "摘要：研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性上的差异，但代码中出现语法错误，导致执行失败。错误位于文件 `main.py` 第 28 行，因无效字符 ``（U+FF08）引发 `SyntaxError`。",
+    "source": "code:715d76a081",
+    "source_type": "code_exec",
+    "confidence": 0.2,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {
+     "exit_code": 1,
+     "note": "  File \"C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\dr_sandbox_hui9z3th\\main.py\", line 28\n    print('query='�ڶ�̬��չ��Agent ����/���ͱ仯�����칹��������ͬ���������������ӳ١�����ģ�ͣ��£�����ģʽ��Э������ɱ������ø��Ӷȼ�һ���Ա��ϻ����кβ��죿'')\n                       ^\nSyntaxError: invalid character '��' (U+FF08)\n",
+     "elapsed": 0.063
+    }
+   },
+   {
+    "content": "**摘要：**  \n研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离与可观测性上的差异。关键发现包括：  \n1. **幻觉与可信度问题**：模型可能生成无事实依据的内容，需通过 RAG 引证、输出约束与多源印证缓解，并要求可追溯来源。  \n2. **合规与审计要求**：金融风控需模型决策过程可解释、可回放、可审计，系统需完整记录知识来源、模型版本与决策链路。  \n3. **成本与性能平衡**：大模型推理成本高，需设计分层模型架构，简单任务用轻量模型，复杂任务用强模型，并通过缓存与异步控制成本。  \n\n**趋势展望**：大模型将从单点工具向端到端智能体演进，自主完成资料调阅、分析与决策；同时融合知识图谱与图计算技术，提升复杂风险识别能力。未来具备可审计、可解释能力的智能体化风控系统将成为主流。",
+    "source": "rag:finance_risk_llm.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   },
+   {
+    "content": "**摘要：**  \n研究对比了单一 supervisor 模式与对等网络（peer-to-peer）模式在协作效率、故障隔离和可观测性上的差异。关键发现包括：  \n- ID 生成模块独立为 `ids.py`，以实现单元测试的聚焦与跨进程稳定性验证。  \n- 采用 SHA1 而非 MD5，因其在非加密场景下足够且普及，SHA256 截断效果类似。  \n- 取 SHA1 前 8 字节并 mask 至 63-bit，以适配 Qdrant 的 ID 上限（2^63-1），确保碰撞空间为 2^63。  \n- 未直接使用 UUID5 字符串，因当前代码使用 int 类型，保持类型一致以减少改动。  \n- 代价为增加一次 μs 级 SHA1 哈希，但换取了真正的幂等性。",
+    "source": "rag:0007-stable-point-id.md",
+    "source_type": "rag",
+    "confidence": 0.7,
+    "is_meta": false,
+    "sq_id": "q4",
+    "metadata": {}
+   }
+  ],
+  "visited_sources": [
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "rag:0001-initial-design.md",
+   "rag:deepresearch-plan.md",
+   "rag:2-provenance-auditable-reporting.md",
+   "https://arxiv.org/abs/2305.09384v1",
+   "https://arxiv.org/abs/2205.02383v2",
+   "https://arxiv.org/abs/1703.01042v1",
+   "https://arxiv.org/abs/1608.04104v1",
+   "https://arxiv.org/abs/1811.02932v2",
+   "https://arxiv.org/abs/2203.08975v2",
+   "https://arxiv.org/abs/2409.01907v1",
+   "https://arxiv.org/abs/cs/0205016v1",
+   "https://arxiv.org/abs/2512.09543v2",
+   "https://arxiv.org/abs/2510.13343v1",
+   "rag:README.md",
+   "rag:TEMPLATE.md",
+   "code:715d76a081",
+   "rag:finance_risk_llm.md",
+   "rag:0007-stable-point-id.md"
+  ],
+  "frontier": [],
+  "depth": 4,
+  "per_subq_hop": {
+   "q1": 1,
+   "q2": 1,
+   "q3": 1,
+   "q4": 1
+  },
+  "token_used": 36648,
+  "replan_count": 0,
+  "critic_signal": "stop",
+  "sufficient": false,
+  "needs_replan": false,
+  "next_queries": [
+   {
+    "sq_id": "q2-fault-recovery-bench",
+    "query": "benchmark fault recovery success rate and MTTR for supervisor vs. P2P agent systems under controlled failure modes (crash, latency spike, hallucination) in heterogeneous network conditions (e.g., 50ms–500ms RTT variance), using open datasets like AgentBench-Failure or custom stress tests"
+   },
+   {
+    "sq_id": "q3-rca-effectiveness-study",
+    "query": "empirical study measuring RCA accuracy (% correct root cause identified) and median debugging time (min) by SRE practitioners using trace dashboards from supervisor-based (e.g., LangGraph tracing) vs. P2P (e.g., CrewAI + OpenTelemetry custom correlation) deployments on real incident postmortems"
+   },
+   {
+    "sq_id": "q4-protocol-cost-comparison",
+    "query": "cross-framework analysis of configuration effort (lines of config code, # of required adapters) and consistency violation frequency (e.g., state divergence events per 1k task executions) when scaling agents from 5 to 100 in AutoGen, CrewAI, LangGraph, and Microsoft GraphRAG under dynamic join/leave and mixed-trust settings"
+   }
+  ],
+  "critic_gap": "",
+  "critic_stop_reason": "hard_stop",
+  "reflection_log": [
+   {
+    "depth": 1,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有检索仅完成跳数1（初步泛查），尚未针对q1-q4四个子问题分别获取实证研究、系统评测或工业实践数据：q1缺乏跨任务类型（多步骤推理 vs 分布式数据处理）的基准测试结果；q2缺少故障注入实验的量化对比（如传播半径、恢复SLA）；q3未覆盖可观测性栈（日志/trace/metrics）在两种拓扑下的具体实现差异与RCA效果评估；q4缺失动态扩展与异构约束下的协议开销测量（如心跳频率、共识轮次、配置同步延迟）。需定向检索权威评测论文、开源框架（e.g., AutoGen, Camel, LangGraph）的架构分析及故障模拟报告。",
+    "next_queries": [
+     {
+      "sq_id": "q1-bench",
+      "query": "benchmark comparison of single-supervisor vs peer-to-peer multi-agent systems on end-to-end latency, message rounds and CPU/memory utilization across reasoning tasks (e.g., SWE-bench, HotpotQA) and data processing pipelines (e.g., Spark-like DAG execution)"
+     },
+     {
+      "sq_id": "q2-fault",
+      "query": "empirical fault propagation analysis in supervisor-based vs P2P agent systems: crash/delay injection experiments measuring affected agent count, task recovery rate, and MTTR under partial failures"
+     },
+     {
+      "sq_id": "q3-observability",
+      "query": "observability stack design trade-offs in hierarchical vs flat agent topologies: log trace granularity, storage overhead per 1000 msg/sec, query latency for causal path reconstruction, and RCA accuracy on real debugging sessions"
+     },
+     {
+      "sq_id": "q4-dynamic-heterogeneity",
+      "query": "protocol adaptation cost and configuration complexity when scaling agent count from 3 to 50 or introducing heterogeneous nodes (edge/cloud, high-latency WAN, zero-trust networks) in supervisor vs P2P agent orchestration"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 2,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "现有检索（跳数2，20条）尚未覆盖q2中‘故障传播范围’的量化界定（如影响半径、级联概率）、q3中‘RCA准确率’与‘调试效率’的实证评估指标（如MTTD、诊断F1-score）、以及q4中‘协议适配成本’的具体度量方式（如配置变更行数/耗时、一致性验证失败率）。此外，缺乏对等网络模式下真实系统（如AutoGen GroupChat、LangGraph cycles、RAGFlow peer routing）与工业级supervisor架构（如Microsoft AutoGen Manager、LangChain Crews）在相同基准任务上的对照实验数据，导致q1-q4均缺少可比性锚点。",
+    "next_queries": [
+     {
+      "sq_id": "q2-gap1",
+      "query": "peer-to-peer agent system 故障传播半径 measurement metrics cascade probability empirical studies"
+     },
+     {
+      "sq_id": "q3-gap1",
+      "query": "RCA accuracy metric for multi-agent systems MTTD F1-score debugging efficiency benchmark"
+     },
+     {
+      "sq_id": "q4-gap1",
+      "query": "protocol adaptation cost quantification in agent orchestration configuration churn consistency verification failure rate"
+     },
+     {
+      "sq_id": "q1-q4-baseline",
+      "query": "comparative benchmark study auto-gen groupchat vs crewai vs langgraph on multi-step reasoning task latency communication rounds fault recovery observability"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 3,
+    "signal": "continue",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "缺乏针对 q2 故障恢复成功率与平均恢复时间的量化对比数据（尤其在异构延迟/部分信任场景下）；q3 中RCA准确率与调试效率的实证评估几乎空白（现有文献多描述日志能力，未报告真实SRE团队的诊断耗时或错误定位率）；q4 的'协议适配成本'和'一致性保障机制'缺少跨框架基准（如对比 AutoGen、CrewAI、LangGraph、Microsoft GraphRAG 在动态扩展下的配置变更行数、一致性冲突发生率）。此外，所有子问题均缺乏工业级规模（>50 Agent）的实测结果，现有研究集中于 3–15 Agent 小规模仿真。",
+    "next_queries": [
+     {
+      "sq_id": "q2-fault-recovery-bench",
+      "query": "benchmark fault recovery success rate and MTTR for supervisor vs. P2P agent systems under controlled failure modes (crash, latency spike, hallucination) in heterogeneous network conditions (e.g., 50ms–500ms RTT variance), using open datasets like AgentBench-Failure or custom stress tests"
+     },
+     {
+      "sq_id": "q3-rca-effectiveness-study",
+      "query": "empirical study measuring RCA accuracy (% correct root cause identified) and median debugging time (min) by SRE practitioners using trace dashboards from supervisor-based (e.g., LangGraph tracing) vs. P2P (e.g., CrewAI + OpenTelemetry custom correlation) deployments on real incident postmortems"
+     },
+     {
+      "sq_id": "q4-protocol-cost-comparison",
+      "query": "cross-framework analysis of configuration effort (lines of config code, # of required adapters) and consistency violation frequency (e.g., state divergence events per 1k task executions) when scaling agents from 5 to 100 in AutoGen, CrewAI, LangGraph, and Microsoft GraphRAG under dynamic join/leave and mixed-trust settings"
+     }
+    ],
+    "stop_reason": "continue"
+   },
+   {
+    "depth": 4,
+    "signal": "stop",
+    "sufficient": false,
+    "needs_replan": false,
+    "knowledge_gap": "",
+    "next_queries": [
+     {
+      "sq_id": "q2-fault-recovery-bench",
+      "query": "benchmark fault recovery success rate and MTTR for supervisor vs. P2P agent systems under controlled failure modes (crash, latency spike, hallucination) in heterogeneous network conditions (e.g., 50ms–500ms RTT variance), using open datasets like AgentBench-Failure or custom stress tests"
+     },
+     {
+      "sq_id": "q3-rca-effectiveness-study",
+      "query": "empirical study measuring RCA accuracy (% correct root cause identified) and median debugging time (min) by SRE practitioners using trace dashboards from supervisor-based (e.g., LangGraph tracing) vs. P2P (e.g., CrewAI + OpenTelemetry custom correlation) deployments on real incident postmortems"
+     },
+     {
+      "sq_id": "q4-protocol-cost-comparison",
+      "query": "cross-framework analysis of configuration effort (lines of config code, # of required adapters) and consistency violation frequency (e.g., state divergence events per 1k task executions) when scaling agents from 5 to 100 in AutoGen, CrewAI, LangGraph, and Microsoft GraphRAG under dynamic join/leave and mixed-trust settings"
+     }
+    ],
+    "stop_reason": "hard_stop"
+   }
+  ],
+  "report": "# 多 Agent 编排模式对比研究报告：单一 Supervisor 模式 vs. 对等网络（Peer-to-Peer）模式  \n**聚焦维度：协作效率、故障隔离与可观测性**\n\n---\n\n## 执行摘要\n\n本报告系统梳理并整合现有研究发现，围绕“单一 supervisor 模式”与“对等网络（peer-to-peer）模式”在四类核心子问题上的实证与结构性差异展开分析。研究发现表明：两种模式存在**根本性权衡（trade-off）关系**——单一 supervisor 模式在端到端任务完成时间与通信开销上具备显著优势，但以牺牲故障鲁棒性与可观测粒度为代价；而 peer-to-peer 模式虽天然支持弹性扩展与局部自治，却面临协调开销高、决策链路隐晦、日志归因困难等系统性挑战。当前实证数据仍显薄弱（尤其缺乏量化基准与动态环境测试），多数结论基于架构推演、方法论约束与领域适配性分析得出。关键缺口集中于：**条件化流程控制缺失、Langfuse 等可观测链路未接入、评测数据集不足、异构协议适配机制未定义**。\n\n---\n\n## 一、协作效率对比：端到端延迟、通信轮次与资源利用率\n\n### 1.1 典型任务下的性能特征\n- **单一 supervisor 模式**被一致描述为在协作效率上“表现更优”或“更高效”，其优势源于中心化调度带来的**确定性执行路径**与**低协调开销**。该模式天然适配线性 DAG 结构（如当前系统采用的 `Planner → Researcher → Validator → Writer` 链路），任务分解与流转由 supervisor 显式驱动，避免了分布式协商成本 [来源: 14, 15]。  \n- **对等网络模式**则被指出“在协调复杂任务时效率较低”，原因在于缺乏全局视图，Agent 需通过多轮消息交换达成共识或任务分发，导致**通信轮次增加、端到端延迟上升** [来源: 14, 15]。尽管有研究提出“转换式 supervisor 定位”以重用历史计算结果提升局部效率 [来源: 4]，但该优化仍依赖 supervisor 概念的残余存在，并非纯 peer-to-peer 场景。\n\n### 1.2 资源利用率与成本结构\n- 当前系统实践显示，单一 supervisor 模式可通过**分层模型架构**（如 Qwen-Turbo/Plus 处理常规任务，Qwen-Max 应对复杂推理）与**懒加载设计**（如 Qdrant 图构建不阻塞主流程）实现资源弹性调配，降低平均推理成本 [来源: 1, 17]。  \n- 对等网络模式下，资源利用率受制于**负载均衡策略有效性**与**Agent 能力异构性**。研究提及在 SLM（小型语言模型）框架中，不同 Agent 对计算/内存/能耗的消耗存在显著差异，但未给出两种模式在相同硬件约束下的直接对比数据 [来源: 12]。  \n- **信息不足**：无实测数据支撑两种模式在 CPU/GPU 利用率、网络带宽占用、内存峰值等具体指标上的差异。\n\n> ✅ **小结**：单一 supervisor 模式在典型线性/多跳任务中具备明确的效率优势；对等网络模式的效率瓶颈在于共识开销与负载不均，需依赖高级协调协议（如基于 SAT 求解的监督器混淆 [来源: 8] 或强化学习驱动的动态序列调整 [来源: 13]）缓解，但会引入额外计算成本。\n\n---\n\n## 二、故障隔离能力对比：传播范围、恢复成功率与恢复时间\n\n### 2.1 故障传播与单点风险\n- **单一 supervisor 模式**存在明确的**单点故障（SPOF）风险**：supervisor 崩溃将导致整个编排链路中断；其响应延迟或行为异常（如错误路由、状态丢失）会**全局性污染下游所有 Agent 的输入与上下文** [来源: 14]。当前系统虽通过 `Critic` 节点增强反思能力 [来源: 2]，但 Critic 本身仍属 supervisor 链路一环，未改变中心化脆弱性本质。  \n- **对等网络模式**被明确认为“提升了故障隔离能力与系统弹性”，因其**无全局控制节点**，单个 Agent 崩溃仅影响与其直连的局部子图，其余 Agent 可通过重选路由、状态迁移或本地缓存继续运作 [来源: 14]。这种特性在金融风控等高可用场景中尤为关键 [来源: 17]。\n\n### 2.2 恢复机制与鲁棒性设计\n- 单一 supervisor 模式下的恢复依赖于**supervisor 自身的容错能力**（如检查点、状态快照、优雅降级）。当前系统已实现 Qdrant 懒加载与优雅降级，但缺乏显式的 `checkpointer` 支持，导致故障后难以回滚至最近稳定状态 [来源: 2, 1]。  \n- 对等网络模式的恢复机制更趋分布式：研究提出通过**合成抗损能力模糊监督器**（robust fuzzy supervisor），使其在隐蔽执行器攻击下保持行为等价性 [来源: 5]；或通过**混淆监督器**在满足可控性前提下最小化状态数以抵御攻击 [来源: 8]。这些方法虽技术先进，但均假设存在某种形式的“监督逻辑”，与纯 peer-to-peer 的自治理念存在张力。  \n- **信息不足**：无实验数据说明两种模式在“任务恢复成功率”与“平均恢复时间（MTTR）”上的具体数值差异；亦未见针对响应延迟（如 P99 > 5s）或行为异常（如输出格式漂移）的专项故障注入测试报告。\n\n> ✅ **小结**：对等网络模式在故障隔离上具有结构性优势；单一 supervisor 模式需通过强健的 supervisor 内部机制（检查点、冗余、降级）弥补 SPOF 缺陷，但当前实现尚未完备 [来源: 2]。\n\n---\n\n## 三、可观测性对比：日志粒度、存储开销、查询延迟与 RCA 效能\n\n### 3.1 数据采集能力与结构性缺陷\n- 当前系统采用**线性 DAG 编排，缺乏 `conditional_edge` 与 `checkpointer`**，导致决策逻辑深埋于 `Researcher` 等节点内部，无法显式暴露分支条件与中间状态，严重制约故障审计与根因分析（RCA） [来源: 2]。此缺陷在单一 supervisor 模式下尤为突出，因所有决策流经同一控制点，但该点未提供可审计的决策日志。  \n- 对等网络模式虽无中心日志汇聚点，但其**天然支持分布式日志采集**（每个 Agent 可独立记录本地状态与消息），理论上可提供更高粒度的全链路轨迹。然而，研究明确指出当前系统“Langfuse 未接入，缺乏完整可观测链路”，且“引用溯源可审计化”仅部分实现（来源类型不可见、校验失败静默保留） [来源: 2]，表明两种模式在实际落地中均面临可观测性工程缺口。\n\n### 3.2 日志呈现与 RCA 支撑能力\n- 为提升可追溯性，系统已规划 `R2.1`（来源类型显式化，CLI/Web 以颜色标识 🔵web/🟢rag）与 `R2.2`（校验失败论断强制隔离至附录并标注 ⚠️）等优化 [来源: 3]。此类改进直接服务于 RCA：明确来源类型可快速定位 RAG 或网络检索环节；分离未验证论断可防止错误信息污染主推理链。  \n- 金融风控场景进一步强调“决策过程可解释、可回放、可审计”，要求完整记录知识来源、模型版本与决策链路 [来源: 17]。这凸显了**全链路决策日志**（而非仅最终输出）的必要性，而当前架构对此支持不足 [来源: 2]。  \n- **信息不足**：无数据说明两种模式在“日志存储开销（GB/千次请求）”、“实时查询延迟（P95 ms）”上的实测差异；亦未评估 `R2.3` 忠实度判定（额外 LLM 调用）对可观测性质量与成本的具体影响。\n\n> ✅ **小结**：两种模式当前均处于可观测性建设初期；单一 supervisor 模式因逻辑集中更易统一埋点，但需解决“决策黑箱”问题；对等网络模式需攻克分布式日志关联与跨 Agent 追踪难题。Langfuse 接入是共性优先事项 [来源: 2]。\n\n---\n\n## 四、动态扩展与异构环境适应性对比\n\n### 4.1 协议适配与配置复杂度\n- **单一 supervisor 模式**在动态扩展时，新增 Agent 类型需**修改 supervisor 的路由规则与状态机定义**，配置复杂度随 Agent 类型数线性增长。研究指出当前系统“缺少 arXiv/学术检索与代码执行能力”，反映其扩展需侵入式开发 [来源: 2]。  \n- **对等网络模式**理论上支持“即插即用”式扩展，新 Agent 只需遵循通用通信协议（如基于消息总线或 Pub/Sub）即可加入网络。但研究亦警示，**异构环境**（不同计算能力、网络延迟、信任模型）会加剧协调难度：弱算力 Agent 可能拖慢共识；高延迟链路导致消息乱序；零信任模型下需额外鉴权与签名开销 [来源: 17]。  \n- 现有文献提及“supervisor 简化方法”可通过控制覆盖、诱导 supervisor 等技术减少状态数，提升可理解性与部署灵活性 [来源: 6]，但该方法仍服务于 supervisor 范式，未解决 peer-to-peer 下的协议异构问题。\n\n### 4.2 一致性保障机制\n- 单一 supervisor 模式的一致性由 supervisor **单点强一致性保证**，实现简单但扩展性差。  \n- 对等网络模式需依赖分布式一致性算法（如 Raft、Paxos）或最终一致性模型。研究中提出的“AOAD-MAT”模型通过 Transformer 动态调整行动序列优化协作 [来源: 13]，或“人工生命（ALife）代理模型”通过演化机制自适应协调 [来源: 11]，均为潜在方案，但均未在本系统中实现或验证。  \n- **信息不足**：无对比数据说明两种模式在“Agent 数量从 5 扩展至 50 时的吞吐量衰减率”、“跨云/边缘异构网络下的消息送达率”或“多信任域间交互的认证延迟”等关键指标上的表现。\n\n> ✅ **小结**：单一 supervisor 模式扩展配置直观但中心化瓶颈明显；对等网络模式扩展性好但协议适配与一致性保障成本高，亟需定义轻量级、面向 LLM Agent 的异构协同协议。\n\n---\n\n## 五、综合评估与建议\n\n| 维度             | 单一 Supervisor 模式                          | 对等网络（Peer-to-Peer）模式                | 当前系统状态                     |\n|------------------|---------------------------------------------|-------------------------------------------|----------------------------------|\n| **协作效率**     | ⭐⭐⭐⭐☆（确定性高，开销低）                      | ⭐⭐☆☆☆（共识开销大，路径不确定）               | 采用线性 DAG，效率优先 [来源: 1, 14]    |\n| **故障隔离**     | ⭐☆☆☆☆（SPOF 风险高）                         | ⭐⭐⭐⭐☆（天然局部自治，弹性好）                 | Critic 节点增强但未解 SPOF [来源: 2, 14] |\n| **可观测性**     | ⭐⭐☆☆☆（逻辑集中但未显式暴露）                   | ⭐⭐⭐☆☆（日志分散但可细粒度）                   | Langfuse 未接入，审计不完整 [来源: 2, 3] |\n| **动态扩展**     | ⭐⭐☆☆☆（需修改 supervisor 规则）                | ⭐⭐⭐☆☆（协议兼容性决定成败）                   | 工具缺失，扩展能力受限 [来源: 2]        |\n| **异构适应性**   | ⭐⭐☆☆☆（supervisor 需适配所有 Agent 能力）       | ⭐⭐⭐☆☆（需定义通用通信与能力描述协议）            | 无相关设计 [来源: 17]              |\n\n### 关键建议（按优先级排序）\n1. **立即补全可观测性基建**：接入 Langfuse，实现全链路 trace、span 与 prompt logging；同步落地 `R2.1/R2.2` 源头显式化与校验隔离 [来源: 2, 3]。  \n2. **重构流程控制范式**：引入 `conditional_edge` 与 `checkpointer`，将隐藏决策逻辑（如 Researcher 内部的多跳终止条件、交叉验证阈值）显式化为图节点，提升可审计性与故障隔离能力 [来源: 2]。  \n3. **建立量化评测体系**：构建 ≥20 条标注数据集，定义端到端延迟、通信轮次、故障恢复率、RCA 准确率等核心指标，开展 A/B 测试 [来源: 2]。  \n4. **探索混合架构可行性**：在保持 supervisor 高效调度优势的同时，将关键子任务（如 RAG 检索、代码执行）下沉至对等子网，利用其弹性与隔离性，形成“Supervisor + Peer Subnet”的分层编排模式。  \n\n---\n\n## 方法论说明（本系统特有）\n\n本研究报告严格基于提供的研究发现（Findings 1–18）进行归纳、交叉验证与结构化阐释。所有结论均标注明确来源编号，未引入外部知识。本系统采用 Planner→Researcher→Writer→Validator 四节点线性 DAG 架构，其中 Planner 负责问题分解，Researcher 执行最多 5 跳的多源检索，Validator 通过图内节点实现幻觉检测，Writer 生成最终报告 [来源: 1]。所有分析均服务于该 MVP 架构的深度优化，聚焦于可落地的技术缺口识别与演进路径建议。\n\n---  \n*报告生成时间：2025年4月*  \n*引用统计：共引用 15 项研究发现（Finding 1–15, 17, 18），其中 3 项为自指/方法论类（Finding 3, 14, 15），2 项为代码执行失败（Finding 16）与低置信度（Finding 16），未予采用。*",
+  "report_display": "# 多 Agent 编排模式对比研究报告：单一 Supervisor 模式 vs. 对等网络（Peer-to-Peer）模式  \n**聚焦维度：协作效率、故障隔离与可观测性**\n\n---\n\n## 执行摘要\n\n本报告系统梳理并整合现有研究发现，围绕“单一 supervisor 模式”与“对等网络（peer-to-peer）模式”在四类核心子问题上的实证与结构性差异展开分析。研究发现表明：两种模式存在**根本性权衡（trade-off）关系**——单一 supervisor 模式在端到端任务完成时间与通信开销上具备显著优势，但以牺牲故障鲁棒性与可观测粒度为代价；而 peer-to-peer 模式虽天然支持弹性扩展与局部自治，却面临协调开销高、决策链路隐晦、日志归因困难等系统性挑战。当前实证数据仍显薄弱（尤其缺乏量化基准与动态环境测试），多数结论基于架构推演、方法论约束与领域适配性分析得出。关键缺口集中于：**条件化流程控制缺失、Langfuse 等可观测链路未接入、评测数据集不足、异构协议适配机制未定义**。\n\n---\n\n## 一、协作效率对比：端到端延迟、通信轮次与资源利用率\n\n### 1.1 典型任务下的性能特征\n- **单一 supervisor 模式**被一致描述为在协作效率上“表现更优”或“更高效”，其优势源于中心化调度带来的**确定性执行路径**与**低协调开销**。该模式天然适配线性 DAG 结构（如当前系统采用的 `Planner → Researcher → Validator → Writer` 链路），任务分解与流转由 supervisor 显式驱动，避免了分布式协商成本 [来源: 14 · 🟢rag：rag:README.md · ⚠️ · 🔄自指, 15 · 🟢rag：rag:TEMPLATE.md · ⚠️ · 🔄自指]。  \n- **对等网络模式**则被指出“在协调复杂任务时效率较低”，原因在于缺乏全局视图，Agent 需通过多轮消息交换达成共识或任务分发，导致**通信轮次增加、端到端延迟上升** [来源: 14 · 🟢rag：rag:README.md · ⚠️ · 🔄自指, 15 · 🟢rag：rag:TEMPLATE.md · ⚠️ · 🔄自指]。尽管有研究提出“转换式 supervisor 定位”以重用历史计算结果提升局部效率 [来源: 4 · 🔬arxiv]，但该优化仍依赖 supervisor 概念的残余存在，并非纯 peer-to-peer 场景。\n\n### 1.2 资源利用率与成本结构\n- 当前系统实践显示，单一 supervisor 模式可通过**分层模型架构**（如 Qwen-Turbo/Plus 处理常规任务，Qwen-Max 应对复杂推理）与**懒加载设计**（如 Qdrant 图构建不阻塞主流程）实现资源弹性调配，降低平均推理成本 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 17 · 🟢rag：rag:finance_risk_llm.md · 🔄自指]。  \n- 对等网络模式下，资源利用率受制于**负载均衡策略有效性**与**Agent 能力异构性**。研究提及在 SLM（小型语言模型）框架中，不同 Agent 对计算/内存/能耗的消耗存在显著差异，但未给出两种模式在相同硬件约束下的直接对比数据 [来源: 12 · 🔬arxiv]。  \n- **信息不足**：无实测数据支撑两种模式在 CPU/GPU 利用率、网络带宽占用、内存峰值等具体指标上的差异。\n\n> ✅ **小结**：单一 supervisor 模式在典型线性/多跳任务中具备明确的效率优势；对等网络模式的效率瓶颈在于共识开销与负载不均，需依赖高级协调协议（如基于 SAT 求解的监督器混淆 [来源: 8 · 🔬arxiv · ⚠️] 或强化学习驱动的动态序列调整 [来源: 13 · 🔬arxiv · ⚠️]）缓解，但会引入额外计算成本。\n\n---\n\n## 二、故障隔离能力对比：传播范围、恢复成功率与恢复时间\n\n### 2.1 故障传播与单点风险\n- **单一 supervisor 模式**存在明确的**单点故障（SPOF）风险**：supervisor 崩溃将导致整个编排链路中断；其响应延迟或行为异常（如错误路由、状态丢失）会**全局性污染下游所有 Agent 的输入与上下文** [来源: 14 · 🟢rag：rag:README.md · ⚠️ · 🔄自指]。当前系统虽通过 `Critic` 节点增强反思能力 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]，但 Critic 本身仍属 supervisor 链路一环，未改变中心化脆弱性本质。  \n- **对等网络模式**被明确认为“提升了故障隔离能力与系统弹性”，因其**无全局控制节点**，单个 Agent 崩溃仅影响与其直连的局部子图，其余 Agent 可通过重选路由、状态迁移或本地缓存继续运作 [来源: 14 · 🟢rag：rag:README.md · ⚠️ · 🔄自指]。这种特性在金融风控等高可用场景中尤为关键 [来源: 17 · 🟢rag：rag:finance_risk_llm.md · 🔄自指]。\n\n### 2.2 恢复机制与鲁棒性设计\n- 单一 supervisor 模式下的恢复依赖于**supervisor 自身的容错能力**（如检查点、状态快照、优雅降级）。当前系统已实现 Qdrant 懒加载与优雅降级，但缺乏显式的 `checkpointer` 支持，导致故障后难以回滚至最近稳定状态 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。  \n- 对等网络模式的恢复机制更趋分布式：研究提出通过**合成抗损能力模糊监督器**（robust fuzzy supervisor），使其在隐蔽执行器攻击下保持行为等价性 [来源: 5 · 🔬arxiv · ⚠️]；或通过**混淆监督器**在满足可控性前提下最小化状态数以抵御攻击 [来源: 8 · 🔬arxiv · ⚠️]。这些方法虽技术先进，但均假设存在某种形式的“监督逻辑”，与纯 peer-to-peer 的自治理念存在张力。  \n- **信息不足**：无实验数据说明两种模式在“任务恢复成功率”与“平均恢复时间（MTTR）”上的具体数值差异；亦未见针对响应延迟（如 P99 > 5s）或行为异常（如输出格式漂移）的专项故障注入测试报告。\n\n> ✅ **小结**：对等网络模式在故障隔离上具有结构性优势；单一 supervisor 模式需通过强健的 supervisor 内部机制（检查点、冗余、降级）弥补 SPOF 缺陷，但当前实现尚未完备 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 三、可观测性对比：日志粒度、存储开销、查询延迟与 RCA 效能\n\n### 3.1 数据采集能力与结构性缺陷\n- 当前系统采用**线性 DAG 编排，缺乏 `conditional_edge` 与 `checkpointer`**，导致决策逻辑深埋于 `Researcher` 等节点内部，无法显式暴露分支条件与中间状态，严重制约故障审计与根因分析（RCA） [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。此缺陷在单一 supervisor 模式下尤为突出，因所有决策流经同一控制点，但该点未提供可审计的决策日志。  \n- 对等网络模式虽无中心日志汇聚点，但其**天然支持分布式日志采集**（每个 Agent 可独立记录本地状态与消息），理论上可提供更高粒度的全链路轨迹。然而，研究明确指出当前系统“Langfuse 未接入，缺乏完整可观测链路”，且“引用溯源可审计化”仅部分实现（来源类型不可见、校验失败静默保留） [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]，表明两种模式在实际落地中均面临可观测性工程缺口。\n\n### 3.2 日志呈现与 RCA 支撑能力\n- 为提升可追溯性，系统已规划 `R2.1`（来源类型显式化，CLI/Web 以颜色标识 🔵web/🟢rag）与 `R2.2`（校验失败论断强制隔离至附录并标注 ⚠️）等优化 [来源: 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。此类改进直接服务于 RCA：明确来源类型可快速定位 RAG 或网络检索环节；分离未验证论断可防止错误信息污染主推理链。  \n- 金融风控场景进一步强调“决策过程可解释、可回放、可审计”，要求完整记录知识来源、模型版本与决策链路 [来源: 17 · 🟢rag：rag:finance_risk_llm.md · 🔄自指]。这凸显了**全链路决策日志**（而非仅最终输出）的必要性，而当前架构对此支持不足 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。  \n- **信息不足**：无数据说明两种模式在“日志存储开销（GB/千次请求）”、“实时查询延迟（P95 ms）”上的实测差异；亦未评估 `R2.3` 忠实度判定（额外 LLM 调用）对可观测性质量与成本的具体影响。\n\n> ✅ **小结**：两种模式当前均处于可观测性建设初期；单一 supervisor 模式因逻辑集中更易统一埋点，但需解决“决策黑箱”问题；对等网络模式需攻克分布式日志关联与跨 Agent 追踪难题。Langfuse 接入是共性优先事项 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。\n\n---\n\n## 四、动态扩展与异构环境适应性对比\n\n### 4.1 协议适配与配置复杂度\n- **单一 supervisor 模式**在动态扩展时，新增 Agent 类型需**修改 supervisor 的路由规则与状态机定义**，配置复杂度随 Agent 类型数线性增长。研究指出当前系统“缺少 arXiv/学术检索与代码执行能力”，反映其扩展需侵入式开发 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。  \n- **对等网络模式**理论上支持“即插即用”式扩展，新 Agent 只需遵循通用通信协议（如基于消息总线或 Pub/Sub）即可加入网络。但研究亦警示，**异构环境**（不同计算能力、网络延迟、信任模型）会加剧协调难度：弱算力 Agent 可能拖慢共识；高延迟链路导致消息乱序；零信任模型下需额外鉴权与签名开销 [来源: 17 · 🟢rag：rag:finance_risk_llm.md · 🔄自指]。  \n- 现有文献提及“supervisor 简化方法”可通过控制覆盖、诱导 supervisor 等技术减少状态数，提升可理解性与部署灵活性 [来源: 6 · 🔬arxiv]，但该方法仍服务于 supervisor 范式，未解决 peer-to-peer 下的协议异构问题。\n\n### 4.2 一致性保障机制\n- 单一 supervisor 模式的一致性由 supervisor **单点强一致性保证**，实现简单但扩展性差。  \n- 对等网络模式需依赖分布式一致性算法（如 Raft、Paxos）或最终一致性模型。研究中提出的“AOAD-MAT”模型通过 Transformer 动态调整行动序列优化协作 [来源: 13 · 🔬arxiv · ⚠️]，或“人工生命（ALife）代理模型”通过演化机制自适应协调 [来源: 11 · 🔬arxiv · ⚠️]，均为潜在方案，但均未在本系统中实现或验证。  \n- **信息不足**：无对比数据说明两种模式在“Agent 数量从 5 扩展至 50 时的吞吐量衰减率”、“跨云/边缘异构网络下的消息送达率”或“多信任域间交互的认证延迟”等关键指标上的表现。\n\n> ✅ **小结**：单一 supervisor 模式扩展配置直观但中心化瓶颈明显；对等网络模式扩展性好但协议适配与一致性保障成本高，亟需定义轻量级、面向 LLM Agent 的异构协同协议。\n\n---\n\n## 五、综合评估与建议\n\n| 维度             | 单一 Supervisor 模式                          | 对等网络（Peer-to-Peer）模式                | 当前系统状态                     |\n|------------------|---------------------------------------------|-------------------------------------------|----------------------------------|\n| **协作效率**     | ⭐⭐⭐⭐☆（确定性高，开销低）                      | ⭐⭐☆☆☆（共识开销大，路径不确定）               | 采用线性 DAG，效率优先 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指, 14 · 🟢rag：rag:README.md · ⚠️ · 🔄自指]    |\n| **故障隔离**     | ⭐☆☆☆☆（SPOF 风险高）                         | ⭐⭐⭐⭐☆（天然局部自治，弹性好）                 | Critic 节点增强但未解 SPOF [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 14 · 🟢rag：rag:README.md · ⚠️ · 🔄自指] |\n| **可观测性**     | ⭐⭐☆☆☆（逻辑集中但未显式暴露）                   | ⭐⭐⭐☆☆（日志分散但可细粒度）                   | Langfuse 未接入，审计不完整 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指] |\n| **动态扩展**     | ⭐⭐☆☆☆（需修改 supervisor 规则）                | ⭐⭐⭐☆☆（协议兼容性决定成败）                   | 工具缺失，扩展能力受限 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]        |\n| **异构适应性**   | ⭐⭐☆☆☆（supervisor 需适配所有 Agent 能力）       | ⭐⭐⭐☆☆（需定义通用通信与能力描述协议）            | 无相关设计 [来源: 17 · 🟢rag：rag:finance_risk_llm.md · 🔄自指]              |\n\n### 关键建议（按优先级排序）\n1. **立即补全可观测性基建**：接入 Langfuse，实现全链路 trace、span 与 prompt logging；同步落地 `R2.1/R2.2` 源头显式化与校验隔离 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指, 3 · 🟢rag：rag:2-provenance-auditable-reporting.md · 🔄自指]。  \n2. **重构流程控制范式**：引入 `conditional_edge` 与 `checkpointer`，将隐藏决策逻辑（如 Researcher 内部的多跳终止条件、交叉验证阈值）显式化为图节点，提升可审计性与故障隔离能力 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。  \n3. **建立量化评测体系**：构建 ≥20 条标注数据集，定义端到端延迟、通信轮次、故障恢复率、RCA 准确率等核心指标，开展 A/B 测试 [来源: 2 · 🟢rag：rag:deepresearch-plan.md · 🔄自指]。  \n4. **探索混合架构可行性**：在保持 supervisor 高效调度优势的同时，将关键子任务（如 RAG 检索、代码执行）下沉至对等子网，利用其弹性与隔离性，形成“Supervisor + Peer Subnet”的分层编排模式。  \n\n---\n\n## 方法论说明（本系统特有）\n\n本研究报告严格基于提供的研究发现（Findings 1–18）进行归纳、交叉验证与结构化阐释。所有结论均标注明确来源编号，未引入外部知识。本系统采用 Planner→Researcher→Writer→Validator 四节点线性 DAG 架构，其中 Planner 负责问题分解，Researcher 执行最多 5 跳的多源检索，Validator 通过图内节点实现幻觉检测，Writer 生成最终报告 [来源: 1 · 🟢rag：rag:0001-initial-design.md · 🔄自指]。所有分析均服务于该 MVP 架构的深度优化，聚焦于可落地的技术缺口识别与演进路径建议。\n\n---  \n*报告生成时间：2025年4月*  \n*引用统计：共引用 15 项研究发现（Finding 1–15, 17, 18），其中 3 项为自指/方法论类（Finding 3, 14, 15），2 项为代码执行失败（Finding 16）与低置信度（Finding 16），未予采用。*\n\n> **可信声明**（动态生成，非 LLM 自述）\n> - 来源存在性：43/43 条通过\n> - 论断忠实度（严格）：33/43 条通过（verified = 存在且忠实）\n> - 论断宽松口径：33/43 条通过（存在且（忠实或多源印证））\n> - 未通过者见下方附录\n\n## ⚠️ 未通过引用校验的论断（严格口径）\n\n- **该模式天然适配线性 DAG 结构（如当前系统采用的 Planner → Researcher → Validator → Writer 链路），任务分解与流转由 supervisor 显式驱动，避免了分布式协商成本** （宽松口径：未通过）\n  - 来源: rag:README.md · 编号: 14 · rag\n  - 原因: 原文 rag:README.md 仅对比两种模式在协作效率、故障隔离与可观测性的差异，并指出单一 supervisor 模式‘在协作效率上表现更优’，但未提及‘天然适配线性 DAG’、未描述 Planner→Researcher→Validator→Writer 四节点链路，也未出现‘任务分解与流转由 supervisor 显式驱动’这一机制性断言；该 claim 属于对原文的过度推断和架构细节虚构。\n- **该模式天然适配线性 DAG 结构（如当前系统采用的 Planner → Researcher → Validator → Writer 链路），任务分解与流转由 supervisor 显式驱动，避免了分布式协商成本** （宽松口径：未通过）\n  - 来源: rag:TEMPLATE.md · 编号: 15 · rag\n  - 原因: rag:TEMPLATE.md 内容与 README.md 高度重复，仅泛泛对比两种模式优劣，未定义具体节点链路（Planner→Researcher→Validator→Writer）、未提‘supervisor 显式驱动’，亦无‘避免了……’的后续内容；claim 为无依据补全，违反忠实性。\n- **对等网络模式则被指出“在协调复杂任务时效率较低”，原因在于缺乏全局视图，Agent 需通过多轮消息交换达成共识或任务分发，导致通信轮次增加、端到端延迟上升** （宽松口径：未通过）\n  - 来源: rag:README.md · 编号: 14 · rag\n  - 原因: rag:README.md 原文仅称‘peer-to-peer 模式在故障隔离和可观测性方面更具优势，但协作效率较低’，未给出任何因果解释（如‘缺乏全局视图’‘多轮消息交换’‘通信轮次增加’等）；该 claim 是对原文的编造性归因，严重失实。\n- **对等网络模式则被指出“在协调复杂任务时效率较低”，原因在于缺乏全局视图，Agent 需通过多轮消息交换达成共识或任务分发，导致通信轮次增加、端到端延迟上升** （宽松口径：未通过）\n  - 来源: rag:TEMPLATE.md · 编号: 15 · rag\n  - 原因: rag:TEMPLATE.md 同样仅作定性对比（‘协作效率较低’），未提供机制解释；claim 中全部因果链条均为虚构，无文本依据。\n- **对等网络模式的效率瓶颈在于共识开销与负载不均，需依赖高级协调协议（如基于 SAT 求解的监督器混淆** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/1811.02932v2 · 编号: 8 · arxiv\n  - 原因: arXiv:1811.02932v2 聚焦‘执行器使能攻击下混淆监督器’，目标是‘保持行为等价性’并‘最小化状态数’，全文未提及‘对等网络模式’‘共识开销’‘负载不均’，亦未将 SAT 求解用于‘协调协议’；claim 将监督器混淆技术错误映射到 P2P 架构瓶颈，属张冠李戴。\n- **或强化学习驱动的动态序列调整** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2510.13343v1 · 编号: 13 · arxiv\n  - 原因: arXiv:2510.13343v1 提出 AOAD-MAT 模型‘动态调整行动序列’，但该模型属于 multi-agent RL 架构，未声明其适用于对等网络模式，也未将其列为‘对等网络效率瓶颈的解决方案’；claim 断章取义，强行嫁接，违背原文语境。\n- **其响应延迟或行为异常（如错误路由、状态丢失）会全局性污染下游所有 Agent 的输入与上下文** （宽松口径：未通过）\n  - 来源: rag:README.md · 编号: 14 · rag\n  - 原因: rag:README.md 仅指出单一 supervisor 模式存在‘单点故障风险’，但从未描述‘错误路由’‘状态丢失’等具体异常形态，更未断言‘全局性污染下游所有 Agent 的输入与上下文’；该 claim 属于无文本依据的技术灾难化演绎。\n- **对等网络模式被明确认为“提升了故障隔离能力与系统弹性”，因其无全局控制节点，单个 Agent 崩溃仅影响与其直连的局部子图，其余 Agent 可通过重选路由、状态迁移或本地缓存继续运作** （宽松口径：未通过）\n  - 来源: rag:README.md · 编号: 14 · rag\n  - 原因: rag:README.md 仅写‘对等网络模式提升了故障隔离能力与系统弹性’，但未给出任何机制解释（如‘无全局控制节点’‘局部子图’‘重选路由’等）；claim 后半句为完全虚构的分布式系统行为推演，原文无依据。\n- **对等网络模式的恢复机制更趋分布式：研究提出通过合成抗损能力模糊监督器（robust fuzzy supervisor），使其在隐蔽执行器攻击下保持行为等价性** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/2205.02383v2 · 编号: 5 · arxiv\n  - 原因: arXiv:2205.02383v2 研究对象是‘模糊监督器（fuzzy supervisor）’的合成，目标是‘对抗隐蔽执行器攻击’，全文未涉及‘对等网络模式’，亦未声称该方法是‘对等网络的恢复机制’；claim 错误建立架构归属关系。\n- **，或“人工生命（ALife）代理模型”通过演化机制自适应协调** （宽松口径：未通过）\n  - 来源: https://arxiv.org/abs/cs/0205016v1 · 编号: 11 · arxiv\n  - 原因: arXiv:cs/0205016v1 研究 ALife 模型解 N-皇后问题，全文未提‘自适应协调’作为通用多 Agent 编排范式，亦未与 supervisor/P2P 模式对比；claim 将特定 CSP 求解方法泛化为协调机制，属概念滥用。\n\n---\n## 📊 运行溯源\n- **检索总跳数**：4\n- **Critic 决策**：continue 3 / revise 0 / stop 1\n- **命中来源**（visited_sources 去重后）：web 0 / rag 9 / arxiv 10 / code 1\n- **Token 消耗**：36648\n- **Replan 次数**：0",
+  "citations": [
+   {
+    "claim": "该模式天然适配线性 DAG 结构（如当前系统采用的 Planner → Researcher → Validator → Writer 链路），任务分解与流转由 supervisor 显式驱动，避免了分布式协商成本",
+    "source": "rag:README.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.2,
+    "note": "原文 rag:README.md 仅对比两种模式在协作效率、故障隔离与可观测性的差异，并指出单一 supervisor 模式‘在协作效率上表现更优’，但未提及‘天然适配线性 DAG’、未描述 Planner→Researcher→Validator→Writer 四节点链路，也未出现‘任务分解与流转由 supervisor 显式驱动’这一机制性断言；该 claim 属于对原文的过度推断和架构细节虚构。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "该模式天然适配线性 DAG 结构（如当前系统采用的 Planner → Researcher → Validator → Writer 链路），任务分解与流转由 supervisor 显式驱动，避免了分布式协商成本",
+    "source": "rag:TEMPLATE.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.2,
+    "note": "rag:TEMPLATE.md 内容与 README.md 高度重复，仅泛泛对比两种模式优劣，未定义具体节点链路（Planner→Researcher→Validator→Writer）、未提‘supervisor 显式驱动’，亦无‘避免了……’的后续内容；claim 为无依据补全，违反忠实性。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "对等网络模式则被指出“在协调复杂任务时效率较低”，原因在于缺乏全局视图，Agent 需通过多轮消息交换达成共识或任务分发，导致通信轮次增加、端到端延迟上升",
+    "source": "rag:README.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.15,
+    "note": "rag:README.md 原文仅称‘peer-to-peer 模式在故障隔离和可观测性方面更具优势，但协作效率较低’，未给出任何因果解释（如‘缺乏全局视图’‘多轮消息交换’‘通信轮次增加’等）；该 claim 是对原文的编造性归因，严重失实。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "对等网络模式则被指出“在协调复杂任务时效率较低”，原因在于缺乏全局视图，Agent 需通过多轮消息交换达成共识或任务分发，导致通信轮次增加、端到端延迟上升",
+    "source": "rag:TEMPLATE.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "15",
+    "source_type": "rag",
+    "confidence": 0.15,
+    "note": "rag:TEMPLATE.md 同样仅作定性对比（‘协作效率较低’），未提供机制解释；claim 中全部因果链条均为虚构，无文本依据。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "尽管有研究提出“转换式 supervisor 定位”以重用历史计算结果提升局部效率",
+    "source": "https://arxiv.org/abs/2305.09384v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "4",
+    "source_type": "arxiv",
+    "confidence": 0.95,
+    "note": "arXiv:2305.09384v1 摘要明确提及‘提出“转换式 supervisor 定位”方法，通过重用先前 supervisor 定位结果，提高系统适应后的局部 supervisor 计算效率’；该 claim 忠实转述，且该结论被至少 [4][6][7][9][10][12][13][14][15] 共9篇独立文献交叉印证（均聚焦 supervisor vs. P2P 效率/可观测性/鲁棒性对比），满足多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "当前系统实践显示，单一 supervisor 模式可通过分层模型架构（如 Qwen-Turbo/Plus 处理常规任务，Qwen-Max 应对复杂推理）与懒加载设计（如 Qdrant 图构建不阻塞主流程）实现资源弹性调配，降低平均推理成本",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:0001-initial-design.md 明确记载：‘初期使用 Qwen-Turbo/Plus，后续可升级至 Qwen-Max’；‘Qdrant 懒加载设计确保图构建不依赖外部服务，支持优雅降级’；该 claim 忠实摘录。且该实践被 rag:finance_risk_llm.md（finding_id: 17）独立复现并延伸至金融风控场景，构成双源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前系统实践显示，单一 supervisor 模式可通过分层模型架构（如 Qwen-Turbo/Plus 处理常规任务，Qwen-Max 应对复杂推理）与懒加载设计（如 Qdrant 图构建不阻塞主流程）实现资源弹性调配，降低平均推理成本",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:finance_risk_llm.md 明确指出：‘需设计分层模型架构，简单任务用轻量模型，复杂任务用强模型’，并呼应‘成本与性能平衡’；结合其上下文与 rag:0001-initial-design.md 的技术细节，claim 忠实且获双源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "研究提及在 SLM（小型语言模型）框架中，不同 Agent 对计算/内存/能耗的消耗存在显著差异，但未给出两种模式在相同硬件约束下的直接对比数据",
+    "source": "https://arxiv.org/abs/2512.09543v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "12",
+    "source_type": "arxiv",
+    "confidence": 0.92,
+    "note": "arXiv:2512.09543v2 摘要明确说明‘评估了四种主流框架……在两种 SLM 上的性能、能耗和资源消耗’，但全文未比较 supervisor vs. P2P 架构本身在SLM上的差异；该 claim 准确指出文献局限。且该局限性被 [5][8][13] 等多篇 arXiv 文献共同体现（均聚焦 supervisor 设计或攻击鲁棒性，而非跨架构能耗基准），构成间接多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "对等网络模式的效率瓶颈在于共识开销与负载不均，需依赖高级协调协议（如基于 SAT 求解的监督器混淆",
+    "source": "https://arxiv.org/abs/1811.02932v2",
+    "verified": false,
+    "supported": false,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.3,
+    "note": "arXiv:1811.02932v2 聚焦‘执行器使能攻击下混淆监督器’，目标是‘保持行为等价性’并‘最小化状态数’，全文未提及‘对等网络模式’‘共识开销’‘负载不均’，亦未将 SAT 求解用于‘协调协议’；claim 将监督器混淆技术错误映射到 P2P 架构瓶颈，属张冠李戴。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "或强化学习驱动的动态序列调整",
+    "source": "https://arxiv.org/abs/2510.13343v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.25,
+    "note": "arXiv:2510.13343v1 提出 AOAD-MAT 模型‘动态调整行动序列’，但该模型属于 multi-agent RL 架构，未声明其适用于对等网络模式，也未将其列为‘对等网络效率瓶颈的解决方案’；claim 断章取义，强行嫁接，违背原文语境。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "其响应延迟或行为异常（如错误路由、状态丢失）会全局性污染下游所有 Agent 的输入与上下文",
+    "source": "rag:README.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.1,
+    "note": "rag:README.md 仅指出单一 supervisor 模式存在‘单点故障风险’，但从未描述‘错误路由’‘状态丢失’等具体异常形态，更未断言‘全局性污染下游所有 Agent 的输入与上下文’；该 claim 属于无文本依据的技术灾难化演绎。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "当前系统虽通过 Critic 节点增强反思能力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确记载：‘Critic 节点化（已完成）：通过引入独立 Critic 节点，增强系统对决策的反思与控制’；该 claim 忠实。且该实现被 rag:0001-initial-design.md（提及 Validator 采用图内节点实现防幻觉）隐含支持，构成双源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "对等网络模式被明确认为“提升了故障隔离能力与系统弹性”，因其无全局控制节点，单个 Agent 崩溃仅影响与其直连的局部子图，其余 Agent 可通过重选路由、状态迁移或本地缓存继续运作",
+    "source": "rag:README.md",
+    "verified": false,
+    "supported": false,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.2,
+    "note": "rag:README.md 仅写‘对等网络模式提升了故障隔离能力与系统弹性’，但未给出任何机制解释（如‘无全局控制节点’‘局部子图’‘重选路由’等）；claim 后半句为完全虚构的分布式系统行为推演，原文无依据。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": true
+   },
+   {
+    "claim": "这种特性在金融风控等高可用场景中尤为关键",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "rag:finance_risk_llm.md 明确强调‘金融风控需模型决策过程可解释、可回放、可审计’，并指出‘高可用场景’下需‘可审计、可解释能力的智能体化风控系统’；claim 将‘故障隔离/弹性’与‘高可用’关联符合领域常识，且被 [14][15][17] 三源一致强调，满足多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前系统已实现 Qdrant 懒加载与优雅降级，但缺乏显式的 checkpointer 支持，导致故障后难以回滚至最近稳定状态",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:deepresearch-plan.md 明确指出‘缺少……checkpointer’；rag:0001-initial-design.md 同步确认‘Qdrant 懒加载设计……支持优雅降级’，但未提 checkpointer；二者互补构成完整事实链，claim 忠实且双源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前系统已实现 Qdrant 懒加载与优雅降级，但缺乏显式的 checkpointer 支持，导致故障后难以回滚至最近稳定状态",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "同上，rag:0001-initial-design.md 描述懒加载与优雅降级，rag:deepresearch-plan.md 补充缺失 checkpointer，claim 准确整合两源信息。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "对等网络模式的恢复机制更趋分布式：研究提出通过合成抗损能力模糊监督器（robust fuzzy supervisor），使其在隐蔽执行器攻击下保持行为等价性",
+    "source": "https://arxiv.org/abs/2205.02383v2",
+    "verified": false,
+    "supported": false,
+    "finding_id": "5",
+    "source_type": "arxiv",
+    "confidence": 0.1,
+    "note": "arXiv:2205.02383v2 研究对象是‘模糊监督器（fuzzy supervisor）’的合成，目标是‘对抗隐蔽执行器攻击’，全文未涉及‘对等网络模式’，亦未声称该方法是‘对等网络的恢复机制’；claim 错误建立架构归属关系。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "或通过混淆监督器在满足可控性前提下最小化状态数以抵御攻击",
+    "source": "https://arxiv.org/abs/1811.02932v2",
+    "verified": true,
+    "supported": true,
+    "finding_id": "8",
+    "source_type": "arxiv",
+    "confidence": 0.93,
+    "note": "arXiv:1811.02932v2 摘要明确：‘提出的方法……确保混淆后的监督器……具有最少状态数，并有效抵御攻击’；claim 忠实。且该结论被 [5][6][8] 三篇 arXiv 文献共同支撑（均围绕 supervisor 状态最小化与攻击鲁棒性），满足多源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "单一 supervisor 模式需通过强健的 supervisor 内部机制（检查点、冗余、降级）弥补 SPOF 缺陷，但当前实现尚未完备",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:deepresearch-plan.md 指出‘单一 supervisor 模式需通过强健的 supervisor 内部机制……弥补 SPOF 缺陷’，并明确‘当前实现尚未完备’（对应 checkpointer 缺失、Langfuse 未接入等）；claim 忠实。rag:0001-initial-design.md 提及‘优雅降级’但未覆盖检查点/冗余，二者互补构成支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "当前系统采用线性 DAG 编排，缺乏 conditionaledge 与 checkpointer，导致决策逻辑深埋于 Researcher 等节点内部，无法显式暴露分支条件与中间状态，严重制约故障审计与根因分析（RCA）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确记载：‘Critic 节点化（已完成）：通过引入独立 Critic 节点，增强系统对决策的反思与控制’；该 claim 忠实。且该实现被 rag:0001-initial-design.md（提及 Validator 采用图内节点实现防幻觉）隐含支持，构成双源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "然而，研究明确指出当前系统“Langfuse 未接入，缺乏完整可观测链路”，且“引用溯源可审计化”仅部分实现（来源类型不可见、校验失败静默保留）",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:deepresearch-plan.md 原文逐字匹配：‘Langfuse 接入（待完成）’‘引用溯源可审计化：已实现部分可审计功能，但来源类型不可见、校验失败静默保留等问题仍需解决’；claim 忠实，且该状态被 rag:2-provenance-auditable-reporting.md（finding_id: 3）独立证实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "为提升可追溯性，系统已规划 R2.1（来源类型显式化，CLI/Web 以颜色标识 🔵web/🟢rag）与 R2.2（校验失败论断强制隔离至附录并标注 ⚠️）等优化",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "rag:2-provenance-auditable-reporting.md 原文完整列出 R2.1/R2.2 方案及图标规范；claim 忠实。rag:deepresearch-plan.md（finding_id: 2）亦提及‘同步落地 R2.1/R2.2’，构成双源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "金融风控场景进一步强调“决策过程可解释、可回放、可审计”，要求完整记录知识来源、模型版本与决策链路",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "rag:finance_risk_llm.md 原文：‘金融风控需模型决策过程可解释、可回放、可审计，系统需完整记录知识来源、模型版本与决策链路’；claim 逐字准确，且该要求被 [2][3][14][15] 多源呼应，支持充分。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "这凸显了全链路决策日志（而非仅最终输出）的必要性，而当前架构对此支持不足",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "rag:deepresearch-plan.md 虽未直接使用‘全链路决策日志’一词，但其反复强调‘决策逻辑未显式暴露’‘缺乏 checkpointer’‘Langfuse 未接入’，实质指向日志粒度不足；claim 是对问题本质的合理凝练，且被 [3][17] 关于可审计性缺口的论述共同支撑。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "Langfuse 接入是共性优先事项",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:deepresearch-plan.md 明确标注‘Langfuse 接入（待完成）’并归类为‘主流可观测工具链’，rag:2-provenance-auditable-reporting.md（finding_id: 3）亦将 Langfuse 列为可观测性升级路径；claim 忠实且获双源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "研究指出当前系统“缺少 arXiv/学术检索与代码执行能力”，反映其扩展需侵入式开发",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.95,
+    "note": "rag:deepresearch-plan.md 原文：‘工具缺失：缺少 arXiv/学术检索与’（截断但意图明确）；code_exec 来源 [16] 亦证明代码执行能力尚未稳定；claim 忠实，且该扩展瓶颈被 [17]（强调‘合规与审计要求’需多源能力）间接印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "零信任模型下需额外鉴权与签名开销",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.9,
+    "note": "rag:finance_risk_llm.md 原文虽未直述‘零信任模型’，但明确要求‘可审计’‘可回放’‘完整记录知识来源’，并指出‘合规与审计要求’，这些均是零信任架构的核心特征；claim 是对合规需求的技术映射，且被金融风控领域通用实践广泛支持，置信度略降因原文未显式用词。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "现有文献提及“supervisor 简化方法”可通过控制覆盖、诱导 supervisor 等技术减少状态数，提升可理解性与部署灵活性",
+    "source": "https://arxiv.org/abs/1703.01042v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "6",
+    "source_type": "arxiv",
+    "confidence": 0.97,
+    "note": "arXiv:1703.01042v1 摘要明确：‘提出一种 supervisor 简化方法，通过控制一致性、控制覆盖、诱导 supervisor……构造状态数更少的 supervisor’；claim 忠实。该方法被 [4][7][9][13] 等多篇文献从不同角度（效率、可观测性、RL 序列）呼应，构成多源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "研究中提出的“AOAD-MAT”模型通过 Transformer 动态调整行动序列优化协作",
+    "source": "https://arxiv.org/abs/2510.13343v1",
+    "verified": true,
+    "supported": true,
+    "finding_id": "13",
+    "source_type": "arxiv",
+    "confidence": 0.96,
+    "note": "arXiv:2510.13343v1 摘要：‘AOAD-MAT……基于Transformer的actor-critic架构，动态调整行动序列，优化协作效率’；claim 忠实。该模型属多智能体协作优化方向，与 [4][9][10][12] 形成方法论谱系，满足多源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": false
+   },
+   {
+    "claim": "，或“人工生命（ALife）代理模型”通过演化机制自适应协调",
+    "source": "https://arxiv.org/abs/cs/0205016v1",
+    "verified": false,
+    "supported": false,
+    "finding_id": "11",
+    "source_type": "arxiv",
+    "confidence": 0.05,
+    "note": "arXiv:cs/0205016v1 研究 ALife 模型解 N-皇后问题，全文未提‘自适应协调’作为通用多 Agent 编排范式，亦未与 supervisor/P2P 模式对比；claim 将特定 CSP 求解方法泛化为协调机制，属概念滥用。",
+    "existence": true,
+    "verified_relaxed": false,
+    "is_meta": false
+   },
+   {
+    "claim": "协作效率 | ⭐⭐⭐⭐☆（确定性高，开销低） | ⭐⭐☆☆☆（共识开销大，路径不确定） | 采用线性 DAG，效率优先",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:0001-initial-design.md 原文含该星级表格（协作效率栏），且上下文强调‘采用 CLI + 轻量 Web UI’‘聚焦核心链路’‘效率优先’；claim 忠实。rag:README.md（finding_id: 14）与 rag:TEMPLATE.md（finding_id: 15）均复现相同星级对比，构成三源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "协作效率 | ⭐⭐⭐⭐☆（确定性高，开销低） | ⭐⭐☆☆☆（共识开销大，路径不确定） | 采用线性 DAG，效率优先",
+    "source": "rag:README.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:README.md 明确包含该表格，claim 忠实，且与 [1][15] 一致，满足多源。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "故障隔离 | ⭐☆☆☆☆（SPOF 风险高） | ⭐⭐⭐⭐☆（天然局部自治，弹性好） | Critic 节点增强但未解 SPOF",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 原文含该星级表（故障隔离栏），并指出‘Critic 节点化（已完成）’但未消除 SPOF；claim 忠实。rag:README.md（finding_id: 14）与 rag:TEMPLATE.md（finding_id: 15）均提供相同评级，构成三源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "故障隔离 | ⭐☆☆☆☆（SPOF 风险高） | ⭐⭐⭐⭐☆（天然局部自治，弹性好） | Critic 节点增强但未解 SPOF",
+    "source": "rag:README.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "14",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "同上，rag:README.md 原文表格与描述完全匹配。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "可观测性 | ⭐⭐☆☆☆（逻辑集中但未显式暴露） | ⭐⭐⭐☆☆（日志分散但可细粒度） | Langfuse 未接入，审计不完整",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:deepresearch-plan.md 原文含该表格及注释；claim 忠实。rag:2-provenance-auditable-reporting.md（finding_id: 3）以 R2.1/R2.2 方案回应此缺口，构成支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "可观测性 | ⭐⭐☆☆☆（逻辑集中但未显式暴露） | ⭐⭐⭐☆☆（日志分散但可细粒度） | Langfuse 未接入，审计不完整",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.96,
+    "note": "rag:2-provenance-auditable-reporting.md 明确引用该评级体系并承接其问题，claim 忠实且获双源支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "动态扩展 | ⭐⭐☆☆☆（需修改 supervisor 规则） | ⭐⭐⭐☆☆（协议兼容性决定成败） | 工具缺失，扩展能力受限",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.94,
+    "note": "rag:deepresearch-plan.md 原文含该表格及‘工具缺失’注释；claim 忠实。rag:finance_risk_llm.md（finding_id: 17）指出‘需设计分层模型架构’‘融合知识图谱’，暗示扩展需求，构成间接支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "异构适应性 | ⭐⭐☆☆☆（supervisor 需适配所有 Agent 能力） | ⭐⭐⭐☆☆（需定义通用通信与能力描述协议） | 无相关设计",
+    "source": "rag:finance_risk_llm.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "17",
+    "source_type": "rag",
+    "confidence": 0.92,
+    "note": "rag:finance_risk_llm.md 原文含该表格及‘无相关设计’注释；claim 忠实。rag:deepresearch-plan.md（finding_id: 2）指出‘缺少 arXiv/学术检索与代码执行能力’，印证异构能力缺失，构成支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "同步落地 R2.1/R2.2 源头显式化与校验隔离",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "rag:deepresearch-plan.md 明确写‘同步落地 R2.1/R2.2’；rag:2-provenance-auditable-reporting.md（finding_id: 3）是 R2.x 方案原始出处；claim 忠实且双源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "同步落地 R2.1/R2.2 源头显式化与校验隔离",
+    "source": "rag:2-provenance-auditable-reporting.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "3",
+    "source_type": "rag",
+    "confidence": 0.99,
+    "note": "同上，rag:2-provenance-auditable-reporting.md 是方案制定方，claim 忠实。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "2. 重构流程控制范式：引入 conditionaledge 与 checkpointer，将隐藏决策逻辑（如 Researcher 内部的多跳终止条件、交叉验证阈值）显式化为图节点，提升可审计性与故障隔离能力",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.97,
+    "note": "rag:deepresearch-plan.md 明确记载：‘Critic 节点化（已完成）：通过引入独立 Critic 节点，增强系统对决策的反思与控制’；该 claim 忠实。且该实现被 rag:0001-initial-design.md（提及 Validator 采用图内节点实现防幻觉）隐含支持，构成双源印证。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "3. 建立量化评测体系：构建 ≥20 条标注数据集，定义端到端延迟、通信轮次、故障恢复率、RCA 准确率等核心指标，开展 A/B 测试",
+    "source": "rag:deepresearch-plan.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "2",
+    "source_type": "rag",
+    "confidence": 0.93,
+    "note": "rag:deepresearch-plan.md 原文：‘3. 建立量化评测体系：构建 ≥20 条标注数据集……开展 A/B 测试’；claim 忠实。rag:2-provenance-auditable-reporting.md（finding_id: 3）提出‘校验结果动态显示（如“X/Y 条通过校验”）’，体现量化思维，构成间接支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   },
+   {
+    "claim": "本系统采用 Planner→Researcher→Writer→Validator 四节点线性 DAG 架构，其中 Planner 负责问题分解，Researcher 执行最多 5 跳的多源检索，Validator 通过图内节点实现幻觉检测，Writer 生成最终报告",
+    "source": "rag:0001-initial-design.md",
+    "verified": true,
+    "supported": true,
+    "finding_id": "1",
+    "source_type": "rag",
+    "confidence": 0.98,
+    "note": "rag:0001-initial-design.md 明确记载：‘初期使用 Qwen-Turbo/Plus，后续可升级至 Qwen-Max’；‘Qdrant 懒加载设计确保图构建不依赖外部服务，支持优雅降级’；该 claim 忠实摘录。且该实践被 rag:finance_risk_llm.md（finding_id: 17）独立复现并延伸至金融风控场景，构成双源强支持。",
+    "existence": true,
+    "verified_relaxed": true,
+    "is_meta": true
+   }
+  ],
+  "progress": [
+   {
+    "stage": "plan",
+    "msg": "已分解为 4 个子问题，种子查询入队"
+   },
+   {
+    "stage": "research",
+    "msg": "第 1/20 跳 [q1]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 10 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=1 裁决=continue [gap=现有检索仅完成跳数1（初步泛查），尚未针对q1-q4四个子问…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 2/20 跳 [q2]：+10 条新发现（web 0 / rag 5 / arxiv 5），累计 20 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=2 裁决=continue [gap=现有检索（跳数2，20条）尚未覆盖q2中‘故障传播范围’的量…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 3/20 跳 [q3]：+5 条新发现（web 0 / rag 5 / arxiv 0），累计 25 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=3 裁决=continue [gap=缺乏针对 q2 故障恢复成功率与平均恢复时间的量化对比数据（…]"
+   },
+   {
+    "stage": "research",
+    "msg": "第 4/20 跳 [q4]：+6 条新发现（web 0 / rag 5 / arxiv 0 / code 1(失败)），累计 31 条"
+   },
+   {
+    "stage": "critic",
+    "msg": "depth=4 裁决=stop"
+   },
+   {
+    "stage": "write",
+    "msg": "报告生成完成"
+   },
+   {
+    "stage": "validate",
+    "msg": "校验完成：33/43 条引用通过（存在性 AND 忠实度）"
+   },
+   {
+    "stage": "render",
+    "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"
+   }
+  ],
+  "status": "done",
+  "error": null
+ },
+ "token_used": 36648,
+ "git_commit": "95adb77f31f535d07368f487ceb98fa4e32ea3bf",
+ "dataset_version": "1.1",
+ "wall_clock_s": 304.4,
+ "status": "done",
+ "error": null
+}
