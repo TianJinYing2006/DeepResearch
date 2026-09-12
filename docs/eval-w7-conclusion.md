@@ -173,27 +173,43 @@ passed_refs_per_report = passed / valid_q   # 绝对产出：每篇报告最终�
 
 ## 8. 归档位置与产物清单
 
-### 已入库（Git，小而权威）
+### 已入库：结论与元数据（小而权威）
 
 | 文件 | 说明 |
 |---|---|
 | `research_engine/eval/results/curated/w7_rejudge_20260912_173125.json` | 权威复判结果（本文件全部数值来源） |
 | `research_engine/eval/results/curated/w7_rejudge_formalcheck.json` | formal/diagnostic 不等价证据（**标记 INCOMPLETE_DIAGNOSTIC，不可当最终结果**） |
-| `research_engine/eval/results/curated/CODE_REVISION.json` | 代码修订元数据 |
-| `research_engine/eval/results/curated/w7_revision_aa4bb452.patch` | 实际执行代码的补丁 |
-| `research_engine/eval/results/curated/MANIFEST.md` | 复现清单（含哈希与自解释字段） |
+| `research_engine/eval/results/curated/CODE_REVISION.json` | 代码修订元数据（已修正失效的 patch 引用路径） |
+| `research_engine/eval/results/curated/w7_revision_aa4bb452.patch` | 实验实际执行代码的补丁（116KB） |
+| `research_engine/eval/results/curated/MANIFEST.md` | 复现清单：全部 sha256、自解释字段补足、可用/不可用对照、复现步骤 |
 | `research_engine/eval/results/w7_experiment_20260911_194151/` | 六臂实验容器（manifest + CODE_REVISION） |
 | `docs/eval-w7-conclusion.md` | 本文件 |
 
-### 走外部归档（不入 Git）
+### 已入库：两个来源 run 的原始产物（含 `raw/`）
 
-- `run_20260911_194156/raw/`（2.2MB）与 `run_20260911_232515/raw/`（1.9MB）——逐题原始产物，
-  用于回答「某条引用为何判错」「q_018 补问前后发生了什么」；体积过大，入库会让 `results/` 体积近翻倍。
-- 两个 run 的 `summary.json` + `eval/`（各约 160KB）**已随 Git 入库**，保留逐题指标。
-- 其余 60 个迭代 run 目录、`*_SUPERSEDED` / `*_DISCARDED` 产物：不进入正式记录，由 `.gitignore` 兜住。
+| run | 体积 | 内容 |
+|---|---:|---|
+| `run_20260911_194156/`（arm0） | 2.4 MB | `raw/`×20 + `eval/`×20 + 3 个汇总 JSON |
+| `run_20260911_232515/`（arm6） | 2.1 MB | 同上 |
+
+**为什么连 `raw/` 一起入库**：`raw/` 是逐题原始产物，是回答「某条引用为何被判错」
+「q_018 补问前后发生了什么」的唯一依据，而这两个 run 是 W7 结论的**唯一原始来源**。
+仓库既有惯例也是里程碑 run 全量入库（`run_20260906_184156`、`run_v11_compare` 均含 `raw/`），
+故保持一致。代价：`results/` 已跟踪体积由 6.4MB 增至约 11MB。
+
+### 不入 Git（本地保留，由 `.gitignore` 兜住）
+
+- 其余 60 个迭代 `run_*` 目录、9 个非权威 `w7_experiment_*` 目录；
+- `*_SUPERSEDED.json` / `*_DISCARDED.json` / `_tmp_*` 等被取代、废弃、临时产物。
+
+> **行尾保护**：`.gitattributes` 对 `curated/` 与两个权威 run 标记 `-text`。
+> 本仓库 `core.autocrlf=true`，若不锁行尾，`.patch` 检出时会变 CRLF 而使 `git apply`
+> 上下文失配，`MANIFEST.md` 记录的 sha256 也会失效。
 
 ### 特别标注
 
 - `w7_rejudge_20260912_160857_SUPERSEDED.json` / `..._164110_SUPERSEDED.json`：
   旧 schema（用 `grid` 键、无 `mode` 字段），**已被 173125 取代，不得引用**。
 - `_smoke_rejudge_DISCARDED.json` / `_recompute_check_DISCARDED.json`：冒烟与校验产物，无解释效力。
+- `run_20260912_000027_DISCARDED/`：Block 1 首臂被 kill，无 `summary.json`，不可作为数据。
+
