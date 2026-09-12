@@ -259,6 +259,7 @@ class DeepResearchGraph:
         verified = sum(1 for c in citations if c.verified)
         return {
             "citations": citations,
+            "validator_stats": dict(self.validator.last_validation_stats),
             "status": "done",
             "token_used": state.token_used,  # Q6-B：validator 的 LLM token 累计写回
             "progress": [

@@ -65,7 +65,10 @@ def compute_completion(state: Dict[str, Any]) -> Dict[str, Any]:
 
 # ---------- 2. 引用准确率（直读 state.citations）----------
 
-def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_citation(
+    citations: List[Dict[str, Any]],
+    validator_stats: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """基于主链路校验产物统计（Q2/Q8：不再重跑 validator——那是又一次 LLM 对查）。
 
     口径对齐 W2：verified = 存在且忠实；existence 单独统计；by_source_type 拆分。
@@ -73,6 +76,10 @@ def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     total = len(citations)
     verified = sum(1 for c in citations if c.get("verified"))
+    validator_stats = validator_stats or {}
+    raw_citation_count = validator_stats.get("raw_citation_count")
+    filtered_citation_count = validator_stats.get("filtered_citation_count")
+    filter_enabled = validator_stats.get("filter_enabled")
     verified_relaxed = sum(1 for c in citations if c.get("verified_relaxed"))
     existence = sum(1 for c in citations if c.get("existence"))
     by_type: Dict[str, Dict[str, int]] = {}
@@ -90,6 +97,11 @@ def compute_citation(citations: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "total_citations": total,
         "verified": verified,
+        # F3 分母审计：旧 raw 没有 validator_stats 时保留 None，避免伪造 0。
+        "validator_filter_enabled": filter_enabled,
+        "raw_citation_count": raw_citation_count,
+        "filtered_citation_count": filtered_citation_count,
+        "filtered_rate": validator_stats.get("filtered_rate"),
         "verified_relaxed": verified_relaxed,
         "existence_rate": round(existence / total, 4) if total else 0,
         "fidelity_rate": round(verified / existence, 4) if existence else 0,  # W2 忠实度口径
@@ -349,7 +361,7 @@ def compute_all(
 
     return {
         "completion": compute_completion(state),
-        "citation": compute_citation(citations),
+        "citation": compute_citation(citations, state.get("validator_stats")),
         "coverage": coverage_res,
         "retrieval_hit": compute_retrieval_hit(dataset_row.get("gold_keywords") or [], findings, embed_fn),
         "cost": compute_cost(

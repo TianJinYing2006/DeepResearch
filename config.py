@@ -132,6 +132,14 @@ class ExperimentConfig:
     validator_trim_enabled: bool = field(
         default_factory=lambda: _env("VALIDATOR_TRIM_ENABLED", "true").lower() == "true"
     )
+    # W7 F3: keep assertive-claim filtering independently switchable. When
+    # unset, follow VALIDATOR_FIXES_ENABLED so the legacy all-off arm keeps its denominator.
+    validator_assertive_filter_enabled: bool = field(
+        default_factory=lambda: _env(
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED",
+            _env("VALIDATOR_FIXES_ENABLED", "true"),
+        ).lower() == "true"
+    )
 
 
 @dataclass

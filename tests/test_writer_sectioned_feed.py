@@ -75,6 +75,30 @@ def test_compress_preserves_sq_id(monkeypatch):
     assert compressed[0].sq_id == "sq1"
 
 
+def test_write_normalizes_citations_when_sectioned_feed_disabled(monkeypatch):
+    """Citation protocol normalization must not depend on the sectioned-feed arm."""
+    from config import config
+
+    monkeypatch.setattr(config.experiment, "writer_sectioned_feed_enabled", False)
+    monkeypatch.setattr(
+        "research_engine.llm.router.LLMRouter.smart_chat",
+        lambda self, system, user, state=None: "结论 [#1]；补充 [来源: #2]；越界 [#99]",
+    )
+    findings = [
+        ResearchFinding(content="A", source="s1", source_type="web"),
+        ResearchFinding(content="B", source="s2", source_type="web"),
+    ]
+
+    report = Writer().write(TOPIC, [], findings)
+
+    assert "[来源: 1]" in report
+    assert "[来源: 2]" in report
+    assert "[来源: #1]" not in report
+    assert "[来源: #2]" not in report
+    assert "[来源: 99]" not in report
+    assert "[来源: 信息不足]" in report
+
+
 def test_ensure_sections_replaces_out_of_range_citations():
     """G4：引用编号越界时强制替换为 [来源: 信息不足]。"""
     findings = [
@@ -82,7 +106,7 @@ def test_ensure_sections_replaces_out_of_range_citations():
         ResearchFinding(content="B", source="s2", source_type="web"),
     ]
     report = "论断甲 [来源: 1]；论断乙 [来源: 5]；论断丙 [来源: 2, 99]"
-    fixed = Writer()._ensure_sections(report, [], findings)
+    fixed = Writer()._normalize_citations(report, findings)
     assert "[来源: 1]" in fixed
     assert "[来源: 5]" not in fixed
     assert "[来源: 信息不足]" in fixed

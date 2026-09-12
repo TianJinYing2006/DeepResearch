@@ -87,6 +87,23 @@ def test_citation_from_state_no_llm():
     assert res["by_source_type"]["code_exec"]["verified"] == 1  # W4 新工具类型正确进桶
 
 
+def test_citation_reports_validator_filter_impact():
+    citations = [
+        {"claim": "a", "source": "1", "verified": True, "existence": True, "source_type": "web", "note": ""},
+    ]
+    res = M.compute_citation(citations, {
+        "filter_enabled": True,
+        "raw_citation_count": 2,
+        "candidate_citation_count": 1,
+        "filtered_citation_count": 1,
+        "filtered_rate": 0.5,
+    })
+    assert res["raw_citation_count"] == 2
+    assert res["filtered_citation_count"] == 1
+    assert res["filtered_rate"] == pytest.approx(0.5)
+    assert res["validator_filter_enabled"] is True
+
+
 # ---------- 检索命中率（关键词 + 嵌入回退）----------
 
 def test_retrieval_keyword_hit_and_semantic_fallback():

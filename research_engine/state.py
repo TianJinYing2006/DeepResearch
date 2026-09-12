@@ -84,6 +84,7 @@ class ResearchState(BaseModel):
     report: str = Field(default="", description="最终报告（Writer 原始输出，编号协议不变）")
     report_display: str = Field(default="", description="渲染后报告（R2.1/2.2/2.5：类型标注+⚠️+附录+溯源块，由 render 节点产出，不回流 report）")
     citations: List[Citation] = Field(default_factory=list)
+    validator_stats: Dict[str, Any] = Field(default_factory=dict, description="Validator extraction/denominator accounting")
 
     # 过程追踪（用于 Web UI 实时展示）—— Q7=A：add reducer，节点只 return 本步新增条目
     progress: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list)

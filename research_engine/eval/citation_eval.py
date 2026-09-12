@@ -54,5 +54,6 @@ class CitationEvaluator:
             "by_source_type": by_type,       # W2：web/rag 拆分
             "failed_note_distribution": failed_notes,  # W2：失败原因分布
             "is_meta_hits": meta_hits,       # W2：自指复核命中数
+            "validator_stats": dict(self.validator.last_validation_stats),
             "citations": citations,
         }

@@ -109,6 +109,7 @@ class Validator:
     def __init__(self):
         from research_engine.llm.router import get_router
         self.router = get_router()
+        self.last_validation_stats: Dict[str, Any] = {}
 
     def _build_index(self, findings: List[ResearchFinding]) -> Dict[str, Tuple[str, str]]:
         """建立编号 -> (真实来源, 来源类型) 映射（Q2=A：带出 source_type，编号供 finding_id 锚定）。"""
@@ -218,19 +219,35 @@ class Validator:
         才拆分；含非数字内容时视为单一来源字符串原样保留，保持对
         [来源: <真实URL>] 协议的兼容。
         """
+        # A Validator instance can be reused by the evaluator; stats must describe
+        # this extraction/validation only, not leak counts from a prior report.
+        self.last_validation_stats = {}
         citations = []
         pattern = r"\[来源:\s*([^\]]+)\]"
         last_end = 0
-        fixes_enabled = config.experiment.validator_fixes_enabled
+        filter_enabled = config.experiment.validator_assertive_filter_enabled
+        raw_citation_count = 0
+        filtered_citation_count = 0
         for m in re.finditer(pattern, report):
             # 取论断（引用前的一段文本，W2.1 按句子边界 + 清理 markdown）
             # W7 F3：start=last_end 隔离多个引用，避免后一个 claim 混入前一个引用标记
             claim = self._claim_text(report, m.start(), last_end)
             last_end = m.end()
-            if fixes_enabled and not self._is_assertive(claim):
-                continue  # W7 F3：非论断句/元话语/表格残片不进校验通道
-            for ref in self._split_ref(m.group(1)):
+            refs = self._split_ref(m.group(1))
+            raw_citation_count += len(refs)
+            if filter_enabled and not self._is_assertive(claim):
+                filtered_citation_count += len(refs)
+                continue  # W7 F3: non-assertive fragments stay out of validation
+            for ref in refs:
                 citations.append({"claim": claim, "source": ref})
+        self.last_validation_stats.update({
+            "filter_enabled": filter_enabled,
+            "raw_citation_count": raw_citation_count,
+            "candidate_citation_count": len(citations),
+            "filtered_citation_count": filtered_citation_count,
+            "filtered_rate": round(filtered_citation_count / raw_citation_count, 4)
+            if raw_citation_count else 0.0,
+        })
         return citations
 
     @staticmethod
@@ -317,6 +334,10 @@ class Validator:
             })
 
         if not local_results:
+            self.last_validation_stats.update({
+                "validated_citation_count": 0,
+                "existence_pass_count": 0,
+            })
             return []
 
         # ---- 阶段 2：LLM 忠实度判定（仅存在性 True 的引用；Q3=A 短路）----
@@ -442,6 +463,10 @@ class Validator:
                 verified_relaxed=verified_relaxed,
                 is_meta=bool(verdict.get("is_meta", False)) if verdict is not None else False,
             ))
+        self.last_validation_stats.update({
+            "validated_citation_count": len(result),
+            "existence_pass_count": sum(1 for c in result if c.existence),
+        })
         return result
 
     @staticmethod

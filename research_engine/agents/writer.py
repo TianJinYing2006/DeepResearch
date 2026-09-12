@@ -92,6 +92,10 @@ class Writer:
         except Exception:  # noqa: BLE001
             report = self._fallback_report(topic, subquestions)
 
+        # Citation normalization is a protocol guarantee, not a sectioned-feed
+        # experiment.  Apply it for every writer mode so arm comparisons do not
+        # accidentally compare different citation parsers.
+        report = self._normalize_citations(report, findings)
         if sectioned:
             return self._ensure_sections(report, subquestions, findings)
         return report
@@ -103,13 +107,14 @@ class Writer:
             lines.extend([f"\n## {s.question}", "信息不足：本小节目前缺乏足够研究发现支撑，无法得出可靠结论。"])
         return "\n".join(lines)
 
-    def _ensure_sections(
-        self,
-        report: str,
-        subquestions: List[SubQuestion],
-        findings: List[ResearchFinding],
-    ) -> str:
-        """G4 系统级兜底：1）替换越界引用；2）为缺失的子问题补信息不足小节。"""
+    def _normalize_citations(self, report: str, findings: List[ResearchFinding]) -> str:
+        """Normalize citation syntax and clamp finding numbers in every mode.
+
+        This used to live inside ``_ensure_sections`` and therefore only ran
+        when ``WRITER_SECTIONED_FEED_ENABLED`` was true.  Section formatting
+        and citation protocol normalization are independent concerns: the
+        latter must be invariant across experiment arms.
+        """
         max_n = len(findings)
 
         def _extract_nums(inner: str) -> List[str]:
@@ -127,9 +132,7 @@ class Writer:
             valid_nums = [n for n in nums if 1 <= int(n) <= max_n]
             if not valid_nums:
                 return "[来源: 信息不足]"
-            if len(valid_nums) < len(nums):
-                return f"[来源: {', '.join(valid_nums)}]"
-            return match.group(0)
+            return f"[来源: {', '.join(valid_nums)}]"
 
         # P0 引用协议统一：匹配 [来源: N] 和 [来源: #N] 格式
         report = re.sub(r"\[来源:\s*([#\d\s,，、;；/和]+)\]", _replace_citation, report)
@@ -154,7 +157,15 @@ class Writer:
             _normalize_bare,
             report,
         )
+        return report
 
+    def _ensure_sections(
+        self,
+        report: str,
+        subquestions: List[SubQuestion],
+        findings: List[ResearchFinding],
+    ) -> str:
+        """G4 系统级兜底：为缺失的子问题补信息不足小节。"""
         missing: List[str] = []
         for s in subquestions:
             # 设计-6 修复：用标题行精确匹配替代朴素子串匹配，避免短问题文本误判

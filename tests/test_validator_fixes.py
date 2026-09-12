@@ -131,6 +131,53 @@ def test_f3_table_fragment_filtered():
     assert "Transformer" in citations[0]["claim"]
 
 
+# ---------- F3 denominator audit ----------
+
+def test_f3_filter_is_independently_toggleable_and_audited(monkeypatch):
+    from config import config
+
+    v = Validator()
+    report = "本节内容 [来源: 1]\n有效论断足够长，可以进入校验 [来源: 2]"
+
+    monkeypatch.setattr(config.experiment, "validator_assertive_filter_enabled", True)
+    filtered = v._extract_citations(report)
+    assert len(filtered) == 1
+    assert v.last_validation_stats == {
+        "filter_enabled": True,
+        "raw_citation_count": 2,
+        "candidate_citation_count": 1,
+        "filtered_citation_count": 1,
+        "filtered_rate": 0.5,
+    }
+
+    monkeypatch.setattr(config.experiment, "validator_assertive_filter_enabled", False)
+    unfiltered = v._extract_citations(report)
+    assert len(unfiltered) == 2
+    assert v.last_validation_stats["filter_enabled"] is False
+    assert v.last_validation_stats["filtered_citation_count"] == 0
+    assert v.last_validation_stats["raw_citation_count"] == 2
+
+
+def test_validator_stats_reset_for_empty_report(monkeypatch):
+    """Validator stats must not leak counts when a reusable instance sees no citations."""
+    from config import config
+
+    v = Validator()
+    monkeypatch.setattr(config.experiment, "validator_assertive_filter_enabled", False)
+    v._extract_citations("有效论断足够长，可以进入校验 [来源: 1]")
+    assert v.last_validation_stats["raw_citation_count"] == 1
+
+    result = v.validate("没有引用的报告", [
+        ResearchFinding(content="A", source="s1", source_type="web"),
+    ])
+
+    assert result == []
+    assert v.last_validation_stats["raw_citation_count"] == 0
+    assert v.last_validation_stats["candidate_citation_count"] == 0
+    assert v.last_validation_stats["validated_citation_count"] == 0
+    assert v.last_validation_stats["existence_pass_count"] == 0
+
+
 # ---------- F4：主语兜底 ----------
 
 def test_f4_subject_backed():

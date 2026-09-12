@@ -53,6 +53,7 @@ ARMS: List[Arm] = [
         env={
             "CRITIC_GAP_ENABLED": "false",
             "VALIDATOR_FIXES_ENABLED": "false",
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "false",
             "WRITER_SECTIONED_FEED_ENABLED": "false",
             "VALIDATOR_TRIM_ENABLED": "false",
             "VALIDATOR_MODEL": "",
@@ -64,6 +65,7 @@ ARMS: List[Arm] = [
         env={
             "CRITIC_GAP_ENABLED": "true",
             "VALIDATOR_FIXES_ENABLED": "false",
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "false",
             "WRITER_SECTIONED_FEED_ENABLED": "false",
             "VALIDATOR_TRIM_ENABLED": "false",
             "VALIDATOR_MODEL": "",
@@ -75,6 +77,7 @@ ARMS: List[Arm] = [
         env={
             "CRITIC_GAP_ENABLED": "false",
             "VALIDATOR_FIXES_ENABLED": "true",
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "true",
             "WRITER_SECTIONED_FEED_ENABLED": "false",
             "VALIDATOR_TRIM_ENABLED": "false",
             "VALIDATOR_MODEL": "",
@@ -86,6 +89,7 @@ ARMS: List[Arm] = [
         env={
             "CRITIC_GAP_ENABLED": "false",
             "VALIDATOR_FIXES_ENABLED": "false",
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "false",
             "WRITER_SECTIONED_FEED_ENABLED": "true",
             "VALIDATOR_TRIM_ENABLED": "false",
             "VALIDATOR_MODEL": "",
@@ -97,6 +101,7 @@ ARMS: List[Arm] = [
         env={
             "CRITIC_GAP_ENABLED": "false",
             "VALIDATOR_FIXES_ENABLED": "false",
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "false",
             "WRITER_SECTIONED_FEED_ENABLED": "false",
             "VALIDATOR_TRIM_ENABLED": "true",
             "VALIDATOR_MODEL": "",
@@ -108,6 +113,7 @@ ARMS: List[Arm] = [
         env={
             "CRITIC_GAP_ENABLED": "true",
             "VALIDATOR_FIXES_ENABLED": "true",
+            "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "true",
             "WRITER_SECTIONED_FEED_ENABLED": "true",
             "VALIDATOR_TRIM_ENABLED": "true",
             "VALIDATOR_MODEL": "qwen-turbo",
