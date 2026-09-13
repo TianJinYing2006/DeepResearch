@@ -12,8 +12,7 @@ import argparse
 import json
 import statistics
 from pathlib import Path
-from typing import Dict, List, Optional
-
+from typing import Dict, List
 
 ARM_LABELS = {
     "arm0_baseline": "Arm 0 基线",

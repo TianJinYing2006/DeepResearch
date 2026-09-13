@@ -59,7 +59,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -69,8 +69,8 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 from config import config  # noqa: E402
 from research_engine.agents.validator import (  # noqa: E402
-    CitationVerdict,
     VALIDATOR_SYSTEM,
+    CitationVerdict,
     config_min_sources,
 )
 from research_engine.llm.client import LLMClient  # noqa: E402
@@ -494,7 +494,7 @@ def main() -> int:
         print(f"  ⑤ 绝对通过条数/篇：{cell[(base_arm, judge_ref)]['passed_refs_per_report']:.1f} → "
               f"{cell[(treat_arm, judge_ref)]['passed_refs_per_report']:.1f}"
               f"（{(cell[(treat_arm, judge_ref)]['passed_refs_per_report']/cell[(base_arm, judge_ref)]['passed_refs_per_report']-1)*100:+.1f}%）")
-        print(f"\n  判读提示：若 ① 与 ② 同量级且 ③④⑤ 未改善，则「arm 增益」主要是测量伪影与分母收缩。")
+        print("\n  判读提示：若 ① 与 ② 同量级且 ③④⑤ 未改善，则「arm 增益」主要是测量伪影与分母收缩。")
 
     payload = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

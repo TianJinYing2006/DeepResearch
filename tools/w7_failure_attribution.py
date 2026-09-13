@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """W7 技术债② 失败分类归因表（DoD §8「失败分类（5 类）归因表产出，可解释提升来源」）。
 
 数据源：`.workbuddy/diag/failed_citations.jsonl`（298 条未通过引用，来自 `run_v11_compare`）。

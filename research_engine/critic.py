@@ -161,9 +161,8 @@ class Critic:
         if self.llm_fn is not None:
             return self.llm_fn(state)
         # 真实 LLM 裁决（生产路径；token 累加由 router 在 Q6 完成）。
-        from research_engine.llm.client import LLMClient
-
         from config import config as _cfg
+        from research_engine.llm.client import LLMClient
         gap_extra = ""
         if _cfg.experiment.critic_gap_enabled:
             gap_extra = (

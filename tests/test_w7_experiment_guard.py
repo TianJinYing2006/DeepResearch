@@ -12,8 +12,8 @@ from __future__ import annotations
 from research_engine.eval.w7_experiment import (
     REJUDGE_NOTE,
     _git_rev,
-    _revision_mismatch_warning,
     _revision_mismatch_error,
+    _revision_mismatch_warning,
 )
 
 
