@@ -279,6 +279,47 @@ passed_refs_per_report = passed / valid_q   # 绝对产出：每篇报告最终�
 若仍要评估这类改动，必须重新设计为：
 **固定裁判（独立于被测组件）+ 固定检索快照 + 同预算成本-效果比较 + 多区块重复 + 报告绝对条数**。
 
+### 8.3 离线补算补充（2026-09-14）：把「从未被测」变成「可讲述的失败」
+
+技术债③ 的主指标（失败分类中**幻觉类**占比）在 W7 全生命周期**从未被任何 run 测量**——
+`metrics.py::compute_all` 没有幻觉类指标，18 run 的 `metrics_mean` 里也查无此键。
+
+但归因所需的 `claim / note / verified` 在 `raw/*.raw.json` 的 `state.citations` 里**完整保留**，
+而 `w7_failure_attribution.classify` 是**纯启发式、零 API** ⇒ 可以**离线重算，无需重跑**
+（重跑约 8.6h / ¥14）。详见 **`docs/eval-w7-hallucination-backfill.md`**（可复算）。
+
+| arm | 幻觉类占比 | 区块极差（噪声） |
+|---|---|---|
+| `arm0_baseline` | 13.1% | 2.0pp |
+| **`arm4_writer_sectioned`** | **8.4%** | 6.2pp |
+| `arm3_validator_fixes` | 12.4% | **12.2pp**（失真） |
+| `arm6_validator_turbo` | **0.0%** | 0pp（**假象**） |
+
+**判定：`arm4` 方向正确但仍未达标。**
+
+- 效应 **−4.7pp**（13.1% → 8.4%），DoD 门槛是**下降 ≥10pp** ⇒ ❌ 未达标；
+- 更关键：**效应绝对值 4.7pp < arm4 自身噪声 6.2pp** ⇒ ❌ **不可判定**；
+- 分区块看：arm4 = 12.1% / 5.9% / 7.1%，**Block 0 与基线 12.0% 几乎无差**，
+  下降几乎全部来自 Block 1/2 ⇒ 效应在区块间不稳定。
+
+⇒ **根因不是缺数据，而是分辨率不足**。重跑换不来结论，只会得到「更干净的不可判定」。
+
+**两个独立指标方向互证（这是本次唯一的正向收获）**：次要指标「信息不足」标注率
+分节喂料 ON **78.0%** vs OFF **36.1%（+42.0pp）**——writer 更多**承认缺口**；
+主指标幻觉类占比同向 **下降 4.7pp**——writer 更少**编造**。两者独立、方向一致。
+
+**🔴 `arm6` 的 0.0% 是假象，且是「被测兼任裁判」的直接实证**：该臂把 validator 换成
+qwen-turbo，其 note **退化成固定模板**（几乎全是「来源不存在于研究发现（编号越界或来源未命中）」，
+无内容判据），而 qwen-plus 的 note 有具体内容（如 "Finding 10 states only: 'Mamba 通过
+selective scan…'"）⇒ 基于 note 关键字的分类**完全抓不到** HALLU/MISSRC，占比**假性归零**。
+**换掉裁判 ⇒ 判定文本退化 ⇒ 指标失真**——这与 §4/§8.1「裁判效应与被测效应同量级」完全互证。
+
+**`arm3` 该指标失真（极差 12.2pp）**：arm3 改的正是判定器与分母（F1~F5），
+任何**分母依赖**的失败构成类指标都会被测对象自身扭曲 ⇒ 该类指标不适用于改动 validator 的臂。
+
+> **纪律**：本节为**事后补算、非预注册主指标** ⇒ **不得据此判定 arm4 达标**。
+> 它的价值是把「从未被测」的**空白**，变成「测了，但效应 < 噪声」的**可讲述失败**。
+
 ---
 
 ## 9. 归档位置与产物清单
@@ -294,6 +335,9 @@ passed_refs_per_report = passed / valid_q   # 绝对产出：每篇报告最终�
 | `research_engine/eval/results/curated/MANIFEST.md` | 复现清单：全部 sha256、自解释字段补足、可用/不可用对照、复现步骤 |
 | `research_engine/eval/results/w7_experiment_20260911_194151/` | 六臂实验容器（manifest + CODE_REVISION） |
 | `docs/eval-w7-conclusion.md` | 本文件 |
+| `docs/eval-w7-attribution.md` | 失败分类（5 类）归因表（由 `tools/w7_failure_attribution.py` 生成，可复算） |
+| `docs/eval-w7-hallucination-backfill.md` | 技术债③ **主指标**（幻觉类占比）离线补算（由 `tools/w7_backfill_hallucination.py` 生成，零 API 可复算） |
+| `docs/eval-w7-insufficient-backfill.md` | 技术债③ **次要指标**（「信息不足」标注率）离线补算（由 `tools/w7_backfill_insufficient.py` 生成，零 API 可复算） |
 
 ### 已入库：两个来源 run 的原始产物（含 `raw/`）
 
