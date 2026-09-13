@@ -352,7 +352,8 @@ def generate_report(
     rows_tbl = []
     targets = {
         "completion_rate": "≥90%",
-        "citation_accuracy": "≥85%（忠实度口径）",
+        "citation_accuracy": "≥85%（**严格口径** verified）",
+        "citation_accuracy_relaxed": "记录基线（**宽松口径**，仅解释性附注）",
         "coverage": "≥90%",
         "retrieval_hit_rate": "记录基线",
         "avg_steps": "记录基线",
@@ -396,6 +397,20 @@ def generate_report(
             if _ins["reports"]
             else "  - ⚠️ 本快照的 run 早于该指标实现 ⇒ 暂无数据（仅**新产生的 run** 会计入）。\n"
         )
+    )
+
+    # ---- 3a. 双口径与人工口径归属（W7 TBD-5 诚实披露；DoD 要求显式声明，不得省略）----
+    dual_caliber_note = (
+        "📏 **双口径与人工口径归属（W7 TBD-5 诚实披露，不得省略）：**\n"
+        "  - **严格口径**（`citation_accuracy`）= `verified = existence AND faithful`"
+        "（引对编号 **且** 忠实）—— W2 契约口径，跨版本对比**一律以此为准**。\n"
+        "  - **宽松口径**（`citation_accuracy_relaxed`）= `existence AND (faithful OR supported)`"
+        "——论断在系统内**能找到依据**即算通过（允许引错编号但内容真实）。\n"
+        "  - **⚠️ W5 人工抽检 83~92% 属「宽松口径」**：人工判的是「这论断有没有依据」，"
+        "**不逐条核对编号** ⇒ 与机器严格口径**不是同一件事**；二者差异的**绝大部分是口径差**，"
+        "**不是 validator 误拒**。\n"
+        "  - 人工抽检样本仅 **12 条**、置信区间极宽，**不作为真值**；宽松口径仅作**解释性附注**，"
+        "不参与任何达标判定。\n"
     )
 
     # ---- 4. 失败与异常附录 ----
@@ -489,9 +504,10 @@ def generate_report(
 - 墙钟/并发/统计: {summary.get('total')} 条，并发 3，生成于 {summary.get('generated_at')}
 
 ## 3. 指标表（7 项，Q8 含检索命中率）
-{header}{''.join(rows_tbl)}
+{header}{chr(10).join(rows_tbl)}
 
 {cost_line}
+{dual_caliber_note}
 {minor_line}
 
 ## 4. 失败与异常附录
@@ -500,6 +516,9 @@ def generate_report(
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
+- ⚠️ **口径提醒**：人工抽检判的是**宽松口径**（「这论断有没有依据」，不逐条核对编号），
+  与 §3 机器严格口径（`verified = existence AND faithful`）**不是同一件事**；
+  W5 历史抽检 83~92% 即属此宽松口径，**不得与机器严格口径直接对比**。
 - [ ] 报告级抽检 4~5 份（质量观感 + 反思质量面 + 每份 2~3 条引用精读）
 - [ ] 引用级抽检 10~15 条（引用准确率人类口径）
 - [ ] 锚点桶人工复核 6~8 条（确认"真回归 vs 数据漂移"）
