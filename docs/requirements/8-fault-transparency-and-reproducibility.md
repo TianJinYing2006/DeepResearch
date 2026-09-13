@@ -15,8 +15,9 @@
 | 负责人      | TianJinYing2006                                                                                         |
 | 关联 Issue | #8（待建）                                                                                                  |
 | 关联 PR    | <br />                                                                                                  |
-| 创建 / 更新  | 2026-09-10                                                                                              |
+| 创建 / 更新  | 2026-09-10（新建）/ 2026-09-13（新增 §10 承接 W7 挂账；§10.4 前置项）                                                 |
 | 实现顺序     | **Arm 1（状态分层）→ Arm 2（代码注入修复）→ Arm 3（依赖锁定）→ Arm 4（工具失败原因）→ Arm 5（评测口径收敛）→ Arm 6（可复现元数据）→ Arm 7（评测产物治理）** |
+| **采基线前置** | **必须先完成 §10.4 —— `_config_snapshot()` 记录 5 个 W7 开关的生效值，并落地"每轮 run 都记"。否则新采的基线同样无法回溯消融配置，问题会重演** |
 
 ## 2. 问题背景
 
@@ -269,6 +270,16 @@ def _default_code_script() -> str:
 | `deps_frozen_hash` | `requirements-lock.txt` 的 sha256 | 依赖版本指纹          |
 | `model_name`       | config 中的模型配置                    | 实际使用的模型         |
 | `search_provider`  | config 中的搜索配置                    | 搜索 provider 及参数 |
+| `experiment`       | `config.experiment` 解析后的**生效值**（见下） | **W7 消融配置可回溯**（§10.4 前置项） |
+
+`experiment` 字段内容（**2026-09-13 新增，见 §10.4**）：5 个开关经 `_env()` 解析后的布尔**生效值**
+—— `critic_gap_enabled` / `validator_fixes_enabled` / `validator_assertive_filter_enabled` /
+`writer_sectioned_feed_enabled` / `validator_trim_enabled`，外加 `validator_model`。
+
+> 注意记录的是**运行期生效值**而非环境变量原始字符串：开关未设置时会回落默认值
+> （`VALIDATOR_ASSERTIVE_FILTER_ENABLED` 还会二次回落到 `VALIDATOR_FIXES_ENABLED`），
+> 只记原始环境变量等于丢失真相。默认值本身由
+> `tests/test_w7_experiment_guard.py::test_w7_mainline_switch_defaults_stay_enabled` 兜住。
 
 #### 5.6.2 summary 记录扩展
 
@@ -379,9 +390,15 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 
 * [ ] 每条 raw 记录包含 `git_dirty` / `git_diff_hash` / `python_version` / `deps_frozen_hash` / `model_name` / `search_provider`
 
+* [ ] **每条 raw 记录包含 `experiment` 段：5 个 W7 开关的生效值 + `validator_model`**（§10.4 前置项，2026-09-13 并入）
+
 * [ ] summary 记录包含上述字段的汇总
 
+* [ ] **`_config_snapshot()` 按 docstring 原意「每轮 run 都记」（现仅 `write_baseline()` 调一次），并修正 docstring 与实现不符之处**（§10.4）
+
 * [ ] 在 dirty 工作区上跑一次 eval，验证 `git_dirty=true` 且 `git_diff_hash` 非空
+
+* [ ] **在新采的主链路基线上验证：`summary.json` 中的 `experiment` 段能被读回，且与运行期 `config.experiment` 一致**（§10.4 可复现性验收）
 
 ### Arm 7（P2）
 
@@ -468,15 +485,56 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 
 ### 10.3 W7 挂账中**尚未立项**的评测护栏（候选，未承诺）
 
-> 来源：2026-09-13 外部「W7 实验设计复盘」的工程护栏建议。**当时用户明确只采纳 4 项低成本护栏**，
+> 来源：2026-09-13 外部「W7 实验复盘」的工程护栏建议。**当时用户明确只采纳 4 项低成本护栏**，
 > 其余按成本控制策略推迟。此处仅登记为候选并补齐证据，**不等于承诺实施**。
+>
+> **2026-09-13 更新**：候选 **I** 已由用户决定**升级为 W8 前置项**，移入 §10.4。下述表中保留其行以便追溯升级来源。
 
 | # | 项 | 证据（W7 实测） | 成本 |
 | - | --- | --- | --- |
 | F | **实验矩阵完整性检查**：`block × arm × question` 缺格 / 缺指标自动检测，缺失必须显式登记原因 | 现有 `arm6/Block 2` 缺格做得对（manifest 登记了 `skipped_gate` + 原因）；但 **`arm3/Block 1` 的 `q_008` 因 `status=timeout` 缺 `coverage` 指标，而该 run 在 manifest 里仍记为 `done`，这一层缺失目前无人检查、报告里也看不出来** | 小（纯本地校验） |
 | G | **预算一致性检查**：跨 arm 的 steps / tokens / cost 超预设比例即标记"不可直接比较" | W7 的 `avg_steps` 分档（3.85 vs 8.1~9.3）是最主要的不可比来源，目前只靠人工判断 | 小 |
 | H | **分析汇总模式自动排除不一致数据**：revision 不一致时默认**阻止汇总**，而非仅告警 | W7 事故的根因形态。现有护栏只有"开发 warning + 正式 hard fail"两档，**缺"汇总时自动排除 + 异常报告"** | 中 |
-| I | **`_config_snapshot` 按 Q7 原意每轮记录** | `report_gen.py` 的 `_config_snapshot()` docstring 写"每轮 run 都记"，实际只被 `write_baseline()` 调一次，且只含 9 个 config 子项；per-run `summary.json` / `history.json` 均无 config 快照 | 小（属 Arm 6 自然延伸） |
+| ~~I~~ | ~~**`_config_snapshot` 按 Q7 原意每轮记录**~~ → **已升级为前置，见 §10.4** | `_config_snapshot()` docstring 写"每轮 run 都记"，实际只被 `write_baseline()` 调一次，且只含 9 个 config 子项；per-run `summary.json` / `history.json` 均无 config 快照。2026-09-13 进一步查出**主链路配置格子从未被测过 + 历史 run 消融配置不可回溯** | **升为前置**（属 Arm 6 自然延伸） |
+
+### 10.4 **W8 前置项**：`_config_snapshot` 必须记录实验开关（2026-09-13 由 §10.3 候选 I 升级）
+
+> 由「候选」升级为「**前置**」的依据是 2026-09-13 取证查出的两条硬事实。它不再是"锦上添花的护栏"，
+> 而是**采基线的前提**——不补齐则 W8 会重演同一个问题。
+
+**依据 1：主链路的配置格子从未被测过**
+
+用脚本 dump 六臂组合与主链路实际配置（`ExperimentConfig` 实例）对比：
+
+| | 5 个 W7 开关 | `VALIDATOR_MODEL` |
+| --- | --- | --- |
+| **主链路（`cli.py` / `web/app.py` 实际运行）** | **5/5 全开** | **默认（`qwen-plus`）** |
+| W7 唯一全开的臂 `arm6_validator_turbo` | 5/5 全开 | ❌ 锁 `qwen-turbo` |
+| `arm0` / `arm1` / `arm3` / `arm4` / `arm5` | 0~2/5 | 默认 |
+
+⇒ **6 个臂里没有任何一格等于主链路配置**。W7 测的是「全开 + turbo」，**从未测过「全开 + plus」**。
+⇒ 主链路的实际 coverage / 引用准确率**在现有全部数据里没有对应测量**。W8 若谈主链路效果，**只能新采基线**，且基线**必须是主链路配置自身**，不得用 `arm0` 或 `arm6` 代指。
+
+**依据 2：历史 run 的消融配置不可回溯**
+
+`report_gen.py:26 _config_snapshot()` 只记 9 个字段（`planner_model` / `critic_model` / `fast_model` / `smart_model` / `token_budget` / `max_total_hops` / `per_subq_hop_cap` / `max_replan` / `search_provider`），**一个实验开关都不记**。
+
+| run | 能否判断其开关配置 |
+| --- | --- |
+| 09-06 / 09-07 的 run（含 `run_v11_compare`——**`docs/eval-w7-attribution.md` 的 298 条夹具来源**） | 仅可**推定**为 v1.1 行为（当时开关代码尚不存在），**产物内无证据** |
+| **09-09 之后的所有 run** | ❌ **无法判断** |
+
+**要求（落地即视为完成）**
+
+1. `_config_snapshot()` 增加 `experiment` 段，记录 5 个开关的**生效值**（经 `_env()` 解析后的布尔值，而非环境变量原始字符串）：
+   `critic_gap_enabled` / `validator_fixes_enabled` / `validator_assertive_filter_enabled` / `writer_sectioned_feed_enabled` / `validator_trim_enabled`，并含 `validator_model`。
+2. 按 docstring 原意落地「**每轮 run 都记**」：per-run `summary.json` 与 `history.json` 均写入 config 快照（现仅 `write_baseline()` 调用一次）。
+3. 修正 `_config_snapshot()` docstring 与实现不符之处（现写"每轮 run 都记，baseline 只是 v0 的那份"）。
+4. 与 `tests/test_w7_experiment_guard.py::test_w7_mainline_switch_defaults_stay_enabled` 呼应：快照记录的是**运行期生效值**，默认值漂移由该单测兜住。
+
+**归属**：属 **Arm 6（可复现元数据）** 的自然延伸（Arm 6 已覆盖 `git_dirty` / `git_diff_hash` / `deps_frozen_hash` / `model_name` / `search_provider`）。建议直接并入 Arm 6 字段表，而非另立 Arm。
+**成本**：小（约十余行 + 两个落盘点）。
+**不在 W8 本项范围内的**：为历史 run 回填开关配置（不可行，无证据源）。
 
 ## 11. 变更记录
 
@@ -484,3 +542,4 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 | ---------- | -- | ------------------ | ---------------------- | ------------ |
 | 2026-09-10 | 新建 | 外部评审报告识别的 P0/P1 短板 | 基于 6.5/10 评审编排 7 个 Arm | —            |
 | 2026-09-13 | 补充 | W7 收口后发现挂账未进 W8 排期 | 新增 **§10「承接 W7 挂账」**：10.1 登记 5 项 W7 推迟项（博客③/博客②/组件③澄清范围/persona 视角发现/HHEM 降本）；10.2 把 W7 未完成项对齐到 W8 现有 Arm 3/5/6（并指出 Arm 6 仍缺 `prompt_hash`+`seed`）；10.3 登记 4 项**尚未立项**的评测护栏候选（矩阵完整性 / 预算一致性 / 汇总自动排除 / `_config_snapshot` 每轮记录），附 W7 实测证据。**候选 ≠ 承诺** | 本文档 |
+| 2026-09-13 | 升级 | 用户决定「补进 W8」：§10.3 候选 **I 升为前置** | 新增 **§10.4「W8 前置项：`_config_snapshot` 必须记录实验开关」**。升级依据为两条新取证事实：① **主链路配置格子从未被测过** —— 主链路 = 5 开关全开 + `VALIDATOR_MODEL` 默认（`qwen-plus`），而 W7 唯一全开的 `arm6` 锁 `qwen-turbo` ⇒ **6 臂无一格等于主链路配置**；② **历史 run 消融配置不可回溯** —— `_config_snapshot()` 只记 9 个模型/预算字段、一个开关不记，09-09 之后的 run 无法判断配置（含 298 条归因夹具来源 `run_v11_compare`）。同步改动：§5.6.1 Arm 6 字段表新增 `experiment` 字段（记录**生效值**而非环境变量原始串）并加回落语义说明；§7 Arm 6 DoD 新增 3 条（`experiment` 段 / 每轮记录 + 修 docstring / 基线读回一致性验收）；§1 元信息新增「采基线前置」行；§10.3 候选 I 划删并标注升级去向。**明确不做的**：为历史 run 回填开关配置（无证据源，不可行） | 本文档 |
