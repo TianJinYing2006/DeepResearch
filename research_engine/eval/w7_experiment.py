@@ -79,6 +79,15 @@ def _revision_mismatch_warning(prev_rev: Optional[str], cur_rev: str) -> Optiona
     )
 
 
+def _revision_mismatch_error(
+    prev_rev: Optional[str], cur_rev: str, allow: bool = False
+) -> Optional[str]:
+    """Return the formal-mode error for revision drift, or ``None``."""
+    if allow or _revision_mismatch_warning(prev_rev, cur_rev) is None:
+        return None
+    return "正式实验拒绝续跑：代码修订不一致。若为诊断用途，请显式传 --allow-revision-mismatch。"
+
+
 @dataclass
 class Arm:
     name: str
@@ -290,6 +299,8 @@ def main() -> int:
                         help="断点续跑：从第 N 个区块开始（0-based，默认 0）")
     parser.add_argument("--experiment-dir", type=Path, default=None,
                         help="复用已有实验目录续跑（默认新建）")
+    parser.add_argument("--allow-revision-mismatch", action="store_true",
+                        help="允许续跑时修订不一致（仅诊断用途；默认 hard fail）")
     args = parser.parse_args()
 
     arms = ARMS
@@ -327,6 +338,11 @@ def main() -> int:
             print("!" * 70)
             print(f"⚠️  {warn}")
             print("!" * 70)
+            error = _revision_mismatch_error(
+                manifest.get("code_revision"), cur_rev, args.allow_revision_mismatch
+            )
+            if error:
+                raise SystemExit(error)
         manifest["resumed_revisions"] = sorted(set(manifest.get("resumed_revisions", [])) | {cur_rev})
         if REJUDGE_NOTE not in manifest.setdefault("notes", []):
             manifest["notes"].append(REJUDGE_NOTE)

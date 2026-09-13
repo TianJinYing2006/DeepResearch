@@ -63,6 +63,54 @@ def compute_completion(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# ---------- 1b. 「信息不足」标注比例（W7 技术债③ 次要指标，只看不判）----------
+
+# writer 的标注纪律（W7 Arm4 G3/G4）约定的固定措辞；改措辞须同步 writer.py 与单测
+INSUFFICIENT_MARKER = "信息不足"
+INSUFFICIENT_CITATION = "[来源: 信息不足]"
+
+
+def split_report_sections(report: str) -> List[str]:
+    """切出报告的「子问题小节」。
+
+    规则：**小节 = 二级标题（`## `）块**；首个 `## ` 之前的前言（总标题等）**不计**为小节，
+    因为 writer 的契约是「每个子问题一节」，前言不对应任何子问题。
+    若全文没有二级标题，则**整体算一节**（避免分母恒为 0 而让哨兵指标失效）。
+    """
+    if not report:
+        return []
+    parts = [p for p in re.split(r"(?m)^(?=##\s+\S)", report) if p.strip()]
+    if not parts:
+        return []
+    if not parts[0].lstrip().startswith("##"):
+        parts = parts[1:]  # 丢掉前言
+    return parts or [report]
+
+
+def compute_insufficient(state: Dict[str, Any]) -> Dict[str, Any]:
+    """统计报告里「信息不足」标注的覆盖面（W7 技术债③ DoD 次要指标）。
+
+    口径（**只看不判**，不设达标线）：
+    - `section_count`：二级标题小节数（writer 按子问题分节 ⇒ 小节数 ≈ 子问题数）；
+    - `marked_sections`：正文含「信息不足」标注的小节数；
+    - `marker_ratio`：`marked_sections / section_count`（无小节时记 0）；
+    - `placeholder_count`：`[来源: 信息不足]` 出现次数——这是**引用位兜底替换**，
+      与「小节级标注」不是同一件事，故单独计数、不并入 ratio。
+
+    用途：它是**哨兵指标**——标注比例塌到极低可能意味着模型改成了"编造而非承认缺口"，
+    比例过高则意味着检索没喂饱。两种极端都值得人工看，但**不作为任何达标判据**。
+    """
+    report = state.get("report") or ""
+    sections = split_report_sections(report)
+    marked = sum(1 for s in sections if INSUFFICIENT_MARKER in s)
+    return {
+        "section_count": len(sections),
+        "marked_sections": marked,
+        "marker_ratio": round(marked / len(sections), 4) if sections else 0.0,
+        "placeholder_count": report.count(INSUFFICIENT_CITATION),
+    }
+
+
 # ---------- 2. 引用准确率（直读 state.citations）----------
 
 def compute_citation(
@@ -372,5 +420,6 @@ def compute_all(
         ),
         "steps": compute_steps(state),
         "reflection": compute_reflection(state, coverage),
+        "insufficient": compute_insufficient(state),
         "raw_complete": state.get("status") == "done",
     }

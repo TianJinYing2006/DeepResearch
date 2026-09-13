@@ -13,6 +13,7 @@ from research_engine.eval.w7_experiment import (
     REJUDGE_NOTE,
     _git_rev,
     _revision_mismatch_warning,
+    _revision_mismatch_error,
 )
 
 
@@ -49,3 +50,17 @@ def test_mismatch_warning_silent_when_current_revision_unavailable():
 def test_rejudge_note_is_the_confound_warning():
     assert "validator" in REJUDGE_NOTE
     assert "w7_rejudge.py" in REJUDGE_NOTE
+
+
+def test_revision_mismatch_is_hard_failure_by_default():
+    assert _revision_mismatch_error("old", "new") is not None
+
+
+def test_revision_mismatch_can_be_explicitly_allowed():
+    assert _revision_mismatch_error("old", "new", allow=True) is None
+
+
+def test_revision_error_preserves_unknown_and_match_boundaries():
+    assert _revision_mismatch_error("same", "same") is None
+    assert _revision_mismatch_error(None, "new") is None
+    assert _revision_mismatch_error("old", "unknown") is None

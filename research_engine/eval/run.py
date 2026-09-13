@@ -320,6 +320,8 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
             "retrieval_hit_rate": _avg("retrieval_hit", "retrieval_hit_rate"),
             "avg_steps": _avg("steps", "steps"),
             "reflection_critic_stop_rate": round(reflection_rate, 4),
+            # W7 技术债③ 次要指标（只看不判）：报告「信息不足」标注小节占比
+            "insufficient_marker_ratio": _avg("insufficient", "marker_ratio"),
         },
         "cost_phase1_total": {
             "total_tokens": cost_global["total_tokens"],

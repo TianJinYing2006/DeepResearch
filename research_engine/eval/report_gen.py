@@ -112,6 +112,210 @@ def _fmt_pct(x: float) -> str:
     return f"{x * 100:.1f}%"
 
 
+def _insufficient_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """聚合「信息不足」标注（W7 技术债③ 次要指标）。纯函数，便于单测锁定。"""
+    rows = [
+        (r.get("metrics") or {}).get("insufficient") or {}
+        for r in results
+        if isinstance((r.get("metrics") or {}).get("insufficient"), dict)
+    ]
+    sec_total = sum(int(x.get("section_count") or 0) for x in rows)
+    sec_marked = sum(int(x.get("marked_sections") or 0) for x in rows)
+    ph_total = sum(int(x.get("placeholder_count") or 0) for x in rows)
+    return {
+        "reports": len(rows),
+        "section_total": sec_total,
+        "section_marked": sec_marked,
+        "placeholder_total": ph_total,
+        "marker_ratio": (sec_marked / sec_total) if sec_total else 0.0,
+    }
+
+
+def _w7_experiment_section() -> str:
+    """DoD §8「六臂对照实验记录」：读权威实验 manifest，输出轮次 / 配对差值 / 判定。
+
+    刻意做成「实验记录」而不是「趋势图」：跨区块的 citation 类指标口径不一致
+    （Block 0 跑在 `95adb77`+patch，Block 1/2 跑在 `ca51886`），故本表只呈现事实与
+    **机械判定**，并显式声明不可比性；任何因果结论一律以 `docs/eval-w7-conclusion.md` 为准。
+    manifest 缺失时返回空串，保证无实验产物的环境（如 CI）仍能生成报告。
+    """
+    manifest_path = RESULTS_DIR / W7_AUTHORITATIVE_EXPERIMENT / "manifest.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        manifest: Dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+
+    arms: List[str] = list(manifest.get("arms", []))
+    runs: List[Dict[str, Any]] = list(manifest.get("runs", []))
+    planned = int(manifest.get("runs_per_arm", 0) or 0)
+    if not arms or not runs:
+        return ""
+
+    grid: Dict[tuple, Dict[str, Any]] = {
+        (r.get("arm"), r.get("block")): r for r in runs
+    }
+    done_blocks = sorted(
+        {r.get("block") for r in runs if r.get("status") == "done" and r.get("block") is not None}
+    )
+    grid_blocks = sorted({b for (_a, b) in grid if b is not None})
+    blocks = grid_blocks or done_blocks
+
+    def metrics_of(key: tuple) -> Dict[str, Any]:
+        return (grid.get(key) or {}).get("metrics") or {}
+
+    # ---- 9.1 轮次 × 主指标 ----
+    head = "| arm | 区块 | 状态 | coverage | citation_accuracy | retrieval_hit_rate | avg_steps |"
+    sep = "|---|---|---|---:|---:|---:|---:|"
+    body: List[str] = []
+    skip_notes: List[str] = []
+    for arm in arms:
+        for b in blocks:
+            rec = grid.get((arm, b))
+            m = metrics_of((arm, b))
+            if not rec:
+                body.append(f"| `{arm}` | B{b} | 未执行（未登记） | — | — | — | — |")
+                skip_notes.append(f"`{arm}` / B{b}：**未执行且 manifest 未登记原因**")
+                continue
+            status = rec.get("status", "unknown")
+            if status != "done" or not m:
+                detail = rec.get("gate_detail") or "manifest 未登记原因"
+                body.append(
+                    f"| `{arm}` | B{b} | ⏭ `{status}` | — | — | — | — |"
+                )
+                skip_notes.append(f"`{arm}` / B{b}：`{status}` —— {detail}")
+                continue
+            body.append(
+                f"| `{arm}` | B{b} | done | {_fmt_pct(m.get('coverage', 0))} | "
+                f"{_fmt_pct(m.get('citation_accuracy', 0))} | "
+                f"{_fmt_pct(m.get('retrieval_hit_rate', 0))} | {m.get('avg_steps')} |"
+            )
+
+    # ---- 9.2 配对差值（相对 arm0 同区块）+ 机械判定 ----
+    base_arm = arms[0]
+    pair_head = "| arm | " + " | ".join(f"B{b}" for b in blocks) + " | 均值 | 区块方向 | 机械判定 |"
+    pair_sep = "|---|" + "---:|" * len(blocks) + "---:|---|---|"
+    step_base = [
+        metrics_of((base_arm, b)).get("avg_steps")
+        for b in blocks
+        if metrics_of((base_arm, b)).get("avg_steps")
+    ]
+    step_base_mean = sum(step_base) / len(step_base) if step_base else 0.0
+
+    pair_rows: List[str] = []
+    for arm in arms:
+        if arm == base_arm:
+            continue
+        diffs: List[Optional[float]] = []
+        for b in blocks:
+            mb, ma = metrics_of((base_arm, b)), metrics_of((arm, b))
+            if mb and ma and mb.get("coverage") is not None and ma.get("coverage") is not None:
+                diffs.append((ma["coverage"] - mb["coverage"]) * 100)
+            else:
+                diffs.append(None)
+        real = [d for d in diffs if d is not None]
+        cells = " | ".join("—" if d is None else f"{d:+.1f}" for d in diffs)
+        if not real:
+            pair_rows.append(f"| `{arm}` | {cells} | — | 无有效区块 | — |")
+            continue
+        mean_d = sum(real) / len(real)
+        signs = {d > 0 for d in real}
+        direction = "全同向(+)" if signs == {True} else (
+            "全同向(−)" if signs == {False} else "**符号翻转**"
+        )
+        missing = sum(1 for d in diffs if d is None)
+        steps = [
+            metrics_of((arm, b)).get("avg_steps")
+            for b in blocks
+            if metrics_of((arm, b)).get("avg_steps")
+        ]
+        step_mean = sum(steps) / len(steps) if steps else 0.0
+        # 本实验是区块配对设计 ⇒ 步数涨幅用【逐区块配对比值均值】为主口径；
+        # 「比值之均值(ratio of means)」数值略有差异（117.3% vs 118.2%），一并列出以透明。
+        ratios: List[float] = []
+        for b in blocks:
+            sb = metrics_of((base_arm, b)).get("avg_steps")
+            sa = metrics_of((arm, b)).get("avg_steps")
+            if sb and sa:
+                ratios.append(sa / sb)
+        paired_pct = (sum(ratios) / len(ratios) - 1) * 100 if ratios else None
+        rom_pct = (
+            (step_mean / step_base_mean - 1) * 100 if step_base_mean and step_mean else None
+        )
+        if paired_pct is None:
+            budget = "avg_steps 不可比"
+        else:
+            budget = (
+                f"avg_steps {step_mean:.2f} vs 基线 {step_base_mean:.2f}"
+                f"（配对涨幅均值 **{paired_pct:+.1f}%**"
+                + (f"；比值之均值口径 {rom_pct:+.1f}%" if rom_pct is not None else "")
+                + "）"
+            )
+        over_budget = paired_pct is not None and paired_pct > 50.0
+        if len(real) < 2:
+            verdict = f"❌ 数据不足（仅 {len(real)} 个区块）"
+        elif missing and "符号翻转" not in direction:
+            verdict = f"⚠️ {direction}，但**缺 {missing} 格** ⇒ 不可裁决"
+        elif "符号翻转" in direction:
+            verdict = "❌ **不可判定**（区块间符号翻转）"
+        elif over_budget:
+            verdict = (
+                f"⚠️ {direction}，但**预算不平衡、破守门线（≤+50%）**（{budget}）"
+                "⇒ 属成本-覆盖度权衡，不能作为机制更优的证据"
+            )
+        else:
+            verdict = f"⚠️ {direction}，但观测数仅 {len(real)} 次 ⇒ 不足以裁决"
+        pair_rows.append(
+            f"| `{arm}` | {cells} | {mean_d:+.1f} | {direction} | {verdict} |"
+        )
+
+    # ---- 9.3 不可比性声明 ----
+    revisions = manifest.get("resumed_revisions") or []
+    rev_txt = "、".join(f"`{r}`" for r in revisions) if revisions else "（manifest 未记录）"
+    first_rev = manifest.get("code_revision") or "unknown"
+    notes_lines = "\n".join(f"> - {n}" for n in [
+        f"**跨 revision**：首轮 `code_revision={first_rev}`，续跑修订集合 = {rev_txt}。"
+        "跨区块的 citation 类指标**不得合并比较**（引用归一化开关差异会让报告正文的裸 `[N]` 引用消失）。",
+        "**缺格**：凡缺失格一律显式登记原因（见 9.1 与下方备忘），**不得静默当作 0**。",
+        "**被测兼裁判**：`citation_accuracy` 直读主链路 validator；凡改动 validator 的 arm，其数值同时含"
+        "「被测效应 + 裁判效应」⇒ 不可与其他 arm 直接比较（实测纯裁判效应 +7.53pp）。",
+        "**预算不平衡**：`avg_steps` 分档且与实验开关共线 ⇒ 跨 arm 的 coverage 差**不可直接解释为机制优劣**；"
+        "正确做法是同预算成本-效果比较。",
+        "**结论归属**：本报告只做机械判定，**不主张任何因果结论**；权威判定见 `docs/eval-w7-conclusion.md`。",
+    ])
+    skip_block = ""
+    if skip_notes:
+        skip_block = "\n**缺格 / 未执行登记（原因不得省略）：**\n" + "\n".join(
+            f"> - {s}" for s in skip_notes
+        ) + "\n"
+
+    return f"""
+## 9. W7 技术债对照实验（权威容器 `{W7_AUTHORITATIVE_EXPERIMENT}`）
+
+> 数据源：`research_engine/eval/results/{W7_AUTHORITATIVE_EXPERIMENT}/manifest.json`
+> （{len(arms)} 臂 × {planned} 区块，共 {len(runs)} 条 run 记录：{len([r for r in runs if r.get('status') == 'done'])} done
+> + {len([r for r in runs if r.get('status') != 'done'])} 非 done）。
+> 本章是**实验记录**而非趋势——目的就是让「六臂实验跑在哪、缺哪格、能不能比」在报告里可查。
+
+### 9.1 轮次（区块）× 主指标
+
+{head}
+{sep}
+{chr(10).join(body)}
+{skip_block}
+### 9.2 配对差值（coverage，相对 `{base_arm}` 同区块，pp）与机械判定
+
+{pair_head}
+{pair_sep}
+{chr(10).join(pair_rows)}
+
+### 9.3 不可比性声明（本实验的硬约束）
+
+{notes_lines}
+"""
+
+
 def generate_report(
     run_dir: Path,
     summary: Dict[str, Any],
@@ -177,6 +381,23 @@ def generate_report(
         f"  - 职责桶：{per_role_str or '—'}\n"
     )
 
+    # ---- 3b. 次要指标（只看不判）：W7 技术债③「信息不足」标注比例 ----
+    _ins = _insufficient_summary(results)
+    minor_line = (
+        f"📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 "
+        f"{_ins['marker_ratio'] * 100:.1f}%**"
+        f"（{_ins['section_marked']}/{_ins['section_total']} 小节）；"
+        f"引用位兜底标记 `[来源: 信息不足]` {_ins['placeholder_total']} 处"
+        f"（统计覆盖 {_ins['reports']} 篇报告）。\n"
+        "  - 读法：比例**极低**可能意味着模型改为编造而非承认缺口；比例**极高**意味着检索没喂饱。"
+        "两种极端都值得人工抽检，但**不作为任何达标判据**。\n"
+        + (
+            ""
+            if _ins["reports"]
+            else "  - ⚠️ 本快照的 run 早于该指标实现 ⇒ 暂无数据（仅**新产生的 run** 会计入）。\n"
+        )
+    )
+
     # ---- 4. 失败与异常附录 ----
     anomalies = []
     for r in results:
@@ -214,8 +435,17 @@ def generate_report(
             if _r.get("run_dir"):
                 w7_arm_run_ids.add(Path(_r["run_dir"]).name)
 
+    comparability_lines = [
+        "> **可比性声明：**本报告是单 run 快照；不自动支持跨 run 因果比较。",
+        "> - 跨 revision：需逐 run 校验 `code_revision` / 环境指纹；不一致时禁止合并。",
+        "> - 缺 run / 缺格：必须显式登记原因；缺失结果不得静默当作 0。",
+        "> - 预算：steps、tokens、cost 不平衡时，结果标记为不可直接比较。",
+        "> - 闸门：被测组件不得兼任裁判；闸门失败只说明该格未过，不自动证明被测机制有害。",
+        "> - 因果：仅在同题/同证据池/同预算/固定独立裁判等条件满足时支持因果解释。",
+        "",
+    ]
     trend_lines = [
-        "> ⚠️ 本表数值由各 run 的 summary 直读**主链路 validator** 裁决，而各 run 的实验配置与裁判模型并不一致；",
+        "> ⚠️ 本表数值由各 run 的 summary 直读**主链路 validator**裁决，而各 run 的实验配置与裁判模型并不一致；",
         "> 「vs 上轮(pp)」仅作记录，**不构成可比趋势**（W7 实测：同一引用集仅换裁判即产生 +7.53pp 差异）。",
     ]
     if w7_arm_run_ids:
@@ -247,6 +477,8 @@ def generate_report(
 > 未纳入跨裁判复判。**项目结论以 `docs/eval-w7-conclusion.md` 为准。**
 > 若需长期保存某次 run 的判定，请另存为结论文档，不要依赖本文件。
 
+{chr(10).join(comparability_lines)}
+
 ## 1. 数据集说明
 - version: {meta.get('version', 'unknown')} / created_at: {meta.get('created_at', 'unknown')}
 - anchor_samples: {meta.get('anchor_samples', [])}
@@ -258,7 +490,9 @@ def generate_report(
 
 ## 3. 指标表（7 项，Q8 含检索命中率）
 {header}{''.join(rows_tbl)}
+
 {cost_line}
+{minor_line}
 
 ## 4. 失败与异常附录
 - 完整 {summary.get('complete')} / 部分 {summary.get('partial')} / 失败 {summary.get('failed')}
@@ -283,7 +517,7 @@ def generate_report(
 - 成本为精确加权（input/output 拆分 × W3 pricing 表），价格有时效
 - **引用准确率的裁判未与被测对象解耦**：`citation_accuracy` 直读主链路 validator 裁决，凡改动 validator 的 run
   其数值同时含「被测效应 + 裁判效应」，**不可与其他 run 直接比较**（W7 实测裁判效应 +7.53pp 与被测效应同量级）
-"""
+{_w7_experiment_section()}"""
     EVAL_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     EVAL_REPORT_PATH.write_text(report, encoding="utf-8")
     print(f"📄 报告落盘：{EVAL_REPORT_PATH} / baseline：{baseline_path} / history：{history_path}")
