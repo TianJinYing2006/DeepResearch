@@ -1,13 +1,9 @@
-# eval 报告（run_20260911_232515）
+# eval 报告（run_20260913_072332）
 
 > ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
 > 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
-> 未纳入跨裁判复判。**项目结论以 [`docs/eval-w7-conclusion.md`](eval-w7-conclusion.md) 为准。**
+> 未纳入跨裁判复判。**项目结论以 `docs/eval-w7-conclusion.md` 为准。**
 > 若需长期保存某次 run 的判定，请另存为结论文档，不要依赖本文件。
->
-> 🔴 **特别提示（本 run）**：本快照为 arm6 配置（validator 换 qwen-turbo）的运行结果，第 3 节
-> `citation_accuracy 97.8% ✅` **已被 W7 独立复判推翻** —— 其中约 +7.5pp 来自「换裁判」而非「改进了引用质量」，
-> 同裁判口径下 arm 效应仅 +6.68pp 且方向随裁判翻转，绝对通过条数反而腰斩。**不得据此宣布 arm6 达标。**
 
 ## 1. 数据集说明
 - version: 1.1 / created_at: 2026-09-06
@@ -15,23 +11,21 @@
 - 标注方法学: ai_draft + human_calibration
 
 ## 2. 运行环境与双锚
-- git commit: 95adb77f31f535d07368f487ceb98fa4e32ea3bf / dataset version: 1.1
-- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-12T00:00:20
+- git commit: ca518866c1d2a92d9e889bb1ec913625c0524796 / dataset version: 1.1
+- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-13T08:11:43
 
 ## 3. 指标表（7 项，Q8 含检索命中率）
 | 指标 | 目标 | 本轮 | 达标 |
 |---|---|---|---|
-| completion_rate | ≥90% | 100.0% | ✅ || citation_accuracy | ≥85%（忠实度口径） | 97.8% | ✅ || coverage | ≥90% | 42.5% | ⚠️ || retrieval_hit_rate | 记录基线 | 58.4% | ✅ || avg_steps | 记录基线 | 8.1 轮 | ✅ || reflection_critic_stop_rate | ≥90% | 95.0% | ✅ |
-💰 总 token（Phase1 研究）：1067359，成本：¥0.7274（Phase2 judge 另计 82407 token）
-  - 模型名桶：qwen-plus: 370847tok ¥0.4684, qwen-turbo: 696512tok ¥0.2590
-  - 职责桶：planner: 20168tok, critic: 174069tok, smart: 176610tok, compress: 506501tok, validator: 190011tok
+| completion_rate | ≥90% | 100.0% | ✅ || citation_accuracy | ≥85%（忠实度口径） | 69.8% | ⚠️ || coverage | ≥90% | 12.9% | ⚠️ || retrieval_hit_rate | 记录基线 | 23.2% | ✅ || avg_steps | 记录基线 | 3.9 轮 | ✅ || reflection_critic_stop_rate | ≥90% | 5.0% | ⚠️ |
+💰 总 token（Phase1 研究）：630593，成本：¥0.8347（Phase2 judge 另计 80042 token）
+  - 模型名桶：qwen-plus: 630593tok ¥0.8347
+  - 职责桶：planner: 15102tok, critic: 54890tok, smart: 227460tok, validator: 333141tok
 
 
 ## 4. 失败与异常附录
 - 完整 20 / 部分 0 / 失败 0
-- q_009 [ok] 60339tok ¥0.0845
-- q_010 [ok] 112386tok ¥0.1573
-- q_012 [ok] 87921tok ¥0.1231
+- 无
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
@@ -46,7 +40,7 @@
 ## 7. 指标演进趋势（自 v0，pp 口径）
 > ⚠️ 本表数值由各 run 的 summary 直读**主链路 validator** 裁决，而各 run 的实验配置与裁判模型并不一致；
 > 「vs 上轮(pp)」仅作记录，**不构成可比趋势**（W7 实测：同一引用集仅换裁判即产生 +7.53pp 差异）。
-> 表末 `run_20260911_232515` 的 `97.8% / +25.5` 是裁判换人产生的假象，非质量提升。
+> 🧪 标记的行属于 **W7 权威对照实验的臂**（六臂 × 3 区块，配置各异、非全部为基线模型），**不得与主链路 run 横向比较**；结论见 `docs/eval-w7-conclusion.md`。
 
 | 运行 | 完成率 | 引用准确率 | 覆盖度 | 检索命中率 | vs 上轮(pp) |
 |---|---|---|---|---|---|
@@ -105,12 +99,23 @@
 | run_20260911_001417 | 100.0% | 43.6% | 40.4% | 41.0% | completion_rate:+0.0, citation_accuracy:-26.8, coverage:-6.2, retrieval_hit_rate:-4.2 |
 | run_20260911_004201 | 100.0% | 63.5% | 33.8% | 39.9% | completion_rate:+0.0, citation_accuracy:+20.0, coverage:-6.7, retrieval_hit_rate:-1.2 |
 | run_20260911_150715 | 100.0% | 71.2% | 40.4% | 45.2% | completion_rate:+0.0, citation_accuracy:+7.6, coverage:+6.7, retrieval_hit_rate:+5.3 |
-| run_20260911_194156 | 100.0% | 76.0% | 34.2% | 43.8% | completion_rate:+0.0, citation_accuracy:+4.8, coverage:-6.2, retrieval_hit_rate:-1.4 |
-| run_20260911_202638 | 100.0% | 63.2% | 42.5% | 57.8% | completion_rate:+0.0, citation_accuracy:-12.8, coverage:+8.3, retrieval_hit_rate:+14.0 |
-| run_20260911_212259 | 100.0% | 74.6% | 37.9% | 40.1% | completion_rate:+0.0, citation_accuracy:+11.4, coverage:-4.6, retrieval_hit_rate:-17.7 |
-| run_20260911_220854 | 100.0% | 74.4% | 38.3% | 40.8% | completion_rate:+0.0, citation_accuracy:-0.2, coverage:+0.4, retrieval_hit_rate:+0.7 |
-| run_20260911_224011 | 100.0% | 72.3% | 35.4% | 44.9% | completion_rate:+0.0, citation_accuracy:-2.1, coverage:-2.9, retrieval_hit_rate:+4.1 |
-| run_20260911_232515 | 100.0% | 97.8% | 42.5% | 58.4% | completion_rate:+0.0, citation_accuracy:+25.5, coverage:+7.1, retrieval_hit_rate:+13.5 |
+| 🧪 run_20260911_194156 | 100.0% | 76.0% | 34.2% | 43.8% | completion_rate:+0.0, citation_accuracy:+4.8, coverage:-6.2, retrieval_hit_rate:-1.4 |
+| 🧪 run_20260911_202638 | 100.0% | 63.2% | 42.5% | 57.8% | completion_rate:+0.0, citation_accuracy:-12.8, coverage:+8.3, retrieval_hit_rate:+14.0 |
+| 🧪 run_20260911_212259 | 100.0% | 74.6% | 37.9% | 40.1% | completion_rate:+0.0, citation_accuracy:+11.4, coverage:-4.6, retrieval_hit_rate:-17.7 |
+| 🧪 run_20260911_220854 | 100.0% | 74.4% | 38.3% | 40.8% | completion_rate:+0.0, citation_accuracy:-0.2, coverage:+0.4, retrieval_hit_rate:+0.7 |
+| 🧪 run_20260911_224011 | 100.0% | 72.3% | 35.4% | 44.9% | completion_rate:+0.0, citation_accuracy:-2.1, coverage:-2.9, retrieval_hit_rate:+4.1 |
+| 🧪 run_20260911_232515 | 100.0% | 97.8% | 42.5% | 58.4% | completion_rate:+0.0, citation_accuracy:+25.5, coverage:+7.1, retrieval_hit_rate:+13.5 |
+| 🧪 run_20260912_233902 | 100.0% | 79.0% | 17.9% | 24.6% | completion_rate:+0.0, citation_accuracy:-18.7, coverage:-24.6, retrieval_hit_rate:-33.8 |
+| 🧪 run_20260913_002412 | 100.0% | 65.5% | 45.8% | 53.8% | completion_rate:+0.0, citation_accuracy:-13.5, coverage:+27.9, retrieval_hit_rate:+29.1 |
+| 🧪 run_20260913_012018 | 100.0% | 73.4% | 13.6% | 21.2% | completion_rate:+0.0, citation_accuracy:+7.8, coverage:-32.2, retrieval_hit_rate:-32.5 |
+| 🧪 run_20260913_021042 | 100.0% | 84.5% | 16.2% | 22.1% | completion_rate:+0.0, citation_accuracy:+11.1, coverage:+2.6, retrieval_hit_rate:+0.8 |
+| 🧪 run_20260913_024745 | 100.0% | 77.9% | 11.2% | 19.4% | completion_rate:+0.0, citation_accuracy:-6.6, coverage:-5.0, retrieval_hit_rate:-2.7 |
+| 🧪 run_20260913_033607 | 100.0% | 89.9% | 43.8% | 54.1% | completion_rate:+0.0, citation_accuracy:+12.0, coverage:+32.5, retrieval_hit_rate:+34.7 |
+| 🧪 run_20260913_041629 | 100.0% | 71.0% | 38.3% | 42.1% | completion_rate:+0.0, citation_accuracy:-18.9, coverage:-5.4, retrieval_hit_rate:-12.0 |
+| 🧪 run_20260913_045912 | 100.0% | 69.9% | 47.1% | 56.9% | completion_rate:+0.0, citation_accuracy:-1.1, coverage:+8.8, retrieval_hit_rate:+14.7 |
+| 🧪 run_20260913_055850 | 100.0% | 70.1% | 19.6% | 24.4% | completion_rate:+0.0, citation_accuracy:+0.2, coverage:-27.5, retrieval_hit_rate:-32.5 |
+| 🧪 run_20260913_064837 | 100.0% | 83.3% | 9.6% | 23.2% | completion_rate:+0.0, citation_accuracy:+13.2, coverage:-10.0, retrieval_hit_rate:-1.2 |
+| 🧪 run_20260913_072332 | 100.0% | 69.8% | 12.9% | 23.2% | completion_rate:+0.0, citation_accuracy:-13.5, coverage:+3.3, retrieval_hit_rate:+0.0 |
 
 
 ## 8. 已知局限

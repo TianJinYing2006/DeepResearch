@@ -18,6 +18,10 @@ from config import config
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 EVAL_REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "eval-report.md"
 
+# 权威 W7 对照实验容器（六臂 × 3 区块）。趋势表据此给臂 run 打 🧪 标记；
+# 若后续重做实验，改这一处即可（结论文档 docs/eval-w7-conclusion.md §2 记的是同一个目录名）。
+W7_AUTHORITATIVE_EXPERIMENT = "w7_experiment_20260911_194151"
+
 
 def _config_snapshot() -> Dict[str, Any]:
     """config 关键项快照（Q7：每轮 run 都记，baseline 只是 v0 的那份）。"""
@@ -195,11 +199,31 @@ def generate_report(
     ) or "- 无"
 
     # ---- 7. 指标演进趋势表 ----
+    # W7 对照实验的臂 run 与普通 run 混在同一张表里，其配置/裁判均不同（见 eval-w7-conclusion.md），
+    # 这里给「权威对照实验」的臂 run 打上 🧪 标记，避免读者把实验臂的数字当成「主链路的演进」。
+    # 只标记权威容器（六臂 × 3 区块，见 docs/eval-w7-conclusion.md §2）；09-09/09-10 的
+    # 探索性 pilot 目录刻意不标记，否则本表会几乎整列带标记、失去提示意义。
+    w7_arm_run_ids: set[str] = set()
+    manifest_path = RESULTS_DIR / W7_AUTHORITATIVE_EXPERIMENT / "manifest.json"
+    if manifest_path.exists():
+        try:
+            _m = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _m = {}
+        for _r in _m.get("runs", []):
+            if _r.get("run_dir"):
+                w7_arm_run_ids.add(Path(_r["run_dir"]).name)
+
     trend_lines = [
         "> ⚠️ 本表数值由各 run 的 summary 直读**主链路 validator** 裁决，而各 run 的实验配置与裁判模型并不一致；",
         "> 「vs 上轮(pp)」仅作记录，**不构成可比趋势**（W7 实测：同一引用集仅换裁判即产生 +7.53pp 差异）。",
-        "",
     ]
+    if w7_arm_run_ids:
+        trend_lines.append(
+            "> 🧪 标记的行属于 **W7 权威对照实验的臂**（六臂 × 3 区块，配置各异、非全部为基线模型），"
+            "**不得与主链路 run 横向比较**；结论见 `docs/eval-w7-conclusion.md`。"
+        )
+    trend_lines.append("")
     if history_path.exists():
         history = json.loads(history_path.read_text(encoding="utf-8"))
         trend_lines.append("| 运行 | 完成率 | 引用准确率 | 覆盖度 | 检索命中率 | vs 上轮(pp) |")
@@ -208,8 +232,9 @@ def generate_report(
             m = rec["metrics"]
             delta = rec.get("delta_pp_from_prev") or {}
             d_s = ", ".join(f"{k}:{v:+.1f}" for k, v in delta.items()) if delta else "—"
+            mark = "🧪 " if rec["run_id"] in w7_arm_run_ids else ""
             trend_lines.append(
-                f"| {rec['run_id']} | {m.get('completion_rate', 0) * 100:.1f}% | "
+                f"| {mark}{rec['run_id']} | {m.get('completion_rate', 0) * 100:.1f}% | "
                 f"{m.get('citation_accuracy', 0) * 100:.1f}% | {m.get('coverage', 0) * 100:.1f}% | "
                 f"{m.get('retrieval_hit_rate', 0) * 100:.1f}% | {d_s} |"
             )
