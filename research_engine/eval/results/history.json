@@ -1332,5 +1332,247 @@
   },
   "status": "PASS",
   "generated_at": "2026-09-12T00:00:20"
+ },
+ {
+  "run_id": "run_20260912_233902",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7904,
+   "citation_accuracy_relaxed": 0.7904,
+   "existence_rate": 0.9447,
+   "coverage": 0.1792,
+   "retrieval_hit_rate": 0.2462,
+   "avg_steps": 3.85,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -18.7,
+   "coverage": -24.6,
+   "retrieval_hit_rate": -33.8
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T00:24:08"
+ },
+ {
+  "run_id": "run_20260913_002412",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.6554,
+   "citation_accuracy_relaxed": 0.6598,
+   "existence_rate": 0.9329,
+   "coverage": 0.4583,
+   "retrieval_hit_rate": 0.5376,
+   "avg_steps": 8.85,
+   "reflection_critic_stop_rate": 0.95
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -13.5,
+   "coverage": 27.9,
+   "retrieval_hit_rate": 29.1
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T01:20:15"
+ },
+ {
+  "run_id": "run_20260913_012018",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7335,
+   "citation_accuracy_relaxed": 0.7362,
+   "existence_rate": 0.9324,
+   "coverage": 0.136,
+   "retrieval_hit_rate": 0.2125,
+   "avg_steps": 3.8421,
+   "reflection_critic_stop_rate": 0.05263157894736842
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 7.8,
+   "coverage": -32.2,
+   "retrieval_hit_rate": -32.5
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T02:10:39"
+ },
+ {
+  "run_id": "run_20260913_021042",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.8448,
+   "citation_accuracy_relaxed": 0.8546,
+   "existence_rate": 0.9446,
+   "coverage": 0.1625,
+   "retrieval_hit_rate": 0.2207,
+   "avg_steps": 3.85,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 11.1,
+   "coverage": 2.6,
+   "retrieval_hit_rate": 0.8
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T02:47:42"
+ },
+ {
+  "run_id": "run_20260913_024745",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7791,
+   "citation_accuracy_relaxed": 0.785,
+   "existence_rate": 0.9391,
+   "coverage": 0.1125,
+   "retrieval_hit_rate": 0.1939,
+   "avg_steps": 3.85,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -6.6,
+   "coverage": -5.0,
+   "retrieval_hit_rate": -2.7
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T03:36:04"
+ },
+ {
+  "run_id": "run_20260913_033607",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.8989,
+   "citation_accuracy_relaxed": 0.8989,
+   "existence_rate": 0.9574,
+   "coverage": 0.4375,
+   "retrieval_hit_rate": 0.5409,
+   "avg_steps": 9.3,
+   "reflection_critic_stop_rate": 0.85
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 12.0,
+   "coverage": 32.5,
+   "retrieval_hit_rate": 34.7
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T04:16:27"
+ },
+ {
+  "run_id": "run_20260913_041629",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7097,
+   "citation_accuracy_relaxed": 0.7156,
+   "existence_rate": 0.9712,
+   "coverage": 0.3833,
+   "retrieval_hit_rate": 0.4214,
+   "avg_steps": 3.9,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -18.9,
+   "coverage": -5.4,
+   "retrieval_hit_rate": -12.0
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T04:59:09"
+ },
+ {
+  "run_id": "run_20260913_045912",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.6991,
+   "citation_accuracy_relaxed": 0.6991,
+   "existence_rate": 0.9763,
+   "coverage": 0.4708,
+   "retrieval_hit_rate": 0.5686,
+   "avg_steps": 8.25,
+   "reflection_critic_stop_rate": 0.8
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -1.1,
+   "coverage": 8.8,
+   "retrieval_hit_rate": 14.7
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T05:58:47"
+ },
+ {
+  "run_id": "run_20260913_055850",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7011,
+   "citation_accuracy_relaxed": 0.7643,
+   "existence_rate": 0.9466,
+   "coverage": 0.1958,
+   "retrieval_hit_rate": 0.2436,
+   "avg_steps": 3.85,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 0.2,
+   "coverage": -27.5,
+   "retrieval_hit_rate": -32.5
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T06:48:35"
+ },
+ {
+  "run_id": "run_20260913_064837",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.8328,
+   "citation_accuracy_relaxed": 0.8422,
+   "existence_rate": 0.9583,
+   "coverage": 0.0958,
+   "retrieval_hit_rate": 0.2318,
+   "avg_steps": 3.9,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 13.2,
+   "coverage": -10.0,
+   "retrieval_hit_rate": -1.2
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T07:23:29"
+ },
+ {
+  "run_id": "run_20260913_072332",
+  "git_commit": "ca518866c1d2a92d9e889bb1ec913625c0524796",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.6976,
+   "citation_accuracy_relaxed": 0.7025,
+   "existence_rate": 0.9341,
+   "coverage": 0.1292,
+   "retrieval_hit_rate": 0.2318,
+   "avg_steps": 3.9,
+   "reflection_critic_stop_rate": 0.05
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -13.5,
+   "coverage": 3.3,
+   "retrieval_hit_rate": 0.0
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-13T08:11:44"
  }
 ]
