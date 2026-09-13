@@ -33,6 +33,50 @@ from typing import Dict, List, Optional
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DATASET = Path(__file__).resolve().parent / "dataset.jsonl"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# 必须随 manifest 落盘的自解释警示（续跑时若缺失会自动补上）。
+REJUDGE_NOTE = (
+    "⚠️ 引用准确率的裁判 = 主链路 validator（metrics.py:5）；arm6 换裁判 ⇒ "
+    "跨裁判的 citation 不可直接比较，需 w7_rejudge.py 复判。"
+)
+
+
+def _git_rev() -> str:
+    """当前 HEAD 短提交号；用于记录/校验实验代码修订（2026-09-13 新增）。
+
+    动机：W7 补跑时未校验「工作树 ≡ 首轮实验时状态」，导致同一实验的 Block 0 与
+    Block 1/2 跑在不同代码修订上、引用口径不可合并。此后每个区块开始都记录 rev，
+    续跑时若与首轮不一致则显式告警。
+    """
+    try:
+        out = subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            capture_output=True, text=True, check=False, cwd=str(REPO_ROOT),
+        )
+        rev = out.stdout.strip()
+        dirty = subprocess.run(  # noqa: S603
+            ["git", "status", "--porcelain"], capture_output=True, text=True,
+            check=False, cwd=str(REPO_ROOT),
+        ).stdout.strip()
+        return f"{rev}+dirty" if rev and dirty else (rev or "unknown")
+    except OSError:
+        return "unknown"
+
+
+def _revision_mismatch_warning(prev_rev: Optional[str], cur_rev: str) -> Optional[str]:
+    """续跑代码修订与首轮不一致时返回告警文本，否则返回 None。
+
+    W7 补跑事故的可复用护栏：同一实验的 Block 0 与 Block 1/2 跑在不同代码修订上，
+    引用口径不可合并，却直到分析阶段才发现。纯函数，便于单测锁定。
+    """
+    if not prev_rev or cur_rev in ("unknown", prev_rev):
+        return None
+    return (
+        f"续跑代码修订与首轮不一致：首轮 {prev_rev} → 当前 {cur_rev}\n"
+        "    跨区块数据可能口径不一致（W7 实测：引用归一化开关差异会让报告正文的裸 [N] 引用消失）。\n"
+        "    若要合并比较不同区块，请先取回首轮修订（见该实验 curated/CODE_REVISION.json）。"
+    )
 
 
 @dataclass
@@ -275,6 +319,17 @@ def main() -> int:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest.setdefault("runs", [])
         manifest["resumed_at"] = datetime.now().isoformat()
+
+        # 代码修订一致性校验（2026-09-13 新增，防止重演 W7 补跑的口径不一致事故）
+        cur_rev = _git_rev()
+        warn = _revision_mismatch_warning(manifest.get("code_revision"), cur_rev)
+        if warn:
+            print("!" * 70)
+            print(f"⚠️  {warn}")
+            print("!" * 70)
+        manifest["resumed_revisions"] = sorted(set(manifest.get("resumed_revisions", [])) | {cur_rev})
+        if REJUDGE_NOTE not in manifest.setdefault("notes", []):
+            manifest["notes"].append(REJUDGE_NOTE)
         print(f"[续跑] 复用实验目录 {experiment_dir}（已有 {len(manifest['runs'])} 条 run）")
     else:
         experiment_dir = RESULTS_DIR / f"w7_experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -282,6 +337,7 @@ def main() -> int:
         manifest_path = experiment_dir / "manifest.json"
         manifest = {
             "started_at": datetime.now().isoformat(),
+            "code_revision": _git_rev(),
             "arms": [a.name for a in arms],
             "runs_per_arm": args.runs,
             "concurrency": args.concurrency,
@@ -290,7 +346,7 @@ def main() -> int:
                 "QDRANT_URL=http://127.0.0.1:6333（真实 Qdrant，RAG 检索可用）",
                 f"区块配对设计：{args.runs} blocks × {len(arms)} arms，每 block 内所有 arm 紧挨着跑，",
                 "同一 block 内 arm 间可比（控制检索漂移 / API 质量随时间波动）",
-                "⚠️ 引用准确率的裁判 = 主链路 validator（metrics.py:5）；arm6 换裁判 ⇒ 跨裁判的 citation 不可直接比较，需 w7_rejudge.py 复判。",
+                REJUDGE_NOTE,
             ],
             "runs": [],
         }
@@ -298,7 +354,9 @@ def main() -> int:
     total_start = time.time()
     # 区块配对设计：每个区块内依次跑全部 arm，确保同一时间窗口内 arm 间可比
     for block_index in range(args.start_block, args.runs):
-        manifest["notes"].append(f"Block {block_index}: 开始于 {datetime.now().isoformat()}")
+        manifest["notes"].append(
+            f"Block {block_index}: 开始于 {datetime.now().isoformat()} ｜ code rev={_git_rev()}"
+        )
         print(f"\n{'#'*60}")
         print(f"# Block {block_index + 1}/{args.runs}")
         print(f"{'#'*60}")
