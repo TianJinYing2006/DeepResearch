@@ -35,10 +35,12 @@ jobs:
       QDRANT_URL: http://127.0.0.1:6333
       LANGFUSE_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v4
+      # v7: Node 24 + ESM（v5 起要求 runner >= v2.327.1，GitHub-hosted 已满足）
+      # 升级目的：消除 "Node.js 20 is deprecated" 告警
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -54,7 +56,8 @@ jobs:
 
       - name: Upload eval results
         if: always()
-        uses: actions/upload-artifact@v4
+        # v7: 同 ci.yml，消除 Node 20 告警（本 workflow 为手动触发，本次未自动验证）
+        uses: actions/upload-artifact@v7
         with:
           name: eval-results
           path: research_engine/eval/results/run_*/
