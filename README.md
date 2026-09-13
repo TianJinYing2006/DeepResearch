@@ -68,6 +68,7 @@ cp .env.example .env
 - `QDRANT_URL`：Qdrant 地址（默认 `http://127.0.0.1:6333`）
 - `FAST_MODEL` / `SMART_MODEL` / `STRATEGIC_MODEL`：三层模型（默认 qwen-turbo / qwen-plus / qwen-plus）
 - `PLANNER_MODEL` / `CRITIC_MODEL`（W4 分档）：规划与裁决各自独立模型；不设则回落 `STRATEGIC_MODEL`。演示强推理时：`PLANNER_MODEL=qwen-max`（规划只跑 1 次，成本增量 ≈ +¥0.007/run）；`CRITIC_MODEL=deepseek-r1` 注意裁决每轮 +10~30s 延迟——演示建议 `qwen-max` 够用。
+- **W7 主链路行为开关**：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED` 当前默认均为 `true`。它们是主链路开关，不是可忽略的实验残留；默认值/代码去留将在 W8 固定证据池、独立裁判、同预算重测后裁定，详见 `docs/w7-switch-disposition.md`。
 
 ### 3.2 工具：arXiv 学术检索 + 代码执行（W4）
 

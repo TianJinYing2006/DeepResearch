@@ -9,6 +9,7 @@ Block 1/2 跑在 `ca51886`，引用口径不可合并，直到分析阶段才发
 """
 from __future__ import annotations
 
+from config import ExperimentConfig
 from research_engine.eval.w7_experiment import (
     REJUDGE_NOTE,
     _git_rev,
@@ -64,3 +65,21 @@ def test_revision_error_preserves_unknown_and_match_boundaries():
     assert _revision_mismatch_error("same", "same") is None
     assert _revision_mismatch_error(None, "new") is None
     assert _revision_mismatch_error("old", "unknown") is None
+
+def test_w7_mainline_switch_defaults_stay_enabled(monkeypatch):
+    """W7 switches are documented as mainline defaults; catch silent drift."""
+    switch_envs = {
+        "CRITIC_GAP_ENABLED": "critic_gap_enabled",
+        "VALIDATOR_FIXES_ENABLED": "validator_fixes_enabled",
+        "VALIDATOR_ASSERTIVE_FILTER_ENABLED": "validator_assertive_filter_enabled",
+        "WRITER_SECTIONED_FEED_ENABLED": "writer_sectioned_feed_enabled",
+        "VALIDATOR_TRIM_ENABLED": "validator_trim_enabled",
+    }
+    for env_name in switch_envs:
+        monkeypatch.delenv(env_name, raising=False)
+
+    cfg = ExperimentConfig()
+
+    assert {attr: getattr(cfg, attr) for attr in switch_envs.values()} == {
+        attr: True for attr in switch_envs.values()
+    }
