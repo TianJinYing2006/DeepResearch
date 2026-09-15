@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import time
 import traceback
@@ -31,6 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from research_engine.eval.metrics import _make_judge, compute_all, compute_cost
+from research_engine.eval.provenance import UNKNOWN, code_revision, run_provenance
 from research_engine.graph import create_graph
 from research_engine.llm.client import LLMClient
 
@@ -62,13 +62,12 @@ def load_dataset(path: Path) -> Dict[str, Any]:
 
 
 def git_head() -> str:
-    """运行时 git commit（Q1 双锚；抓不到如实标 unknown）。"""
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10
-        ).stdout.strip() or "unknown"
-    except Exception:  # noqa: BLE001
-        return "unknown"
+    """运行时 git commit（Q1 双锚；抓不到如实标 unknown）。
+
+    W8 §10.4：实现已迁至 `provenance.code_revision()`（原为 3 份重复实现之一，
+    与 `report_gen._git_head` 是同一段代码的整段复制）。
+    """
+    return code_revision()["git_commit"]
 
 
 # ---------- Phase 1：运行（Graph 只存 raw）----------
@@ -78,15 +77,21 @@ def _run_one(
     meta: Dict[str, Any],
     run_dir: Path,
     graph,
+    prov: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """单条 Graph 运行：返回 (status, raw_dict)。异常重试 1 次（Q4 三档）。
 
     成本归因：类级计数器在并发下是全局累计，单条落盘快照会互相污染——
     因此单条成本用 state.token_used（该 run 自己的硬闸计数），
     全局研究成本在 Phase1 收尾时由类级桶快照统一给出（phase1_global_stats.json）。
+
+    `prov`（W8 §10.4）：整轮 run 的 provenance，由 phase1 算**一次**后传进来，
+    不按条目各自调 git（21 条 × 3 次子进程太慢，且中途工作区变化会让条目间不一致）。
+    未传则现算一次（兼容直接调用 / 单测）。
     """
     q_id = row["id"]
     topic = row["query"]
+    p = prov or run_provenance()
     attempt = 0
     last_err: Optional[str] = None
     while attempt <= 1:
@@ -101,7 +106,12 @@ def _run_one(
                 "type": row.get("type", ""),
                 "state": state.model_dump(),
                 "token_used": state.token_used,  # 单条成本 = 该 run 自身硬闸计数（validator 漏计由全局差值补）
-                "git_commit": git_head(),
+                "git_commit": p["git_commit"],
+                "git_dirty": p["git_dirty"],
+                "git_diff_hash": p["git_diff_hash"],
+                # W8 §10.4 第 6 条：内嵌**同一份** config_snapshot 对象（不是手抄副本）
+                # ⇒ 单条 raw 自包含，但配置只有一个产生点，不会分叉
+                "config_snapshot": p["config_snapshot"],
                 "dataset_version": meta.get("version", "unknown"),
                 "wall_clock_s": round(time.time() - t0, 1),
                 "status": "done" if state.status == "done" else "incomplete",
@@ -117,7 +127,9 @@ def _run_one(
         "status": "failed",
         "raw": {
             "q_id": q_id, "query": topic, "error": last_err, "status": "failed",
-            "git_commit": git_head(), "dataset_version": meta.get("version", "unknown"),
+            "git_commit": p["git_commit"], "git_dirty": p["git_dirty"],
+            "git_diff_hash": p["git_diff_hash"], "config_snapshot": p["config_snapshot"],
+            "dataset_version": meta.get("version", "unknown"),
         },
     }
 
@@ -141,10 +153,15 @@ def phase1(dataset: Dict[str, Any], run_dir: Path, concurrency: int) -> None:
         print(f"Phase 1: {len(pending)} 条待跑（并发 {concurrency}，已跳过 {len(rows) - len(pending)} 条）")
         LLMClient.reset_stats()  # Q2/Q8：研究成本隔离（Phase 1 桶快照进 raw）
         graph = create_graph()
+        # W8 §10.4：整轮 run 只抓一次 provenance（跑批时刻的 git + config），按条目复用
+        prov = run_provenance()
         done_ok = done_failed = 0
         timeout_ids: List[str] = []
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            futures = {pool.submit(_run_one, row, meta, run_dir, graph): row["id"] for row in pending}
+            futures = {
+                pool.submit(_run_one, row, meta, run_dir, graph, prov): row["id"]
+                for row in pending
+            }
             for fut in futures:
                 q_id = futures[fut]
                 try:
@@ -153,8 +170,13 @@ def phase1(dataset: Dict[str, Any], run_dir: Path, concurrency: int) -> None:
                     # Q4：任务级超时——放弃等待（Python 线程杀不掉，eval 单进程可接受）
                     timeout_ids.append(q_id)
                     print(f"  [timeout] {q_id}（>{TASK_TIMEOUT_S}s，释放槽位）")
+                    # W8 §10.4：超时条目同样落 provenance —— 超时恰是要诊断的场景，
+                    # 没有配置快照就无法判断「是配置问题还是偶发」
                     (raw_dir / f"{q_id}.raw.json").write_text(
-                        json.dumps({"q_id": q_id, "status": "timeout", "error": "task timeout"}, ensure_ascii=False),
+                        json.dumps({"q_id": q_id, "status": "timeout", "error": "task timeout",
+                                    "git_commit": prov["git_commit"], "git_dirty": prov["git_dirty"],
+                                    "git_diff_hash": prov["git_diff_hash"],
+                                    "config_snapshot": prov["config_snapshot"]}, ensure_ascii=False),
                         encoding="utf-8",
                     )
                     done_failed += 1
@@ -261,6 +283,38 @@ def phase2(dataset: Dict[str, Any], run_dir: Path, force_revalidate: bool = Fals
     return summary
 
 
+def _provenance_from_raw(run_dir: Path) -> Dict[str, Any]:
+    """从本 run 的 raw 里读回**跑批时刻**的 provenance，而不是汇总时刻现抓。
+
+    W7 教训：补跑时工作树已变（Block 0 在 `95adb77`+patch、Block 1/2 在 `ca51886`），
+    跨区块引用口径不可合并却直到分析阶段才发现。若汇总时现抓 git，记下的是
+    「汇总时刻」而非「跑批时刻」，同一个洞换个位置继续漏。
+
+    ⇒ 一律以 raw 里落盘的那份为准。raw 全部缺失 / 为 §10.4 之前的历史产物时，
+    如实返回 unknown 与 `config_snapshot=None`，**不伪造**。
+    """
+    raw_dir = run_dir / "raw"
+    if raw_dir.exists():
+        for rp in sorted(raw_dir.glob("*.raw.json")):
+            try:
+                raw = json.loads(rp.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(raw, dict) and raw.get("config_snapshot") is not None:
+                return {
+                    "git_commit": raw.get("git_commit", UNKNOWN),
+                    "git_dirty": raw.get("git_dirty", False),
+                    "git_diff_hash": raw.get("git_diff_hash", ""),
+                    "config_snapshot": raw["config_snapshot"],
+                }
+    return {
+        "git_commit": UNKNOWN,
+        "git_dirty": False,
+        "git_diff_hash": "",
+        "config_snapshot": None,
+    }
+
+
 def _read_phase1_cost(run_dir: Path) -> Dict[str, Any]:
     """读 Phase1 全局成本快照（类级桶，收尾统一抓——并发下单条不可归因）。"""
     p = run_dir / "phase1_global_stats.json"
@@ -273,13 +327,17 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
     """聚合汇总：N 完整 / M 部分 / K 失败 + 七指标均值/合计（Q4 报告口径不混数字）。"""
     # Phase1 全局成本（类级桶快照，收尾统一抓；并发下单条成本不可归因，走全局口径）
     ph1 = _read_phase1_cost(run_dir)
+    # W8 §10.4：provenance 取**跑批时刻**（存在 raw 里那份），不是汇总时刻现抓
+    _prov = _provenance_from_raw(run_dir)
     cost_global = (
         compute_cost(ph1.get("model_io_stats") or {}, ph1.get("model_stats") or {}, ph1.get("role_stats") or {})
         if ph1 else {"total_tokens": 0, "total_cost": 0.0, "per_model": {}, "per_role": {}}
     )
     if not results:
         return {"run_dir": str(run_dir), "total": 0, "complete": 0, "partial": 0, "failed": 0,
-                "metrics_mean": {}, "cost_total": {}, "struct": {}, "eval_tokens": LLMClient.tokens_total}
+                "metrics_mean": {}, "cost_total": {}, "struct": {}, "eval_tokens": LLMClient.tokens_total,
+                "git_commit": _prov["git_commit"], "git_dirty": _prov["git_dirty"],
+                "git_diff_hash": _prov["git_diff_hash"], "config_snapshot": _prov["config_snapshot"]}
 
     complete = [r for r in results if r.get("status") == "ok"]
     partial = [r for r in results if r.get("status") == "partial"]
@@ -330,7 +388,11 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
             "per_role": cost_global["per_role"],
         },
         "cost_phase2_judge_tokens": LLMClient.tokens_total,
-        "git_commit": git_head(),
+        # W8 §10.4 第 2 条：config 快照进 summary.json（每轮都记，不再只写 baseline 一次）
+        "git_commit": _prov["git_commit"],
+        "git_dirty": _prov["git_dirty"],
+        "git_diff_hash": _prov["git_diff_hash"],
+        "config_snapshot": _prov["config_snapshot"],
         "dataset_version": meta.get("version", "unknown"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }

@@ -31,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from research_engine.eval.provenance import code_revision
+
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DATASET = Path(__file__).resolve().parent / "dataset.jsonl"
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -48,20 +50,15 @@ def _git_rev() -> str:
     动机：W7 补跑时未校验「工作树 ≡ 首轮实验时状态」，导致同一实验的 Block 0 与
     Block 1/2 跑在不同代码修订上、引用口径不可合并。此后每个区块开始都记录 rev，
     续跑时若与首轮不一致则显式告警。
+
+    W8 §10.4：实现已迁至 `provenance.code_revision()`（原为 3 份重复实现之一）。
+    **返回格式保持 `xxxxxx+dirty` 不变** —— 既有 W7 产物的区块续跑比对读它，
+    改格式会让历史实验无法续跑。
     """
-    try:
-        out = subprocess.run(  # noqa: S603
-            ["git", "rev-parse", "--short=8", "HEAD"],
-            capture_output=True, text=True, check=False, cwd=str(REPO_ROOT),
-        )
-        rev = out.stdout.strip()
-        dirty = subprocess.run(  # noqa: S603
-            ["git", "status", "--porcelain"], capture_output=True, text=True,
-            check=False, cwd=str(REPO_ROOT),
-        ).stdout.strip()
-        return f"{rev}+dirty" if rev and dirty else (rev or "unknown")
-    except OSError:
-        return "unknown"
+    rev = code_revision(REPO_ROOT)
+    head = rev["git_commit"]
+    short = head[:8] if head and head != "unknown" else ""
+    return f"{short}+dirty" if short and rev["git_dirty"] else (short or "unknown")
 
 
 def _revision_mismatch_warning(prev_rev: Optional[str], cur_rev: str) -> Optional[str]:

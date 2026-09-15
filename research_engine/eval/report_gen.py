@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from config import config
+from research_engine.eval.provenance import code_revision, config_snapshot
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 EVAL_REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "eval-report.md"
@@ -24,18 +24,13 @@ W7_AUTHORITATIVE_EXPERIMENT = "w7_experiment_20260911_194151"
 
 
 def _config_snapshot() -> Dict[str, Any]:
-    """config 关键项快照（Q7：每轮 run 都记，baseline 只是 v0 的那份）。"""
-    return {
-        "planner_model": config.llm.planner_model,
-        "critic_model": config.llm.critic_model,
-        "fast_model": config.llm.fast_model,
-        "smart_model": config.llm.smart_model,
-        "token_budget": config.research.token_budget,
-        "max_total_hops": config.research.max_total_hops,
-        "per_subq_hop_cap": config.research.per_subq_hop_cap,
-        "max_replan": config.research.max_replan,
-        "search_provider": config.search.provider,
-    }
+    """config 关键项快照（Q7：每轮 run 都记，baseline 只是 v0 的那份）。
+
+    W8 §10.4：实现已迁至 `provenance.config_snapshot()`（唯一真相源，
+    新增 `validator_model` / `python_version` / `experiment` 段）。
+    此处保留薄封装以兼容既有调用方，勿再在此加字段。
+    """
+    return config_snapshot()
 
 
 def _snapshot_hash(obj: Dict[str, Any]) -> str:
@@ -45,14 +40,11 @@ def _snapshot_hash(obj: Dict[str, Any]) -> str:
 
 
 def _git_head() -> str:
-    try:
-        import subprocess
+    """当前 HEAD 完整提交号（抓不到如实标 unknown）。
 
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=10
-        ).stdout.strip() or "unknown"
-    except Exception:  # noqa: BLE001
-        return "unknown"
+    W8 §10.4：实现已迁至 `provenance.code_revision()`（原为 3 份重复实现之一）。
+    """
+    return code_revision()["git_commit"]
 
 
 def write_baseline(run_id: str, dataset_meta: Dict[str, Any]) -> Path:
@@ -64,7 +56,7 @@ def write_baseline(run_id: str, dataset_meta: Dict[str, Any]) -> Path:
         "dataset_version": dataset_meta.get("version", "unknown"),
         "config_snapshot": _config_snapshot(),
         "eval_env": {
-            "python": __import__("sys").version.split()[0],
+            # W8 §10.4：python 版本已收进 config_snapshot.python_version，此处不再重复
             "os": __import__("platform").system(),
             "concurrency": 3,
             "wall_clock": "40~60min（并发 3，20 条）",
@@ -99,6 +91,9 @@ def append_history(run_id: str, summary: Dict[str, Any], metrics_mean: Dict[str,
         "run_id": run_id,
         "git_commit": _git_head(),
         "metrics": metrics_mean,
+        # W8 §10.4 第 2 条：每轮 run 都记 config 快照（history 亦不例外）
+        # —— 只写 run 级一条，不按题目重复（配置在同一 run 内不变）
+        "config_snapshot": summary.get("config_snapshot"),
         "delta_pp_from_prev": delta,
         "status": summary.get("struct", {}).get("regression", "PASS"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
