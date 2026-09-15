@@ -1574,5 +1574,48 @@
   },
   "status": "PASS",
   "generated_at": "2026-09-13T08:11:44"
+ },
+ {
+  "run_id": "run_20260916_001005",
+  "git_commit": "6f4067f294ba0e5da4b69c6305821918876adedf",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7175,
+   "citation_accuracy_relaxed": 0.7175,
+   "existence_rate": 0.9625,
+   "coverage": 0.3947,
+   "retrieval_hit_rate": 0.5297,
+   "avg_steps": 9.9474,
+   "reflection_critic_stop_rate": 0.8421052631578947,
+   "insufficient_marker_ratio": 0.8112
+  },
+  "config_snapshot": {
+   "planner_model": "qwen-plus",
+   "critic_model": "qwen-plus",
+   "fast_model": "qwen-turbo",
+   "smart_model": "qwen-plus",
+   "validator_model": "qwen-plus",
+   "python_version": "3.13.14",
+   "token_budget": 200000,
+   "max_total_hops": 20,
+   "per_subq_hop_cap": 5,
+   "max_replan": 1,
+   "search_provider": "bocha",
+   "experiment": {
+    "critic_gap_enabled": true,
+    "validator_fixes_enabled": true,
+    "validator_assertive_filter_enabled": true,
+    "writer_sectioned_feed_enabled": true,
+    "validator_trim_enabled": true
+   }
+  },
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 2.0,
+   "coverage": 26.5,
+   "retrieval_hit_rate": 29.8
+  },
+  "status": "PASS",
+  "generated_at": "2026-09-16T01:10:14"
  }
 ]
