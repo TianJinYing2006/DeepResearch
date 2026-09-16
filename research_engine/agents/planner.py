@@ -7,8 +7,9 @@ from __future__ import annotations
 from typing import Any, List
 
 from config import config
+from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
-from research_engine.state import SubQuestion
+from research_engine.state import DegradationEntry, DegradationSink, SubQuestion
 
 PLANNER_SYSTEM = """你是一位资深研究规划专家。你的任务是将用户的研究主题分解为若干相互独立、可执行的子问题。
 
@@ -47,6 +48,14 @@ REPLAN_SYSTEM = """你是一位资深研究规划专家。之前的子问题分�
 class Planner:
     """研究规划器。"""
 
+    def __init__(self):
+        # W8 Arm 1：降级记录缓冲区（同 Researcher，由 graph 节点 drain 后入 state）
+        self.degradations = DegradationSink()
+
+    def drain_degradations(self) -> List[DegradationEntry]:
+        """取走并清空降级记录（graph 节点调用）。"""
+        return self.degradations.drain_degradations()
+
     def plan(self, topic: str, user_instructions: str = "", state: Any = None) -> List[SubQuestion]:
         router = get_router()
         system = PLANNER_SYSTEM.format(max_subquestions=config.research.max_subquestions)
@@ -67,8 +76,16 @@ class Planner:
                     )
                 )
             return subs
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             # 降级：把主题本身作为唯一子问题
+            # W8 Arm 1：原先静默降级、事后不可归因 ⇒ 留痕（llm_error，非工具类枚举）
+            self.degradations._record_degradation(
+                component="llm",
+                reason=FailureReason.LLM_ERROR.value,
+                detail=str(e),
+                fallback_action="topic_only",
+                node="planner",
+            )
             return [SubQuestion(id="q1", question=topic, rationale="主题本身作为研究问题")]
 
     def replan(

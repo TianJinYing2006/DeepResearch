@@ -99,6 +99,31 @@ def is_valid_reason(reason: str) -> bool:
     return reason in ALL_REASONS
 
 
+def classify_tool_exception(exc: BaseException) -> str:
+    """把**工具层**异常归类为工具类 5 值（:data:`TOOL_REASONS`）。
+
+    ⚠️ **这是 Arm 4 的临时替身**：Arm 4 落地后，五处 ``except`` 应改为让 provider
+    返回带 ``failure_reason`` 的 ``SearchResponse``，消费方直接派生
+    （``DegradationEntry(reason=resp.failure_reason, ...)``），本函数届时可删。
+
+    之所以现在要有它：**Arm 1 需要 `degraded` 可达**，而工具层目前仍是「抛异常」语义，
+    没有 ``failure_reason`` 可读。把它收敛到一个函数里，是为了让 Arm 4 的替换面
+    保持在**一处**，且不会在 Arm 1 各落点散落手写字面量。
+    """
+    name = type(exc).__name__.lower()
+    msg = f"{name}: {exc}".lower()
+
+    if "timeout" in name or "timeout" in msg or "timed out" in msg:
+        return FailureReason.TIMEOUT.value
+    if "json" in name or "parse" in name or "decode" in msg:
+        return FailureReason.PARSE_ERROR.value
+    if any(k in msg for k in ("api key", "apikey", "not configured", "no provider", "401", "403")):
+        return FailureReason.NOT_CONFIGURED.value
+    if any(k in msg for k in ("429", "rate limit", "rate_limit", "5xx", "500", "502", "503", "504")):
+        return FailureReason.PROVIDER_ERROR.value
+    return FailureReason.PROVIDER_ERROR.value
+
+
 def classify_exception(exc: BaseException) -> str:
     """把异常归类为**非工具类**失败原因（Arm 1 ``run()`` 异常路径用）。
 

@@ -10,8 +10,9 @@ from typing import Any, List
 
 from config import config
 from research_engine.context.manager import ContextManager
+from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
-from research_engine.state import ResearchFinding, SubQuestion
+from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding, SubQuestion
 
 # W7 Arm4：分节喂料关闭时（TBD-8 基线对照）回退到 v1.1 提示
 WRITER_SYSTEM_LEGACY = """你是一位专业的研究报告撰写者。基于给定的研究发现，撰写一份结构清晰、内容详实的研究报告。
@@ -57,6 +58,12 @@ class Writer:
     def __init__(self):
         self.router = get_router()
         self.context = ContextManager()
+        # W8 Arm 1：降级记录缓冲区（由 graph 节点 drain 后入 state）
+        self.degradations = DegradationSink()
+
+    def drain_degradations(self) -> List[DegradationEntry]:
+        """取走并清空降级记录（graph 节点调用）。"""
+        return self.degradations.drain_degradations()
 
     def write(
         self,
@@ -89,7 +96,15 @@ class Writer:
 
         try:
             report = self.router.smart_chat(system, user, state=state)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            # W8 Arm 1：走兜底报告 = 一次明确降级 ⇒ 留痕（原先静默，事后不可归因）
+            self.degradations._record_degradation(
+                component="llm",
+                reason=FailureReason.LLM_ERROR.value,
+                detail=str(e),
+                fallback_action="fallback_report",
+                node="writer",
+            )
             report = self._fallback_report(topic, subquestions)
 
         # Citation normalization is a protocol guarantee, not a sectioned-feed

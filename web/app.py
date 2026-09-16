@@ -15,6 +15,11 @@ import streamlit as st
 
 from research_engine.graph import create_graph
 from research_engine.observability import status_line  # W3（Q4）：知情打印
+from research_engine.state import (  # W8 Arm 1：运行状态三态
+    RUN_STATUS_DEGRADED,
+    RUN_STATUS_FAILED,
+    RUN_STATUS_SUCCESS,
+)
 
 st.set_page_config(page_title="DeepResearch 深度研究 Agent", layout="wide")
 st.title("🔍 DeepResearch 深度研究 Agent")
@@ -64,7 +69,27 @@ if st.button("开始研究", type="primary"):
         status_text = st.empty()
 
         # 运行（同步，展示进度）
+        # W8 Arm 1（§5.1.4）：run() 已改为「返回 state 而不 re-raise」⇒ 失败不会炸到这里，
+        # 必须由 UI **主动展示** run_status，否则用户在浏览器里看到的是一份空报告且不知为何。
         result = graph.run(topic, instructions)
+
+        # 运行状态（三态 + 降级明细）—— 原先异常直接抛给 Streamlit，无任何失败展示
+        _STATUS_ICON = {
+            RUN_STATUS_SUCCESS: "✅ 成功（无降级）",
+            RUN_STATUS_DEGRADED: "⚠️ 降级完成（部分环节走了兜底）",
+            RUN_STATUS_FAILED: "❌ 失败",
+        }
+        st.info(_STATUS_ICON.get(result.run_status, result.run_status))
+        if result.degradation_log:
+            with st.expander(f"降级明细（{len(result.degradation_log)} 条）", expanded=False):
+                for e in result.degradation_log:
+                    st.write(f"· `{e.node}` / `{e.component}` — **{e.reason}**"
+                             + (f" — {e.detail}" if e.detail else "")
+                             + (f" — 兜底：`{e.fallback_action}`" if e.fallback_action else ""))
+        if result.error:
+            st.error(f"错误码 `{result.error.get('code')}`"
+                     + (f"（节点 {result.error.get('node')}）" if result.error.get("node") else "")
+                     + f"：{result.error.get('message', '')}")
 
         # 展示进度
         for i, p in enumerate(result.progress):

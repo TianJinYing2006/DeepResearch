@@ -16,10 +16,14 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
+from research_engine.failure_reasons import (  # W8 Arm 1
+    FailureReason,
+    classify_tool_exception,
+)
 from research_engine.rag.retriever import HybridRetriever
 from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.bocha import BochaSearchProvider
-from research_engine.state import ResearchFinding
+from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.tools.code_exec import exec_code, should_execute
 
 # R2.4 Q5=A 第一层：自指/元描述关键词启发式初标（漏标由 validator verdict 兜底复核）
@@ -64,6 +68,33 @@ class Researcher:
         self.search: BochaSearchProvider = BochaSearchProvider()
         self.arxiv: ArxivSearchProvider = ArxivSearchProvider()
         self.retriever = HybridRetriever()
+        # W8 Arm 1：降级记录缓冲区（共享实现，见 state.DegradationSink）
+        self.degradations = DegradationSink()
+
+    def _record_degradation(
+        self,
+        component: str,
+        reason: str,
+        detail: str = "",
+        fallback_action: str = "empty_list",
+        node: str = "researcher",
+    ) -> None:
+        """记录一次降级（线程安全）。
+
+        `reason` 必须来自 `failure_reasons` 枚举；Arm 4 落地后应改为直接传
+        `resp.failure_reason`（单向派生），不再走 `classify_tool_exception`。
+        """
+        self.degradations._record_degradation(
+            component=component,
+            reason=reason,
+            detail=detail,
+            fallback_action=fallback_action,
+            node=node,
+        )
+
+    def drain_degradations(self) -> List[DegradationEntry]:
+        """取走并清空缓冲区（graph 节点调用，把条目交给 reducer 入 state）。"""
+        return self.degradations.drain_degradations()
 
     # ---- 各工具单源检索（mutually independent，可并行）----
 
@@ -85,7 +116,9 @@ class Researcher:
                     )
                 )
             return findings
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            # W8 Arm 1：fallback 前留痕（原先是静默返回 []，事后不可归因）
+            self._record_degradation("web_search", classify_tool_exception(e), detail=str(e))
             return []
 
     def _search_rag(self, query: str) -> List[ResearchFinding]:
@@ -106,12 +139,19 @@ class Researcher:
                     )
                 )
             return findings
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            self._record_degradation("rag_search", classify_tool_exception(e), detail=str(e))
             return []
 
     def _search_arxiv(self, query: str) -> List[ResearchFinding]:
         """arXiv 学术检索（Q3：provider 已 relevance 排序 + 3s 限流）。"""
         resp = self.arxiv.search(query)  # provider 内部失败返回空
+        # W8 Arm 1：provider 内部失败返回空 SearchResponse，Arm 4 落地后会有 failure_reason；
+        # 现阶段按「无结果」记一条，保证「检索为空」与「检索失败」不再混为一谈。
+        if getattr(resp, "failure_reason", None):
+            self._record_degradation(
+                "arxiv_search", resp.failure_reason, detail=getattr(resp, "failure_detail", "")
+            )
         findings = []
         for r in resp.results:
             findings.append(
@@ -148,6 +188,13 @@ class Researcher:
             )
             return [finding]
         # 失败也进 findings（note 不吞 → W2 附录/可信度可见）
+        # W8 Arm 1：代码执行失败同样是降级，留痕（component=code_exec）
+        self._record_degradation(
+            "code_exec",
+            FailureReason.PARSE_ERROR.value if "解析" in (out.note or "") else FailureReason.PROVIDER_ERROR.value,
+            detail=out.note or "",
+            fallback_action="failure_finding",
+        )
         return [
             ResearchFinding(
                 content=f"[执行失败] {out.note}",

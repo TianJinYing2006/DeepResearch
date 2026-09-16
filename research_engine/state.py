@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import operator
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Dict, List, Optional
@@ -47,6 +48,49 @@ class DegradationEntry:
             "fallback_action": self.fallback_action,
             "timestamp": self.timestamp,
         }
+
+
+class DegradationSink:
+    """降级记录缓冲区（线程安全），供各 Agent 在 fallback 处留痕。
+
+    为什么需要它：Agent 的 ``except`` 分支通常只返回降级结果（空列表 / 兜底报告），
+    **拿不到也不该直接改** LangGraph 的 state。故先缓存在 Agent 上，
+    由 graph 节点调用 :meth:`drain_degradations` 取出，经 ``degradation_log`` 的
+    ``operator.add`` reducer 入 state（节点只 return 增量 ⇒ 并发安全）。
+
+    用锁是因为 ``_search_*`` 在 ``ThreadPoolExecutor`` 里并发执行。
+    """
+
+    def __init__(self) -> None:
+        self._degradations: List[DegradationEntry] = []
+        self._deg_lock = threading.Lock()
+
+    def _record_degradation(
+        self,
+        component: str,
+        reason: str,
+        detail: str = "",
+        fallback_action: str = "empty_list",
+        node: str = "",
+    ) -> None:
+        """记一条降级。`reason` 必须来自 `failure_reasons` 枚举。"""
+        with self._deg_lock:
+            self._degradations.append(
+                DegradationEntry(
+                    node=node or type(self).__name__.lower(),
+                    component=component,
+                    reason=reason,
+                    detail=(detail or "")[:300],
+                    fallback_action=fallback_action,
+                )
+            )
+
+    def drain_degradations(self) -> List[DegradationEntry]:
+        """取走并清空（graph 节点调用）。"""
+        with self._deg_lock:
+            out = list(self._degradations)
+            self._degradations = []
+        return out
 
 
 class SubQuestion(BaseModel):

@@ -18,6 +18,7 @@ from typing import List
 
 import requests
 
+from research_engine.failure_reasons import classify_tool_exception  # W8 Arm 1
 from research_engine.search.base import SearchProvider, SearchResponse, SearchResult
 
 ARXIV_API = "http://export.arxiv.org/api/query"
@@ -75,8 +76,15 @@ class ArxivSearchProvider(SearchProvider):
             resp.raise_for_status()
             results = self._parse(resp.text)
             return SearchResponse(query=query, results=results)
-        except Exception:  # noqa: BLE001 — 失败语义：空结果，交给调度层重试/降级
-            return SearchResponse(query=query, results=[])
+        except Exception as e:  # noqa: BLE001 — 失败语义：空结果，交给调度层重试/降级
+            # W8 Arm 1：原先是「返回空但说不清为什么」⇒ 事后无法区分「检索失败」与「确实没结果」。
+            # 这里补 failure_reason（工具层 5 值，唯一产生点），消费方单向派生即可。
+            return SearchResponse(
+                query=query,
+                results=[],
+                failure_reason=classify_tool_exception(e),
+                failure_detail=str(e)[:300],
+            )
 
     def _parse(self, xml_text: str) -> List[SearchResult]:
         root = ET.fromstring(xml_text)

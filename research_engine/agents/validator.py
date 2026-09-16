@@ -26,8 +26,9 @@ from typing import Any, Dict, List, Tuple
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.client import LLMClient
-from research_engine.state import Citation, ResearchFinding
+from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
 
 # W7 Arm3：validator 修复关闭时（TBD-8 基线对照）回退到 v1.1 提示与行为
 VALIDATOR_SYSTEM_LEGACY = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
@@ -110,6 +111,12 @@ class Validator:
         from research_engine.llm.router import get_router
         self.router = get_router()
         self.last_validation_stats: Dict[str, Any] = {}
+        # W8 Arm 1：降级记录缓冲区（由 graph 节点 drain 后入 state）
+        self.degradations = DegradationSink()
+
+    def drain_degradations(self) -> List[DegradationEntry]:
+        """取走并清空降级记录（graph 节点调用）。"""
+        return self.degradations.drain_degradations()
 
     def _build_index(self, findings: List[ResearchFinding]) -> Dict[str, Tuple[str, str]]:
         """建立编号 -> (真实来源, 来源类型) 映射（Q2=A：带出 source_type，编号供 finding_id 锚定）。"""
@@ -390,9 +397,18 @@ class Validator:
                         verdicts.setdefault(fid, []).append(item)
                     else:
                         unused_verdicts.append(item)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
                 # 降级：仅返回存在性校验结果（保 W1 行为）
+                # W8 Arm 1：这是全链路最要命的一次静默降级 —— 它会让「忠实度」整项失效，
+                # 但产物里看不出来。留痕（existence_only）。
                 llm_failed = True
+                self.degradations._record_degradation(
+                    component="llm",
+                    reason=FailureReason.LLM_ERROR.value,
+                    detail=str(e),
+                    fallback_action="existence_only",
+                    node="validator",
+                )
 
         result: List[Citation] = []
         for r in local_results:

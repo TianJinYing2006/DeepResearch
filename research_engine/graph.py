@@ -102,6 +102,8 @@ class DeepResearchGraph:
                 "subquestions": subs,
                 "frontier": frontier,
                 "per_subq_hop": per_subq_hop,
+                # W8 Arm 1：planner 降级记录（如 LLM 失败退化为「主题即子问题」）交给 reducer
+                "degradation_log": self.planner.drain_degradations(),
                 "status": "planning",
                 "token_used": state.token_used,  # Q6-B：planner 的 LLM token 累计写回
                 "progress": [
@@ -165,12 +167,17 @@ class DeepResearchGraph:
         snapshot = (f"第 {new_depth}/{rc.max_total_hops} 跳 [{sq_id}]："
                     f"+{len(new_findings)} 条新发现（{tool_detail}），累计 {len(merged_findings)} 条")
 
+        # W8 Arm 1：把本跳工具降级记录交给 `degradation_log` 的 add reducer 入 state
+        # （节点只 return 增量，不读不写全量 —— 与 progress 同构，并发安全）
+        degradations = self.researcher.drain_degradations()
+
         return {
             "frontier": frontier,  # 已弹出 head
             "findings": merged_findings,
             "visited_sources": merged_visited,
             "depth": new_depth,
             "per_subq_hop": per_subq_hop,
+            "degradation_log": degradations,
             "status": "researching",
             "progress": [
                 {"stage": "research", "msg": snapshot},
@@ -252,6 +259,8 @@ class DeepResearchGraph:
         return {
             "report": report,
             "findings": compressed,  # 不加 reducer → 覆写（Q7=A）
+            # W8 Arm 1：writer 降级记录（如 LLM 失败走兜底报告）交给 reducer
+            "degradation_log": self.writer.drain_degradations(),
             "status": "writing",
             "token_used": state.token_used,  # Q6-B：writer+compress 的 LLM token 累计写回
             "progress": [{"stage": "write", "msg": "报告生成完成"}],
@@ -264,6 +273,8 @@ class DeepResearchGraph:
         return {
             "citations": citations,
             "validator_stats": dict(self.validator.last_validation_stats),
+            # W8 Arm 1：validator 降级记录（如 LLM 失败退化为「仅存在性校验」）交给 reducer
+            "degradation_log": self.validator.drain_degradations(),
             "status": "done",
             # W8 Arm 1（§5.1.2 判定规则）：此处节点内的降级记录已由各节点经 reducer 追加进
             # state.degradation_log，故直接按「tracker 是否为空 + 有无报告」推导 run_status。

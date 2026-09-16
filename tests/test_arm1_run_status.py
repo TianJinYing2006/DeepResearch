@@ -34,6 +34,7 @@ from research_engine.state import (
     RUN_STATUS_SUCCESS,
     RUN_STATUSES,
     DegradationEntry,
+    DegradationSink,
     ResearchState,
 )
 
@@ -286,6 +287,121 @@ def test_recover_preserves_checkpoint_state(monkeypatch):
     # Q3=D'：异常路径仍会算 tokens_diff ⇒ token_used 必须有默认值，否则在此处二次抛错
     assert isinstance(out.token_used, int)
     assert g.tokens_diff is not None
+
+
+# ---------------------------------------------------------------- 节点级降级落点（degraded 可达）
+
+
+def test_researcher_records_and_drains_degradation():
+    """§5.1.3：`_search_web` 失败前留痕（原先静默 `return []`，事后不可归因）。
+
+    走**真实代码路径**（不是打桩断言），provider 用 MagicMock 抛 TimeoutError。
+    """
+    from research_engine.agents.researcher import Researcher
+
+    # 用 __new__ 跳过 __init__：避免构造真实 provider / 检索器（零网络、零模型加载）
+    r = Researcher.__new__(Researcher)
+    r.degradations = DegradationSink()
+    r.search = MagicMock()
+    r.search.search.side_effect = TimeoutError("read timeout")
+
+    out = r._search_web("q")
+
+    assert out == [], "降级仍应返回空列表（行为不变）"
+    drained = r.drain_degradations()
+    assert len(drained) == 1, "降级必须留痕，否则事后不可归因"
+    assert drained[0].reason == "timeout"
+    assert drained[0].reason in TOOL_REASONS
+    assert drained[0].component == "web_search"
+    assert drained[0].node == "researcher"
+    assert r.drain_degradations() == [], "drain 后必须清空（否则跨 run 重复计数）"
+
+
+def test_researcher_rag_and_arxiv_also_record():
+    """RAG 与 arXiv 两路同样留痕；arXiv 走 provider 的 failure_reason 单向派生。"""
+    from research_engine.agents.researcher import Researcher
+
+    r = Researcher.__new__(Researcher)
+    r.degradations = DegradationSink()
+
+    r.retriever = MagicMock()
+    r.retriever.retrieve.side_effect = RuntimeError("index missing")
+    assert r._search_rag("q") == []
+    assert r.drain_degradations()[0].component == "rag_search"
+
+    from research_engine.search.base import SearchResponse
+
+    r.arxiv = MagicMock()
+    r.arxiv.search.return_value = SearchResponse(
+        query="q", results=[], failure_reason=FailureReason.TIMEOUT.value, failure_detail="t/o"
+    )
+    assert r._search_arxiv("q") == []
+    got = r.drain_degradations()
+    assert len(got) == 1
+    # 单向派生：reason 直接取 resp.failure_reason，不是第二个手写字面量
+    assert got[0].reason == "timeout" and got[0].detail == "t/o"
+
+
+def test_classify_tool_exception_maps_to_tool_reasons_only():
+    """工具层异常只映射到工具类 5 值（Arm 4 落地后改为读 resp.failure_reason）。"""
+    from research_engine.failure_reasons import classify_tool_exception
+
+    cases = {
+        TimeoutError("timed out"): "timeout",
+        ValueError("Expecting value: JSON decode error"): "parse_error",
+        RuntimeError("401 unauthorized api key"): "not_configured",
+        RuntimeError("429 rate limit exceeded"): "provider_error",
+        RuntimeError("502 bad gateway"): "provider_error",
+        RuntimeError("something else"): "provider_error",
+    }
+    for exc, expected in cases.items():
+        got = classify_tool_exception(exc)
+        assert got == expected, f"{exc!r} → {got}"
+        assert got in TOOL_REASONS
+
+
+def test_arxiv_provider_sets_failure_reason():
+    """工具层是 failure_reason 的唯一产生点；失败不得再「返回空但说不清为什么」。"""
+    from research_engine.search.arxiv import ArxivSearchProvider
+
+    p = ArxivSearchProvider()
+    with pytest.MonkeyPatch.context() as mp:
+        import research_engine.search.arxiv as A
+
+        mp.setattr(A.requests, "get", lambda *a, **k: (_ for _ in ()).throw(TimeoutError("t/o")))
+        resp = p.search("q")
+    assert resp.failure_reason == "timeout"
+    assert resp.ok is False
+    assert resp.failure_reason in TOOL_REASONS
+
+
+def test_planner_writer_validator_have_drainable_sinks():
+    """三个 Agent 都要能把降级交给 graph 节点（否则 degraded 不可达）。"""
+    from research_engine.agents.planner import Planner
+    from research_engine.agents.validator import Validator
+    from research_engine.agents.writer import Writer
+
+    for cls in (Planner, Writer, Validator):
+        obj = cls()
+        assert hasattr(obj, "degradations")
+        assert hasattr(obj, "drain_degradations")
+        obj.degradations._record_degradation(
+            "llm", FailureReason.LLM_ERROR.value, fallback_action="x", node="n"
+        )
+        got = obj.drain_degradations()
+        assert len(got) == 1 and got[0].reason == "llm_error"
+
+
+def test_degraded_reachable_end_to_end_shape():
+    """拼出 `degraded` 的完整链路：节点留痕 → reducer 入 state → resolve_run_status。"""
+    s = ResearchState(topic="t", report="半份报告")
+    # 模拟经 reducer 累积（operator.add 语义）
+    s.degradation_log = s.degradation_log + [
+        DegradationEntry(node="validator", component="llm",
+                         reason=FailureReason.LLM_ERROR.value, fallback_action="existence_only"),
+    ]
+    assert s.resolve_run_status(has_report=True) == RUN_STATUS_DEGRADED
+    assert s.run_status in RUN_STATUSES
 
 
 def test_recursion_error_maps_to_recursion_limit(monkeypatch):

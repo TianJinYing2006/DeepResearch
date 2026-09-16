@@ -226,13 +226,25 @@
 
 **这才是 W8 真正交付的东西，且它是 A 类确定性断言，不受上面任何噪声影响。**
 
-**⇒ 待拍板（供于晏裁决，三选一或组合）**
+**✅ 2026-09-16 拍板（于晏采纳 A）：验收口径按本节重定位，B / C 不采纳**
 
-| 选项 | 内容 | 代价 | 备注 |
+| 选项 | 内容 | 代价 | 裁决 |
 | --- | --- | --- | --- |
-| **A（推荐）** | 按 §3.3.2 重定位：before/after 只做**可观测性对照**（故障可归因率等确定性断言），coverage/citation **只报绝对值 + 区间，不报提升** | ¥0 额外 | 与 §3.3 第 4 条「如实宣告」一致；也符合 §10.5.6 口径纪律 |
-| B | 真的实现「固定检索快照」（缓存检索结果供 before/after 复用）⇒ 把 ρ 拉回 0.9 ⇒ SE≈1.45pp 成立 | 新增检索缓存层（中等工作量，且**改变了被测对象**：比的是写作/验证环节，不再是端到端） | §3.3 原文的前提其实是 B |
-| C | 加 runs 硬堆精度：coverage 检 4pp 需 Rb=Ra=**41 轮**（82 runs ≈ ¥73 ≈ 82h） | 不可行 | 与 Q5 已否决的「430 runs」同量级 |
+| **A** | 按 §3.3.2 重定位：before/after 只做**可观测性对照**（故障可归因率等确定性断言），coverage/citation **只报绝对值 + 区间，不报提升** | ¥0 额外 | ✅ **已采纳** —— 与 §3.3 第 4 条「如实宣告」一致，也符合 §10.5.6 口径纪律 |
+| B | 真的实现「固定检索快照」（缓存检索结果供 before/after 复用）⇒ 把 ρ 拉回 0.9 ⇒ SE≈1.45pp 成立 | 新增检索缓存层（中等工作量，且**改变了被测对象**：比的是写作/验证环节，不再是端到端） | ❌ 不采纳 —— 投入产出比低，且改变被测对象 |
+| C | 加 runs 硬堆精度：coverage 检 4pp 需 Rb=Ra=**41 轮**（82 runs ≈ ¥73 ≈ 82h） | 不可行 | ❌ 不采纳 —— 与 Q5 已否决的「430 runs」同量级 |
+
+**拍板后的落地要求（三句，写死以免走样）**：
+
+1. **W8 各 Arm 一律按 A 类确定性断言验收**，不得以「覆盖率提升 Xpp」作为任何 Arm 的通过条件。
+2. **对外数字一律带区间与题数**（§10.5.6），**禁止裸数字**；**禁止**把 before 与 after 的均值差表述为「提升」，
+   除非该指标的 MDE 小于观测差（当前仅 `retrieval_hit_rate` 满足，MDE 3.73pp）。
+3. **before 基线（§10.5.8）保留为「改前故障不可归因」的对照证据**，其价值不受「提升不可判定」影响。
+
+> **面试叙事的正确说法**（§10.5.8 数字可直接使用）：
+> 「主链路覆盖率 **45.2% ±6.3pp**（20 题 × 3 轮，W8 改动前）」—— 这是绝对值陈述，成立；
+> 「W8 让覆盖率提升 Xpp」—— **不可判定，不说**。
+> 改为说：「**故障可归因率从 0% 提升到 100%**（注入故障复现，A 类断言）」—— 零噪声，成立。
 
 ## 4. 当前设计（代码现状，2026-09-10 盘点）
 
@@ -960,33 +972,33 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 
 ### Arm 1（P0）
 
-* [ ] `ResearchState` 新增 `run_status` 与 **`degradation_log: Annotated[List[DegradationEntry], operator.add]`**（**必须带 add reducer**，照抄 `state.py:90` 的 `progress`）
+* [x] `ResearchState` 新增 `run_status` 与 **`degradation_log: Annotated[List[DegradationEntry], operator.add]`**（**必须带 add reducer**，照抄 `state.py:90` 的 `progress`） —— ✅ **2026-09-16 落地**（`state.py`；reducer 存在性由 `test_degradation_log_has_add_reducer` 对照 `progress` 字段锁定）
 
-* [ ] 所有 `except Exception: return fallback` 路径在返回前追加 `DegradationEntry`
+* [x] 所有 `except Exception: return fallback` 路径在返回前追加 `DegradationEntry` —— ✅ **2026-09-16 落地**（`researcher._search_web`/`_search_rag`/`_search_arxiv`/`_search_code`、`planner.plan`、`writer.write`、`validator` 忠实度降级、`arxiv` provider）。**注**：Arm 4 的「五处 `except` 改造」仍属 Arm 4，本次只做**留痕**，不改 provider 的错误转换语义（arxiv 顺带补了 `failure_reason`，因其原为「返回空但说不清为什么」）
 
-* [ ] `_validate` 和 `_render` 节点根据 `degradation_log` 设置 `run_status`
+* [x] `_validate` 和 `_render` 节点根据 `degradation_log` 设置 `run_status` —— ✅ **2026-09-16 落地**（两处均调 `state.resolve_run_status(has_report=bool(state.report))`，幂等）
 
-* [ ] **`run_status` 取值覆盖 `success/degraded/failed` 三态**（~~四态~~ ← Q4 收敛，`partial` 移出 state、降为报告层派生指标）
+* [x] **`run_status` 取值覆盖 `success/degraded/failed` 三态**（~~四态~~ ← Q4 收敛，`partial` 移出 state、降为报告层派生指标） —— ✅ **2026-09-16 落地**（`RUN_STATUSES`；单测锁定「无 `partial`」）
 
-* [ ] **`failed` 可达**：`run()` 新增 try/except 契约（§5.1.4）—— 异常时经 `get_state(cfg)` 捞回 state、置 `failed`、记 `error`；**`get_state` 为空时构造最小 state，绝不返回 `None`**
+* [x] **`failed` 可达**：`run()` 新增 try/except 契约（§5.1.4）—— 异常时经 `get_state(cfg)` 捞回 state、置 `failed`、记 `error`；**`get_state` 为空时构造最小 state，绝不返回 `None`** —— ✅ **2026-09-16 落地**（`graph._recover_from_exception`；4 条单测覆盖：正常兜底 / `get_state` 返回空 dict / `get_state` 自身抛错 / 保住 checkpoint）
 
-* [ ] **`cli.py` 在 `finally` 后判 `run_status == "failed"` ⇒ `sys.exit(1)`**；Web 展示 `run_status` 与 `degradation_log`
+* [x] **`cli.py` 在 `finally` 后判 `run_status == "failed"` ⇒ `sys.exit(1)`**；Web 展示 `run_status` 与 `degradation_log` —— ✅ **2026-09-16 落地**。⚠️ **顺带修掉一个既存 bug**：`cli.py` 末尾有两个完全相同的 `if __name__ == "__main__": main()`（W3 git 重建期间引入）⇒ **作为脚本执行会跑两遍 main、成本翻倍**
 
-* [ ] **`DegradationEntry.reason` 改为枚举，与 Arm 4 `failure_reason` 共用同一张表**（含新增的 `llm_error`/`token_limit`/`recursion_limit`/`internal`）；枚举定义在一处，两侧 import
+* [x] **`DegradationEntry.reason` 改为枚举，与 Arm 4 `failure_reason` 共用同一张表**（含新增的 `llm_error`/`token_limit`/`recursion_limit`/`internal`）；枚举定义在一处，两侧 import —— ✅ **2026-09-16 落地**（新增 `research_engine/failure_reasons.py` 作为唯一真相源；单测锁定两组不重叠且并集为 9 值）
 
-* [ ] **`state.error` 由 `Optional[str]` 改为结构化 `{code, message, node}`**（`state.py:92`）
+* [x] **`state.error` 由 `Optional[str]` 改为结构化 `{code, message, node}`**（`state.py:92`） —— ✅ **2026-09-16 落地**。**实测破坏面仅 1 处**：`report_gen.py:428` 的 `[:200]` 切片（dict 会 `KeyError`）⇒ 已改 `str(...)[:200]`；`metrics.py:45` 的 `ok_error = error is None` 因保持「成功 `None`/失败非 `None`」语义而**不受影响**（完成率四条件之一，已由既有测试覆盖）。**注意**：破坏面比预估小是因为 `state.error` 生产代码**零写入**
 
-* [ ] 受控对照实验：注入一个 LLM 失败 ⇒ `run_status == "degraded"` 且 `degradation_log` 非空；**注入一个让 invoke 抛异常的故障 ⇒ `run_status == "failed"` 且 `error` 结构化（这是 failed 路径的唯一验收）**
+* [x] 受控对照实验：注入一个 LLM 失败 ⇒ `run_status == "degraded"` 且 `degradation_log` 非空；**注入一个让 invoke 抛异常的故障 ⇒ `run_status == "failed"` 且 `error` 结构化（这是 failed 路径的唯一验收）** —— ✅ **2026-09-16 以零 LLM 单测落地**（`tests/test_arm1_run_status.py` 26 条：用 fake graph 注入异常断言 `failed`；用 MagicMock 让 provider 抛错断言 `degraded` 链路的留痕与 drain）
 
-* [ ] **命名裁决三分落地**：`run_status`（流程健康度）／`invoke_status`（层② `_run_one` 返回，原名 `status`）／`metrics_status`（层③ phase2，原名 `status`）；新增单测：落盘记录中**不存在**语义歧义的裸 `status` 键
+* [ ] **命名裁决三分落地**：`run_status`（流程健康度）／`invoke_status`（层② `_run_one` 返回，原名 `status`）／`metrics_status`（层③ phase2，原名 `status`）；新增单测：落盘记录中**不存在**语义歧义的裸 `status` 键 —— ⏳ **`run_status` 侧已落地**（新增字段 + 三态常量 + 文档命名注）；**层②/层③的重命名（`invoke_status` / `metrics_status`）尚未做**，属本次范围的遗留项（改这两个名字会触碰 `run.py` 多处落盘键与既有 W7 产物，需单独评估兼容性）
 
 * [ ] ~~`partial` 四态之一~~ ← **Q4 删除**（与 `degraded` 判定条件完全相同，改由报告层按子问题覆盖率派生）
 
-* [ ] **（Q8 = B4-A）单向派生契约落地**：工具类 5 值（`not_configured`/`timeout`/`provider_error`/`empty_result`/`parse_error`）
+* [x] **（Q8 = B4-A）单向派生契约落地**：工具类 5 值（`not_configured`/`timeout`/`provider_error`/`empty_result`/`parse_error`）
   **只由工具层产生**（写入 `SearchResponse.failure_reason`），`DegradationEntry.reason` **必须取 `resp.failure_reason`**，
-  **不得在同一处手写第二个字面量**；非工具类 4 值（`llm_error`/`token_limit`/`recursion_limit`/`internal`）由 Arm 1 各产生点直接构造（§5.1.2）
+  **不得在同一处手写第二个字面量**；非工具类 4 值（`llm_error`/`token_limit`/`recursion_limit`/`internal`）由 Arm 1 各产生点直接构造（§5.1.2） —— ✅ **2026-09-16 落地**。**⚠️ 一处已知的临时替身**：Arm 4 的 provider 目前仍是「抛异常」语义、`failure_reason` 尚未全面填充 ⇒ Arm 1 用 `classify_tool_exception()` 做**临时归类**，已收敛在 `failure_reasons.py` **一个函数**里并注明「Arm 4 落地后应改为读 `resp.failure_reason`，本函数届时可删」—— 这样 Arm 4 的替换面保持在一处，不会在各落点散落手写字面量
 
-* [ ] **实现顺序不可颠倒**：先落 Arm 4 的 `failure_reason`，再让 Arm 1 消费它
+* [x] **实现顺序不可颠倒**：先落 Arm 4 的 `failure_reason`，再让 Arm 1 消费它 —— ✅ **2026-09-16 遵守**（`SearchResponse.failure_reason`/`failure_detail`/`ok` 字段已先落，Arm 1 的 `_search_arxiv` 直接消费；其余 provider 待 Arm 4）
 
 ### Arm 2（P0）
 
@@ -1520,3 +1532,5 @@ citation 14.41pp / retrieval_hit 7.75pp；SE(3v9)：4.42 / 2.26 / 1.19pp）⇒
 | 2026-09-16 | 预检 | **§5.2 Arm 2 实现预检 —— 照文档直写会静默吞掉 24% 的证据** | 用 before 基线 `run_20260916_001005` 真实数据 + 代码追踪，查出**三处与文档不符**：① **§5.2.2 引用的 `CodeExecInput` 类在代码里不存在**（`code_exec.py` 实际 API 是 `exec_code(code, query="", params="")`）；② **`exec_code` 并不把 query 写进 metadata**（`:344` `meta = {"exit_code": ...}`，query 只进 `script_hash`）⇒ §5.2.2 所述行为属新增；③ **⚠️ 最关键** —— `code_exec.py:304` `ctx = f"{code}\x00{params}\x00{query}"` ⇒ 若按字面「移除 query 拼接」**连 `exec_code(query=)` 一起去掉**，`script_hash` 将变常量。实测：基线 20 题 **206 条 findings 中 50 条（24.3%）是 `code_exec`**（q_012 单题 7 条），**50 个 source 值全不重复**（全靠 query 进哈希区分）；而 `context/manager.py:21-28 dedupe()` 按 `f.source` **每 source 只留一条**、`compress()`（`:39-45`）按 source 分组 ⇒ **hash 塌陷会让 50 条并成 1 条**。**当前风险是潜伏的**：findings 峰值 17 < `max_findings=30` ⇒ `compress` 未触发，且 `dedupe` 在主链路未被调用。**但一旦 findings 超 30、或有人把 `dedupe` 接进主链路 ⇒ 静默损失近 1/4 证据且零报错**。**处置**：**保留 `exec_code(script, query=query)`** —— 注入风险只在**脚本文本**里，query 作为参数只进哈希与元数据、**从不进入被执行的代码**，故保留它零风险且保住唯一性。**方法论**：这条（与 §5.1.4 三条一起）证明「**先追字段的消费者、再动字段**」—— 只在文档写「移除 query 拼接」是看不出 `dedupe` 这个消费者的。同步改动：§5.2.3 后新增「实现预检」表 + 量化依据 + 方法论注记 | 本文档 |
 | 2026-09-16 | 实测 | **§3.3.1 实测推翻「ρ≈0.9 ⇒ SE≈1.45pp」+ §3.3.2 验收口径重定位** | **新增 `tools/measure_paired_rho.py`**（只读、零 API）：用 before 基线前两轮同配置真实 run（n=19 配对题）按恒等式 `σ_within = sd(x_i1−x_i2)/√2` 反推，**不依赖任何假设**。**实测**：`coverage` σ_within=**28.91pp**、ρ=**0.351**、SE(3v9)=**4.42pp**、MDE=**12.38pp**；`citation_accuracy` 14.41pp / ρ=0.168 / SE 2.26pp / MDE 6.34pp；`retrieval_hit_rate` 7.75pp / ρ=**0.875** / SE 1.19pp / MDE 3.32pp；`steps` 3.07 步 / ρ=0.625。**⇒ §3.3 的 1.45pp 只对 retrieval_hit_rate 成立（差 3 倍 / 1.6 倍 / 1 倍）**。**原因**：§3.3 那句的前提是「**固定检索快照**」，而真实 before/after 用活检索 ⇒ planner 每轮子问题都不同 ⇒ 证据池本身就变 ⇒ 题目效应带不来跨轮相关；**retrieval_hit_rate 吻合（ρ=0.875）恰因它是检索环节自身指标、不受下游写作波动影响** ⇒ 机制解释自洽。**硬结论**：coverage 的 MDE(3v9)=12.38pp > W7 实测效应量级（4~10pp）⇒ 按 §3.3 第 4 条**宣告「W8 让覆盖率提升 Xpp」不可判定**。**§3.3.2 口径重定位（更根本）**：**用 coverage 提升验收 W8 从一开始就是口径错配** —— Arm 1/4/5 是**可观测性 + 可靠性**改进（让失败可见、可归因），Arm 2/3 是安全性与可复现性，Arm 6/7 是可审计性，**没有一项的立论是「覆盖率会涨」** ⇒ 等于用尺子称重量。**before/after 的真正价值**改为提供「改前故障不可归因」的对照证据（改前 `failed` 不可达 + `failure_reason` 无字段 + `error` 生产代码零写入 ⇒ **故障可归因率 100% 不可归因**；改后 100% 可归因）—— 这是 **A 类确定性断言，零噪声**。**待拍板三选项**：A 按 §3.3.2 重定位（推荐，¥0 额外）/ B 真实现「固定检索快照」把 ρ 拉回 0.9（中等工作量，但**改变被测对象**：比的是写作验证环节而非端到端）/ C 加 runs 到 41 轮（≈¥73/82h，不可行）。同步改动：新增 §3.3.1 + §3.3.2、§3.3 第 1 条加实测更正注、§10.5.3 与 §10.5.4 结论三的「1.45pp」全部更正、§10.5.6 表述规则新增「SE > 效应 ⇒ 不可判定」与「可观测性类结论」两行 | 本文档 + `tools/measure_paired_rho.py`（新增） |
 | 2026-09-16 | 实测 | **before 基线 3 轮采集完成 + 配对分辨率改用 3 轮估计 + 发现「成本静默归零」缺陷** | ① **3 轮基线结果**（主链路配置，全部 `git_dirty=false` + `config_snapshot` 完整）：coverage **0.4517 ± 3.17pp**（r1 0.3947 / r2 0.5042 / r3 0.4561，极差 **10.95pp**）、citation_acc **0.7570 ± 3.08pp**、retrieval_hit **0.5571 ± 1.98pp**；**对外口径：coverage 45.2% ±6.3pp〔20 题 × 3 轮〕⇒ [38.8%, 51.5%]**（按 §10.5.6）。三轮 code rev 分别为 `6f4067f`/`13a6d3e`/`6c83af1`，**全为文档类提交、`research_engine/` 零改动** ⇒ 行为等价。② **超时题目每轮不同**（r1=q_001、r3=q_007）⇒ 超时是**运行期噪声**而非题目固有属性，会额外抬高 σ_within。③ **配对分辨率改用 3 轮估计**（3 个轮次对比 2 轮的单一配对稳）：coverage σ_within 28.91→**23.96pp**、ρ 0.351→**0.551**、MDE(3v9) 12.38→**10.54pp**；citation ρ 0.168→**0.124**、MDE 6.22pp；retrieval_hit ρ 0.875→**0.860**、MDE 3.73pp ⇒ **方向一致、量级稳定，§3.3.1 结论不变**。④ **⚠️ 采集过程中暴露真实缺陷**：第 3 轮 phase1 完成（20/20 raw）后进程被杀，`phase1_global_stats.json` 未写出 ⇒ 补跑 `--eval-only` 后 `cost_phase1_total.cost_yuan` = **¥0.0000**，而该轮 raw `token_used` 合计 **1,017,784**（比第 2 轮 952,093 还多）⇒ **实际约 ¥0.96 记为 0**。**性质**：`_read_phase1_cost()` 读不到文件时**静默返回 0、无告警** ⇒ **成本账目静默归零**，与 §4.2「静默吞掉」同构。**可恢复性**：raw 有 `token_used`（总量，无按模型拆分）⇒ 能还原 token 数、不能精确还原金额 ⇒ **基线总成本更正为 ≈¥2.74**（非 summary 的 ¥1.79）。**待处置**（建议并入 Arm 6 或 Arm 1）：缺失时**降级为从 raw 汇总 + 显式标记 `cost_degraded=true`**，而非返回 0。⑤ **踩坑登记**：`--run-dir` 是**相对 `results/`** 的（`run.py:437-439`），传相对路径会套娃成 `results/research_engine/eval/results/...` ⇒ **静默产出 `total=0 / git_commit=unknown / config_snapshot=null` 的假 summary（exit=0，4 秒）**；正确用法是**只传目录名**。同步改动：§3.3.1 表改为 3 轮估计（2 轮数据折入 `<details>` 对照）、§3.3.1 硬结论 MDE 改为 10.54pp 并补 retrieval_hit 例外、**新增 §10.5.8**（3 轮结果表 + 对外口径 + 三个读数注意点 + 成本归零缺陷登记）、§10.5.7 加「提升类陈述不可判定」更正 | 本文档 |
+| 2026-09-16 | 拍板 | **§3.3.2 验收口径：于晏采纳 A（重定位），B / C 不采纳** | 采纳 **A**：before/after 只做**可观测性对照**（故障可归因率等 A 类确定性断言），coverage/citation **只报绝对值 + 区间，不报提升**。**不采纳 B**（真实现「固定检索快照」：中等工作量且**改变被测对象** —— 比的是写作/验证环节而非端到端）；**不采纳 C**（加 runs 到 41 轮 ≈¥73/82h，与 Q5 已否决的「430 runs」同量级）。**落地要求写死三句**：① W8 各 Arm 一律按 **A 类确定性断言**验收，**不得**以「覆盖率提升 Xpp」作通过条件；② 对外数字**一律带区间与题数**，**禁止**把 before/after 均值差表述为「提升」（当前仅 `retrieval_hit_rate` 的 MDE 3.73pp 小于可观测差）；③ before 基线（§10.5.8）保留为「**改前故障不可归因**」的对照证据。**面试叙事定稿**：「主链路覆盖率 **45.2% ±6.3pp**（20 题 × 3 轮，W8 改动前）」✅ 可说；「W8 让覆盖率提升 Xpp」❌ 不可判定、不说；改说「**故障可归因率 0% → 100%**（注入故障复现，A 类断言）」✅ 零噪声。同步改动：§3.3.2 三选项表加裁决列 + 新增「落地要求」与「面试叙事」 | 本文档 |
+| 2026-09-16 | **实现** | **Arm 1（状态分层）落地 —— before 基线闸门解除后的第一项** | **① 基础设施**：新增 `research_engine/failure_reasons.py` 作为失败原因枚举**唯一真相源**（9 值：工具层 5 + 非工具层 4，两组不重叠；附 `classify_exception` / `classify_tool_exception`）；`state.py` 新增 `RUN_STATUS_*` 三态常量（**无 `partial`**）、`DegradationEntry` dataclass、`DegradationSink`（线程安全缓冲区，供 Agent 在 fallback 留痕后由 graph 节点 drain）、`run_status`、`degradation_log`（**带 `operator.add` reducer**）、`error` 由 `Optional[str]` 改 `Optional[Dict]{code,message,node}`，及 `add_degradation`/`set_error`/`resolve_run_status`；`graph.py` `run()` 用 try/except 包裹 invoke（**`failed` 的唯一落点**）+ 新增 `_recover_from_exception()`（`get_state(cfg).values or {}`、get_state 自身抛错也不二次崩、**绝不返回 None**、保留 `last_exception`）；`_validate`/`_render` 推导 `run_status`；`cli.py` failed ⇒ stderr + `sys.exit(1)`；`report_gen.py:428` `[:200]` → `str(...)[:200]`。**⚠️ 顺带修掉既存 bug**：`cli.py` 末尾有两个完全相同的 `if __name__ == "__main__": main()`（W3 git 重建期间引入）⇒ **作为脚本执行会跑两遍 main、成本翻倍**。**② 节点级降级标记（让 `degraded` 真正可达）**：`researcher._search_web`/`_search_rag`/`_search_arxiv`/`_search_code`、`planner.plan`、`writer.write`、`validator` 忠实度降级共 7 处留痕；`arxiv` provider 补 `failure_reason`（原为「返回空但说不清为什么」）；graph 的 `_plan`/`_research`/`_write`/`_validate` 节点 drain 后经 reducer 入 state。**已知临时替身**：Arm 4 的 provider 目前仍「抛异常」语义 ⇒ 用 `classify_tool_exception()` 临时归类，**已收敛在 `failure_reasons.py` 一个函数里**并注明「Arm 4 落地后应改为读 `resp.failure_reason`，本函数届时可删」⇒ 保证 Arm 4 的替换面在一处，不在各落点散落手写字面量。**遗留项（标 ⏳）**：命名三分的层②`invoke_status` / 层③`metrics_status` **重命名未做**（会触碰 `run.py` 多处落盘键与既有 W7 产物，需单独评估兼容性）。**验证**：ruff 全绿；**146 → 170 测试全过**（新增 `tests/test_arm1_run_status.py` 26 条：三态无 partial / resolve 判定规则 / reducer 存在性对照 `progress` / 结构化 error 形状与「成功 None」语义 / **error 不可切片防回归** / 枚举两组不重叠 / **failed 可达**四种兜底 / **degraded 可达**（真实代码路径 + MagicMock 注入）/ 单向派生 / `classify_tool_exception` 映射表）；零 API 集成冒烟：图编译 OK（8 节点）、`model_dump` 与 JSON 序列化 OK。**实测破坏面比预估小**：`state.error` 生产代码**零写入**，唯一受影响处是 `report_gen.py:428`；`metrics.py:45` 的 `ok_error` 因保持「成功 None/失败非 None」而不受影响。同步改动：§7 Arm 1 DoD 12 条中 11 条勾选（1 条命名三分标 ⏳ 并写明遗留范围） | 本文档 + `research_engine/failure_reasons.py`（新增）、`state.py`、`graph.py`、`search/base.py`、`search/arxiv.py`、`agents/{researcher,planner,writer,validator}.py`、`eval/report_gen.py`、`cli.py`、`web/app.py`、`tests/test_arm1_run_status.py`（新增） |
