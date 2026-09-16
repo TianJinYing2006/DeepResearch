@@ -13,8 +13,9 @@
 ``Span.Status``（单值后写覆盖）与 ``Span.add_event()``（追加流）—— OTel 两者并存不合并）。
 所以**不合并**，改为立**单向派生契约**：
 
-1. **工具类 5 值**的**唯一产生点是工具层**（``researcher.py`` / ``arxiv.py`` / ``store.py``
-   的 ``except`` 分支），写入 ``SearchResponse.failure_reason``；
+1. **工具类 5 值**的**唯一产生点是工具层**，写入 ``SearchResponse.failure_reason``
+   （外部搜索：``search/bocha.py``、``search/arxiv.py``）或 ``RetrieveResponse.failure_reason``
+   （本地检索：``rag/retriever.py`` + ``rag/store.py`` 的 ``unavailable_reason``）；
 2. ``degradation_log`` 条目的 ``reason`` **必须由 ``failure_reason`` 派生**
    （``DegradationEntry(reason=resp.failure_reason, ...)``），**禁止在同一处手写第二个字面量**
    —— 违反则两处对同一事件的描述会**静默分叉**，比记两次更糟；
@@ -35,7 +36,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import FrozenSet
+from typing import FrozenSet, Optional
 
 
 class FailureReason(StrEnum):
@@ -106,29 +107,29 @@ def is_valid_reason(reason: str) -> bool:
     return reason in ALL_REASONS
 
 
-def classify_tool_exception(exc: BaseException) -> str:
-    """把**工具层**异常归类为工具类 5 值（:data:`TOOL_REASONS`）。
+#: **结果类**原因：不是故障，只是「工具正常执行了但没产出」。
+#: 记在 ``failure_reason`` 里供 planner 当轮决策（换源 / 改查询），但**不进
+#: ``degradation_log``、不推导 ``run_status``** —— 见 :func:`is_fault_reason` 的理由。
+NON_FAULT_REASONS: FrozenSet[str] = frozenset({FailureReason.EMPTY_RESULT.value})
 
-    ⚠️ **这是 Arm 4 的临时替身**：Arm 4 落地后，五处 ``except`` 应改为让 provider
-    返回带 ``failure_reason`` 的 ``SearchResponse``，消费方直接派生
-    （``DegradationEntry(reason=resp.failure_reason, ...)``），本函数届时可删。
 
-    之所以现在要有它：**Arm 1 需要 `degraded` 可达**，而工具层目前仍是「抛异常」语义，
-    没有 ``failure_reason`` 可读。把它收敛到一个函数里，是为了让 Arm 4 的替换面
-    保持在**一处**，且不会在 Arm 1 各落点散落手写字面量。
+def is_fault_reason(reason: Optional[str]) -> bool:
+    """该原因是否应上抛为 **run 级降级**（写 ``degradation_log``）。
+
+    ⚠️ 决策 **D-03**：``empty_result`` **不算故障**。
+
+    理由（不是偏好，是算术）：``ResearchState.resolve_run_status()`` 的规则是
+    「``degradation_log`` 非空 + 有报告 ⇒ ``degraded``」。一个多跳研究流程里
+    「某次检索零命中」几乎必然发生，若把它写成降级条目，**几乎每轮 run 都会是
+    ``degraded``**，``run_status`` 就不再是健康度信号，Arm 1 的「故障可归因」也就
+    退化成噪声。零命中是**结果**，未配置 / 超时 / provider 错 / 解析错才是**故障**。
+
+    想翻转这条口径，只需把 ``empty_result`` 从 :data:`NON_FAULT_REASONS` 里移除 ——
+    **一处定义、全局生效**，不要在调用点散落 `!= "empty_result"` 的判断。
     """
-    name = type(exc).__name__.lower()
-    msg = f"{name}: {exc}".lower()
-
-    if "timeout" in name or "timeout" in msg or "timed out" in msg:
-        return FailureReason.TIMEOUT.value
-    if "json" in name or "parse" in name or "decode" in msg:
-        return FailureReason.PARSE_ERROR.value
-    if any(k in msg for k in ("api key", "apikey", "not configured", "no provider", "401", "403")):
-        return FailureReason.NOT_CONFIGURED.value
-    if any(k in msg for k in ("429", "rate limit", "rate_limit", "5xx", "500", "502", "503", "504")):
-        return FailureReason.PROVIDER_ERROR.value
-    return FailureReason.PROVIDER_ERROR.value
+    if reason is None:
+        return False
+    return reason not in NON_FAULT_REASONS
 
 
 def classify_exception(exc: BaseException) -> str:

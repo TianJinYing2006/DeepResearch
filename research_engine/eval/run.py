@@ -29,8 +29,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from research_engine.eval.aggregate import compute_metrics, sum_tokens_from_raw
 from research_engine.eval.metrics import _make_judge, compute_all, compute_cost
 from research_engine.eval.provenance import UNKNOWN, code_revision, run_provenance
+from research_engine.eval.quality import (
+    DEFAULT_THRESHOLDS,
+    DEPRECATED_COUNT_KEYS,
+    QualityThresholds,
+    evaluate_run_verdict,
+)
 from research_engine.graph import create_graph
 from research_engine.llm.client import LLMClient
 
@@ -240,8 +247,17 @@ def _evaluate_one(row: Dict[str, Any], raw: Dict[str, Any], judge, eval_dir: Pat
     }
 
 
-def phase2(dataset: Dict[str, Any], run_dir: Path, force_revalidate: bool = False) -> Dict[str, Any]:
-    """Phase 2：读 raw 跑七指标；断点续跑（跳过已有 eval）；产出 summary + 报告。"""
+def phase2(
+    dataset: Dict[str, Any],
+    run_dir: Path,
+    force_revalidate: bool = False,
+    thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
+) -> Dict[str, Any]:
+    """Phase 2：读 raw 跑七指标；断点续跑（跳过已有 eval）；产出 summary + 报告。
+
+    ``thresholds``（Arm 5 §5.5.1）：run 级质量闸阈值**外置为参数** ——
+    默认组只在代码里，需求文档不写死数字；调用方可传自己的阈值而无需改文档。
+    """
     rows = {r["id"]: r for r in dataset["rows"]}
     meta = dataset["meta"]
     raw_dir = run_dir / "raw"
@@ -274,7 +290,7 @@ def phase2(dataset: Dict[str, Any], run_dir: Path, force_revalidate: bool = Fals
         )
         results.append(res)
 
-    summary = _summarize(results, meta, run_dir)
+    summary = _summarize(results, meta, run_dir, thresholds=thresholds)
     (run_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
 
     from research_engine.eval.report_gen import generate_report  # 延迟导入避免环
@@ -316,26 +332,95 @@ def _provenance_from_raw(run_dir: Path) -> Dict[str, Any]:
 
 
 def _read_phase1_cost(run_dir: Path) -> Dict[str, Any]:
-    """读 Phase1 全局成本快照（类级桶，收尾统一抓——并发下单条不可归因）。"""
+    """读 Phase1 全局成本快照（类级桶，收尾统一抓——并发下单条不可归因）。
+
+    ⚠️ **W8 已知缺陷 D1 修复**：改造前文件缺失时返回 ``{}`` ⇒ 调用方直接取
+    ``{"total_tokens": 0, "total_cost": 0.0}``，**shape 与真实结果完全相同、无任何标记**，
+    下游永远发现不了（before 基线第 3 轮就是这样丢了 ¥0.95：raw 里 1,017,784 token
+    却记 cost=¥0）。现在改为**显式降级**，绝不静默返 0。
+    """
     p = run_dir / "phase1_global_stats.json"
+    data: Dict[str, Any] = {}
     if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
-    return {}
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+    if data:
+        return {"stats": data, "degraded": False, "basis": "phase1_global_stats", "reason": ""}
+    return {
+        "stats": None,
+        "degraded": True,
+        "basis": "missing",
+        "reason": "phase1_global_stats.json 缺失或为空（常见于进程中断），无法按模型拆分成本",
+    }
 
 
-def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Path) -> Dict[str, Any]:
-    """聚合汇总：N 完整 / M 部分 / K 失败 + 七指标均值/合计（Q4 报告口径不混数字）。"""
-    # Phase1 全局成本（类级桶快照，收尾统一抓；并发下单条成本不可归因，走全局口径）
-    ph1 = _read_phase1_cost(run_dir)
+def _build_cost_block(run_dir: Path) -> Dict[str, Any]:
+    """组装成本块；缺失时降级为 raw 累加 + 显式 ``cost_degraded`` 标记。"""
+    info = _read_phase1_cost(run_dir)
+    if not info["degraded"]:
+        st = info["stats"]
+        cg = compute_cost(
+            st.get("model_io_stats") or {}, st.get("model_stats") or {}, st.get("role_stats") or {}
+        )
+        return {
+            "total_tokens": cg["total_tokens"],
+            "cost_yuan": cg["total_cost"],
+            "per_model": cg["per_model"],
+            "per_role": cg["per_role"],
+            "cost_degraded": False,
+            "cost_basis": info["basis"],
+            "cost_degraded_reason": "",
+        }
+    tokens = sum_tokens_from_raw(run_dir)
+    print(
+        f"⚠️ [D1] {run_dir.name}：{info['reason']} ⇒ 成本降级为 raw 累加 "
+        f"（total_tokens={tokens}，cost_yuan 不可重建记为 None），已标 cost_degraded=true",
+        file=sys.stderr,
+    )
+    return {
+        "total_tokens": tokens,
+        # 金额不可重建 —— 用 None 而不是 0.0，否则「没花钱」与「算不出」又分不开了
+        "cost_yuan": None,
+        "per_model": {},
+        "per_role": {},
+        "cost_degraded": True,
+        "cost_basis": "raw_token_sum",
+        "cost_degraded_reason": info["reason"],
+    }
+
+
+def _summarize(
+    results: List[Dict[str, Any]],
+    meta: Dict[str, Any],
+    run_dir: Path,
+    thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
+) -> Dict[str, Any]:
+    """聚合汇总：N 完整 / M 部分 / K 失败 + 七指标**均值与离散度** + run 级质量闸。
+
+    W8 Arm 5：
+
+    * §5.5.1 顶层出 ``verdict`` / ``verdict_reasons``（**只告警不阻断**）；
+    * §5.5.2 ``complete/partial/failed`` → ``metrics_ok/metrics_partial/metrics_failed``，
+      旧键**同时写入**并标 deprecated（兼容 `tools/w7_backfill_*.py` 与历史趋势表）；
+    * §5.5.4 ``metrics_stderr`` 每个指标并列输出 bootstrap stderr + 有效题数 n。
+    """
     # W8 §10.4：provenance 取**跑批时刻**（存在 raw 里那份），不是汇总时刻现抓
     _prov = _provenance_from_raw(run_dir)
-    cost_global = (
-        compute_cost(ph1.get("model_io_stats") or {}, ph1.get("model_stats") or {}, ph1.get("role_stats") or {})
-        if ph1 else {"total_tokens": 0, "total_cost": 0.0, "per_model": {}, "per_role": {}}
-    )
+    cost_block = _build_cost_block(run_dir)
+
     if not results:
-        return {"run_dir": str(run_dir), "total": 0, "complete": 0, "partial": 0, "failed": 0,
-                "metrics_mean": {}, "cost_total": {}, "struct": {}, "eval_tokens": LLMClient.tokens_total,
+        verdict, verdict_reasons = evaluate_run_verdict({}, {}, 0, thresholds)
+        return {"run_dir": str(run_dir), "total": 0,
+                "metrics_ok": 0, "metrics_partial": 0, "metrics_failed": 0,
+                "complete": 0, "partial": 0, "failed": 0,  # deprecated（见 DEPRECATED_COUNT_KEYS）
+                "deprecated_keys": DEPRECATED_COUNT_KEYS,
+                "verdict": verdict, "verdict_reasons": verdict_reasons,
+                "metrics_mean": {}, "metrics_stderr": {}, "cost_total": {}, "struct": {},
+                "cost_phase1_total": cost_block,
+                "cost_degraded": cost_block["cost_degraded"],
+                "eval_tokens": LLMClient.tokens_total,
                 "git_commit": _prov["git_commit"], "git_dirty": _prov["git_dirty"],
                 "git_diff_hash": _prov["git_diff_hash"], "config_snapshot": _prov["config_snapshot"]}
 
@@ -343,50 +428,31 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
     partial = [r for r in results if r.get("status") == "partial"]
     failed = [r for r in results if r.get("status") != "ok" and r.get("status") != "partial"]
 
-    def _avg(key: str, subkey: Optional[str] = None) -> float:
-        vals = []
-        for r in results:
-            m = (r.get("metrics") or {}).get(key)
-            if isinstance(m, dict) and subkey:
-                v = m.get(subkey)
-                if isinstance(v, (int, float)):
-                    vals.append(v)
-            elif isinstance(m, (int, float)):
-                vals.append(m)
-        return round(sum(vals) / len(vals), 4) if vals else 0.0
+    # 指标聚合的**一处定义**（`eval/aggregate.py`）——离线回填脚本共用，避免两处口径分叉
+    metrics_mean, metrics_stderr = compute_metrics(results)
 
-    # 反思有效性占比：结构性口径（critic_stop / 有 stop_type 的条）——_avg 对 dict 字段不适用，单独算
-    stop_rows = [r for r in results if (r.get("metrics") or {}).get("reflection", {}).get("stop_type")]
-    critic_stops = sum(
-        1 for r in stop_rows
-        if (r.get("metrics") or {}).get("reflection", {}).get("stop_type") == "critic_stop"
-    )
-    reflection_rate = (critic_stops / len(stop_rows)) if stop_rows else 0.0
+    counts = {"metrics_ok": len(complete), "metrics_partial": len(partial), "metrics_failed": len(failed)}
+    verdict, verdict_reasons = evaluate_run_verdict(metrics_mean, counts, len(results), thresholds)
+
     return {
         "run_dir": str(run_dir),
         "run_id": run_dir.name,
         "total": len(results),
-        "complete": len(complete),
-        "partial": len(partial),
-        "failed": len(failed),
-        "metrics_mean": {
-            "completion_rate": _avg("completion", "complete"),
-            "citation_accuracy": _avg("citation", "fidelity_rate"),  # W2 忠实度口径
-            "citation_accuracy_relaxed": _avg("citation", "relaxed_rate"),  # W7 TBD-5 宽松口径
-            "existence_rate": _avg("citation", "existence_rate"),
-            "coverage": _avg("coverage", "coverage"),
-            "retrieval_hit_rate": _avg("retrieval_hit", "retrieval_hit_rate"),
-            "avg_steps": _avg("steps", "steps"),
-            "reflection_critic_stop_rate": round(reflection_rate, 4),
-            # W7 技术债③ 次要指标（只看不判）：报告「信息不足」标注小节占比
-            "insufficient_marker_ratio": _avg("insufficient", "marker_ratio"),
-        },
-        "cost_phase1_total": {
-            "total_tokens": cost_global["total_tokens"],
-            "cost_yuan": cost_global["total_cost"],
-            "per_model": cost_global["per_model"],
-            "per_role": cost_global["per_role"],
-        },
+        # §5.5.2 新键
+        "metrics_ok": counts["metrics_ok"],
+        "metrics_partial": counts["metrics_partial"],
+        "metrics_failed": counts["metrics_failed"],
+        # 旧键同时写入（deprecated）—— 兼容 docs/eval-report.md 历史趋势表与 tools/w7_backfill_*.py
+        "complete": counts["metrics_ok"],
+        "partial": counts["metrics_partial"],
+        "failed": counts["metrics_failed"],
+        "deprecated_keys": DEPRECATED_COUNT_KEYS,
+        # §5.5.1 run 级质量闸（只告警不阻断）
+        "verdict": verdict,
+        "verdict_reasons": verdict_reasons,
+        "metrics_mean": metrics_mean,
+        "metrics_stderr": metrics_stderr,
+        "cost_phase1_total": cost_block,
         "cost_phase2_judge_tokens": LLMClient.tokens_total,
         # W8 §10.4 第 2 条：config 快照进 summary.json（每轮都记，不再只写 baseline 一次）
         "git_commit": _prov["git_commit"],
@@ -399,6 +465,25 @@ def _summarize(results: List[Dict[str, Any]], meta: Dict[str, Any], run_dir: Pat
 
 
 # ---------- CLI ----------
+
+def _parse_thresholds(raw: Optional[str]) -> QualityThresholds:
+    """解析 `--thresholds-json`（Arm 5 §5.5.1：阈值外置，改数字不必改需求文档）。"""
+    if not raw:
+        return DEFAULT_THRESHOLDS
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        raise SystemExit(f"--thresholds-json 不是合法 JSON：{e}")
+    if not isinstance(data, dict):
+        raise SystemExit("--thresholds-json 必须是 JSON 对象")
+    known = {
+        "completion_rate_min", "citation_accuracy_min", "avg_steps_min", "failed_ratio_max",
+    }
+    unknown = sorted(set(data) - known)
+    if unknown:
+        raise SystemExit(f"--thresholds-json 含未知字段 {unknown}；可用字段：{sorted(known)}")
+    return QualityThresholds(**data)
+
 
 def _latest_run_dir() -> Path:
     if not RESULTS_DIR.exists():
@@ -418,6 +503,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument("--timeout-s", type=float, default=TASK_TIMEOUT_S, dest="timeout_s")
     parser.add_argument("--force-revalidate", action="store_true", help="Q8 逃生门：强制重新 running validator 校验")
+    parser.add_argument(
+        "--thresholds-json",
+        default=None,
+        help="Arm 5 §5.5.1 质量闸阈值（JSON 对象，覆盖默认组）；"
+             "字段：completion_rate_min / citation_accuracy_min / avg_steps_min / failed_ratio_max",
+    )
     args = parser.parse_args(argv)
 
     if not args.dataset.exists():
@@ -443,7 +534,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if do_phase2:
         print(f"📊 Phase 2 开始：{run_dir}")
-        summary = phase2(dataset, run_dir, force_revalidate=args.force_revalidate)
+        summary = phase2(
+            dataset, run_dir,
+            force_revalidate=args.force_revalidate,
+            thresholds=_parse_thresholds(args.thresholds_json),
+        )
         print(json.dumps(summary, ensure_ascii=False, indent=1))
     return 0
 

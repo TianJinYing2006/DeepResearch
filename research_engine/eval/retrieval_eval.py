@@ -31,8 +31,8 @@ class RetrievalEvaluator:
         per_query = []
 
         for query, expected_keywords in queries:
-            hits = self.retriever.retrieve(query, top_k=top_k)
-            hit_texts = " ".join(h["text"] for h in hits)
+            resp = self.retriever.retrieve(query, top_k=top_k)  # W8 Arm 4：RetrieveResponse
+            hit_texts = " ".join(h["text"] for h in resp.items)
             hit = any(kw in hit_texts for kw in expected_keywords)
             if hit:
                 hit_count += 1

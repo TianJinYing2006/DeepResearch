@@ -15,9 +15,10 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
-from research_engine.failure_reasons import (  # W8 Arm 1
+from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     FailureReason,
-    classify_tool_exception,
+    classify_exception,
+    is_fault_reason,
 )
 from research_engine.rag.retriever import HybridRetriever
 from research_engine.search.arxiv import ArxivSearchProvider
@@ -101,53 +102,66 @@ class Researcher:
         """网络搜索。失败 → 空列表（Q1 并行 + Q4 读型 retries=1 在调度层）。"""
         try:
             resp = self.search.search(query, max_results=8)
-            findings = []
-            for r in resp.results:
-                content = f"{r.title}\n{r.snippet}"
-                findings.append(
-                    ResearchFinding(
-                        content=_truncate_head(content, WEB_SNIPPET_MAX),
-                        source=r.url,
-                        source_type="web",
-                        confidence=0.6,
-                        is_meta=_is_meta_content(content),
-                        metadata=r.metadata or {},
-                    )
-                )
-            return findings
         except Exception as e:  # noqa: BLE001
-            # W8 Arm 1：fallback 前留痕（原先是静默返回 []，事后不可归因）
-            self._record_degradation("web_search", classify_tool_exception(e), detail=str(e))
+            # Arm 4 后 provider 已结构化返回失败原因；能抛到这里的属**未预期**内部错误，
+            # 按非工具类归类（llm_error/token_limit/recursion_limit/internal），
+            # 不再凭异常文本猜工具层 5 值。
+            self._record_degradation("web_search", classify_exception(e), detail=str(e))
             return []
+        # 单向派生：reason 直接取 resp.failure_reason，禁止在此手写第二个字面量
+        if is_fault_reason(resp.failure_reason):
+            self._record_degradation("web_search", resp.failure_reason, detail=resp.failure_detail)
+        findings = []
+        for r in resp.results:
+            content = f"{r.title}\n{r.snippet}"
+            findings.append(
+                ResearchFinding(
+                    content=_truncate_head(content, WEB_SNIPPET_MAX),
+                    source=r.url,
+                    source_type="web",
+                    confidence=0.6,
+                    is_meta=_is_meta_content(content),
+                    metadata=r.metadata or {},
+                )
+            )
+        return findings
 
     def _search_rag(self, query: str) -> List[ResearchFinding]:
-        """RAG 知识库检索（去重契约：source=rag:<filename>，Q8 教训防饿死）。"""
+        """RAG 知识库检索（去重契约：source=rag:<filename>，Q8 教训防饿死）。
+
+        W8 Arm 4（决策 D-02）：retriever 返回 :class:`RetrieveResponse` ——
+        ``[]`` 不再同时表达「没命中」与「向量库不可用」。故障条目**单向派生**自
+        ``resp.faults()``；**零命中（``empty_result``）不进降级日志**（D-03）。
+        """
         try:
-            hits = self.retriever.retrieve(query, top_k=5)
-            findings = []
-            for h in hits:
-                doc = h.get("doc") or h.get("source") or "unknown"
-                text = h["text"]
-                findings.append(
-                    ResearchFinding(
-                        content=text,  # 源 chunk_size=800 已控，Q5 不再截
-                        source=f"rag:{doc}",
-                        source_type="rag",
-                        confidence=0.7,
-                        is_meta=_is_meta_content(text),
-                    )
-                )
-            return findings
+            resp = self.retriever.retrieve(query, top_k=5)
         except Exception as e:  # noqa: BLE001
-            self._record_degradation("rag_search", classify_tool_exception(e), detail=str(e))
+            # 同上：能抛到这里的属未预期内部错误，按非工具类归类
+            self._record_degradation("rag_search", classify_exception(e), detail=str(e))
             return []
+        for bf in resp.faults():
+            component = "rag_search" if bf.backend == "all" else f"rag_search:{bf.backend}"
+            self._record_degradation(component, bf.reason, detail=bf.detail)
+        findings = []
+        for h in resp.items:
+            doc = h.get("doc") or h.get("source") or "unknown"
+            text = h["text"]
+            findings.append(
+                ResearchFinding(
+                    content=text,  # 源 chunk_size=800 已控，Q5 不再截
+                    source=f"rag:{doc}",
+                    source_type="rag",
+                    confidence=0.7,
+                    is_meta=_is_meta_content(text),
+                )
+            )
+        return findings
 
     def _search_arxiv(self, query: str) -> List[ResearchFinding]:
         """arXiv 学术检索（Q3：provider 已 relevance 排序 + 3s 限流）。"""
-        resp = self.arxiv.search(query)  # provider 内部失败返回空
-        # W8 Arm 1：provider 内部失败返回空 SearchResponse，Arm 4 落地后会有 failure_reason；
-        # 现阶段按「无结果」记一条，保证「检索为空」与「检索失败」不再混为一谈。
-        if getattr(resp, "failure_reason", None):
+        resp = self.arxiv.search(query)  # provider 内部失败返回带 failure_reason 的空响应
+        # 单向派生：reason 直接取 resp.failure_reason。零命中（empty_result）不上抛降级（D-03）。
+        if is_fault_reason(resp.failure_reason):
             self._record_degradation(
                 "arxiv_search", resp.failure_reason, detail=getattr(resp, "failure_detail", "")
             )
