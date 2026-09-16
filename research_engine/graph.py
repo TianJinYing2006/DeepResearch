@@ -30,6 +30,7 @@ from research_engine.agents.validator import Validator
 from research_engine.agents.writer import Writer
 from research_engine.context.manager import ContextManager
 from research_engine.critic import Critic, route_critic
+from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
 from research_engine.observability import (  # W3：可观测层（Q1~Q7）
     create_trace_id,
@@ -54,6 +55,9 @@ class DeepResearchGraph:
         self.renderer = ReportRenderer()  # W2：validate 后渲染可审计展示版（Q1=A 挂 validate→END）
         self.trace_id: str | None = None  # W3（Q2/Q5）：本次运行的 Langfuse trace id（CLI 收尾回显用）
         self.tokens_diff: int | None = None  # W3（Q3=D'）：本次 run 的对账差值（漏传 state 累计）
+        # W8 Arm 1（§5.1.4）：异常退出契约 —— 保留原始异常对象供调试。
+        # run() 不再 re-raise（改为返回 run_status="failed" 的 state），故调用方只能从这里取到异常。
+        self.last_exception: BaseException | None = None
         self.graph = self._build()
 
     def _build(self):
@@ -261,6 +265,9 @@ class DeepResearchGraph:
             "citations": citations,
             "validator_stats": dict(self.validator.last_validation_stats),
             "status": "done",
+            # W8 Arm 1（§5.1.2 判定规则）：此处节点内的降级记录已由各节点经 reducer 追加进
+            # state.degradation_log，故直接按「tracker 是否为空 + 有无报告」推导 run_status。
+            "run_status": state.resolve_run_status(has_report=bool(state.report)),
             "token_used": state.token_used,  # Q6-B：validator 的 LLM token 累计写回
             "progress": [
                 {"stage": "validate",
@@ -277,6 +284,8 @@ class DeepResearchGraph:
         return {
             "report_display": display,
             "status": "done",
+            # W8 Arm 1：与 _validate 同源判定（幂等，两次结果一致）
+            "run_status": state.resolve_run_status(has_report=bool(state.report)),
             "progress": [{"stage": "render", "msg": "溯源渲染完成：类型标注+失败隔离+运行溯源"}],
         }
 
@@ -301,18 +310,74 @@ class DeepResearchGraph:
                "recursion_limit": config.research.max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
         token_base = LLMClient.tokens_total  # Q3=D'：run 级对账基线（类级累计跨 run 增长）
+        self.last_exception = None
         lf = get_langfuse()
-        if lf is None or not self.trace_id:
-            result = self.graph.invoke(initial, cfg)
-        else:
-            with start_trace(self.trace_id, topic, thread_id=thread_id,
-                             user_instructions=user_instructions):
+        try:
+            if lf is None or not self.trace_id:
                 result = self.graph.invoke(initial, cfg)
+            else:
+                with start_trace(self.trace_id, topic, thread_id=thread_id,
+                                 user_instructions=user_instructions):
+                    result = self.graph.invoke(initial, cfg)
+        except Exception as exc:  # noqa: BLE001 —— §5.1.4：把异常转成结构化状态，不吞
+            # ⚠️ 这是 run_status="failed" 的**唯一落点**（Q4 B1 取证：图结构下无其他可达路径）。
+            # 处置五件套，缺一不可：① run_status=failed ② degradation_log 条目
+            # ③ 结构化 error ④ CLI 非零退出（cli.py）⑤ trace 由 finally flush（W3 Q5 机制，
+            # self.trace_id 在 invoke 前已赋值 ⇒ 异常路径同样可取到）。
+            self.last_exception = exc
+            result = self._recover_from_exception(exc, cfg, initial)
         if isinstance(result, dict):
             result = ResearchState(**result)
         # Q3=D'：基线对齐后差值 = 本次 run 中"调用 LLM 但未传 state"的 token 累计
+        # ⚠️ 异常路径同样会走到这里 ⇒ 兜底 state 必须保证 token_used 有默认值（Pydantic 默认 0），
+        # 否则「转为结构化状态」会变成「换个地方崩」。
         self.tokens_diff = (LLMClient.tokens_total - token_base) - result.token_used
         return result
+
+    def _recover_from_exception(
+        self,
+        exc: BaseException,
+        cfg: Dict[str, Any],
+        initial: ResearchState,
+    ) -> ResearchState:
+        """§5.1.4 兜底：异常后捞回 checkpoint，构造 `run_status="failed"` 的 state。
+
+        **绝不返回 None**（`run()` 的返回契约是 ResearchState）。
+
+        捞回顺序：① ``get_state(cfg).values`` 取最后一个 checkpoint（MemorySaver 已启用，
+        ``_build()`` 里 ``g.compile(checkpointer=MemorySaver())``）；② 为空或自身抛错
+        （如第一个节点就炸、compile/配置错误）⇒ 构造最小 state。
+        """
+        values: Dict[str, Any] = {}
+        try:
+            snapshot = self.graph.get_state(cfg)
+            # ⚠️ 坑（2026-09-16 预检）：未 invoke 过的 thread 返回的是**空 dict `{}` 而非 None**
+            # ⇒ 只判 `is None` 会漏，必须 `or {}`。
+            values = (getattr(snapshot, "values", None) or {})  # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001 —— get_state 自身也可能炸，不得让兜底变成二次崩溃
+            values = {}
+
+        # 只保留 ResearchState 认识的字键，避免 checkpoint 里的额外键导致构造失败。
+        known = set(ResearchState.model_fields)
+        state = ResearchState(**{k: v for k, v in values.items() if k in known}) if values else None
+        if state is None:
+            state = ResearchState(
+                topic=initial.topic,
+                user_instructions=initial.user_instructions,
+            )
+
+        code = classify_exception(exc)
+        state.set_error(code=code, message=str(exc)[:500], node=None)
+        state.add_degradation(
+            node="run",
+            component="graph",
+            reason=code,
+            detail=f"{type(exc).__name__}: {exc}"[:500],
+            fallback_action="none",
+        )
+        # status 字段（旧的状态机字段）同步为 failed，保持与 run_status 不矛盾。
+        state.status = "failed"
+        return state
 
 
 def create_graph() -> DeepResearchGraph:

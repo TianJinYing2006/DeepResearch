@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -23,9 +23,30 @@ class SearchResult:
 
 @dataclass
 class SearchResponse:
-    """搜索响应。"""
+    """搜索响应。
+
+    W8 Arm 1 前置（Q8 拍板）：新增 `failure_reason` —— **工具层 5 值的唯一产生点**。
+
+    与 Arm 1 的 `degradation_log` 是**两个消费方，不是两份拷贝**（Q8 B4）：
+    本字段面向**下游节点**（planner 当轮决策），**同步、一次调用即覆盖**；
+    `degradation_log` 面向**事后审计**，**异步、run 级追加**。同构于 OTel 的
+    `Span.Status`（单值后写覆盖）与 `add_event()`（追加流）。
+
+    **单向派生契约**：`DegradationEntry.reason` 必须取本字段的值，
+    **禁止在消费处手写第二个字面量** —— 否则两处对同一事件的描述会静默分叉。
+    """
     query: str
     results: List[SearchResult] = field(default_factory=list)
+    #: 失败原因枚举（仅 :data:`research_engine.failure_reasons.TOOL_REASONS` 5 值）；
+    #: 成功时为 `None`。由本模块（工具层）产生，其他层不得凭空构造。
+    failure_reason: Optional[str] = None
+    #: 自由文本补充（原始异常摘要等），可为空；仅用于排障，不参与枚举统计。
+    failure_detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        """是否成功（无失败原因）。"""
+        return self.failure_reason is None
 
 
 class SearchProvider(ABC):

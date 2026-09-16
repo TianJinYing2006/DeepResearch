@@ -425,7 +425,9 @@ def generate_report(
         + (f" {((r.get('metrics') or {}).get('cost') or {}).get('total_tokens', '')}tok"
            f" ¥{((r.get('metrics') or {}).get('cost') or {}).get('total_cost', '')}"
            if r.get("metrics") else "")
-        + (f" error={r.get('error')[:200]}" if r.get("error") else "")
+        # W8 Arm 1：`error` 已由 Optional[str] 改为结构化 Dict{code,message,node}
+        # ⇒ dict 不可切片，直接 [:200] 会 TypeError。统一走 str() 再截断。
+        + (f" error={str(r.get('error'))[:200]}" if r.get("error") else "")
         for r in anomalies
     ) or "- 无"
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from research_engine.graph import create_graph
 from research_engine.observability import (  # W3（Q4/Q5/Q6）：知情打印 + flush/URL + 成本
@@ -14,6 +15,7 @@ from research_engine.observability import (  # W3（Q4/Q5/Q6）：知情打印 +
     format_cost_report,
     status_line,
 )
+from research_engine.state import RUN_STATUS_FAILED  # W8 Arm 1（§5.1.4 五件套之④）
 
 
 def main():
@@ -39,6 +41,17 @@ def main():
                 print(f"🔗 Trace URL: {url}")
             else:
                 print("⚠️ Trace URL 不可用（观测未初始化或 flush 未尽，见日志）")
+
+    # W8 Arm 1（§5.1.4 五件套之④）：run() 已改为「返回 state 而不 re-raise」，
+    # 若不在此处判 failed 退出，脚本化调用将**静默当作成功** —— 那是把异常换个地方吞掉。
+    if result.run_status == RUN_STATUS_FAILED:
+        err = result.error or {}
+        print(f"\n❌ 研究失败：run_status=failed"
+              f"（code={err.get('code', 'unknown')}，node={err.get('node')}）"
+              f"\n   {err.get('message', '')}", file=sys.stderr)
+        for entry in result.degradation_log:
+            print(f"   · 降级：{entry.node}/{entry.component} reason={entry.reason}"
+                  f" detail={entry.detail}", file=sys.stderr)
 
     if args.json:
         print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
@@ -67,9 +80,9 @@ def main():
     else:
         print(f"✅ [对账] 本 run 本地 token 计数与预算口径一致（{result.token_used:,} tokens）")
 
-
-if __name__ == "__main__":
-    main()
+    # 五件套之④ 收口：失败必须以非零码退出，否则脚本化调用方（CI/批处理）无法感知。
+    if result.run_status == RUN_STATUS_FAILED:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
