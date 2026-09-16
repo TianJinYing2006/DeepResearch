@@ -447,18 +447,18 @@ W5 已记录：*「引用忠实度/命中率波动大——真实 API 检索结�
 
 ### Arm 3 —— 技术债② validator 五项修复 + 双口径（TBD-4/5）
 
-| 项 | 内容 |
-|---|---|
-| 改动文件 | `research_engine/agents/validator.py`（核心）、`research_engine/state.py`（Citation 字段）、`research_engine/render.py` + `cli.py` + `web/app.py`（呈现）、`research_engine/eval/metrics.py`（口径统计） |
-| F1 去截断 | `validator.py:185` `claim: {r['claim'][:100]}` → **去掉 `[:100]`**（LLM input 侧；`citations_json` 行只截 source 字段不截 claim）；`claim` 最长 195、中位 51，可整送 |
+| 项 | 内容 | 治哪个 |
+|---|---|---|
+| 改动文件 | `research_engine/agents/validator.py`（核心）、`research_engine/state.py`（Citation 字段）、`research_engine/render.py` + `cli.py` + `web/app.py`（呈现）、`research_engine/eval/metrics.py`（口径统计） |  |
+| F1 去截断 | `validator.py:185` `claim: {r['claim'][:100]}` → **去掉 `[:100]`**（LLM input 侧；`citations_json` 行只截 source 字段不截 claim）；`claim` 最长 195、中位 51，可整送 |  |
 | F2 回显对齐 | `CitationVerdictItem` 增 `claim_echo: str` 字段（RAGAS 式回显原文，字段名同 §5.2 表格）；LLM 输出必须逐字回显原 claim；`validator.py:207-212` 对齐时做**模糊比对**（如编辑距离比 <0.6）→ 不一致标 `verdict_unreliable`，**降级为"未获 LLM 反馈"保守通过并留痕**（不静默判 false） | 治 **R1** verdict/claim 错位 |
 | F3 非论断过滤 | `validator.py:108-123` `_extract_citations` 后置过滤：拒绝**非论断句**（如"本节将…""综上所述""如图…"等元话语/过渡句、markdown 表格残片、纯标题、长度 <8 字符、无谓语片段）进 LLM 校验通道（纯规则/正则白名单，零 LLM） | 治 **R4** claim 抓到非论断内容 |
 | F4 保留上下文 | `_claim_text`（validator.py:90-106）改为"**最近句子边界 + 前一句主语兜底**"：当截断后 claim 无主语/缺主语时，自动前补前一句主语，使论断自包含（满足 RAGAS "no pronouns / self-contained"） | 治 **R5** claim 丢失主语 |
 | F5 判定措辞 | `VALIDATOR_SYSTEM`（validator.py:32-55）追加：明确"能否**直接由该来源推断**"作为 faithful 标准（比"不夸大不曲解"更可判定），含明确数值/日期/名称的算术推断视为忠实 | 治判定一致性 |
 | TBD-5 双口径 | `state.py:47` `Citation` 加 `verified_relaxed: bool`（= `existence AND (faithful OR supported)` 推导，**默认 false**），用于呈现与解释；`verified` 语义保持 W2 契约 `existence AND faithful` 不变；`metrics.py` 统计键拆分 `citation_accuracy`（严格）与 `citation_accuracy_relaxed`；`render.py` 报告溯源块/CLI 汇总/R2 呈现同步标注两口径 | 治 **R3** supported=true 但未计入 strict 口径的口径差 |
-| 配套单测 | `tests/test_validator_fixes.py`（新增）：① 长 claim 不截断 → LLM 收到的 claim==原文 ② `claim_echo` 错位 → 标 unreliable 并降级通过留痕 ③ 非论断句/表格残片被过滤 → 不产 LLM 调用 ④ `_claim_text` 无主语 → 自动补主语 ⑤ `verified_relaxed` 在 supported=true 时=true、strict verified=false ⑥ `failed_citations.jsonl` 抽 5 条回归 |
-| 验证 | 单测全绿 + `failed_citations.jsonl` 298 条重跑分类对比（R1~R5 五类占比） |
-| 工时 | ≈**2~3h**（主改 validator.py，双口径呈现层改动小） |
+| 配套单测 | `tests/test_validator_fixes.py`（新增）：① 长 claim 不截断 → LLM 收到的 claim==原文 ② `claim_echo` 错位 → 标 unreliable 并降级通过留痕 ③ 非论断句/表格残片被过滤 → 不产 LLM 调用 ④ `_claim_text` 无主语 → 自动补主语 ⑤ `verified_relaxed` 在 supported=true 时=true、strict verified=false ⑥ `failed_citations.jsonl` 抽 5 条回归 |  |
+| 验证 | 单测全绿 + `failed_citations.jsonl` 298 条重跑分类对比（R1~R5 五类占比） |  |
+| 工时 | ≈**2~3h**（主改 validator.py，双口径呈现层改动小） |  |
 
 ### Arm 4 —— 技术债③ writer 分节喂料 G1~G5（TBD-6）
 
@@ -647,3 +647,4 @@ W5 已记录：*「引用忠实度/命中率波动大——真实 API 检索结�
 | 2026-09-14 | 补齐 | **W7 两个实质缺口（盘点发现）** | ① **TBD-5 报告声明**：`report_gen.py` 新增 `dual_caliber_note`（§3 双口径与人工口径归属：严格 `verified = existence AND faithful` / 宽松 `existence AND (faithful OR supported)` / **W5 人工抽检 83~92% 属宽松口径，与机器严格口径不是同一件事，差异主要是口径差不是 validator 误拒，样本仅 12 条不作真值**）+ 指标表增 `citation_accuracy_relaxed` 行 + §5 人工抽检段加口径提醒；同步 `docs/eval-report.md` 快照。**顺带修 `report_gen.py` 指标表 `''.join(rows_tbl)` 缺换行的 bug**（原生成的表格实际是一整行，会吞掉新增行）。② **技术债③ 次要指标无历史数据**：因 `compute_insufficient` 是纯函数且 `raw/*.raw.json` 保留完整 state ⇒ 新增 `tools/w7_backfill_insufficient.py` **零 API 离线补算** 17/18 run（arm6/Block2 缺格不作 0），产出 `docs/eval-w7-insufficient-backfill.md`。**补算发现**：分节喂料 ON（arm4/arm6）**78.0%** vs OFF（arm0/1/3/5）**36.1%**，差 **+42.0pp**；arm4 区块极差仅 **9.4pp** ≪ coverage 的 20~29pp ⇒ 该指标分辨率显著更高。⚠️ 已写明**事后补算不得判达标**、「承认缺口」≠「幻觉减少」，正确用途是作为 **W8 预注册主指标候选** | `research_engine/eval/report_gen.py` + `tools/w7_backfill_insufficient.py` + `docs/eval-w7-insufficient-backfill.md` + `docs/eval-report.md` + 本文档 |
 | 2026-09-14 | 核实勾选 | **补齐 3 项 DoD 漏勾（盘点发现「文档与实况不符」）** | 三项均**逐条实测核实后才勾**，未凭印象：① `:565` **Arm 3/TBD-4**：F1~F5 全部落地（F1 无 `claim[:100]` 残留 / F2 `claim_echo` + `verdict_unreliable` 降级 / F3 `_is_assertive` 非论断直接 `continue` / F4 代词主语兜底 / F5 判定措辞）+ **零额外 LLM 调用实证**：`validator.py` 全局**仅 1 个**调用点（`:377 client.chat_json`），无循环新增，F3 反而**减少**批量输入。⚠️ **只勾「实现」，达标线仍为不可判定**（见 `:566`）。② `:582` **六臂记录**：`docs/eval-report.md:156` 起确有 §9 专章（9.1 轮次×主指标 / 9.2 配对差值与机械判定 / 9.3 不可比性声明），由 `report_gen.py::_w7_experiment_section()` 机械生成；此前本条未勾而上方「最终判定」表已写 ✅ ⇒ **系漏勾，补勾以消除矛盾**。③ `:583` **契约零破坏**：W1 硬闸（`test_graph_loop.py::test_hard_gate` / `test_hard_gate_short_circuits_llm`、`test_critic_gap.py::test_hard_gate_stop_reason`）+ ADR-0004（`state.py:64` findings **无 `Annotated`/reducer**、`graph.py:13` 明示「不加 reducer 保持覆写」，合并由节点显式 `list(state.findings) + new_findings` 完成）+ ADR-0005（`test_multi_number_citation.py` + `test_citation_audit.py` Q4 防线）；**相关 31 项 + 全量 132 项全绿** | 本文档 |
 | 2026-09-14 | 收口 | **W7 完整收口：技术债③ 主指标离线补算** | 新增 `tools/w7_backfill_hallucination.py` + `docs/eval-w7-hallucination-backfill.md`。此前主指标（幻觉类占比）**从未被测**（`metrics.py` 无此指标、18 run 亦无）；因 `state.citations` 在 raw 中完整保留且 `classify` 为纯启发式零 API ⇒ **零成本离线重算 17/18 run**（无须重跑 8.6h/¥14）。**结果**：arm4 **8.4%** vs 基线 arm0 **13.1%**，效应 **−4.7pp** ⇒ ❌ 未达 −10pp 门槛，且 **效应绝对值 4.7pp < arm4 噪声 6.2pp** ⇒ 仍不可判定（**根因是分辨率不足，不是缺数据**）。🔴 两处关键发现：① **`arm6` = 0.0% 是假象** —— turbo 的 note 退化成固定模板（几乎全是「来源不存在于研究发现」，无内容判据）致分类完全失效，这是「**被测兼任裁判**」的直接实证；② **`arm3` 该指标失真**（极差 12.2pp）—— 改判定器的臂会扭曲任何**分母依赖型**指标。**正向收获**：主指标（幻觉 ↓4.7pp）与次要指标（信息不足标注率 ↑42pp）**两个独立指标方向互证**。同步更新 `docs/eval-w7-conclusion.md` §8.3 + §9 归档清单；DoD `:572` 补实测数据、`:573` 勾「诚实标注」 | `tools/w7_backfill_hallucination.py` + `docs/eval-w7-hallucination-backfill.md` + `docs/eval-w7-conclusion.md` + 本文档 |
+| 2026-09-16 | 修复 | **§6 Arm 3 表格列数错乱修正（纯格式，零内容改动）** | W8 期间新增 `tools/check_md_tables.py`（校验 markdown 各连续表格块内单元格数一致）后回扫发现：§6「Arm 3 —— 技术债② validator 五项修复 + 双口径」的表头声明 **2 列**（`项` / `内容`），但 **F2 / F3 / F4 / F5 / TBD-5 五行实际写成了 3 个单元格**（末尾多出一列「治 **R1** / **R4** / **R5** / 判定一致性 / **R3**」）⇒ 该 5 行渲染错位。修法：**表头补第三列「治哪个」**，缺该列的 5 行补空单元格（与同文档姊妹表「修复项 / 具体改动 / 治哪个 / 成本」的四列口径一致）。**所有既有文字一字未删、历史行只补记未改动** | `tools/check_md_tables.py`（新增）+ 本文档 |

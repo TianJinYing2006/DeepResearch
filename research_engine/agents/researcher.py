@@ -12,7 +12,6 @@ W4 重构（grill Q1/Q5/Q6/Q8）：
 """
 from __future__ import annotations
 
-import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
@@ -167,12 +166,13 @@ class Researcher:
         return findings
 
     def _search_code(self, query: str) -> List[ResearchFinding]:
-        """代码执行（Q1 P2 触发 + Q6 源协议 code:{hash}；失败 note 进 finding 不吞）。"""
-        # 计算型查询 → 当前落地：让 sandbox 跑"打印查询所需数值"的确定性兜底不可行时，
-        # 由上层（未来 LLM 生成脚本）注入；本期沙箱能力先行，脚本生成待 W4 增强。
-        # 这里生成一个针对查询的基础计算脚本（数值/对比类查询的确定性正视），
-        # 输出带 key=value，为 Q6 structured_match 呈现层留数据。
-        script = _default_code_script(query)
+        """代码执行（Q1 P2 触发 + Q6 源协议 code:{hash}；失败 note 进 finding 不吞）。
+
+        W8 Arm 2（§5.2）：脚本**不含** query 文本；query 只经
+        `exec_code(script, query=query)` 进 `script_hash`（保证 50 条 code 证据
+        各自唯一，见 §5.2 预检第 3 条）与 `metadata`，**从不进入被执行的代码**。
+        """
+        script = _default_code_script()
         out = exec_code(script, query=query)
         if out.ok:
             finding = ResearchFinding(
@@ -183,6 +183,7 @@ class Researcher:
                 metadata={
                     "exit_code": 0,
                     "elapsed": round(out.elapsed, 3),
+                    "query": query,  # W8 Arm 2：查询与产出的关联走元数据，不走脚本源码
                     "structured_match": None,  # Q6：validator 后处理填充（不参与判定）
                 },
             )
@@ -191,7 +192,7 @@ class Researcher:
         # W8 Arm 1：代码执行失败同样是降级，留痕（component=code_exec）
         self._record_degradation(
             "code_exec",
-            FailureReason.PARSE_ERROR.value if "解析" in (out.note or "") else FailureReason.PROVIDER_ERROR.value,
+            _classify_code_exec_failure(out.note or ""),
             detail=out.note or "",
             fallback_action="failure_finding",
         )
@@ -202,6 +203,7 @@ class Researcher:
                 source_type="code_exec",
                 confidence=0.2,
                 metadata={"exit_code": out.metadata.get("exit_code"), "note": out.note,
+                          "query": query,  # W8 Arm 2：失败路径同样用元数据关联查询
                           "elapsed": round(out.elapsed, 3)},
             )
         ]
@@ -237,21 +239,40 @@ class Researcher:
 
 # ---- Q1 P2 兜底脚本：数值/对比类查询的确定性计算（无 LLM，纯 stdlib）----
 
-_SIMPLE_NUM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:k|万|亿|×|\*|x)?", re.IGNORECASE)
+
+def _classify_code_exec_failure(note: str) -> str:
+    """把 code_exec 的失败 note 归到 §5.1.2 枚举里的工具类值（不新增枚举值）。
+
+    原先只判「含『解析』→ parse_error，否则 provider_error」，实测偏粗：
+    `exec_code` 的三类真实失败（脚本语法错、超时、运行时非零退出）会被压成同一个值。
+    实测依据（2026-09-16 基线三轮）：144/144 条 code_exec 产出全是失败形态，
+    note 形如 `SyntaxError: invalid syntax` ⇒ 应落 `parse_error`（**脚本**解析失败），
+    原映射会误标 `provider_error`（该值语义是「provider 返回错误」，与脚本自身无关）。
+    """
+    n = note or ""
+    low = n.lower()
+    if "超时" in n or "timeout" in low or "timed out" in low:
+        return FailureReason.TIMEOUT.value
+    if "SyntaxError" in n or "语法" in n or "解析" in n:
+        return FailureReason.PARSE_ERROR.value
+    return FailureReason.PROVIDER_ERROR.value
 
 
-def _default_code_script(query: str) -> str:
-    """为计算型查询生成一个基础计算脚本（当前为确定性模板，未来由 LLM 生成增强）。
+def _default_code_script() -> str:
+    """返回确定性计算脚本模板（当前为固定模板，未来由 LLM 生成增强）。
 
     模板覆盖：序列长度 × 常数 → 数值；打印 key=value（Q6 structured_match 呈现层数据源）。
+
+    W8 Arm 2（§5.2.1）：**本函数不再接收 query，脚本源码里不含任何查询文本**。
+    原实现是 `f"print('query={query!r}')"` —— 把用户可控文本插进**将被执行的代码**里。
+    查询与产出的关联改由 `metadata["query"]` 承载（见 `_search_code`），
+    执行证据仍靠 `exec_code(script, query=query)` 进 `script_hash` 区分（§5.2 预检第 3 条）。
     """
-    # 数值抽取占位（未来由 LLM 增强生成脚本时启用）
     return (
         "import math\n"
         "n = 8192\n"
-        "flops_per_token = 6 * n * 2  # 保守系数\n"
+        "flops_per_token = 6 * n * 2\n"
         "total_flops = n * flops_per_token\n"
-        f"print('query={query!r}')\n"
         "print('sequence_length=' + str(n))\n"
         "print('approx_flops=' + '{:.3e}'.format(total_flops))\n"
     )

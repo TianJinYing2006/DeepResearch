@@ -50,7 +50,7 @@
 | **前置** | **§10.4** `_config_snapshot` 记 5 开关生效值 + 每轮都记 | **P0** | 阻塞**所有**基线采集；**收益随时间衰减**（越晚做，可回溯的 run 越少） | ✅ **2026-09-15 代码已实现**（`eval/provenance.py`；ruff 绿、146 测试通过）；仅剩「基线读回一致性」验收随 before 基线做 |
 | **基线** | **before 基线**（主链路，20 题 × 3 runs ≈¥4 / 3.6h） | **P0** | §10.4；**⚠️ 且必须在 Arm 1~7 任一改动落地前采**，否则永久错过 | ⬜ |
 | Arm | **Arm 1** 状态分层（三态 + §5.1.4 异常退出契约 + 失败原因枚举共用 + `error` 结构化 + `operator.add` reducer） | P0 | — | ⬜ 设计已定（Q4） |
-| Arm | **Arm 2** 代码执行注入修复 | P0 | — | ⬜ |
+| Arm | **Arm 2** 代码执行注入修复 | P0 | — | ✅ **2026-09-16 落地**（实测修正：旧模板无条件语法错误 ⇒ 顺带修复工具 100% 失败 + 沙箱输出编码） |
 | Arm | **Arm 3** 依赖锁定（锁定 / 声明 / 强制 三刀） | P0 | — | ⬜ 设计已定（Q2） |
 | Arm | **Arm 4** 工具失败原因（`failure_reason`，枚举与 Arm 1 共用一张表） | P1 | 枚举须**一处定义、两侧 import**；**⚠️ Q8：字段定义前移为 Arm 1 前置** | ⬜ |
 | Arm | **Arm 5** 评测口径（质量闸 + 字段重命名 + **§5.5.4 stderr + 离线回填**） | P1 | — | ⬜ 设计已定（Q3/Q5） |
@@ -106,7 +106,7 @@
 | Arm           | 目标                    | 量化指标                                                                                                                |
 | ------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Arm 1（状态分层）   | 运行状态能区分成功与降级，且**失败真正可达** | `state.run_status` 覆盖 **`success/degraded/failed` 三态**（原 `partial` 因与 `degraded` 判定条件相同而移出 state、降为报告层派生指标）；① 任何 LLM/搜索/代码执行/Validator 走 fallback ⇒ `run_status="degraded"` 且 `degradation_log` 非空；② **`run()` 层捕获异常 ⇒ `run_status="failed"`**（现无任何路径可达，见 §5.1.4）|
-| Arm 2（代码注入修复） | 计算脚本不包含原始 query 文本    | `researcher.py` 的 `_default_code_script()` 不再拼接 query；query 通过 stdin/JSON 参数传入；中文和特殊字符不触发语法错误                       |
+| Arm 2（代码注入修复） | 计算脚本不包含原始 query 文本；**且脚本真的能跑通**（2026-09-16 实测补充） | `researcher.py` 的 `_default_code_script()` 不再拼接 query；query 通过 `exec_code(query=)` 进 hash + `metadata["query"]` 关联；中文和特殊字符不触发语法错误。**⚠️ 实测：旧模板对任何 query 都语法错误 ⇒ 成功率 0%→100%（§5.2.4）** |
 | Arm 3（依赖锁定）   | 同一 commit 在不同机器上可复现安装，且**四处版本口径收敛为一处** | **① lock**：`requirements-lock.txt`（**`pip-compile --python-version 3.11` 生成、不加哈希**）+ CI 按其安装；**② 声明**：`pyproject.toml` **新增** `requires-python = ">=3.11,<3.14"` + `[tool.ruff] target-version` → `py311` + `README.md` → `Python 3.11 ~ 3.13`；**③ 强制**：运行时 `sys.version_info` 版本闸 + CI **matrix 3.11/3.12/3.13**。**取消**原「新增 smoke test」（现有 132 测试已是零 API 等价物） |
 | Arm 4（工具失败原因） | "没有搜到"和"搜索坏了"可区分      | 搜索结果携带 `failure_reason` 字段，取值 `not_configured/timeout/provider_error/empty_result/parse_error` 之一                   |
 | Arm 5（评测口径收敛） | **降级结果不再被 silent 地报成成功** | **主刀 = run 级质量闸**：`_summarize()` 顶层产出 **`verdict`**（`ok` / `suspicious` / `broken`）+ **`verdict_reasons: list[str]`**，阈值**外置为函数参数**（文档不写死数字）。**附属产出**：① 现有 `complete/partial/failed` 三元组重命名为 `metrics_ok/metrics_partial/metrics_failed`，并注明其语义是「指标算全与否」而非「研究是否成功」；② **`metrics_mean` 每个指标并列输出 stderr**（Q5，对齐 openai/evals / lm-eval-harness 行业通例，见 §5.5.4 / §6.7） |
@@ -548,6 +548,8 @@ degradation_log: Annotated[List[DegradationEntry], operator.add] = Field(default
 
 #### 5.2.1 移除 query 拼接
 
+> **⚠️ 2026-09-16 实测修正**：本节叙述隐含「原模板只在特殊字符下出错」的前提，实则**无条件出错**（旧模板的 `'` 与 `!r` 叠加成双层引号）—— `code_exec` 因此一直是 100% 失败，详见 §5.2.4 实测修正一。下方模板即实际落地版本。
+
 `researcher.py:196-210` 的 `_default_code_script()` 改为不接受 query 参数。计算脚本完全不包含原始 query 文本：
 
 ```python
@@ -564,9 +566,13 @@ def _default_code_script() -> str:
 
 #### 5.2.2 query 通过元数据传入
 
+> **⚠️ 2026-09-16 实现修正**：`CodeExecInput` 类在仓库中**不存在**（见上方预检表第 1 条）。本稿**按现有签名实现**，不新引入输入类 —— `exec_code(code, query="", params="")` 内部把 `query` 写入 `CodeExecOutput.metadata["query"]`，调用方从产出元数据取回。
+
 调用方（`researcher.py` 中调用 `_default_code_script` 的位置）将 query 放到 `CodeExecOutput` 的元数据字段中，不进入脚本源码。如需在输出中关联 query，通过 `CodeExecInput.metadata["query"]` 传入，执行器将其写入 `CodeExecOutput.metadata["query"]`。
 
 #### 5.2.3 中文/特殊字符测试
+
+> **⚠️ 2026-09-16 实测修正**：本节原前提「特殊字符才触发语法错误」为误（实为无条件错误，见 §5.2.4）。该 DoD 保留为**回归护栏** —— 若哪天模板被改回拼接式，这组用例会立刻变红。另：中文乱码的真实来源是**沙箱输出编码**（cp936 vs utf-8），不在此 DoD 的表述范围内，已单独修（§5.2.4 实测修正二）。
 
 新增专项测试：query 包含中文、引号、反斜杠、换行符时，脚本执行不出现语法错误。测试用例覆盖：纯中文、中英混合、含 `'` 和 `"`、含 `\n` 和 `\t`、含 Unicode emoji。
 
@@ -591,6 +597,43 @@ def _default_code_script() -> str:
 
 > **方法论注记**：这条是「只在文档里写『移除 query 拼接』」看不出来的 —— 必须追到 `script_hash` 的消费者（`dedupe` / `compress`）才暴露。
 > 与 §5.1.4 那三条同属「**先追消费者，再动字段**」。
+
+#### 5.2.4 实现记录与实测修正（2026-09-16）
+
+**实现落点**：
+
+- `researcher._default_code_script()` 改为**零参数**、返回常量模板（§5.2.1）。
+- 查询文本改由 `metadata["query"]` 承载：`exec_code` 现把 `query` 同时写进 `CodeExecOutput.metadata["query"]`（§5.2.2 所述行为，**属新增**），`_search_code` 在成功/失败两条 finding 上都带 `metadata["query"]`。
+- **`exec_code(script, query=query)` 保留**（§5.2 预检第 3 条的处置）：query 仍进 `script_hash`，保住同题多条 code 证据的唯一性。
+- `_search_code` 失败原因改用 `_classify_code_exec_failure()`，把三类真实失败分开：超时 → `timeout`、脚本语法错 → `parse_error`、其余运行时错 → `provider_error`（原映射把前两类都压成 `provider_error`）。
+
+**⚠️ 实测修正一：旧模板对「任何」query 都语法错误 ⇒ `code_exec` 一直是 100% 失败**
+
+§5.2.3 原设想是「query 含中文/引号/换行 ⇒ **触发**语法错误」。实测（`compile()` 复现 + 真实 `exec_code` 运行）证明**不是条件性错误，而是无条件错误**：
+旧模板 `f"print('query={query!r}')"` 里模板**自己已有一对 `'`**，`!r` 又补一对 ⇒ 生成 `print('query='模型参数量怎么算'')`，**连纯 ASCII 查询也是 `SyntaxError: invalid syntax`**。
+
+**基线三轮真实产量**（按 `metadata` 形状判定：失败态 = `conf=0.2` 且 metadata 含 `note` 键、无成功态的 `structured_match`）：
+
+| run | code_exec 产出 | 成功 | 失败 |
+| --- | --- | --- | --- |
+| `run_20260916_001005` | 50 | 0 | 50 |
+| `run_20260916_011813` | 49 | 0 | 49 |
+| `run_20260916_022440` | 45 | 0 | 45 |
+| **合计** | **144** | **0** | **144（100%）** |
+
+**⇒ 三点结论**：
+① 基线里那 24.3% 的「code 证据」**没有一条是真实计算结果**，全是 `conf=0.2` 的失败标记 —— §5.2 预检只验了「50 个 source 全不重复」，**没验这些 source 是否承载有效证据**，故当时把它当成「会丢证据」来防；
+② **Arm 2 的实质是工具功能性修复**（成功率 0% → 100%），不只是纵深防御；
+③ 失败 note 原本会把 **query 原文经 stderr 带回 findings**（且因下述编码问题呈现为乱码），Arm 2 一并消除。
+
+**⚠️ 实测修正二：沙箱回传非 ASCII 必然乱码（独立缺陷，一并修）**
+
+父进程按 `encoding="utf-8"` 解码管道，而子进程在 Windows 默认按 **cp936** 写管道 ⇒ `print('中文测试')` 回传为 `���Ĭ��`（实测）。
+修法：子进程命令行加 **`-X utf8`**；注意 `-I`/`-E` 会忽略环境变量，故**不能用 `PYTHONIOENCODING` 兜**。实测加 `-X utf8` 后 stdout 与 stderr 的中文均逐字还原。**这才是 §7「中文乱码不再复现」DoD 的真正闭合点** —— 原 DoD 只盯着「query 进脚本」，而乱码另有来源。
+
+> **方法论注记（第三次同构教训）**：§5.1.4 的「先追字段的消费者」、§5.2 预检的「先追 `script_hash` 的消费者」、本条「先追乱码的**产生源**」是同一件事 ——
+> **文档里叙述的因果不经验证就不能当设计前提**。
+> 而「一个工具 100% 失效却无人察觉」恰恰是 Arm 1 要消灭的故障形态：改前它只能靠事后人工翻 raw 才能发现。
 
 ### 5.3 Arm 3：依赖环境锁定（P0，**2026-09-14 Grill Q2 拍板为「三刀分离」**）
 
@@ -1002,13 +1045,11 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 
 ### Arm 2（P0）
 
-* [ ] `_default_code_script()` 不再接受 query 参数，脚本源码不含 query 文本
-
-* [ ] query 通过 `CodeExecInput.metadata` 传入
-
-* [ ] 中文/特殊字符测试用例全部通过（纯中文、中英混合、含引号、含换行符、含 emoji）
-
-* [ ] `run_20260910_173540` 中的中文查询乱码场景不再复现
+* [x] `_default_code_script()` 不再接受 query 参数，脚本源码不含 query 文本 —— ✅ **2026-09-16 落地**（零参数 + 常量模板；测试断言 `query not in code`，10 组敌意 query 参数化覆盖）
+* [x] query 通过元数据传入 —— ✅ **2026-09-16 落地**，按现有签名实现（`CodeExecInput` 类不存在）：`exec_code` 写 `metadata["query"]`，成功/失败两条 finding 都带 `metadata["query"]`
+* [x] 中文/特殊字符测试用例全部通过（纯中文、中英混合、含引号、含换行符、含 emoji）—— ✅ **2026-09-16 落地**（`tests/test_arm2_code_injection.py`，10 组敌意 query 真跑沙箱全绿）
+* [x] `run_20260910_173540` 中的中文查询乱码场景不再复现 —— ✅ **2026-09-16 落地**，但**根因与原文设想不同**：乱码源于沙箱子进程 cp936 写管道 / 父进程 utf-8 读管道（非「query 进脚本」）；修法是子进程加 `-X utf8`，实测 stdout/stderr 中文逐字还原（§5.2.4 实测修正二）
+* [x] **（2026-09-16 实测新增）** 计算脚本真的能跑通 —— ✅ 旧模板对任何 query 都 `SyntaxError`，基线三轮 code_exec 产出 **144/144 全部失败（100%）**；修复后全绿（§5.2.4 实测修正一）
 
 ### Arm 3（P0，**2026-09-14 按 Q2=A「三刀分离」重写**）
 
@@ -1184,6 +1225,8 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 | Arm 1 | 全链路无异常 → `run_status == "success"`                                        | tracker 为空                |
 | Arm 2 | query 包含中文/引号/换行 → 脚本执行成功                                                 | 无语法错误                     |
 | Arm 2 | 脚本源码中不包含 query 字符串                                                        | grep 不到                   |
+| Arm 2 | **（2026-09-16 实测新增）** 敌意 query 下 `metadata["query"]` 仍完整、`script_hash` 仍逐题唯一（防 `dedupe` 并条） | 字段正确 + hash 不塌缩 |
+| Arm 2 | **（2026-09-16 实测新增）** 沙箱回传中文 stdout/stderr 逐字还原（`-X utf8` 专项） | 不乱码 |
 | Arm 4 | mock 搜索超时 → `failure_reason == "timeout"`                                 | 字段正确                      |
 | Arm 4 | provider 未配置 → `failure_reason == "not_configured"`                       | 字段正确                      |
 | **Arm 6** | **改动任一提示词正文 → `prompt_hash` 必变**（planner / validator / writer 各一条 + **critic 提常量后一条**） | **hash 变化** |
@@ -1534,3 +1577,5 @@ citation 14.41pp / retrieval_hit 7.75pp；SE(3v9)：4.42 / 2.26 / 1.19pp）⇒
 | 2026-09-16 | 实测 | **before 基线 3 轮采集完成 + 配对分辨率改用 3 轮估计 + 发现「成本静默归零」缺陷** | ① **3 轮基线结果**（主链路配置，全部 `git_dirty=false` + `config_snapshot` 完整）：coverage **0.4517 ± 3.17pp**（r1 0.3947 / r2 0.5042 / r3 0.4561，极差 **10.95pp**）、citation_acc **0.7570 ± 3.08pp**、retrieval_hit **0.5571 ± 1.98pp**；**对外口径：coverage 45.2% ±6.3pp〔20 题 × 3 轮〕⇒ [38.8%, 51.5%]**（按 §10.5.6）。三轮 code rev 分别为 `6f4067f`/`13a6d3e`/`6c83af1`，**全为文档类提交、`research_engine/` 零改动** ⇒ 行为等价。② **超时题目每轮不同**（r1=q_001、r3=q_007）⇒ 超时是**运行期噪声**而非题目固有属性，会额外抬高 σ_within。③ **配对分辨率改用 3 轮估计**（3 个轮次对比 2 轮的单一配对稳）：coverage σ_within 28.91→**23.96pp**、ρ 0.351→**0.551**、MDE(3v9) 12.38→**10.54pp**；citation ρ 0.168→**0.124**、MDE 6.22pp；retrieval_hit ρ 0.875→**0.860**、MDE 3.73pp ⇒ **方向一致、量级稳定，§3.3.1 结论不变**。④ **⚠️ 采集过程中暴露真实缺陷**：第 3 轮 phase1 完成（20/20 raw）后进程被杀，`phase1_global_stats.json` 未写出 ⇒ 补跑 `--eval-only` 后 `cost_phase1_total.cost_yuan` = **¥0.0000**，而该轮 raw `token_used` 合计 **1,017,784**（比第 2 轮 952,093 还多）⇒ **实际约 ¥0.96 记为 0**。**性质**：`_read_phase1_cost()` 读不到文件时**静默返回 0、无告警** ⇒ **成本账目静默归零**，与 §4.2「静默吞掉」同构。**可恢复性**：raw 有 `token_used`（总量，无按模型拆分）⇒ 能还原 token 数、不能精确还原金额 ⇒ **基线总成本更正为 ≈¥2.74**（非 summary 的 ¥1.79）。**待处置**（建议并入 Arm 6 或 Arm 1）：缺失时**降级为从 raw 汇总 + 显式标记 `cost_degraded=true`**，而非返回 0。⑤ **踩坑登记**：`--run-dir` 是**相对 `results/`** 的（`run.py:437-439`），传相对路径会套娃成 `results/research_engine/eval/results/...` ⇒ **静默产出 `total=0 / git_commit=unknown / config_snapshot=null` 的假 summary（exit=0，4 秒）**；正确用法是**只传目录名**。同步改动：§3.3.1 表改为 3 轮估计（2 轮数据折入 `<details>` 对照）、§3.3.1 硬结论 MDE 改为 10.54pp 并补 retrieval_hit 例外、**新增 §10.5.8**（3 轮结果表 + 对外口径 + 三个读数注意点 + 成本归零缺陷登记）、§10.5.7 加「提升类陈述不可判定」更正 | 本文档 |
 | 2026-09-16 | 拍板 | **§3.3.2 验收口径：于晏采纳 A（重定位），B / C 不采纳** | 采纳 **A**：before/after 只做**可观测性对照**（故障可归因率等 A 类确定性断言），coverage/citation **只报绝对值 + 区间，不报提升**。**不采纳 B**（真实现「固定检索快照」：中等工作量且**改变被测对象** —— 比的是写作/验证环节而非端到端）；**不采纳 C**（加 runs 到 41 轮 ≈¥73/82h，与 Q5 已否决的「430 runs」同量级）。**落地要求写死三句**：① W8 各 Arm 一律按 **A 类确定性断言**验收，**不得**以「覆盖率提升 Xpp」作通过条件；② 对外数字**一律带区间与题数**，**禁止**把 before/after 均值差表述为「提升」（当前仅 `retrieval_hit_rate` 的 MDE 3.73pp 小于可观测差）；③ before 基线（§10.5.8）保留为「**改前故障不可归因**」的对照证据。**面试叙事定稿**：「主链路覆盖率 **45.2% ±6.3pp**（20 题 × 3 轮，W8 改动前）」✅ 可说；「W8 让覆盖率提升 Xpp」❌ 不可判定、不说；改说「**故障可归因率 0% → 100%**（注入故障复现，A 类断言）」✅ 零噪声。同步改动：§3.3.2 三选项表加裁决列 + 新增「落地要求」与「面试叙事」 | 本文档 |
 | 2026-09-16 | **实现** | **Arm 1（状态分层）落地 —— before 基线闸门解除后的第一项** | **① 基础设施**：新增 `research_engine/failure_reasons.py` 作为失败原因枚举**唯一真相源**（9 值：工具层 5 + 非工具层 4，两组不重叠；附 `classify_exception` / `classify_tool_exception`）；`state.py` 新增 `RUN_STATUS_*` 三态常量（**无 `partial`**）、`DegradationEntry` dataclass、`DegradationSink`（线程安全缓冲区，供 Agent 在 fallback 留痕后由 graph 节点 drain）、`run_status`、`degradation_log`（**带 `operator.add` reducer**）、`error` 由 `Optional[str]` 改 `Optional[Dict]{code,message,node}`，及 `add_degradation`/`set_error`/`resolve_run_status`；`graph.py` `run()` 用 try/except 包裹 invoke（**`failed` 的唯一落点**）+ 新增 `_recover_from_exception()`（`get_state(cfg).values or {}`、get_state 自身抛错也不二次崩、**绝不返回 None**、保留 `last_exception`）；`_validate`/`_render` 推导 `run_status`；`cli.py` failed ⇒ stderr + `sys.exit(1)`；`report_gen.py:428` `[:200]` → `str(...)[:200]`。**⚠️ 顺带修掉既存 bug**：`cli.py` 末尾有两个完全相同的 `if __name__ == "__main__": main()`（W3 git 重建期间引入）⇒ **作为脚本执行会跑两遍 main、成本翻倍**。**② 节点级降级标记（让 `degraded` 真正可达）**：`researcher._search_web`/`_search_rag`/`_search_arxiv`/`_search_code`、`planner.plan`、`writer.write`、`validator` 忠实度降级共 7 处留痕；`arxiv` provider 补 `failure_reason`（原为「返回空但说不清为什么」）；graph 的 `_plan`/`_research`/`_write`/`_validate` 节点 drain 后经 reducer 入 state。**已知临时替身**：Arm 4 的 provider 目前仍「抛异常」语义 ⇒ 用 `classify_tool_exception()` 临时归类，**已收敛在 `failure_reasons.py` 一个函数里**并注明「Arm 4 落地后应改为读 `resp.failure_reason`，本函数届时可删」⇒ 保证 Arm 4 的替换面在一处，不在各落点散落手写字面量。**遗留项（标 ⏳）**：命名三分的层②`invoke_status` / 层③`metrics_status` **重命名未做**（会触碰 `run.py` 多处落盘键与既有 W7 产物，需单独评估兼容性）。**验证**：ruff 全绿；**146 → 170 测试全过**（新增 `tests/test_arm1_run_status.py` 26 条：三态无 partial / resolve 判定规则 / reducer 存在性对照 `progress` / 结构化 error 形状与「成功 None」语义 / **error 不可切片防回归** / 枚举两组不重叠 / **failed 可达**四种兜底 / **degraded 可达**（真实代码路径 + MagicMock 注入）/ 单向派生 / `classify_tool_exception` 映射表）；零 API 集成冒烟：图编译 OK（8 节点）、`model_dump` 与 JSON 序列化 OK。**实测破坏面比预估小**：`state.error` 生产代码**零写入**，唯一受影响处是 `report_gen.py:428`；`metrics.py:45` 的 `ok_error` 因保持「成功 None/失败非 None」而不受影响。同步改动：§7 Arm 1 DoD 12 条中 11 条勾选（1 条命名三分标 ⏳ 并写明遗留范围） | 本文档 + `research_engine/failure_reasons.py`（新增）、`state.py`、`graph.py`、`search/base.py`、`search/arxiv.py`、`agents/{researcher,planner,writer,validator}.py`、`eval/report_gen.py`、`cli.py`、`web/app.py`、`tests/test_arm1_run_status.py`（新增） |
+| 2026-09-16 | **实现** | **Arm 2（代码执行注入修复）落地 —— 实测推翻本节前提，顺带修复一个 100% 失效的工具** | **实现**：`_default_code_script()` 改零参数常量模板（脚本源码不含 query）；`exec_code` 新增把 `query` 写入 `CodeExecOutput.metadata["query"]`（**§5.2.2 所述行为属新增**；且 `CodeExecInput` 类在仓库中**不存在**，故按现有签名实现，不新引入输入类）；**保留 `exec_code(script, query=query)`**（§5.2 预检第 3 条处置，保住 `script_hash` 唯一性）；`_search_code` 失败原因改用新 `_classify_code_exec_failure()`（超时 → `timeout`、脚本语法错 → `parse_error`、其余运行时错 → `provider_error`；原映射把前两类都压成 `provider_error`）。**⚠️ 实测修正一（推翻 §5.2 / §5.2.3 的前提）**：原设想「query 含中文/引号/换行 ⇒ **触发**语法错误」，实测为「**无条件**语法错误」—— 旧模板 `f"print('query={query!r}')"` 里模板自身一对 `'` 与 `!r` 自带引号**叠加成双层引号**，连纯 ASCII 查询也是 `SyntaxError: invalid syntax`。**基线三轮真实产量**（按 `metadata` 形状判定：失败态 = `conf=0.2` 且含 `note` 键）：`001005`/`011813`/`022440` 分别 50/49/45 条 code_exec 产出，**成功 0 条、失败 144 条（100%）** ⇒ **基线那 24.3% 的「code 证据」全是失败标记、无一条是真实计算结果**；§5.2 预检只验了「50 个 source 全不重复」，**没验这些 source 是否承载有效证据**。**⇒ Arm 2 的实质是工具功能性修复（成功率 0%→100%）**，且失败 note 原本会把 **query 原文经 stderr 带回 findings**。**⚠️ 实测修正二（独立缺陷，一并修）**：沙箱回传非 ASCII **必然乱码** —— 父进程按 `utf-8` 解码管道、子进程在 Windows 默认按 **cp936** 写管道（实测 `print('中文测试')` → 乱码）；修法是子进程命令行加 **`-X utf8`**（`-I`/`-E` 忽略环境变量，故不能用 `PYTHONIOENCODING` 兜），实测 stdout/stderr 中文逐字还原 ⇒ **这才是 §7「中文乱码不再复现」DoD 的真正闭合点**（原 DoD 只盯「query 进脚本」，而乱码另有来源）。**验证**：ruff 全绿；**170 → 209 测试全过**（新增 `tests/test_arm2_code_injection.py` 39 条：模板零参数与常量性 / 10 组敌意 query 参数化断言「代码里不含 query」且「query 仍进 exec_code」/ 成功与失败两条路径的 `metadata["query"]` / `classify` 映射 7 例 / 敌意 query **真跑沙箱**全绿 / **反事实留档：旧写法对任何 query 都语法错**（防后人按错误前提重建并不成立的漏洞模型）/ `script_hash` 逐题唯一 / 沙箱中文 stdout + stderr 不乱码）。**方法论（第三次同构）**：§5.1.4「先追字段的消费者」、§5.2 预检「先追 `script_hash` 的消费者」、本条「先追乱码的**产生源**」是同一件事 —— **文档里叙述的因果不经验证就不能当设计前提** | `research_engine/agents/researcher.py`、`research_engine/tools/code_exec.py`、`tests/test_arm2_code_injection.py`（新增） |
+| 2026-09-16 | 修复 | **CI 红一次：`tests/conftest.py` 从未把仓库根加进 `sys.path`（潜伏脆弱点，与 Arm 1 无关）** | 现象：Arm 1 新增测试文件在 CI 报 `ModuleNotFoundError: No module named 'research_engine'`。**根因**：`tests/` 下无任何地方注入仓库根，全靠 `test_bm25_chinese.py` / `test_citation_alignment.py` 在模块级 `sys.path.insert` 的**副作用**兜底；pytest 按**文件名字母序**导入测试模块 ⇒ 新增的 `test_arm1_run_status.py` 排第一，抢在副作用生效前 import 即爆；**同一根因还让 `pytest tests/<单个文件>` 一直不可用**（本地实测 `test_eval_metrics.py` 单跑同样报错）。修法：`conftest.py` 里 `sys.path.insert` 仓库根一次，不再依赖字母序。**纪律追加**：CI 等价命令必须用 console script（`Scripts/pytest.exe tests/ -q`）—— `python -m pytest` 会把 cwd 塞进 `sys.path`，**恰好掩盖该缺陷**（这正是本地全绿、CI 爆红的原因） | `tests/conftest.py` |

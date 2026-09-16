@@ -232,10 +232,16 @@ class _RunResult:
 
 
 def _run_plain(wrapper_path: str, cwd: str) -> _RunResult:
-    """默认路径：subprocess.run + timeout（Windows 唯一可靠 kill）。"""
+    """默认路径：subprocess.run + timeout（Windows 唯一可靠 kill）。
+
+    W8 Arm 2：命令行加 `-X utf8`。父进程按 utf-8 解码管道，而子进程在 Windows 上
+    默认按 **cp936** 写管道 ⇒ 沙箱输出里的任何非 ASCII（中文查询/中文打印）必然乱码
+    （实测：`print('中文测试')` 回传为 `���Ĳ��ԣ`）。`-X utf8` 让子进程以 UTF-8 写管道，
+    与父进程一致。注意 `-E` 忽略环境变量，故只能走 `-X` 命令行开关、不能靠 `PYTHONIOENCODING`。
+    """
     try:
         proc = subprocess.run(
-            [sys.executable, "-I", "-E", "-S", "main.py"],
+            [sys.executable, "-I", "-E", "-S", "-X", "utf8", "main.py"],
             cwd=cwd, input="",
             capture_output=True, text=True,
             encoding="utf-8", errors="replace",
@@ -249,7 +255,10 @@ def _run_plain(wrapper_path: str, cwd: str) -> _RunResult:
 
 
 def _run_with_job(wrapper_path: str, cwd: str) -> _RunResult:
-    """Job 增强路径：Popen + AssignProcessToJobObject + KILL_ON_JOB_CLOSE；创建失败降级 plain。"""
+    """Job 增强路径：Popen + AssignProcessToJobObject + KILL_ON_JOB_CLOSE；创建失败降级 plain。
+
+    W8 Arm 2：与 `_run_plain` 一样加 `-X utf8`（同因：父进程 utf-8 解码 vs 子进程 cp936 写管道）。
+    """
     h_job = _win_create_job()
     if h_job is None:
         return _run_plain(wrapper_path, cwd)  # 降级，不抛
@@ -257,7 +266,7 @@ def _run_with_job(wrapper_path: str, cwd: str) -> _RunResult:
     proc = None
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-I", "-E", "-S", "main.py"],
+            [sys.executable, "-I", "-E", "-S", "-X", "utf8", "main.py"],
             cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
@@ -299,6 +308,12 @@ def exec_code(code: str, query: str = "", params: str = "") -> CodeExecOutput:
         code   — 用户 Python 代码（由 LLM/上层生成）
         query  — 触发查询（进 hash 与审计元数据）
         params — 可选执行参数（进 hash；"脚本模板+参数注入"模式下防止同脚本不同参数误去重）
+
+    W8 Arm 2（§5.2.2）：`query` 现同时写入 `metadata["query"]`。
+    这是**审计侧的关联通道** —— 调用方拿到的产出带着「是哪次查询触发的」，
+    从而不必再把 query 文本拼进被执行的脚本源码（见 `researcher._default_code_script`）。
+    `query` 进 hash 的既有行为**保持不变**：`dedupe()` / `compress()` 按 `f.source` 归并，
+    去掉它会让同题多条 code 证据的 hash 塌缩成常量（§5.2 预检第 3 条，实测占基线 24.3%）。
     """
     start = time.monotonic()
     ctx = f"{code}\x00{params}\x00{query}"
@@ -340,7 +355,7 @@ def exec_code(code: str, query: str = "", params: str = "") -> CodeExecOutput:
             else:
                 ok = False
                 note = (err or out)[:500] or f"exit code {r.returncode}"
-            meta = {"exit_code": r.returncode}
+            meta = {"exit_code": r.returncode, "query": query}
             if use_job:
                 meta["job"] = "enabled"
             return CodeExecOutput(
