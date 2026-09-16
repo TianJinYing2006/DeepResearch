@@ -1,4 +1,4 @@
-# eval 报告（run_20260916_011813）
+# eval 报告（run_20260916_022440）
 
 > ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
 > 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
@@ -19,23 +19,23 @@
 - 标注方法学: ai_draft + human_calibration
 
 ## 2. 运行环境与双锚
-- git commit: 13a6d3eea80c3b73d7e2377deec83f7a7b19a3e8 / dataset version: 1.1
-- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-16T02:24:30
+- git commit: 6c83af1ae9c544ea227822c599f682e2f7ce8490 / dataset version: 1.1
+- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-16T12:15:41
 
 ## 3. 指标表（7 项，Q8 含检索命中率）
 | 指标 | 目标 | 本轮 | 达标 |
 |---|---|---|---|
 | completion_rate | ≥90% | 100.0% | ✅ |
-| citation_accuracy | ≥85%（**严格口径** verified） | 73.6% | ⚠️ |
-| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 75.8% | ✅ |
-| coverage | ≥90% | 50.4% | ⚠️ |
-| retrieval_hit_rate | 记录基线 | 54.6% | ✅ |
-| avg_steps | 记录基线 | 9.2 轮 | ✅ |
-| reflection_critic_stop_rate | ≥90% | 85.0% | ⚠️ |
+| citation_accuracy | ≥85%（**严格口径** verified） | 81.8% | ⚠️ |
+| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 82.7% | ✅ |
+| coverage | ≥90% | 45.6% | ⚠️ |
+| retrieval_hit_rate | 记录基线 | 59.6% | ✅ |
+| avg_steps | 记录基线 | 8.9 轮 | ✅ |
+| reflection_critic_stop_rate | ≥90% | 89.5% | ⚠️ |
 
-💰 总 token（Phase1 研究）：967026，成本：¥0.8953（Phase2 judge 另计 59419 token）
-  - 模型名桶：qwen-plus: 542133tok ¥0.7526, qwen-turbo: 424893tok ¥0.1428
-  - 职责桶：planner: 24941tok, critic: 207166tok, smart: 132956tok, validator: 177070tok, compress: 424893tok
+💰 总 token（Phase1 研究）：0，成本：¥0.0（Phase2 judge 另计 69689 token）
+  - 模型名桶：—
+  - 职责桶：—
 
 📏 **双口径与人工口径归属（W7 TBD-5 诚实披露，不得省略）：**
   - **严格口径**（`citation_accuracy`）= `verified = existence AND faithful`（引对编号 **且** 忠实）—— W2 契约口径，跨版本对比**一律以此为准**。
@@ -43,15 +43,18 @@
   - **⚠️ W5 人工抽检 83~92% 属「宽松口径」**：人工判的是「这论断有没有依据」，**不逐条核对编号** ⇒ 与机器严格口径**不是同一件事**；二者差异的**绝大部分是口径差**，**不是 validator 误拒**。
   - 人工抽检样本仅 **12 条**、置信区间极宽，**不作为真值**；宽松口径仅作**解释性附注**，不参与任何达标判定。
 
-📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 72.4%**（89/123 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 20 篇报告）。
+📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 76.6%**（98/128 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 19 篇报告）。
   - 读法：比例**极低**可能意味着模型改为编造而非承认缺口；比例**极高**意味着检索没喂饱。两种极端都值得人工抽检，但**不作为任何达标判据**。
 
 
 ## 4. 失败与异常附录
-- 完整 20 / 部分 0 / 失败 0
-- q_005 [ok] 68073tok ¥0.0953
-- q_009 [ok] 64183tok ¥0.0899
-- q_013 [ok] 93912tok ¥0.1315
+- 完整 19 / 部分 0 / 失败 1
+- q_004 [ok] 62996tok ¥0.0882
+- q_005 [ok] 93415tok ¥0.1308
+- q_007 [timeout] error=task timeout
+- q_009 [ok] 70269tok ¥0.0984
+- q_010 [ok] 122076tok ¥0.1709
+- q_012 [ok] 77366tok ¥0.1083
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
@@ -147,6 +150,7 @@
 | 🧪 run_20260913_072332 | 100.0% | 69.8% | 12.9% | 23.2% | completion_rate:+0.0, citation_accuracy:-13.5, coverage:+3.3, retrieval_hit_rate:+0.0 |
 | run_20260916_001005 | 100.0% | 71.8% | 39.5% | 53.0% | completion_rate:+0.0, citation_accuracy:+2.0, coverage:+26.5, retrieval_hit_rate:+29.8 |
 | run_20260916_011813 | 100.0% | 73.6% | 50.4% | 54.6% | completion_rate:+0.0, citation_accuracy:+1.8, coverage:+10.9, retrieval_hit_rate:+1.6 |
+| run_20260916_022440 | 100.0% | 81.8% | 45.6% | 59.6% | completion_rate:+0.0, citation_accuracy:+8.2, coverage:-4.8, retrieval_hit_rate:+5.0 |
 
 
 ## 8. 已知局限
