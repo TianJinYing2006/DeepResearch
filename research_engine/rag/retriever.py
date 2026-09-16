@@ -11,6 +11,8 @@ from openai import OpenAI
 from rank_bm25 import BM25Okapi
 
 from config import config
+from research_engine.failure_reasons import FailureReason
+from research_engine.rag.response import BackendFailure, RetrieveResponse
 from research_engine.rag.store import VectorStore
 from research_engine.rag.tokenizer import tokenize
 
@@ -56,33 +58,62 @@ class HybridRetriever:
         )
         return resp.data[0].embedding
 
-    def retrieve(self, query: str, top_k: int | None = None) -> List[dict]:
-        """混合检索，返回 [{text, score, source, doc}]。
+    def retrieve(self, query: str, top_k: int | None = None) -> RetrieveResponse:
+        """混合检索，返回 :class:`RetrieveResponse`（W8 Arm 4，决策 D-02）。
 
-        doc = 文档身份（payload.source 文件名），供上层 `rag:<filename>` 去重；
-        Qdrant 不可用时返回空。
+        ``resp.items`` 元素同构于改造前的 ``[{text, score, source, doc}]``；
+        ``doc`` = 文档身份（payload.source 文件名），供上层 ``rag:<filename>`` 去重。
+
+        ⚠️ 改造前本方法返回裸 ``List[dict]``，于是 ``[]`` 同时表达了「确实没命中 /
+        未配置 / 向量库不可用 / embedding 失败 / 部分 backend 失败」六种事实 ——
+        **信息在到达 researcher 前就已丢失**，故障不可归因。现在按 backend 分别留痕。
         """
         top_k = top_k or config.rag.top_k
-        # 向量检索
-        vec = self.embed_query(query)
-        vec_hits = self.store.search(vec, top_k=top_k * 2)
+        resp = RetrieveResponse(query=query)
 
-        # BM25 检索
-        texts = self._load_all_texts()
-        bm25_hits = []
-        if self._bm25 and texts:
-            scores = self._bm25.get_scores(tokenize(query))
-            ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-            for idx in ranked[:top_k]:
-                if scores[idx] > 0:
-                    bm25_hits.append({
-                        "text": texts[idx],
-                        "score": float(scores[idx]),
-                        "source": "bm25",
-                        "doc": self._all_sources[idx],
-                    })
+        # ---- backend 1：向量检索（依赖 embedding + Qdrant）----
+        vec_hits: List[dict] = []
+        if not config.llm.api_key:
+            resp.note_backend_failure(
+                "vector", FailureReason.NOT_CONFIGURED.value, "未配置 DASHSCOPE_API_KEY，无法调用 Embedding"
+            )
+        else:
+            try:
+                vec = self.embed_query(query)
+                vec_hits = self.store.search(vec, top_k=top_k * 2)
+                reason = self.store.unavailable_reason
+                if reason:
+                    # Qdrant 不可用 ⇒ search() 静默返 []，这里把事实补回来
+                    resp.note_backend_failure("vector", reason, self.store.last_error or "")
+                    vec_hits = []
+            except Exception as e:  # noqa: BLE001 — embedding / 查询异常，保住 BM25 那一路
+                resp.note_backend_failure("vector", FailureReason.PROVIDER_ERROR.value, str(e)[:300])
+                vec_hits = []
 
-        # 融合（简单加权，向量为主）
+        # ---- backend 2：BM25 检索（依赖 Qdrant scroll，不依赖 embedding）----
+        bm25_hits: List[dict] = []
+        try:
+            texts = self._load_all_texts()
+            reason = self.store.unavailable_reason
+            if reason:
+                resp.note_backend_failure("bm25", reason, self.store.last_error or "")
+                texts = []
+            if self._bm25 and texts:
+                scores = self._bm25.get_scores(tokenize(query))
+                ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+                for idx in ranked[:top_k]:
+                    if scores[idx] > 0:
+                        bm25_hits.append({
+                            "text": texts[idx],
+                            "score": float(scores[idx]),
+                            "source": "bm25",
+                            "doc": self._all_sources[idx],
+                        })
+        except Exception as e:  # noqa: BLE001
+            resp.note_backend_failure("bm25", FailureReason.PROVIDER_ERROR.value, str(e)[:300])
+            bm25_hits = []
+
+        # ---- 融合（简单加权，向量为主）----
         merged: List[dict] = []
         seen = set()
         for h in vec_hits:
@@ -99,5 +130,36 @@ class HybridRetriever:
             if h["text"] not in seen:
                 seen.add(h["text"])
                 merged.append(h)
+        resp.items = merged[:top_k]
 
-        return merged[:top_k]
+        # ---- 整体判定 ----
+        if not resp.items:
+            if resp.backend_failures:
+                # 所有可用 backend 都挂了（或唯一那一路挂了）⇒ 整体故障，取最具处置价值的原因
+                resp.failure_reason = _worst_reason(resp.backend_failures)
+                resp.failure_detail = "; ".join(
+                    f"{bf.backend}: {bf.detail}" for bf in resp.backend_failures if bf.detail
+                )[:300]
+            else:
+                # 两路都正常执行了，只是确实没命中 —— 是结果，不是故障（D-03 不上抛降级）
+                resp.failure_reason = FailureReason.EMPTY_RESULT.value
+        # 有 items 但部分 backend 失败 ⇒ failure_reason 保持 None，失败事实留在 backend_failures
+        return resp
+
+
+#: 聚合多个 backend 失败原因时的优先级（越靠前越具处置价值）
+_REASON_PRIORITY = (
+    FailureReason.NOT_CONFIGURED.value,
+    FailureReason.PARSE_ERROR.value,
+    FailureReason.TIMEOUT.value,
+    FailureReason.PROVIDER_ERROR.value,
+    FailureReason.EMPTY_RESULT.value,
+)
+
+
+def _worst_reason(failures: List[BackendFailure]) -> str:
+    """按处置价值选一个代表原因（确定性，不依赖 backend 顺序）。"""
+    for r in _REASON_PRIORITY:
+        if any(bf.reason == r for bf in failures):
+            return r
+    return failures[0].reason

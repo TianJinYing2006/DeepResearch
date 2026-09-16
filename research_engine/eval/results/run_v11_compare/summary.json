@@ -15,13 +15,100 @@
   "reflection_critic_stop_rate": 0.95
  },
  "cost_phase1_total": {
-  "total_tokens": 0,
-  "cost_yuan": 0.0,
+  "total_tokens": 683649,
+  "cost_yuan": null,
   "per_model": {},
-  "per_role": {}
+  "per_role": {},
+  "cost_degraded": true,
+  "cost_basis": "raw_token_sum",
+  "cost_degraded_reason": "回填修复：原记 0 token 少于 raw 实际 683649（phase1_global_stats.json 缺失导致静默归零），金额不可重建"
  },
  "cost_phase2_judge_tokens": 0,
  "git_commit": "d160365527eac09d69264b6fb4292ce491ae3ea8",
  "dataset_version": "1.1",
- "generated_at": "2026-09-06T19:34:01"
+ "generated_at": "2026-09-06T19:34:01",
+ "metrics_stderr": {
+  "completion_rate": {
+   "n": 20,
+   "stderr": 0.0,
+   "ci95": [
+    1.0,
+    1.0
+   ]
+  },
+  "citation_accuracy": {
+   "n": 20,
+   "stderr": 0.0475,
+   "ci95": [
+    0.6267,
+    0.8105
+   ]
+  },
+  "citation_accuracy_relaxed": {
+   "n": 0,
+   "stderr": 0.0,
+   "ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "existence_rate": {
+   "n": 20,
+   "stderr": 0.0129,
+   "ci95": [
+    0.9469,
+    0.9958
+   ]
+  },
+  "coverage": {
+   "n": 20,
+   "stderr": 0.0732,
+   "ci95": [
+    0.4125,
+    0.7042
+   ]
+  },
+  "retrieval_hit_rate": {
+   "n": 20,
+   "stderr": 0.0547,
+   "ci95": [
+    0.4779,
+    0.7012
+   ]
+  },
+  "avg_steps": {
+   "n": 20,
+   "stderr": 0.109,
+   "ci95": [
+    3.6,
+    4.0
+   ]
+  },
+  "reflection_critic_stop_rate": {
+   "n": 20,
+   "stderr": 0.0487,
+   "ci95": [
+    0.85,
+    1.0
+   ]
+  },
+  "insufficient_marker_ratio": {
+   "n": 0,
+   "stderr": 0.0,
+   "ci95": [
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "verdict": "ok",
+ "verdict_reasons": [],
+ "metrics_ok": 20,
+ "metrics_partial": 0,
+ "metrics_failed": 0,
+ "deprecated_keys": {
+  "complete": "metrics_ok",
+  "partial": "metrics_partial",
+  "failed": "metrics_failed"
+ }
 }

@@ -12,6 +12,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from config import config
+from research_engine.failure_reasons import FailureReason
 
 
 class VectorStore:
@@ -23,6 +24,31 @@ class VectorStore:
         self._client: Optional[QdrantClient] = None
         self._available: Optional[bool] = None
         self._last_fail_at: float = 0.0
+        # W8 Arm 4：不可用的**原因**（原先只返回 []，「连不上」与「确实没命中」不可分）
+        self._last_error: Optional[str] = None
+
+    # ---- W8 Arm 4：把「不可用」从「空结果」里分离出来 ----
+
+    @property
+    def unavailable_reason(self) -> Optional[str]:
+        """向量库不可用时返回 :class:`FailureReason` 值；可用（或已自愈）时返回 ``None``。
+
+        ⚠️ 会触发一次懒加载尝试 —— 与 :meth:`search` 内部调用同一份逻辑，不额外增加连接
+        （2s 冷却期内不会重复对不可达服务做超时重试）。
+        """
+        if self._client is not None:
+            return None
+        self._get_client()
+        if self._client is not None:
+            return None
+        if not self.url:
+            return FailureReason.NOT_CONFIGURED.value
+        return FailureReason.PROVIDER_ERROR.value
+
+    @property
+    def last_error(self) -> Optional[str]:
+        """最近一次连接失败的原始异常摘要（排障用，不参与枚举统计）。"""
+        return self._last_error
 
     def _get_client(self) -> Optional[QdrantClient]:
         """懒加载并测试连接。连接失败时进入 2s 冷却降级，冷却后自动重试。
@@ -44,9 +70,11 @@ class VectorStore:
             self._client = client
             self._available = True
             self._ensure_collection()
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            # W8 Arm 4：留原始异常摘要 —— 否则「连不上」在下游只表现为一个空列表。
             self._available = False
             self._last_fail_at = time.time()
+            self._last_error = str(e)[:300]
             self._client = None
         return self._client
 

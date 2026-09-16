@@ -18,7 +18,7 @@ from typing import List
 
 import requests
 
-from research_engine.failure_reasons import classify_tool_exception  # W8 Arm 1
+from research_engine.failure_reasons import FailureReason  # W8 Arm 4
 from research_engine.search.base import SearchProvider, SearchResponse, SearchResult
 
 ARXIV_API = "http://export.arxiv.org/api/query"
@@ -71,20 +71,35 @@ class ArxivSearchProvider(SearchProvider):
             "sortBy": "relevance",
             "sortOrder": "descending",
         }
+        # ① 传输/协议层：按异常类型精确归类（W8 Arm 4 —— 不再靠 classify_tool_exception 猜）
         try:
             resp = requests.get(ARXIV_API, params=params, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            return self._fail(query, FailureReason.TIMEOUT.value, str(e))
+        except requests.exceptions.HTTPError as e:
+            return self._fail(query, FailureReason.PROVIDER_ERROR.value,
+                              f"HTTP {getattr(e.response, 'status_code', None)}: {e}")
+        except requests.exceptions.RequestException as e:
+            return self._fail(query, FailureReason.PROVIDER_ERROR.value, str(e))
+
+        # ② 解析层：拿到 200 但不合法 Atom ⇒ parse_error（与「确实没结果」分开）
+        try:
             results = self._parse(resp.text)
-            return SearchResponse(query=query, results=results)
-        except Exception as e:  # noqa: BLE001 — 失败语义：空结果，交给调度层重试/降级
-            # W8 Arm 1：原先是「返回空但说不清为什么」⇒ 事后无法区分「检索失败」与「确实没结果」。
-            # 这里补 failure_reason（工具层 5 值，唯一产生点），消费方单向派生即可。
-            return SearchResponse(
-                query=query,
-                results=[],
-                failure_reason=classify_tool_exception(e),
-                failure_detail=str(e)[:300],
-            )
+        except Exception as e:  # noqa: BLE001 — 本段只做 XML 解析，归为 parse_error 是准确的
+            return self._fail(query, FailureReason.PARSE_ERROR.value, str(e))
+
+        # ③ 正常响应但零命中：是「结果」不是「故障」（D-03 不上抛为 run 级降级）
+        if not results:
+            return SearchResponse(query=query, results=[],
+                                  failure_reason=FailureReason.EMPTY_RESULT.value)
+        return SearchResponse(query=query, results=results)
+
+    @staticmethod
+    def _fail(query: str, reason: str, detail: str) -> SearchResponse:
+        """构造失败响应（工具层 5 值的唯一产生点，消费方单向派生即可）。"""
+        return SearchResponse(query=query, results=[], failure_reason=reason,
+                              failure_detail=detail[:300])
 
     def _parse(self, xml_text: str) -> List[SearchResult]:
         root = ET.fromstring(xml_text)

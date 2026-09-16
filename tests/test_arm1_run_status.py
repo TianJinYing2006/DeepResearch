@@ -293,28 +293,54 @@ def test_recover_preserves_checkpoint_state(monkeypatch):
 
 
 def test_researcher_records_and_drains_degradation():
-    """§5.1.3：`_search_web` 失败前留痕（原先静默 `return []`，事后不可归因）。
+    """§5.1.3 + Arm 4：`_search_web` 失败前留痕（原先静默 `return []`，事后不可归因）。
 
-    走**真实代码路径**（不是打桩断言），provider 用 MagicMock 抛 TimeoutError。
+    走**真实代码路径**（不是打桩断言）。Arm 4 落地后 provider **不再抛异常**，
+    而是返回带 ``failure_reason`` 的 ``SearchResponse``，researcher **单向派生**。
     """
     from research_engine.agents.researcher import Researcher
+    from research_engine.search.base import SearchResponse
 
     # 用 __new__ 跳过 __init__：避免构造真实 provider / 检索器（零网络、零模型加载）
     r = Researcher.__new__(Researcher)
     r.degradations = DegradationSink()
     r.search = MagicMock()
-    r.search.search.side_effect = TimeoutError("read timeout")
+    r.search.search.return_value = SearchResponse(
+        query="q", results=[], failure_reason=FailureReason.TIMEOUT.value, failure_detail="read timeout"
+    )
 
     out = r._search_web("q")
 
     assert out == [], "降级仍应返回空列表（行为不变）"
     drained = r.drain_degradations()
     assert len(drained) == 1, "降级必须留痕，否则事后不可归因"
+    # 单向派生：reason 直接取 resp.failure_reason，消费方不写第二个字面量
     assert drained[0].reason == "timeout"
     assert drained[0].reason in TOOL_REASONS
     assert drained[0].component == "web_search"
     assert drained[0].node == "researcher"
     assert r.drain_degradations() == [], "drain 后必须清空（否则跨 run 重复计数）"
+
+
+def test_researcher_unexpected_exception_is_internal_not_guessed():
+    """Arm 4 后：工具层是 5 值唯一产生点，冒泡到 researcher 的异常**不得**再被猜成工具原因。
+
+    这是刻意的新契约 —— 未预期异常（如 provider 代码自身的 ``TypeError``）应暴露为
+    ``internal`` 而不是被伪装成 ``provider_error``，否则「真故障」与「工具不可用」混为一谈。
+    """
+    from research_engine.agents.researcher import Researcher
+    from research_engine.failure_reasons import NON_TOOL_REASONS
+
+    r = Researcher.__new__(Researcher)
+    r.degradations = DegradationSink()
+    r.search = MagicMock()
+    r.search.search.side_effect = TypeError("boom")  # provider 自身 bug，非协议性失败
+
+    assert r._search_web("q") == []
+    got = r.drain_degradations()
+    assert len(got) == 1
+    assert got[0].reason in NON_TOOL_REASONS, f"未预期异常应归为非工具类，实际 {got[0].reason}"
+    assert "boom" in got[0].detail, "原始异常摘要必须保留，否则无从排障"
 
 
 def test_researcher_rag_and_arxiv_also_record():
@@ -342,33 +368,20 @@ def test_researcher_rag_and_arxiv_also_record():
     assert got[0].reason == "timeout" and got[0].detail == "t/o"
 
 
-def test_classify_tool_exception_maps_to_tool_reasons_only():
-    """工具层异常只映射到工具类 5 值（Arm 4 落地后改为读 resp.failure_reason）。"""
-    from research_engine.failure_reasons import classify_tool_exception
-
-    cases = {
-        TimeoutError("timed out"): "timeout",
-        ValueError("Expecting value: JSON decode error"): "parse_error",
-        RuntimeError("401 unauthorized api key"): "not_configured",
-        RuntimeError("429 rate limit exceeded"): "provider_error",
-        RuntimeError("502 bad gateway"): "provider_error",
-        RuntimeError("something else"): "provider_error",
-    }
-    for exc, expected in cases.items():
-        got = classify_tool_exception(exc)
-        assert got == expected, f"{exc!r} → {got}"
-        assert got in TOOL_REASONS
-
-
 def test_arxiv_provider_sets_failure_reason():
-    """工具层是 failure_reason 的唯一产生点；失败不得再「返回空但说不清为什么」。"""
+    """工具层是 failure_reason 的唯一产生点；失败不得再「返回空但说不清为什么」。
+
+    Arm 4 后按**异常类型**精确归类（不再凭异常文本猜），故这里必须抛
+    ``requests.exceptions.Timeout`` —— 内置 ``TimeoutError`` 不属于 requests 协议异常。
+    """
     from research_engine.search.arxiv import ArxivSearchProvider
 
     p = ArxivSearchProvider()
     with pytest.MonkeyPatch.context() as mp:
         import research_engine.search.arxiv as A
 
-        mp.setattr(A.requests, "get", lambda *a, **k: (_ for _ in ()).throw(TimeoutError("t/o")))
+        mp.setattr(A.requests, "get",
+                   lambda *a, **k: (_ for _ in ()).throw(A.requests.exceptions.Timeout("t/o")))
         resp = p.search("q")
     assert resp.failure_reason == "timeout"
     assert resp.ok is False

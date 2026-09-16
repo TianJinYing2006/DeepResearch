@@ -89,8 +89,17 @@ def append_history(run_id: str, summary: Dict[str, Any], metrics_mean: Dict[str,
         }
     record = {
         "run_id": run_id,
+        # Arm 5 §5.5.1：verdict 置于最前（历史趋势表口径一致）
+        "verdict": summary.get("verdict"),
+        "verdict_reasons": summary.get("verdict_reasons") or [],
         "git_commit": _git_head(),
         "metrics": metrics_mean,
+        # §5.5.4：历史 run 也要有离散度 ⇒ 跨 run 比较才有判据
+        "metrics_stderr": summary.get("metrics_stderr") or {},
+        # §5.5.2 新键（旧键 complete/partial/failed 由 summary 侧同时保留）
+        "metrics_ok": summary.get("metrics_ok", summary.get("complete")),
+        "metrics_partial": summary.get("metrics_partial", summary.get("partial")),
+        "metrics_failed": summary.get("metrics_failed", summary.get("failed")),
         # W8 §10.4 第 2 条：每轮 run 都记 config 快照（history 亦不例外）
         # —— 只写 run 级一条，不按题目重复（配置在同一 run 内不变）
         "config_snapshot": summary.get("config_snapshot"),
@@ -339,10 +348,10 @@ def generate_report(
     baseline_path = write_baseline(run_id, meta)
     history_path = append_history(run_id, summary, metrics_mean_effective)
 
-    # ---- 3. 指标表 ----
+    # ---- 3. 指标表（§5.5.4：均值必须并列 stderr 与有效题数）----
     header = (
-        "| 指标 | 目标 | 本轮 | 达标 |\n"
-        "|---|---|---|---|\n"
+        "| 指标 | 目标 | 本轮（均值 ± stderr） | 有效题数 n | 达标 |\n"
+        "|---|---|---|---|---|\n"
     )
     rows_tbl = []
     targets = {
@@ -354,14 +363,24 @@ def generate_report(
         "avg_steps": "记录基线",
         "reflection_critic_stop_rate": "≥90%",
     }
+    stderr_map = summary.get("metrics_stderr") or {}
     for key, target in targets.items():
         val = metrics_mean_effective.get(key)
+        disp = stderr_map.get(key) or {}
+        n = disp.get("n", 0)
+        se = disp.get("stderr", 0.0)
         if key == "avg_steps":
             val_s = f"{val:.1f} 轮" if isinstance(val, (int, float)) else "—"
+            if isinstance(val, (int, float)) and se:
+                val_s += f" ± {se:.2f}"
+        elif isinstance(val, float):
+            val_s = f"{val * 100:.1f}%"
+            if se:
+                val_s += f" ± {se * 100:.1f}pp"
         else:
-            val_s = f"{val * 100:.1f}%" if isinstance(val, float) else "—"
+            val_s = "—"
         mark = "✅" if _target_met(key, val, results) else "⚠️"
-        rows_tbl.append(f"| {key} | {target} | {val_s} | {mark} |")
+        rows_tbl.append(f"| {key} | {target} | {val_s} | {n} | {mark} |")
 
     cost_total = summary.get("cost_phase1_total", {})
     per_model = cost_total.get("per_model") or {}
@@ -369,9 +388,14 @@ def generate_report(
         f"{m}: {v['tokens']}tok ¥{v['cost']:.4f}" for m, v in per_model.items()
     )
     per_role_str = ", ".join(f"{r}: {t}tok" for r, t in (cost_total.get("per_role") or {}).items())
+    # D1：成本降级时 **金额不可重建**，绝不能显示成 ¥0（那等于说「没花钱」）
+    if cost_total.get("cost_degraded"):
+        cost_yuan_s = f"⚠️ 不可重建（{cost_total.get('cost_basis')}：{cost_total.get('cost_degraded_reason')}）"
+    else:
+        cost_yuan_s = f"¥{cost_total.get('cost_yuan', 0)}"
     cost_line = (
         f"💰 总 token（Phase1 研究）：{cost_total.get('total_tokens', 0)}，"
-        f"成本：¥{cost_total.get('cost_yuan', 0)}"
+        f"成本：{cost_yuan_s}"
         f"（Phase2 judge 另计 {summary.get('cost_phase2_judge_tokens', 0)} token）\n"
         f"  - 模型名桶：{per_model_str or '—'}\n"
         f"  - 职责桶：{per_role_str or '—'}\n"
@@ -481,6 +505,21 @@ def generate_report(
                 f"{m.get('retrieval_hit_rate', 0) * 100:.1f}% | {d_s} |"
             )
 
+    # ---- Arm 5 §5.5.1：run 级质量闸（**只告警不阻断**）----
+    verdict = summary.get("verdict", "unknown")
+    verdict_reasons = summary.get("verdict_reasons") or []
+    verdict_icon = {"ok": "✅", "suspicious": "⚠️", "broken": "🚫"}.get(verdict, "❔")
+    reasons_s = "\n".join(f"  - {r}" for r in verdict_reasons) or "  - （无）"
+    verdict_block = (
+        f"## 0. run 级质量闸（Arm 5 §5.5.1，**只告警不阻断**）\n\n"
+        f"**verdict：`{verdict}` {verdict_icon}**\n\n"
+        f"触发原因：\n{reasons_s}\n\n"
+        f"> `suspicious` = 指标跌破阈值，**被测可能已彻底降级**；"
+        f"`broken` = **评测管线自身**大面积失败（尺子坏了，均值不可信）。\n"
+        f"> 阈值为**外置参数**（`--thresholds-json`），默认组由 `run_20260910_173540` 反推，"
+        f"**尚未在新主链路基线上校准** ⇒ 当前只告警、不阻断。\n"
+    )
+
     # ---- 人工抽检模板（v0 首次生成占位，跑完后人工填写）----
     report = f"""# eval 报告（{run_id}）
 
@@ -491,6 +530,7 @@ def generate_report(
 
 {chr(10).join(comparability_lines)}
 
+{verdict_block}
 ## 1. 数据集说明
 - version: {meta.get('version', 'unknown')} / created_at: {meta.get('created_at', 'unknown')}
 - anchor_samples: {meta.get('anchor_samples', [])}
@@ -508,7 +548,10 @@ def generate_report(
 {minor_line}
 
 ## 4. 失败与异常附录
-- 完整 {summary.get('complete')} / 部分 {summary.get('partial')} / 失败 {summary.get('failed')}
+- 指标齐全 {summary.get('metrics_ok', summary.get('complete'))} /
+  指标部分 {summary.get('metrics_partial', summary.get('partial'))} /
+  指标失败 {summary.get('metrics_failed', summary.get('failed'))}
+  （§5.5.2 旧键 `complete/partial/failed` 仍写入，标 deprecated）
 {anomaly_lines}
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）

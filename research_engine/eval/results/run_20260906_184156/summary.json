@@ -42,5 +42,89 @@
  "cost_phase2_judge_tokens": 84463,
  "git_commit": "d160365527eac09d69264b6fb4292ce491ae3ea8",
  "dataset_version": "1.0",
- "generated_at": "2026-09-06T19:22:57"
+ "generated_at": "2026-09-06T19:22:57",
+ "metrics_stderr": {
+  "completion_rate": {
+   "n": 20,
+   "stderr": 0.0,
+   "ci95": [
+    1.0,
+    1.0
+   ]
+  },
+  "citation_accuracy": {
+   "n": 20,
+   "stderr": 0.0475,
+   "ci95": [
+    0.6267,
+    0.8105
+   ]
+  },
+  "citation_accuracy_relaxed": {
+   "n": 0,
+   "stderr": 0.0,
+   "ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "existence_rate": {
+   "n": 20,
+   "stderr": 0.0129,
+   "ci95": [
+    0.9469,
+    0.9958
+   ]
+  },
+  "coverage": {
+   "n": 20,
+   "stderr": 0.07,
+   "ci95": [
+    0.4375,
+    0.7167
+   ]
+  },
+  "retrieval_hit_rate": {
+   "n": 20,
+   "stderr": 0.0559,
+   "ci95": [
+    0.4692,
+    0.6967
+   ]
+  },
+  "avg_steps": {
+   "n": 20,
+   "stderr": 0.109,
+   "ci95": [
+    3.6,
+    4.0
+   ]
+  },
+  "reflection_critic_stop_rate": {
+   "n": 20,
+   "stderr": 0.0487,
+   "ci95": [
+    0.85,
+    1.0
+   ]
+  },
+  "insufficient_marker_ratio": {
+   "n": 0,
+   "stderr": 0.0,
+   "ci95": [
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "verdict": "ok",
+ "verdict_reasons": [],
+ "metrics_ok": 20,
+ "metrics_partial": 0,
+ "metrics_failed": 0,
+ "deprecated_keys": {
+  "complete": "metrics_ok",
+  "partial": "metrics_partial",
+  "failed": "metrics_failed"
+ }
 }

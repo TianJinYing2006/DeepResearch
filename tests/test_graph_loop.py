@@ -127,12 +127,15 @@ def test_rag_source_uses_doc_filename():
 
     class FakeRetriever:
         def retrieve(self, query, top_k=5):
-            return [
+            # W8 Arm 4（D-02）：retrieve 返回 RetrieveResponse，不再返回裸 List[dict]
+            from research_engine.rag.response import RetrieveResponse
+
+            return RetrieveResponse(query=query, items=[
                 {"text": "chunk A", "score": 0.90, "source": "vector", "doc": "doc_a.md"},
                 {"text": "chunk B", "score": 0.80, "source": "vector", "doc": "doc_a.md"},
                 {"text": "chunk C", "score": 0.70, "source": "bm25", "doc": "doc_b.md"},
                 {"text": "chunk D", "score": 0.60, "source": "bm25", "doc": ""},  # 无 doc 时兜底
-            ]
+            ])
 
     res.retriever = FakeRetriever()
     fs = res._search_rag("q")
