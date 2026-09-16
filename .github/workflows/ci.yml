@@ -2,6 +2,12 @@ name: CI
 
 # W6 TBD-4 定案：自动轨仅 ruff + pytest 离线单测（零 LLM 调用、零 API key、零外部服务）
 # eval 真实 API 轨见 eval-manual.yml（workflow_dispatch 手动触发，成本敏感）
+#
+# W8 Arm 3 第三刀（§5.3.3）：Python 版本扩为 matrix 3.11/3.12/3.13。
+# 目的：① 让「声明支持三档」被真实验证（3.12/3.13 此前从未跑过）；
+#       ② 把「四处版本口径」收敛为两处真强制 —— CI matrix + 运行时版本闸
+#          （`research_engine/__init__.py`），其余（pyproject requires-python、README）只是声明。
+# 成本账：单档约 36~37s ⇒ 三档约 110s。
 
 on:
   push:
@@ -15,24 +21,32 @@ permissions:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      # fail-fast=false：任一档失败也要看全三档 —— 否则只看到第一个红的，会误判影响面
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       # v7: Node 24 + ESM（v5 起要求 runner >= v2.327.1，GitHub-hosted 已满足）
       # 升级目的：消除 "Node.js 20 is deprecated" 告警
       - uses: actions/checkout@v7
 
-      - name: Set up Python 3.11
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            requirements-lock.txt
+            requirements-dev-lock.txt
 
+      # W8 Arm 3 第一刀（§5.3.1）：按 lock 安装 ⇒ 同一 commit 在不同机器/时间装出同一套版本。
+      # lock 由 pip-compile 从 requirements*.txt 解析全量传递依赖生成（保留环境标记，
+      # 不加 --generate-hashes —— 平台指纹会破坏可移植性，见 §5.3.1 子决策①）。
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -r requirements-lock.txt -r requirements-dev-lock.txt
 
       - name: Lint (ruff)
         run: ruff check .

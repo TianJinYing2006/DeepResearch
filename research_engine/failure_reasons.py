@@ -34,16 +34,23 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import FrozenSet
 
 
-class FailureReason(str, Enum):
+class FailureReason(StrEnum):
     """失败原因枚举。
 
-    继承 ``str`` 是为了能直接赋给 ``SearchResponse.failure_reason: str``
-    与 Pydantic 的 ``Dict[str, Any]`` 字段而无需 ``.value``；但**显式写 ``.value`` 更清晰**，
-    落盘 JSON 时也一定是字符串。
+    继承 ``StrEnum``（**Python 3.11+**）而非 ``(str, Enum)``，两个理由：
+
+    ① 与仓库的 Python 下界一致 —— W8 Arm 3 把支持区间钉为 3.11~3.13 并加了运行时闸
+       （``research_engine/__init__.py``）+ CI matrix，``StrEnum`` 正在该区间内；
+       ruff 的 ``target-version = py311`` 也会要求它（``UP042``）。
+    ② 行为更可预期：``(str, Enum)`` 下 ``f"{member}"`` 会渲染成 ``"FailureReason.TIMEOUT"``
+       而非 ``"timeout"``（经典坑），``StrEnum`` 下两者一致。
+
+    继承 ``str`` 的收益（能直接赋给 ``SearchResponse.failure_reason: str`` 而无需 ``.value``）
+    ``StrEnum`` 同样具备；但**本仓库仍统一显式写 ``.value``**，落盘 JSON 时一定是字符串。
     """
 
     # ---- 工具层产生（5 值；Arm 4 原有）----

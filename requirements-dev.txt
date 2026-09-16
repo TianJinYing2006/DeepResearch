@@ -1,3 +1,9 @@
 # 开发依赖（CI lint + 单测；与运行时依赖 requirements.txt 分离，符合 W6 TBD-10 b 轻量版定案）
 ruff>=0.6.0
 pytest>=8.0.0
+# 注意：lock 生成工具 **不在** 此处声明。
+# W8 Arm 3 第一刀（§5.3.1）原用 pip-tools（pip-compile），
+# 2026-09-16 实测发现它无法跨平台解析、会丢弃环境标记（详见 §5.3.1 实测修正二），
+# 已按当日追加拍板换为 uv（`uv pip compile --universal`）。
+# uv 是独立二进制而非 pip 依赖 ⇒ 刻意不进本文件，避免把 build/wheel/pyproject-hooks
+# 等 8 个包拖进 CI 安装树。生成锁的命令逐字记录在两份 lock 的文件头里。

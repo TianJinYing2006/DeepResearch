@@ -51,7 +51,7 @@
 | **基线** | **before 基线**（主链路，20 题 × 3 runs ≈¥4 / 3.6h） | **P0** | §10.4；**⚠️ 且必须在 Arm 1~7 任一改动落地前采**，否则永久错过 | ⬜ |
 | Arm | **Arm 1** 状态分层（三态 + §5.1.4 异常退出契约 + 失败原因枚举共用 + `error` 结构化 + `operator.add` reducer） | P0 | — | ⬜ 设计已定（Q4） |
 | Arm | **Arm 2** 代码执行注入修复 | P0 | — | ✅ **2026-09-16 落地**（实测修正：旧模板无条件语法错误 ⇒ 顺带修复工具 100% 失败 + 沙箱输出编码） |
-| Arm | **Arm 3** 依赖锁定（锁定 / 声明 / 强制 三刀） | P0 | — | ⬜ 设计已定（Q2） |
+| Arm | **Arm 3** 依赖锁定（锁定 / 声明 / 强制 三刀） | P0 | — | ✅ 已落地（2026-09-16；生成工具按当日追加拍板由 `pip-compile` 换为 `uv pip compile --universal`，见 §5.3.5） |
 | Arm | **Arm 4** 工具失败原因（`failure_reason`，枚举与 Arm 1 共用一张表） | P1 | 枚举须**一处定义、两侧 import**；**⚠️ Q8：字段定义前移为 Arm 1 前置** | ⬜ |
 | Arm | **Arm 5** 评测口径（质量闸 + 字段重命名 + **§5.5.4 stderr + 离线回填**） | P1 | — | ⬜ 设计已定（Q3/Q5） |
 | Arm | **Arm 6** 可复现元数据（**8 字段 + 内嵌 `config_snapshot` + `code_revision()` 一处定义**；§10.4 已前移单列） | P1 | §10.4 | ⬜ 设计已定（C3 + Q8 收敛） |
@@ -107,7 +107,7 @@
 | ------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Arm 1（状态分层）   | 运行状态能区分成功与降级，且**失败真正可达** | `state.run_status` 覆盖 **`success/degraded/failed` 三态**（原 `partial` 因与 `degraded` 判定条件相同而移出 state、降为报告层派生指标）；① 任何 LLM/搜索/代码执行/Validator 走 fallback ⇒ `run_status="degraded"` 且 `degradation_log` 非空；② **`run()` 层捕获异常 ⇒ `run_status="failed"`**（现无任何路径可达，见 §5.1.4）|
 | Arm 2（代码注入修复） | 计算脚本不包含原始 query 文本；**且脚本真的能跑通**（2026-09-16 实测补充） | `researcher.py` 的 `_default_code_script()` 不再拼接 query；query 通过 `exec_code(query=)` 进 hash + `metadata["query"]` 关联；中文和特殊字符不触发语法错误。**⚠️ 实测：旧模板对任何 query 都语法错误 ⇒ 成功率 0%→100%（§5.2.4）** |
-| Arm 3（依赖锁定）   | 同一 commit 在不同机器上可复现安装，且**四处版本口径收敛为一处** | **① lock**：`requirements-lock.txt`（**`pip-compile --python-version 3.11` 生成、不加哈希**）+ CI 按其安装；**② 声明**：`pyproject.toml` **新增** `requires-python = ">=3.11,<3.14"` + `[tool.ruff] target-version` → `py311` + `README.md` → `Python 3.11 ~ 3.13`；**③ 强制**：运行时 `sys.version_info` 版本闸 + CI **matrix 3.11/3.12/3.13**。**取消**原「新增 smoke test」（现有 132 测试已是零 API 等价物） |
+| Arm 3（依赖锁定）   | 同一 commit 在不同机器上可复现安装，且**四处版本口径收敛为一处** | **① lock**：`requirements-lock.txt`（由 **`uv pip compile --universal --python-version 3.11`** 生成、不加哈希；原文写 `pip-compile --python-version 3.11`，实测该旗标不存在**且 pip-compile 会丢弃环境标记** ⇒ 2026-09-16 追加拍板换 uv，见 §5.3.1 实测修正一/二/三 + §5.3.5）+ CI 按其安装；**② 声明**：`pyproject.toml` **新增** `requires-python = ">=3.11,<3.14"` + `[tool.ruff] target-version` → `py311` + `README.md` → `Python 3.11 ~ 3.13`；**③ 强制**：运行时 `sys.version_info` 版本闸 + CI **matrix 3.11/3.12/3.13**。**取消**原「新增 smoke test」（现有 132 测试已是零 API 等价物） |
 | Arm 4（工具失败原因） | "没有搜到"和"搜索坏了"可区分      | 搜索结果携带 `failure_reason` 字段，取值 `not_configured/timeout/provider_error/empty_result/parse_error` 之一                   |
 | Arm 5（评测口径收敛） | **降级结果不再被 silent 地报成成功** | **主刀 = run 级质量闸**：`_summarize()` 顶层产出 **`verdict`**（`ok` / `suspicious` / `broken`）+ **`verdict_reasons: list[str]`**，阈值**外置为函数参数**（文档不写死数字）。**附属产出**：① 现有 `complete/partial/failed` 三元组重命名为 `metrics_ok/metrics_partial/metrics_failed`，并注明其语义是「指标算全与否」而非「研究是否成功」；② **`metrics_mean` 每个指标并列输出 stderr**（Q5，对齐 openai/evals / lm-eval-harness 行业通例，见 §5.5.4 / §6.7） |
 | Arm 6（可复现元数据） | 评测结果可追溯到完整环境与**裁判身份** | 每条 raw 记录包含 **13 个字段**（原 6 + 09-13 的 `experiment` + 本次新增 6）：`git_dirty` / `git_diff_hash` / `python_version` / `deps_frozen_hash` / `model_name` / `search_provider` / `experiment` / **`prompt_hash` / `citation_judge_model` / `coverage_judge_model` / `citation_judge_independent` / `scorer_version` / `max_step_budget`**；其中 **`citation_judge_independent` 必须在 summary 中可见**，任何「引用准确率提升」的结论都须先解释该字段 |
@@ -635,23 +635,81 @@ def _default_code_script() -> str:
 > **文档里叙述的因果不经验证就不能当设计前提**。
 > 而「一个工具 100% 失效却无人察觉」恰恰是 Arm 1 要消灭的故障形态：改前它只能靠事后人工翻 raw 才能发现。
 
-### 5.3 Arm 3：依赖环境锁定（P0，**2026-09-14 Grill Q2 拍板为「三刀分离」**）
+### 5.3 Arm 3：依赖环境锁定（P0，**2026-09-14 Grill Q2 定「三刀分离」；2026-09-16 追加拍板换生成工具**）
 
 > **拍板结论（Q2=A）**：把「锁定 / 声明 / 强制」拆成三刀，各用最小手段 —— 因为**单靠 `requires-python` 在本仓库结构下没有任何强制力**（见 §4.4：无 `[build-system]`，pip 不会执行该字段）。
-> **子决策**：① lock **不加 `--generate-hashes`**（哈希随平台轮子变化 ⇒ 本机 win/3.13 生成的哈希在 ubuntu/3.11 上必然不匹配；行业证据见 §4.4 —— gpt-researcher 用**环境标记**而非锁死哈希处理跨平台）；② 跨平台风险取「**`pip-compile --python-version 3.11` 生成 + 首次 CI 运行实测**」。
+> **子决策**：① lock **不加 `--generate-hashes`**（哈希随平台轮子变化 ⇒ 本机 win 生成的哈希在 ubuntu 上必然不匹配；行业证据见 §4.4 —— gpt-researcher 用**环境标记**而非锁死哈希处理跨平台）；② ~~跨平台风险取「`pip-compile --python-version 3.11` 生成 + 首次 CI 运行实测」~~ ← **该子决策的前提已被实测推翻**（旗标不存在 + pip-compile 丢弃标记），**2026-09-16 追加拍板**改为：**用 `uv pip compile --universal` 生成带正确 PEP 508 标记的单文件锁**（详情见 §5.3.1 实测修正一/二/三、§5.3.5 拍板记录、§6.3 工具选型）。
 
 #### 5.3.1 第一刀 · 锁定（真缺口）
 
-**用 `pip-compile` 生成 `requirements-lock.txt`，明确不用 `pip freeze`。**
+**用 `uv pip compile --universal` 生成 `requirements-lock.txt`，明确不用 `pip freeze`。**
+（本小节原文写的是 `pip-compile --python-version 3.11`，**两处均已被实测推翻**，见下方实测修正一/二；正文按修订后表述。）
 
-- 命令：**`pip-compile --python-version 3.11 --output-file requirements-lock.txt requirements.txt`**
-  - `--python-version 3.11` 让 pip-tools **按 CI 的 Python 小版本**解析条件依赖，降低「本机 3.13 解析结果在 CI 3.11 上装不上」的风险（无需本地装 3.11）。
-- **不使用 `pip freeze` 的理由（实测证据）**：`.deps/` 里 **168 个 `.pyd` 全部是 `cp313-win_amd64`** —— `pip freeze` 输出的是「**本机当前已装集合**」，会把 CPython 3.13 + Windows 专属的二进制集合固化进 lock，换平台即废。`pip-compile` 则是从**声明**（`requirements.txt`）解析全量传递依赖，并**保留环境标记**（如 `; sys_platform == "win32"`），pip 在目标平台自行挑选正确轮子。
-- **不加 `--generate-hashes`**：加了会让哈希带平台指纹，直接破坏可移植性（见上方子决策 ①）。
-- `requirements-dev.txt`（`ruff` + `pytest`）同步锁为 `requirements-dev-lock.txt`，或并入同一 lock 文件。
-- **新增开发依赖 `pip-tools`** 到 `requirements-dev.txt`。
-- CI 安装步骤改为：`pip install -r requirements-lock.txt -r requirements-dev-lock.txt`。
+- 命令（**实际执行、且逐字记录在两份 lock 文件头**）：
+  ```
+  uv pip compile --universal --python-version 3.11 --strip-extras \
+    --output-file requirements-lock.txt requirements.txt
+  uv pip compile --universal --python-version 3.11 --strip-extras \
+    --output-file requirements-dev-lock.txt requirements-dev.txt
+  ```
+  - `--universal` 做**单一文件的全平台/全版本解析**，逐包输出 PEP 508 环境标记 ⇒ 一份锁同时适用于 Windows 开发机与 ubuntu CI。
+  - `--python-version 3.11` 定下解析下限（对齐 CI matrix 最低档），**这是 pip-compile 做不到的**（见实测修正一）。
+- **不使用 `pip freeze` 的理由（实测证据）**：`.deps/` 里 **168 个 `.pyd` 全部是 `cp313-win_amd64`** —— `pip freeze` 输出的是「**本机当前已装集合**」，会把 CPython 3.13 + Windows 专属的二进制集合固化进 lock，换平台即废。
+- **不加 `--generate-hashes`**：加了会让哈希带平台指纹，直接破坏可移植性（见上方子决策 ①）。实测两份锁 `grep -c '\-\-hash'` 均为 **0**。
+- `requirements-dev.txt`（`ruff` + `pytest`）同步锁为 `requirements-dev-lock.txt`。
+- ~~**新增开发依赖 `pip-tools`** 到 `requirements-dev.txt`~~ ← **已作废**：换 uv 后不再需要；且 uv 是独立二进制，**刻意不写进 `requirements-dev.txt`**（否则会把 `build`/`wheel`/`pyproject-hooks` 等 8 个包拖进 CI 安装树）。dev 锁因此由 14 行瘦到 7 包。
+- CI 安装步骤改为：`pip install -r requirements-lock.txt -r requirements-dev-lock.txt` —— **CI 侧不需要 uv**（锁是 requirements 格式，pip 读标记自行挑选轮子）。
 - **前置动作**：`pyproject.toml` 无需 `[build-system]`（本刀不引入打包语义）。
+
+> **⚠️ 实测修正一（2026-09-16）：`--python-version 3.11` 这个旗标不存在。**
+> 本稿原文与 §6.3、§11 拍板行均写 `pip-compile --python-version 3.11 ...`，**实测 `pip-compile 7.6.1` 直接报 `No such option: --python-version`** —— pip-tools 只能按**运行它的解释器**求值环境标记，**没有跨版本/跨平台解析能力**（`--help | grep -E "python-version|platform|universal"` 三个词全无）。
+> ⇒ 要生成「按 3.11 解析」的锁，**必须在真 3.11 解释器下运行 pip-compile**。本项目为此建了专用 venv：
+> `…/binaries/python/envs/py311-tools`（`uv python install 3.11` → `python -m ensurepip` → `pip install pip-tools`；注意 `uv venv` 建出的环境**不自带 pip**）。
+> 实际执行命令（**已落地**）：
+> ```
+> env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy no_proxy='*' NO_PROXY='*' \
+>   <py311-tools>/Scripts/pip-compile.exe --strip-extras \
+>   --output-file requirements-lock.txt --pip-args "--timeout 90 --retries 8" requirements.txt
+> ```
+> **代理坑（本环境特有）**：**清空 `HTTP_PROXY` 等环境变量并不足以让 pip 直连** —— pip 的 `requests` 走 `urllib.request.getproxies()`，在 Windows 上**还会读注册表**（实测清空 env 后仍返回 `{'http': 'http://127.0.0.1:7897'}`，即 ClashVerge 的系统代理）⇒ 表现为 `ProxyError('Cannot connect to proxy.')` 或内容被改写成 `HashMismatch`。**必须额外加 `no_proxy='*' NO_PROXY='*'`** 才真正绕过（`uv` 不读注册表，所以对它只需清 env）。
+
+> **⚠️ 实测修正二（2026-09-16）：pip-compile 丢环境标记 ⇒ 跨平台假设**必然**失败（第一刀 DoD 未达成）。**
+> 实测 `requirements-lock.txt`（308 行）**环境标记数为 0**（`grep -c ';'` = 0）：pip-compile 把满足当前解释器的 marker **求值后直接丢弃**，把不满足的包**整条省略**。
+> 后果：`pywin32==312`（由 `portalocker` 的 `platform_system == "Windows"` 标记引入）被**去标记平铺**；而 PyPI 上 `pywin32 312` 的 **21 个产物全部是 Windows wheel，0 个 sdist、0 个非 win 产物**（`packagetype` 仅 `bdist_wheel`）。
+> ⇒ **linux runner 上 `pip install -r requirements-lock.txt` 必然报 `Could not find a version that satisfies the requirement pywin32==312`，CI 必红**。这不是「风险」，是**必现**。
+> ⇒ 本稿 §5.3.1 子决策②「`pip-compile --python-version 3.11` 生成 + 首次 CI 运行实测」的**前提被推翻**，且 §6.3 里「选 pip-compile 而非 uv 是因为它**保留环境标记**」的**立论被实测证伪**（它恰恰不保留）。
+> **处置**：§5.3.5 拍板记录 + §6.3 工具选型重写 + §11 变更记录。（实测修正一的 pip-compile 执行命令**已被下述 uv 命令取代**，保留作为「为什么不用它」的证据。）
+
+> **⚠️ 实测修正三（2026-09-16）：改用 `uv pip compile --universal` 后，跨平台可安装性已获实测证据。**
+> 换 uv 重生成后逐项核对：
+>
+> | 检查项 | pip-compile 版 | **uv universal 版** |
+> | --- | --- | --- |
+> | 环境标记数（主锁） | **0** | **7** |
+> | `pywin32` | `pywin32==312`（去标记） | **`pywin32==312 ; sys_platform == 'win32'`** |
+> | `tzdata` | 去标记 | `tzdata==2026.4 ; sys_platform == 'emscripten' or sys_platform == 'win32'` |
+> | `colorama` / `watchdog` | 去标记 | `colorama==0.4.6 ; sys_platform == 'win32'` / `watchdog==6.0.0 ; sys_platform != 'darwin'` |
+> | `--hash` 残留 | 0 | 0 |
+> | 直接依赖版本 | — | **完全一致**（`langgraph 1.2.11` / `langfuse 4.15.3` / `openai 1.92.3` / `streamlit 1.64.0` / `pydantic 2.13.5` / `qdrant-client 1.19.1` / `jieba 0.42.1`），**无版本漂移** |
+>
+> **Linux 目标安装预演**（`pip install --dry-run --ignore-installed --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all: -r requirements-lock.txt`）：整份锁逐一解析通过，**唯一报错为 `jieba==0.42.1`** —— 而那是**由我强加的 `--only-binary=:all:` 造成的**：jieba 只发布 sdist、**没有 wheel**，真实 CI 不加该旗标时 pip 会正常从 sdist 构建（且 jieba 是纯 Python 包，Linux 上历来可装）。
+> ⇒ **原「必红」判定被消解**。剩余唯一不确定性由 CI 实测兜底（见 §7 Arm 3 DoD 最后一条）。
+
+#### 5.3.5 拍板记录（2026-09-16 追加，非 Grill 轮次）
+
+**触发**：第一刀落地过程中，实测连续推翻 Q2 子决策②的两条前提（旗标不存在 / 标记被丢弃），按项目惯例**立论失效即重开拍板**。
+
+**选项与裁决**：
+
+| 选项 | 内容 | 代价 | 结果 |
+| --- | --- | --- | --- |
+| **A** | `uv pip compile --universal` 重生成 | 换掉 Q2 选型；本沙箱内 uv 建 sdist 被安全层拦，需沙箱外跑一次 | ✅ **于晏拍板采纳** |
+| B | Docker（`python:3.11-slim`）里用 pip-compile 生成 Linux 锁 | 需启动 Docker Desktop（实测守护进程未运行）；锁变 Linux 视角，win-only 包转为动态解析不锁定 | 未采纳 |
+| C | 文档 §5.3.1 预授权回退「只锁直接依赖」 | 传递依赖仍可漂移 —— **正是 Arm 3 要打的靶子**，等于只解决一半 | 未采纳 |
+| D | 先推 dev 用真 CI 坐实「必红」再决策 | 多花一轮 CI，但拿到不可辩驳的真红证据 | 未采纳 |
+
+**A 的落地要点**：① 生成锁用 uv `0.11.32`，**命令逐字写进两份 lock 的文件头**，任何人可复算；② **CI 不需要 uv** —— 锁仍是 requirements 格式，`pip install` 一字未改；③ `pip-tools` 从 `requirements-dev.txt` **移除**（uv 是独立二进制，不进 pip 依赖树）。
+**未决**：是否给 CI 加一个「锁过期检查」任务（比对重生成结果 vs 已提交锁）—— 目前**不做**，避免为可复现性引入新的 CI 依赖与失败面。
 
 #### 5.3.2 第二刀 · 声明（纠正原文错误前提）
 
@@ -937,20 +995,27 @@ def _default_code_script() -> str:
 
 query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExecOutput.metadata`。这不需要修改 `code_exec.py` 的执行协议（stdin/stdout 管道），只是调用方不再把 query 拼进脚本字符串。
 
-### 6.3 Arm 3 策略：pip-compile 而非 pip freeze / uv / poetry
+### 6.3 Arm 3 策略：`uv pip compile --universal`（**2026-09-16 追加拍板，第二次修订**）
 
-> ⚠️ **本节按 2026-09-14 Grill Q2 拍板重写（原稿与 §5.3 直接冲突）**
-> 原稿标题为「pip freeze 而非 uv/poetry」、正文写「选择 `pip freeze` + `requirements-lock.txt`」，
-> 与 §5.3.1「**明确不用 `pip freeze`**」自相矛盾 —— 2026-09-14 决策复盘中查出。
-> 保留原稿会让实现者按 `pip freeze` 执行（把本机 `cp313-win_amd64` 集合固化进 lock），**Q2 等于白拍**。
+> ⚠️ **本节已两次修订，务必按最新版读。**
+> **第一次修订（2026-09-14，Grill Q2）**：原稿标题为「pip freeze 而非 uv/poetry」、正文写「选择 `pip freeze` + `requirements-lock.txt`」，与 §5.3.1「**明确不用 `pip freeze`**」自相矛盾 ⇒ 改为 `pip-compile`。
+> **第二次修订（2026-09-16，实测推翻）**：Q2 选 `pip-compile` 的**唯一实质理由**是上表那格写的「**保留环境标记（PEP 508）**」——实测证明**恰好相反**：pip-compile 把满足当前解释器的 marker **求值后丢弃**、把不满足的包**整条省略**，生成的 308 行锁里**环境标记数为 0**（`grep -c ';'`）。后果是 `pywin32==312`（PyPI 上 21 个产物**全是 Windows wheel**）被去标记平铺 ⇒ **Linux CI 必然装不上**。详见 §5.3.1 实测修正一/二。
+> ⇒ 立论失效，**工具选型重拍**。
 
-选择 **`pip-compile`（pip-tools）**，而非另外三者：
+选择 **`uv pip compile --universal`**，而非另外三者：
 
 | 方案 | 不用的理由 |
 | --- | --- |
 | `pip freeze` | 快照的是**本机已装集合**。实测 `.deps/` 168 个 `.pyd` 全为 `cp313-win_amd64`，会把 CPython 3.13 + Windows 专属二进制固化进 lock，换平台即废（详见 §5.3.1） |
-| `uv.lock` / `poetry.lock` | 项目当前是 `pyproject.toml` + `requirements.txt` 模式，引入 uv / poetry 等于换工具链与安装语义，迁移成本远大于收益 |
-| **`pip-compile`** ✅ | 从**声明**（`requirements.txt`）解析全量传递依赖并**保留环境标记**（PEP 508），仍产出 requirements 格式的 lock ⇒ **CI 只需改一行安装命令**，与「零成本方案」的原意一致 |
+| `pip-compile`（pip-tools 7.6.1） | ❌ **实测否决**：无任何跨版本/跨平台旗标（`--help` 里 `python-version`/`platform`/`universal` 三词全无），且**丢弃环境标记** ⇒ 只能在「生成它的那个平台」上装得上。**这是唯一一条被实测推翻的选项**，其原始入选理由（保留标记）已证伪 |
+| `poetry.lock` | 虽然 poetry 是 marker-aware 的，但它产出的是 TOML 锁、安装语义换成 `poetry install`，迁移面远大于收益 |
+| **`uv pip compile --universal`** ✅ | ① **`--universal` 做单一文件的全平台解析**，对每个包输出正确的 PEP 508 标记（实测 `pywin32==312 ; sys_platform == 'win32'`）；② 产出**仍是 requirements 格式** ⇒ **CI 侧只需 pip 安装，不需要 uv，安装命令一字不改**；③ uv 是独立二进制 ⇒ **不进 pip 依赖树**（`requirements-dev.txt` 刻意不声明它，避免拖进 `build`/`wheel`/`pyproject-hooks` 等 8 个包） |
+
+**代价与边界（如实记）**：
+- 生成锁需要 uv（实测版本 `0.11.32`），命令**逐字记录在两份 lock 的文件头**里，任何人可复算。
+- `--universal` 会带出本机永不会装的平台分支（实测多出 `httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'`）—— 这是**特性不是缺陷**，标记为假的包 pip 不会装。
+- 本沙箱内 uv **构建 sdist 会被安全层拦截**（`SAFE_DELETE_FAIL_CLOSED`，setuptools 清理 `jieba.egg-info` 时触发）⇒ 主锁生成需在沙箱外跑一次；dev 锁全为 wheel，沙箱内即可完成。
+- **锁的「跨平台可安装」是实测结论而非承诺**，证据见 §5.3.1 实测修正三。
 
 ### 6.4 Arm 4 策略：failure\_reason 附加而非替换
 
@@ -1051,41 +1116,43 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 * [x] `run_20260910_173540` 中的中文查询乱码场景不再复现 —— ✅ **2026-09-16 落地**，但**根因与原文设想不同**：乱码源于沙箱子进程 cp936 写管道 / 父进程 utf-8 读管道（非「query 进脚本」）；修法是子进程加 `-X utf8`，实测 stdout/stderr 中文逐字还原（§5.2.4 实测修正二）
 * [x] **（2026-09-16 实测新增）** 计算脚本真的能跑通 —— ✅ 旧模板对任何 query 都 `SyntaxError`，基线三轮 code_exec 产出 **144/144 全部失败（100%）**；修复后全绿（§5.2.4 实测修正一）
 
-### Arm 3（P0，**2026-09-14 按 Q2=A「三刀分离」重写**）
+### Arm 3（P0，**2026-09-14 按 Q2=A「三刀分离」重写**；2026-09-16 生成工具追加拍板换 uv）
 
 **第一刀 · 锁定**
 
-* [ ] `pip-tools` 加入 `requirements-dev.txt`
+* [x] ~~`pip-tools` 加入 `requirements-dev.txt`~~ ← **已作废并移除**：换 uv 后不需要；uv 是独立二进制，刻意不进 pip 依赖树（避免拖进 8 个包）。dev 锁由 14 行瘦到 7 包。✅ **2026-09-16 落地**
 
-* [ ] `pip-compile --python-version 3.11 --output-file requirements-lock.txt requirements.txt` 生成 lock，**文件中不含 `--hash`**
+* [x] 生成 lock，**文件中不含 `--hash`** —— ✅ **2026-09-16 落地**。⚠️ **命令已按实测修正**：原写 `pip-compile --python-version 3.11`，实测该旗标**不存在**（`No such option`）且 pip-compile **丢弃环境标记**（锁内标记数 = 0 ⇒ `pywin32==312` 去标记 ⇒ Linux 必装不上）⇒ **2026-09-16 追加拍板改 `uv pip compile --universal --python-version 3.11 --strip-extras`**，实测标记数 7、`--hash` 数 0（§5.3.1 实测修正一/二/三）
 
-* [ ] `requirements-dev.txt` 同样锁定（`requirements-dev-lock.txt` 或并入同一文件）
+* [x] `requirements-dev.txt` 同样锁定（`requirements-dev-lock.txt`）—— ✅ **2026-09-16 落地**（7 包 + 1 条 `colorama ; sys_platform == 'win32'` 标记）
 
-* [ ] CI 安装步骤改为 `pip install -r requirements-lock.txt -r requirements-dev-lock.txt`
+* [x] CI 安装步骤改为 `pip install -r requirements-lock.txt -r requirements-dev-lock.txt` —— ✅ **2026-09-16 落地**，且 `cache-dependency-path` 同步指向两份锁；**CI 侧不需要 uv**
 
-* [ ] **首次 CI 运行实测通过**（验证「本机 win/3.13 生成的 lock 在 ubuntu/3.11 上可安装」这一跨平台假设；若失败，回退方案 = 在 Linux 侧生成或改为只锁直接依赖）
+* [ ] **首次 CI 运行实测通过**（跨平台假设）—— ⏳ **待 CI 三档实测**。与原文不同：风险已从「必现红」（pip-compile 版 `pywin32` 去标记）降级为「待兜底确认」—— 本地已用 `--platform manylinux2014_x86_64` 预演整份锁，**唯一报错仅为 sdist-only 的 `jieba`**（由我强加 `--only-binary=:all:` 所致，真实 CI 会从 sdist 正常构建）。
 
 **第二刀 · 声明**
 
-* [ ] `pyproject.toml` **新增** `requires-python = ">=3.11,<3.14"`，**并就地注释「本字段在本仓库不具强制力（无 `[build-system]`），真正强制见运行时版本闸」**
+* [x] `pyproject.toml` **新增** `requires-python = ">=3.11,<3.14"`，**并就地注释「本字段在本仓库不具强制力（无 `[build-system]`），真正强制见运行时版本闸」** —— ✅ **2026-09-16 落地**
 
-* [ ] `[tool.ruff] target-version` 由 `"py310"` 改为 `"py311"`，且 `ruff check .` 仍全绿
+* [x] `[tool.ruff] target-version` 由 `"py310"` 改为 `"py311"`，且 `ruff check .` 仍全绿 —— ✅ **2026-09-16 落地**（附带发现：该改动触发 ruff `UP042`，`FailureReason` 由 `(str, Enum)` 改为 `StrEnum`；因全仓用法均为 `.value`，语义等价）
 
-* [ ] `README.md:46` 由 `Python 3.10+` 改为 `Python 3.11 ~ 3.13`
+* [x] `README.md:46` 由 `Python 3.10+` 改为 `Python 3.11 ~ 3.13` —— ✅ **2026-09-16 落地**
 
 **第三刀 · 强制**
 
-* [ ] 运行时版本闸落地（`sys.version_info` 不在 3.11~3.13 ⇒ 明确报错，错误信息含支持区间与当前版本）
+* [x] 运行时版本闸落地（`sys.version_info` 不在 3.11~3.13 ⇒ 明确报错，错误信息含支持区间与当前版本）—— ✅ **2026-09-16 落地**（`research_engine/__init__.py` import 期执行）
 
-* [ ] **新增单测**：mock 一个越界 `sys.version_info` ⇒ 版本闸抛出预期异常
+* [x] **新增单测**：mock 一个越界 `sys.version_info` ⇒ 版本闸抛出预期异常 —— ✅ **2026-09-16 落地**（`tests/test_arm3_python_version_gate.py`，20 条；含**四口径耦合守卫** —— pyproject / README / CI matrix / 锁文件四处版本口径互相对齐，任一处漂移即测试失败）
 
-* [ ] CI 扩为 `matrix: python-version: ["3.11", "3.12", "3.13"]`，**三档全绿**（注：3.12 / 3.13 **首次被真实验证**）
+* [ ] CI 扩为 `matrix: python-version: ["3.11", "3.12", "3.13"]`，**三档全绿**（注：3.12 / 3.13 **首次被真实验证**）—— ⏳ **配置已落地，待 push 实测**
 
-* [ ] ~~生成 `requirements-lock.txt`，包含严格版本号~~ ← 已细化进第一刀
+* [x] ~~生成 `requirements-lock.txt`，包含严格版本号~~ ← 已细化进第一刀 ✅
 
-* [ ] ~~`pyproject.toml` 的 `requires-python` **改为** `>=3.11,<3.14`~~ ← **前提不存在**（原文件无该字段，实为新增）
+* [x] ~~`pyproject.toml` 的 `requires-python` **改为** `>=3.11,<3.14`~~ ← **前提不存在**（原文件无该字段，实为新增）✅
 
-* [ ] ~~新增无外部 API 的 smoke test，CI 中通过~~ ← **取消：现有 132 个测试全部零 LLM / 零 API key，已是等价物**
+* [x] ~~新增无外部 API 的 smoke test，CI 中通过~~ ← **取消：现有测试全部零 LLM / 零 API key，已是等价物** ✅
+
+> **⚠️ 待 CI 实测的两条**（第一刀末条 + 第三刀末条）是 Arm 3 唯一未闭环处，**必须在 push 后用真实 CI 输出收口**；若三档中出现非 `jieba` 类失败，按 §5.3.1 实测修正三的回退方案处置。
 
 * [ ] ~~在 Python 3.11 环境下完整测试套件通过~~ ← **已满足**：CI 每次 push 就在 3.11 上跑 `pytest tests/ -q`
 
@@ -1199,7 +1266,7 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 | ----- | ------------------------------------------------------------------------------------------ | --------------- | --------------------------------------------------- |
 | Arm 1 | state.py, **graph.py `run()`（新增 try/except）**, **cli.py / web/app.py（退出码与展示）**, planner.py, writer.py, validator.py, researcher.py, arxiv.py, store.py | 全链路状态流转；W1 收敛单测；**CLI 退出语义** | **中**（由「低」上调）：① 新增字段不破坏现有逻辑，但每个 except 块需手动改，可能遗漏；② **`run()` 由抛异常改为返回 state，会改变调用方语义** —— 若下游依赖"异常即崩溃"将静默失效，故**必须**配 CLI `sys.exit(1)` 兜底（§5.1.4 五件套）；③ `error` 由 `str` 改 `Dict` 属**破坏性变更**，须同步改所有读取方；④ `degradation_log` 若漏加 `operator.add` reducer，并发下会丢记录 |
 | Arm 2 | researcher.py, code\_exec.py                                                               | 代码执行路径          | 低：脚本模板是确定性函数，改动范围小                                  |
-| Arm 3 | pyproject.toml, README.md, requirements*.txt, CI 配置, `research_engine/__init__.py` | 依赖安装；CI 流水线；所有用户的启动路径 | **中**：① **跨平台 lock 风险**（本机 win/3.13 生成的 lock 在 ubuntu/3.11 上可能因平台轮子差异装不上 —— 已定「首次 CI 实测」+ 两条回退方案）；② **版本闸可能拦住 3.10 用户** —— 但事实是 **3.10 从未被验证过**（CI 只跑 3.11、`.deps` 只给 cp313），故收窄属**如实声明**而非能力倒退；③ `ruff target-version` 从 `py310` 升到 `py311` 会让**原先被放行的 3.11+ 语法不再报错**，反向影响极小 |
+| Arm 3 | pyproject.toml, README.md, requirements*.txt, CI 配置, `research_engine/__init__.py` | 依赖安装；CI 流水线；所有用户的启动路径 | **中**：① **跨平台 lock 风险**（~~本机 win 生成的 lock 在 ubuntu 上可能因平台轮子差异装不上~~ ⇒ **2026-09-16 实测确认该风险在 `pip-compile` 下是必现的**（`pywin32==312` 去标记平铺、PyPI 上 21 个产物全为 win wheel），**改用 `uv pip compile --universal` 后已消解**：实测 7 条环境标记正确、`--platform manylinux2014_x86_64` 预演整份锁通过（唯一报错为 sdist-only 的 `jieba`，由测试旗标 `--only-binary=:all:` 强加所致）；仍保留「首次 CI 实测」作兜底）；② **版本闸可能拦住 3.10 用户** —— 但事实是 **3.10 从未被验证过**（CI 只跑 3.11、`.deps` 只给 cp313），故收窄属**如实声明**而非能力倒退；③ `ruff target-version` 从 `py310` 升到 `py311` 会让**原先被放行的 3.11+ 语法不再报错**，反向影响极小 |
 | Arm 4 | researcher.py, arxiv.py, store.py, SearchResponse 定义                                       | 搜索结果消费方         | 低：非破坏性扩展，下游可选消费                                     |
 | Arm 5 | eval/run.py, eval/report\_gen.py, docs/eval-report.md, **eval 落盘字段（`status`→`metrics_status`）** | 评测流水线；**字段重命名波及下游** | **中**：① 历史趋势表格式变化 + 旧键名兼容期，需 `deprecated` 双写；② **`verdict` 阈值初值系单个 run 反推** ⇒ 在新基线上复核前可能误报 —— 已用「外置参数 + 只告警不阻断」把风险压在"可读不可拦"的范围内；③ 字段重命名若漏改 `tools/w7_backfill_*.py`，会打断 W7 零成本可复算链路 |
 | Arm 6 | eval/run.py, eval/report\_gen.py, **eval/w7\_experiment.py（改 import）**, **agents/{planner,validator,writer}.py（只读常量）**, **eval/metrics.py 等（只读取 hash）** | 评测记录格式；**`git_head` 三处调用方** | **低→中（Q8=C6-A 上调）**：① 新增字段，不影响现有字段；**注意 `scorer_version` 的副作用**：改动指标代码会改变 `scorer_version`，使新旧 run 被自动判为「不可直接对比」—— 这是**期望行为**（诚实标注），但需在报告中显式说明，避免被误读为报错；② **`code_revision()` 归并 3 份实现属跨文件重构** —— `w7_experiment._git_rev()` 的 `+dirty` 字符串格式**被既有 W7 产物依赖**（区块续跑比对读它），**必须保留格式**否则历史实验不可续；③ **raw 内嵌 `config_snapshot` 会让单条 raw 体积增大**（约 300~500 B × 21 条 ≈ 10 KB/run，可忽略），但**若实现成"手抄副本"而非"内嵌同一对象"则本 Arm 价值归零** ⇒ 已立单测「同 run 内快照逐字节相同」 |
@@ -1579,3 +1646,5 @@ citation 14.41pp / retrieval_hit 7.75pp；SE(3v9)：4.42 / 2.26 / 1.19pp）⇒
 | 2026-09-16 | **实现** | **Arm 1（状态分层）落地 —— before 基线闸门解除后的第一项** | **① 基础设施**：新增 `research_engine/failure_reasons.py` 作为失败原因枚举**唯一真相源**（9 值：工具层 5 + 非工具层 4，两组不重叠；附 `classify_exception` / `classify_tool_exception`）；`state.py` 新增 `RUN_STATUS_*` 三态常量（**无 `partial`**）、`DegradationEntry` dataclass、`DegradationSink`（线程安全缓冲区，供 Agent 在 fallback 留痕后由 graph 节点 drain）、`run_status`、`degradation_log`（**带 `operator.add` reducer**）、`error` 由 `Optional[str]` 改 `Optional[Dict]{code,message,node}`，及 `add_degradation`/`set_error`/`resolve_run_status`；`graph.py` `run()` 用 try/except 包裹 invoke（**`failed` 的唯一落点**）+ 新增 `_recover_from_exception()`（`get_state(cfg).values or {}`、get_state 自身抛错也不二次崩、**绝不返回 None**、保留 `last_exception`）；`_validate`/`_render` 推导 `run_status`；`cli.py` failed ⇒ stderr + `sys.exit(1)`；`report_gen.py:428` `[:200]` → `str(...)[:200]`。**⚠️ 顺带修掉既存 bug**：`cli.py` 末尾有两个完全相同的 `if __name__ == "__main__": main()`（W3 git 重建期间引入）⇒ **作为脚本执行会跑两遍 main、成本翻倍**。**② 节点级降级标记（让 `degraded` 真正可达）**：`researcher._search_web`/`_search_rag`/`_search_arxiv`/`_search_code`、`planner.plan`、`writer.write`、`validator` 忠实度降级共 7 处留痕；`arxiv` provider 补 `failure_reason`（原为「返回空但说不清为什么」）；graph 的 `_plan`/`_research`/`_write`/`_validate` 节点 drain 后经 reducer 入 state。**已知临时替身**：Arm 4 的 provider 目前仍「抛异常」语义 ⇒ 用 `classify_tool_exception()` 临时归类，**已收敛在 `failure_reasons.py` 一个函数里**并注明「Arm 4 落地后应改为读 `resp.failure_reason`，本函数届时可删」⇒ 保证 Arm 4 的替换面在一处，不在各落点散落手写字面量。**遗留项（标 ⏳）**：命名三分的层②`invoke_status` / 层③`metrics_status` **重命名未做**（会触碰 `run.py` 多处落盘键与既有 W7 产物，需单独评估兼容性）。**验证**：ruff 全绿；**146 → 170 测试全过**（新增 `tests/test_arm1_run_status.py` 26 条：三态无 partial / resolve 判定规则 / reducer 存在性对照 `progress` / 结构化 error 形状与「成功 None」语义 / **error 不可切片防回归** / 枚举两组不重叠 / **failed 可达**四种兜底 / **degraded 可达**（真实代码路径 + MagicMock 注入）/ 单向派生 / `classify_tool_exception` 映射表）；零 API 集成冒烟：图编译 OK（8 节点）、`model_dump` 与 JSON 序列化 OK。**实测破坏面比预估小**：`state.error` 生产代码**零写入**，唯一受影响处是 `report_gen.py:428`；`metrics.py:45` 的 `ok_error` 因保持「成功 None/失败非 None」而不受影响。同步改动：§7 Arm 1 DoD 12 条中 11 条勾选（1 条命名三分标 ⏳ 并写明遗留范围） | 本文档 + `research_engine/failure_reasons.py`（新增）、`state.py`、`graph.py`、`search/base.py`、`search/arxiv.py`、`agents/{researcher,planner,writer,validator}.py`、`eval/report_gen.py`、`cli.py`、`web/app.py`、`tests/test_arm1_run_status.py`（新增） |
 | 2026-09-16 | **实现** | **Arm 2（代码执行注入修复）落地 —— 实测推翻本节前提，顺带修复一个 100% 失效的工具** | **实现**：`_default_code_script()` 改零参数常量模板（脚本源码不含 query）；`exec_code` 新增把 `query` 写入 `CodeExecOutput.metadata["query"]`（**§5.2.2 所述行为属新增**；且 `CodeExecInput` 类在仓库中**不存在**，故按现有签名实现，不新引入输入类）；**保留 `exec_code(script, query=query)`**（§5.2 预检第 3 条处置，保住 `script_hash` 唯一性）；`_search_code` 失败原因改用新 `_classify_code_exec_failure()`（超时 → `timeout`、脚本语法错 → `parse_error`、其余运行时错 → `provider_error`；原映射把前两类都压成 `provider_error`）。**⚠️ 实测修正一（推翻 §5.2 / §5.2.3 的前提）**：原设想「query 含中文/引号/换行 ⇒ **触发**语法错误」，实测为「**无条件**语法错误」—— 旧模板 `f"print('query={query!r}')"` 里模板自身一对 `'` 与 `!r` 自带引号**叠加成双层引号**，连纯 ASCII 查询也是 `SyntaxError: invalid syntax`。**基线三轮真实产量**（按 `metadata` 形状判定：失败态 = `conf=0.2` 且含 `note` 键）：`001005`/`011813`/`022440` 分别 50/49/45 条 code_exec 产出，**成功 0 条、失败 144 条（100%）** ⇒ **基线那 24.3% 的「code 证据」全是失败标记、无一条是真实计算结果**；§5.2 预检只验了「50 个 source 全不重复」，**没验这些 source 是否承载有效证据**。**⇒ Arm 2 的实质是工具功能性修复（成功率 0%→100%）**，且失败 note 原本会把 **query 原文经 stderr 带回 findings**。**⚠️ 实测修正二（独立缺陷，一并修）**：沙箱回传非 ASCII **必然乱码** —— 父进程按 `utf-8` 解码管道、子进程在 Windows 默认按 **cp936** 写管道（实测 `print('中文测试')` → 乱码）；修法是子进程命令行加 **`-X utf8`**（`-I`/`-E` 忽略环境变量，故不能用 `PYTHONIOENCODING` 兜），实测 stdout/stderr 中文逐字还原 ⇒ **这才是 §7「中文乱码不再复现」DoD 的真正闭合点**（原 DoD 只盯「query 进脚本」，而乱码另有来源）。**验证**：ruff 全绿；**170 → 209 测试全过**（新增 `tests/test_arm2_code_injection.py` 39 条：模板零参数与常量性 / 10 组敌意 query 参数化断言「代码里不含 query」且「query 仍进 exec_code」/ 成功与失败两条路径的 `metadata["query"]` / `classify` 映射 7 例 / 敌意 query **真跑沙箱**全绿 / **反事实留档：旧写法对任何 query 都语法错**（防后人按错误前提重建并不成立的漏洞模型）/ `script_hash` 逐题唯一 / 沙箱中文 stdout + stderr 不乱码）。**方法论（第三次同构）**：§5.1.4「先追字段的消费者」、§5.2 预检「先追 `script_hash` 的消费者」、本条「先追乱码的**产生源**」是同一件事 —— **文档里叙述的因果不经验证就不能当设计前提** | `research_engine/agents/researcher.py`、`research_engine/tools/code_exec.py`、`tests/test_arm2_code_injection.py`（新增） |
 | 2026-09-16 | 修复 | **CI 红一次：`tests/conftest.py` 从未把仓库根加进 `sys.path`（潜伏脆弱点，与 Arm 1 无关）** | 现象：Arm 1 新增测试文件在 CI 报 `ModuleNotFoundError: No module named 'research_engine'`。**根因**：`tests/` 下无任何地方注入仓库根，全靠 `test_bm25_chinese.py` / `test_citation_alignment.py` 在模块级 `sys.path.insert` 的**副作用**兜底；pytest 按**文件名字母序**导入测试模块 ⇒ 新增的 `test_arm1_run_status.py` 排第一，抢在副作用生效前 import 即爆；**同一根因还让 `pytest tests/<单个文件>` 一直不可用**（本地实测 `test_eval_metrics.py` 单跑同样报错）。修法：`conftest.py` 里 `sys.path.insert` 仓库根一次，不再依赖字母序。**纪律追加**：CI 等价命令必须用 console script（`Scripts/pytest.exe tests/ -q`）—— `python -m pytest` 会把 cwd 塞进 `sys.path`，**恰好掩盖该缺陷**（这正是本地全绿、CI 爆红的原因） | `tests/conftest.py` |
+| 2026-09-16 | **拍板** | **Arm 3 生成工具由 `pip-compile` 换为 `uv pip compile --universal` —— Q2 子决策②的两条前提被实测连续推翻** | **触发**：第一刀落地过程中实测发现原文命令与选型理由**都不成立**。**推翻点一**：`pip-compile --python-version 3.11` 报 `No such option` —— pip-tools 7.6.1 **没有任何跨版本/跨平台旗标**（`--help` 里 `python-version`/`platform`/`universal` 三词全无），只能按**运行它的解释器**求值标记 ⇒ 要按 3.11 解析必须在**真 3.11 解释器**下跑（为此建专用 venv `…/envs/py311-tools`，注意 `uv venv` 不自带 pip，需 `ensurepip`）。**推翻点二（更根本）**：`pip-compile` 生成的 308 行锁里**环境标记数为 0**（`grep -c ';'`）—— 它把**满足当前解释器的 marker 求值后丢弃**、把不满足的包**整条省略** ⇒ **§6.3 里「选 pip-compile 是因为它保留环境标记（PEP 508）」的立论被证伪**。**后果实证**：`pywin32==312`（经 `portalocker` 的 `platform_system == "Windows"` 引入）被**去标记平铺**，而 PyPI 上该版本 **21 个产物全部是 Windows wheel、0 sdist**（`packagetype` 仅 `bdist_wheel`）⇒ Linux runner **必然**报 `Could not find a version that satisfies the requirement pywin32==312` ⇒ **不是「跨平台风险」而是「必现红」**。**处置（于晏拍板 A）**：改用 **`uv pip compile --universal --python-version 3.11 --strip-extras`** 重生成两份锁。**A 的代价与边界**：① 生成锁需 uv（实测 `0.11.32`），命令**逐字写进锁文件头**可复算；② **CI 侧不需要 uv** —— 锁仍是 requirements 格式，`pip install` 命令一字未改；③ `pip-tools` 从 `requirements-dev.txt` **移除**（uv 是独立二进制，刻意不进 pip 依赖树，dev 锁由 14 行瘦到 **7 包**）；④ 本沙箱内 uv 建 sdist 被安全层拦（`SAFE_DELETE_FAIL_CLOSED`，setuptools 清理 `jieba.egg-info` 时触发）⇒ 主锁需在沙箱外跑一次，dev 锁全 wheel 可在沙箱内完成。**未采纳的 B（Docker 里 pip-compile 生成 Linux 锁：需启动 Docker Desktop，且锁变 Linux 视角、win-only 包转为动态解析）+ C（文档预授权的「只锁直接依赖」：传递依赖仍漂移，正是 Arm 3 要打的靶子）+ D（先推 dev 用真 CI 坐实必红）** 均在 §5.3.5 留档。**新增未决**：是否给 CI 加「锁过期检查」任务 —— 暂**不做**。同步改动：§5.3 拍板线 + §5.3.1 正文与三条实测修正、**新增 §5.3.5 拍板记录**、§6.3 **第二次重写**（工具选型表）、§7 Arm 3 DoD 第一刀全条重写 | 本文档 |
+| 2026-09-16 | **实现** | **Arm 3（依赖环境锁定三刀）落地 —— 生成工具按当日拍板换 uv** | **第一刀·锁定**：`requirements-lock.txt`（uv universal，**7 条环境标记**：`pywin32==312 ; sys_platform == 'win32'` / `tzdata==2026.4 ; sys_platform == 'emscripten' or sys_platform == 'win32'` / `colorama==0.4.6 ; sys_platform == 'win32'` / `watchdog==6.0.0 ; sys_platform != 'darwin'` / `httpcore2==2.13.0 ; sys_platform != 'emscripten'` / `truststore==0.10.4 ; sys_platform != 'emscripten'` / `httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'`）+ `requirements-dev-lock.txt`（7 包）；两份 `grep -c '\-\-hash'` **均为 0**（不加哈希，hash 随平台轮子变化会破坏可移植性）；**直接依赖版本与 pip-compile 版完全一致**（`langgraph 1.2.11` / `langfuse 4.15.3` / `openai 1.92.3` / `streamlit 1.64.0` / `pydantic 2.13.5` / `qdrant-client 1.19.1` / `jieba 0.42.1`）⇒ **换工具零版本漂移**。**跨平台可安装性实测**：`pip install --dry-run --platform manylinux2014_x86_64 --python-version 3.11 --only-binary=:all: -r requirements-lock.txt` 逐一解析通过，**唯一报错为 sdist-only 的 `jieba==0.42.1`** —— 由我强加的 `--only-binary=:all:` 所致（jieba 无 wheel，真实 CI 从 sdist 正常构建，纯 Python 包）⇒ **原「必红」判定消解**。**第二刀·声明**：`pyproject.toml` **新增** `requires-python = ">=3.11,<3.14"`（就地注释「无 `[build-system]` ⇒ 不具强制力，真正强制见运行时闸」，呼应 §4.4 的行业对照 —— 同类项目普遍只写开区间，本项目上界是有依据的加强）+ `[tool.ruff] target-version` `py310`→`py311`；`README.md:46` `Python 3.10+`→`Python 3.11 ~ 3.13`。**⚠️ 连锁发现**：`target-version=py311` 触发 ruff `UP042` ⇒ `FailureReason` 由 `(str, Enum)` 改 `StrEnum`（3.11+）；因全仓用法**均为 `.value`**，语义等价且附带修好 `f"{member}"` 的渲染（`StrEnum` 渲染 `"timeout"` 而非 `"FailureReason.TIMEOUT"`）。**第三刀·强制**：`research_engine/__init__.py` **import 期**执行 `assert_supported_python()`（区间外明确报错，信息含支持区间 + 当前完整版本 + `sys.executable` + 指向 README/§5.3，取代原先「等 `pydantic_core` 导入失败时报难懂二进制错」）；`.github/workflows/ci.yml` 扩为 `matrix: ["3.11","3.12","3.13"]` + `fail-fast: false`（任一档失败也要看全三档）+ `cache-dependency-path` 与安装步骤同步指向两份锁。**验证**：ruff 全绿；**209 测试全过**（新增 `tests/test_arm3_python_version_gate.py` 20 条：区间内 3.11.0/3.11.15/3.12/3.13 放行、区间外 3.9/3.10.9/3.14/4.0 抛 `RuntimeError`、**import 期真执行**（`exec(compile(...))` + monkeypatch `sys.version_info`）、错误信息可行动性（含 `"3.11 ~ 3.13"` + 版本 + `"§5.3"`）、**四口径耦合守卫**（pyproject / README / CI matrix / 锁文件互相对齐，任一处漂移即红）、`FailureReason` 为 `StrEnum` 且 reason 全是普通字符串）。**⏳ 唯一未闭环**：两条「待 CI 三档实测」项（首次 CI 运行 + matrix 三档全绿）—— 必须用真实 CI 输出收口 | 本文档 + `requirements-lock.txt`/`requirements-dev-lock.txt`（新增）、`requirements-dev.txt`、`pyproject.toml`、`README.md`、`.github/workflows/ci.yml`、`research_engine/__init__.py`、`research_engine/failure_reasons.py`、`tests/test_arm3_python_version_gate.py`（新增） |

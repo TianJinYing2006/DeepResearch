@@ -43,7 +43,7 @@
 
 ### 1. 环境要求
 
-- Python 3.10+
+- Python 3.11 ~ 3.13（W8 Arm 3：不在该区间的解释器会在 import 时直接报错，见 `research_engine/__init__.py`）
 - Qdrant（本地 6333 端口，或配置远程地址）
 
 ### 2. 安装依赖
