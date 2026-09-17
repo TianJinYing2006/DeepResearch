@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-18**（代码核到 `7a4124c` + Arm 6 未提交改动） |
-| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~6 已落地，Arm 7 未开始）** |
-| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（3.11 41s / 3.12 43s / 3.13 48s，零 LLM、零 key） |
-| 最近交付 | **PR #3 已合并**（dev → master，rebase）⇒ master = `7a4124c` <https://github.com/TianJinYing2006/DeepResearch/pull/3> |
+| 更新 | **2026-09-18**（Arm 6 已合入 master，代码核到 `fa66d27`） |
+| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~6 已落地并入 master，Arm 7 未开始）** |
+| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key）。最新一次针对 `fa66d27`（Arm 6）：push 事件 run `35270450417` + PR 事件 run `35270461607` **双绿** |
+| 最近交付 | **PR #4 已合并**（dev → master，fast-forward）⇒ master = `fa66d27` <https://github.com/TianJinYing2006/DeepResearch/pull/4> |
 | 最近基线 | **before 基线**（2026-09-16，20 题 × 3 runs，`research_engine/` 零改动） |
 | 测试基线 | **291 全绿**（W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → **Arm 6 +22**） |
 | Python | **仅支持 3.11~3.13**（跑批与验收请以 CI matrix 为准，本机 3.14 不作验证依据） |
@@ -47,7 +47,7 @@
 | W8 Arm 3（依赖锁定三刀） | ✅ 完成 | `requirements-lock.txt` + CI 三档证据（`0477ea3` / `9698182`） |
 | W8 Arm 4（provider 失败原因结构化） | ✅ **已落地**（2026-09-17） | `rag/response.py` 新增 + `bocha.py`/`arxiv.py`/`retriever.py` 三路真填充 + 删 `classify_tool_exception`；受控对照以 mock 形式落在 `tests/test_arm4_failure_reasons.py`（零网络更稳） |
 | W8 Arm 5（评测口径 / 质量闸 / stderr） | ✅ **已完成**（含历史回填，2026-09-17） | `eval/quality.py`（闸）+ `eval/stats.py`（bootstrap）+ `eval/aggregate.py`（聚合一处定义）+ `tools/w8_backfill_stderr.py`（回填）。**DoD 全部闭环**，回填记录见下节 |
-| W8 Arm 6（可复现元数据） | ✅ **已落地**（2026-09-18） | `eval/prompt_hash.py` 新增（6 slot）；provenance 从 4 字段扩到 **10 字段**（+`prompt_hash`/`prompt_slots`/`scorer_version`/`citation_judge_model`/`coverage_judge_model`/`citation_judge_independent`）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性；趋势表新增「尺子变了」检查。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1` |
+| W8 Arm 6（可复现元数据） | ✅ **已交付**（2026-09-18，PR #4 已合并 ⇒ `fa66d27`） | `eval/prompt_hash.py` 新增（6 slot）；provenance 从 4 字段扩到 **10 字段**（+`prompt_hash`/`prompt_slots`/`scorer_version`/`citation_judge_model`/`coverage_judge_model`/`citation_judge_independent`）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性；趋势表新增「尺子变了」检查。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1` |
 | W8 Arm 7（产物治理双轨） | ⬜ 未开始 | `.gitignore` 三条 `!` 白名单**均无注释** |
 | W8 after 基线 | ⬜ 阻塞中 | 依赖 Arm 1~7 全部落地 + 代码冻结 |
 
