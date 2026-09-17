@@ -41,8 +41,8 @@ jobs:
             requirements-dev-lock.txt
 
       # W8 Arm 3 第一刀（§5.3.1）：按 lock 安装 ⇒ 同一 commit 在不同机器/时间装出同一套版本。
-      # lock 由 pip-compile 从 requirements*.txt 解析全量传递依赖生成（保留环境标记，
-      # 不加 --generate-hashes —— 平台指纹会破坏可移植性，见 §5.3.1 子决策①）。
+      # lock 生成命令见两份 lock 的文件头（`uv pip compile --universal`；早期曾用 pip-compile，
+      # 因其丢弃环境标记已被实测否决，详见 §5.3.1 实测修正）。
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -50,6 +50,12 @@ jobs:
 
       - name: Lint (ruff)
         run: ruff check .
+
+      # W8 Arm 7 轨道 1：白名单集合 ≡ git 跟踪集合。
+      # 为什么必须在 CI 里跑：.gitignore 对【已跟踪】文件无效，白名单与跟踪状态的偏离会静默积累
+      # （2026-09-14 实测偏了 94 项），只能靠机器持续比对。零 LLM、零网络。
+      - name: Eval 产物白名单纪律（Arm 7）
+        run: python tools/check_results_whitelist.py
 
       - name: Test (pytest)
         run: pytest tests/ -q
