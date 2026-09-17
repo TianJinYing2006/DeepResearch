@@ -9,12 +9,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-18**（Arm 6 已合入 master，代码核到 `fa66d27`） |
-| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~6 已落地并入 master，Arm 7 未开始）** |
+| 更新 | **2026-09-18**（Arm 7 双轨已落地并合入 master，代码核到 Arm 7 提交） |
+| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~7 全部落地，仅剩 Arm 7 轨道 2 台账待主理人 review；之后进入命名三分 → after 基线）** |
 | 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key）。最新一次针对 `fa66d27`（Arm 6）：push 事件 run `35270450417` + PR 事件 run `35270461607` **双绿** |
 | 最近交付 | **PR #4 已合并**（dev → master，fast-forward）⇒ master = `fa66d27` <https://github.com/TianJinYing2006/DeepResearch/pull/4> |
 | 最近基线 | **before 基线**（2026-09-16，20 题 × 3 runs，`research_engine/` 零改动） |
-| 测试基线 | **291 全绿**（W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → **Arm 6 +22**） |
+| 测试基线 | **304 全绿**（Arm 7 落地前 **291**，本次 **+13** = `tests/test_arm7_artifact_governance.py`）。历史：W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → Arm 6 +22（⚠️ 期间另有若干非 Arm 归属的增量，故逐项相加与当期总数并不严格相等，勿据此推导） |
 | Python | **仅支持 3.11~3.13**（跑批与验收请以 CI matrix 为准，本机 3.14 不作验证依据） |
 | 结论文档 | W7：`docs/eval-w7-conclusion.md`；W8：`docs/requirements/8-fault-transparency-and-reproducibility.md` |
 
@@ -32,6 +32,10 @@
 | **D-07** | **历史 raw 缺 Arm 6 新字段时如实为 `None`，不回填当期值** | 2026-09-18 ✅ 已落地 | 回填会抹掉「这批 run 产生于 Arm 6 之前」这个事实 —— 那正是 §10.4/Arm 6 要消灭的问题。报告对应显示「❔ 未记录」而非假装数字有效。实测 66 个历史 run 全判为未记录 |
 | **D-08** | **`citation_judge_independent` 是事实判断而非配置项**（恒 False） | 2026-09-18 ✅ 已落地 | 评测层不重跑裁判，直读主链路 validator 产物（`metrics.compute_citation` 注释明文写了「不再重跑 validator」）。想变 True 必须**先改评测实现**引入独立复判，不能只改常量——否则常量与实现对不上就是自欺 |
 
+| **D-09** | **`.gitignore` 的出处置于独立注释行，绝不跟在 `!` 规则行尾** | 2026-09-18 ✅ 已落地 | 实测：`.gitignore` 只认**行首** `#`，`!path/  # 出处` 会把注释吞进 pattern ⇒ **`!` 规则整条失效**（去掉注释即放行、带上仍被忽略）。这正是原三条白名单「看着有注释、实际不匹配」的根因。且**空行会打断注释归属** ⇒ 出处必须写在规则**紧邻上方**（已固化进单测 `test_blank_line_breaks_comment_ownership`） |
+| **D-10** | **自动枚举的文档不构成「引用」**：`docs/eval-report.md` 不算入库证据 | 2026-09-18 ✅ 已落地 | `report_gen.py` 自动写出的报告实测含 **74 个**互不相同的 run id（≈全量枚举），而手写结论 `docs/eval-w7-conclusion.md` 只提 **4 个** ⇒ 若承认自动表，「引用即入库」判据自我作废。要点在一件事：**只有「被人挑选过」才算数**。口径由 `AUTO_ENUMERATED_DOCS` 常量单点定义，白名单裁判与台账用 `spec_from_file_location` 加载同一份，避免两处分叉 |
+| **D-11** | **Arm 7 双轨的处置纪律不同：git 侧可以动手（可回溯），磁盘侧只能出账（不可回溯）** | 2026-09-18 ✅ 已落地 | git 侧误伤可用 `git checkout` 恢复；磁盘侧 `results/raw/*.raw.json` 是 W7「零成本可复算」的唯一证据源（`tools/w7_backfill_*.py` 直接读），误删等于销毁证据且**无任何回滚**。⇒ 第一刀只做只读台账，清理须在 review 后单独拍板 |
+
 `SearchResponse`（外部搜索：Bocha、arXiv）与 `RetrieveResponse`（本地向量 / 混合检索）**分离但共享** `FailureReason`、`failure_detail`、`ok` 与统一的 `degradation_log` 派生语义 —— 两者语义不同（外部 provider 响应 vs 本地检索器响应），强行复用会在后续扩展 rerank / source score / document metadata 时持续变形。
 
 ## 模块状态
@@ -48,8 +52,8 @@
 | W8 Arm 4（provider 失败原因结构化） | ✅ **已落地**（2026-09-17） | `rag/response.py` 新增 + `bocha.py`/`arxiv.py`/`retriever.py` 三路真填充 + 删 `classify_tool_exception`；受控对照以 mock 形式落在 `tests/test_arm4_failure_reasons.py`（零网络更稳） |
 | W8 Arm 5（评测口径 / 质量闸 / stderr） | ✅ **已完成**（含历史回填，2026-09-17） | `eval/quality.py`（闸）+ `eval/stats.py`（bootstrap）+ `eval/aggregate.py`（聚合一处定义）+ `tools/w8_backfill_stderr.py`（回填）。**DoD 全部闭环**，回填记录见下节 |
 | W8 Arm 6（可复现元数据） | ✅ **已交付**（2026-09-18，PR #4 已合并 ⇒ `fa66d27`） | `eval/prompt_hash.py` 新增（6 slot）；provenance 从 4 字段扩到 **10 字段**（+`prompt_hash`/`prompt_slots`/`scorer_version`/`citation_judge_model`/`coverage_judge_model`/`citation_judge_independent`）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性；趋势表新增「尺子变了」检查。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1` |
-| W8 Arm 7（产物治理双轨） | ⬜ 未开始 | `.gitignore` 三条 `!` 白名单**均无注释** |
-| W8 after 基线 | ⬜ 阻塞中 | 依赖 Arm 1~7 全部落地 + 代码冻结 |
+| W8 Arm 7（产物治理双轨） | ✅ **已交付**（2026-09-18） | **轨道 1**：`.gitignore` 白名单重写为「引用即入库」+ 出处独立注释行 ⇒ `git ls-files research_engine/eval/results` 顶层 **恰 8 项 ≡ 白名单集合**（原 94 项偏离全收敛）；`history_bak_v10.json` 因零引用 `git rm --cached`（磁盘保留）。新增单点裁判 `tools/check_results_whitelist.py`（**已接 CI**，变异测试验证非空转）+ 13 条单测。**轨道 2**：`tools/w8_artifact_ledger.py`（只读）⇒ `docs/eval-artifact-ledger.md`（101 条目 / 143.6 MB，**18 个有手写引用**，其中 1 个属「登记反转」：因写入处置说明才获得引用、review 时须剔除）。**⬜ 唯一未完成 = 台账待主理人 review** —— review 前不得删除/移动/重命名任何产物 |
+| W8 after 基线 | ⬜ 阻塞中 | 依赖 Arm 1~7 落地 ✅ + **命名三分** + 代码冻结（Arm 7 台账 review 不阻塞它，仅阻塞磁盘清理） |
 
 ## Arm 5 历史回填记录（2026-09-17 迁移，已完成）
 
@@ -79,10 +83,11 @@
 1. ✅ **已完**：文档状态同步 → Arm 4 真填充 → 删临时异常映射 → 补测试（20 条）
 2. ✅ **已完**：Arm 5 质量闸 → **D1 成本守恒** → stderr/bootstrap → 字段重命名 → 报告带 ±stderr 与 §0 质量闸小节 → **75 个历史 run 回填完成并验收**（见上节）
 3. ✅ **已完**：Arm 6 可复现元数据 —— 5 个提示词构建器抽为唯一产生点 → `prompt_hash`（对开关敏感）→ 裁判模型/独立性结构化 → `scorer_version` → raw/summary/history/report 四处落地 + 22 条测试
-4. ⬜ **Arm 7 产物治理双轨**：gitignore 白名单注释 + 本地只读台账
-5. ⬜ **命名三分**：`invoke_status` / `metrics_status`（受历史产物兼容约束，`tools/w7_backfill_*.py` 读旧 key）
-6. ⬜ **冻结代码后做实验**：固定代码 → after 基线（**20 题 × 9 runs ≈ ¥11 / 6.5h / ±7.3pp**）→ 只报有统计支撑的结论
-6. ⬜ **最后对外材料**：README 能力与限制 → 博客③ → 引用链接
+4. ✅ **已完**：Arm 7 产物治理双轨 —— 白名单判据升级为「引用即入库」→ 出处写法踩坑修正（行尾 `#` 废规则）→ 引用分两档（自动枚举不算证据）→ 单点裁判 + 13 条单测 + 接进 CI → 只读台账出账（**未删任何产物**）
+5. ⬜ **待主理人 review 台账**：`docs/eval-artifact-ledger.md`（101 条目 / 143.6 MB）⇒ review 后才允许讨论磁盘清理/归档，**这是唯一阻塞点**
+6. ⬜ **命名三分**：`invoke_status` / `metrics_status`（受历史产物兼容约束，`tools/w7_backfill_*.py` 读旧 key）
+7. ⬜ **冻结代码后做实验**：固定代码 → after 基线（**20 题 × 9 runs ≈ ¥11 / 6.5h / ±7.3pp**）→ 只报有统计支撑的结论
+8. ⬜ **最后对外材料**：README 能力与限制 → 博客③ → 引用链接
 
 ## 未决 / 待拍板
 
@@ -91,4 +96,5 @@
 | W7 五开关去留 | `CRITIC_GAP_ENABLED` 等五个开关默认全开、主链路静默吃默认值，`.env.example`/README 零提及。见 `docs/w7-switch-disposition.md` |
 | GitHub 凭据链修复 | `~/.gitconfig` 的 helper 写成反斜杠路径导致推送取不到凭据，永久修法 `gh auth setup-git`（改全局配置） |
 | Gitee 凭据存储 | 是否把令牌存入 wincred（安全决策） |
-| 状态看板形态 | 本文件 vs 就地更新 8-*.md §1.1（二选一后需同步删除另一处口径） |
+| 台账 review（**Arm 7 轨道 2 唯一阻塞点**） | `docs/eval-artifact-ledger.md` 需主理人过目拍板：**83 个无手写引用的条目（≈126.9 MB）是否归档/删除**。review 前不得删除、移动、重命名任何产物（`tools/w7_backfill_*.py` 依赖 raw 作为 W7 零成本可复算的唯一证据源）。候选判据：入库为「—」且 仅自动表痕为「⚠️ 是」。⚠️ **引用只增不减是有偏的**：治理过程会把产物名写进处置记录 ⇒ 「写了说明」不等于「原本被引用」 |
+| README 需补 Arm 7 纪律 | 新贡献者跑完 eval 后 `results/` 默认被 ignore，**只有被 `docs/` 文档引用并写进白名单才入库**；README 未提这条，容易出现「有结论文档、无对应产物」的悬空引用 |
