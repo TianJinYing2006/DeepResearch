@@ -15,6 +15,7 @@ from config import config
 from research_engine.eval import provenance
 from research_engine.eval.provenance import (
     EXPERIMENT_SWITCHES,
+    RAW_PROVENANCE_KEYS,
     UNKNOWN,
     code_revision,
     config_snapshot,
@@ -94,7 +95,9 @@ def test_run_provenance_calls_git_once(monkeypatch):
     monkeypatch.setattr(provenance, "code_revision", fake)
     prov = run_provenance()
     assert n["i"] == 1
-    assert set(prov) == {"git_commit", "git_dirty", "git_diff_hash", "config_snapshot"}
+    # W8 Arm 6：provenance 从 4 字段扩到 10 字段；这里锁的是**字段集**，
+    # 新增 provenance 字段必须同时改 RAW_PROVENANCE_KEYS 与本行（防漏登记）。
+    assert set(prov) == set(RAW_PROVENANCE_KEYS), "run_provenance 与 RAW_PROVENANCE_KEYS 出现分叉"
 
 
 # ---------- config_snapshot：唯一真相源 ----------

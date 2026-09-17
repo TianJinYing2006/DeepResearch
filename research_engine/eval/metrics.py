@@ -168,6 +168,25 @@ _COVERAGE_SYSTEM = (
 )
 
 
+def build_coverage_judge_system(cfg=None) -> str:
+    """覆盖度裁判 system 提示词的唯一产生点（W8 Arm 6；当前无配置相关变体）。"""
+    return _COVERAGE_SYSTEM
+
+
+def judge_model_name(cfg=None) -> str:
+    """覆盖度裁判的模型名（W8 Arm 6：`_make_judge` 与 eval provenance 的唯一来源）。
+
+    与 `validator_model_name()` 分工：validator 是**主链路**的引用校验器，
+    这里 eval 侧另起的独立裁判。两者可能是同一个模型（默认都回落 smart_model），
+    但**是不是同一次调用**才是「裁判是否独立」的关键，见
+    `provenance.CITATION_JUDGE_INDEPENDENT`。
+    """
+    from config import config as _cfg
+
+    c = cfg if cfg is not None else _cfg
+    return c.llm.smart_model
+
+
 def compute_coverage(
     expected_subquestions: List[str],
     findings: List[Dict[str, Any]],
@@ -387,7 +406,7 @@ def compute_reflection(state: Dict[str, Any], coverage: float) -> Dict[str, Any]
 
 def _make_judge() -> LLMClient:
     """judge 直建实例（Q3：smart 档，role=judge 独立职责桶；不污染 router 主链路桶）。"""
-    return LLMClient(model=config.llm.smart_model, role="judge")
+    return LLMClient(model=judge_model_name(), role="judge")
 
 
 def compute_all(

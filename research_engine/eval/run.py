@@ -31,7 +31,14 @@ from typing import Any, Dict, List, Optional
 
 from research_engine.eval.aggregate import compute_metrics, sum_tokens_from_raw
 from research_engine.eval.metrics import _make_judge, compute_all, compute_cost
-from research_engine.eval.provenance import UNKNOWN, code_revision, run_provenance
+from research_engine.eval.provenance import (
+    PROVENANCE_DEFAULTS,
+    RAW_PROVENANCE_KEYS,
+    code_revision,
+    provenance_from_raw_record,
+    raw_provenance_fields,
+    run_provenance,
+)
 from research_engine.eval.quality import (
     DEFAULT_THRESHOLDS,
     DEPRECATED_COUNT_KEYS,
@@ -113,12 +120,11 @@ def _run_one(
                 "type": row.get("type", ""),
                 "state": state.model_dump(),
                 "token_used": state.token_used,  # 单条成本 = 该 run 自身硬闸计数（validator 漏计由全局差值补）
-                "git_commit": p["git_commit"],
-                "git_dirty": p["git_dirty"],
-                "git_diff_hash": p["git_diff_hash"],
-                # W8 §10.4 第 6 条：内嵌**同一份** config_snapshot 对象（不是手抄副本）
+                # W8 §10.4 + Arm 6：provenance 字段集中由 raw_provenance_fields 带出，
+                # 三条落盘路径（ok / failed / timeout）共用 ⇒ 新增字段不会漏抄某一条。
+                # 内嵌的是**同一份** config_snapshot 对象（不是手抄副本）
                 # ⇒ 单条 raw 自包含，但配置只有一个产生点，不会分叉
-                "config_snapshot": p["config_snapshot"],
+                **raw_provenance_fields(p),
                 "dataset_version": meta.get("version", "unknown"),
                 "wall_clock_s": round(time.time() - t0, 1),
                 "status": "done" if state.status == "done" else "incomplete",
@@ -134,8 +140,7 @@ def _run_one(
         "status": "failed",
         "raw": {
             "q_id": q_id, "query": topic, "error": last_err, "status": "failed",
-            "git_commit": p["git_commit"], "git_dirty": p["git_dirty"],
-            "git_diff_hash": p["git_diff_hash"], "config_snapshot": p["config_snapshot"],
+            **raw_provenance_fields(p),
             "dataset_version": meta.get("version", "unknown"),
         },
     }
@@ -181,9 +186,7 @@ def phase1(dataset: Dict[str, Any], run_dir: Path, concurrency: int) -> None:
                     # 没有配置快照就无法判断「是配置问题还是偶发」
                     (raw_dir / f"{q_id}.raw.json").write_text(
                         json.dumps({"q_id": q_id, "status": "timeout", "error": "task timeout",
-                                    "git_commit": prov["git_commit"], "git_dirty": prov["git_dirty"],
-                                    "git_diff_hash": prov["git_diff_hash"],
-                                    "config_snapshot": prov["config_snapshot"]}, ensure_ascii=False),
+                                    **raw_provenance_fields(prov)}, ensure_ascii=False),
                         encoding="utf-8",
                     )
                     done_failed += 1
@@ -308,6 +311,10 @@ def _provenance_from_raw(run_dir: Path) -> Dict[str, Any]:
 
     ⇒ 一律以 raw 里落盘的那份为准。raw 全部缺失 / 为 §10.4 之前的历史产物时，
     如实返回 unknown 与 `config_snapshot=None`，**不伪造**。
+
+    W8 Arm 6：provenance 从 4 字段扩到 10 字段（增 `prompt_hash` / `prompt_slots` /
+    `scorer_version` / 裁判模型 / 裁判独立性）。历史 raw 缺这些字段时不回填当期值，
+    一律 None —— 回填等于抹掉「这批 run 产生于 Arm 6 之前」这个事实。
     """
     raw_dir = run_dir / "raw"
     if raw_dir.exists():
@@ -317,18 +324,8 @@ def _provenance_from_raw(run_dir: Path) -> Dict[str, Any]:
             except (OSError, ValueError):
                 continue
             if isinstance(raw, dict) and raw.get("config_snapshot") is not None:
-                return {
-                    "git_commit": raw.get("git_commit", UNKNOWN),
-                    "git_dirty": raw.get("git_dirty", False),
-                    "git_diff_hash": raw.get("git_diff_hash", ""),
-                    "config_snapshot": raw["config_snapshot"],
-                }
-    return {
-        "git_commit": UNKNOWN,
-        "git_dirty": False,
-        "git_diff_hash": "",
-        "config_snapshot": None,
-    }
+                return provenance_from_raw_record(raw)
+    return dict(PROVENANCE_DEFAULTS)
 
 
 def _read_phase1_cost(run_dir: Path) -> Dict[str, Any]:
@@ -421,8 +418,9 @@ def _summarize(
                 "cost_phase1_total": cost_block,
                 "cost_degraded": cost_block["cost_degraded"],
                 "eval_tokens": LLMClient.tokens_total,
-                "git_commit": _prov["git_commit"], "git_dirty": _prov["git_dirty"],
-                "git_diff_hash": _prov["git_diff_hash"], "config_snapshot": _prov["config_snapshot"]}
+                # W8 Arm 6：provenance 全字段带出（含 git/config + 新增的
+                # prompt_hash / prompt_slots / scorer_version / 裁判模型 / 裁判独立性）
+                **{k: _prov.get(k) for k in RAW_PROVENANCE_KEYS}}
 
     complete = [r for r in results if r.get("status") == "ok"]
     partial = [r for r in results if r.get("status") == "partial"]
@@ -454,11 +452,10 @@ def _summarize(
         "metrics_stderr": metrics_stderr,
         "cost_phase1_total": cost_block,
         "cost_phase2_judge_tokens": LLMClient.tokens_total,
-        # W8 §10.4 第 2 条：config 快照进 summary.json（每轮都记，不再只写 baseline 一次）
-        "git_commit": _prov["git_commit"],
-        "git_dirty": _prov["git_dirty"],
-        "git_diff_hash": _prov["git_diff_hash"],
-        "config_snapshot": _prov["config_snapshot"],
+        # W8 §10.4 第 2 条 + Arm 6：provenance 全字段进 summary.json
+        # （每轮都记，不再只写 baseline 一次；任何一份 summary 单独拿出来
+        #  都能回答「这批数是谁裁的、用的哪套提示词」）
+        **{k: _prov.get(k) for k in RAW_PROVENANCE_KEYS},
         "dataset_version": meta.get("version", "unknown"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }

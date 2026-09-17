@@ -9,11 +9,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-16**（代码核到 `9698182`，文档/代码逐条比对） |
-| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~3 已闭环，Arm 4~7 未开始）** |
-| 最近 CI | Py3.11/3.12/3.13 + ruff + pytest 三档全绿（墙钟 58s，零 LLM、零 key） |
+| 更新 | **2026-09-18**（代码核到 `7a4124c` + Arm 6 未提交改动） |
+| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~6 已落地，Arm 7 未开始）** |
+| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（3.11 41s / 3.12 43s / 3.13 48s，零 LLM、零 key） |
+| 最近交付 | **PR #3 已合并**（dev → master，rebase）⇒ master = `7a4124c` <https://github.com/TianJinYing2006/DeepResearch/pull/3> |
 | 最近基线 | **before 基线**（2026-09-16，20 题 × 3 runs，`research_engine/` 零改动） |
-| 测试基线 | **267 全绿**（W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → **Arm 5 +18**） |
+| 测试基线 | **291 全绿**（W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → **Arm 6 +22**） |
 | Python | **仅支持 3.11~3.13**（跑批与验收请以 CI matrix 为准，本机 3.14 不作验证依据） |
 | 结论文档 | W7：`docs/eval-w7-conclusion.md`；W8：`docs/requirements/8-fault-transparency-and-reproducibility.md` |
 
@@ -26,6 +27,10 @@
 | **D-03** | **`empty_result`（零命中）不算故障**：记在 `failure_reason` 供 planner 当轮决策（换源 / 改查询），但**不进 `degradation_log`、不推导 `run_status`** | 2026-09-17 ✅ 已落地 | 算术理由：`resolve_run_status()`（`state.py:229`）是「`degradation_log` 非空 + 有报告 ⇒ `degraded`」。多跳检索里零命中几乎必然发生，若算降级 ⇒ **几乎每轮 run 都是 `degraded`**，`run_status` 不再是健康度信号，Arm 1 的「故障可归因」退化成噪声。**一处定义**：`failure_reasons.NON_FAULT_REASONS` + `is_fault_reason()`；要翻转口径只需改这一处 |
 | **D-04** | Arm 4 后：provider **不再靠抛异常表达失败**；冒泡到 researcher 的未预期异常一律归为**非工具类**（`internal` 等），**不得**再被猜成 `provider_error` | 2026-09-17 ✅ 已落地 | 工具层是 5 值的唯一产生点（B4 单向派生契约）。把 provider 自身的 bug（如 `TypeError`）伪装成 `provider_error`，会让「真故障」与「工具不可用」混为一谈 |
 | **D-05** | **指标未算出（缺失 / 非数值）不触发 `suspicious`**：这类情况由 `metrics_partial` / `metrics_failed` 表达；`verdict` 只判断**已经成功算出**的指标是否落入异常区间 | 2026-09-17 ✅ 已落地 | 语义分工：`suspicious` = 运行完成了但**结果质量可疑**；`partial/failed` = **评测本身没完整完成**。两者混在一起会让质量闸同时表达「结果质量」与「执行完整性」，后续统计失真（一次「指标没算出来」会被误记成「被测变差」）。实现见 `eval/quality.py::_below()` —— 非数值直接返回 False |
+
+| **D-06** | **`prompt_hash` 覆盖【运行时渲染结果】，不是常量模板**：5 个 system 构建器抽成纯函数作唯一产生点，指纹对「开关翻转但代码未变」敏感 | 2026-09-18 ✅ 已落地 | 反例即动机：`critic_gap_enabled` 往 critic 提示词插裁决标准、writer/validator 开关在两套提示词间选版 —— 这些**都在** `config_snapshot` 里，但要回答「提示词变了吗」还得再推一层（开关→分支→哪套）。哈希常量模板会得到「开关翻了指纹没变」的假象。user 段含运行时数据（topic/findings），**按设计排除**，其模板由 `git_commit` 兜 |
+| **D-07** | **历史 raw 缺 Arm 6 新字段时如实为 `None`，不回填当期值** | 2026-09-18 ✅ 已落地 | 回填会抹掉「这批 run 产生于 Arm 6 之前」这个事实 —— 那正是 §10.4/Arm 6 要消灭的问题。报告对应显示「❔ 未记录」而非假装数字有效。实测 66 个历史 run 全判为未记录 |
+| **D-08** | **`citation_judge_independent` 是事实判断而非配置项**（恒 False） | 2026-09-18 ✅ 已落地 | 评测层不重跑裁判，直读主链路 validator 产物（`metrics.compute_citation` 注释明文写了「不再重跑 validator」）。想变 True 必须**先改评测实现**引入独立复判，不能只改常量——否则常量与实现对不上就是自欺 |
 
 `SearchResponse`（外部搜索：Bocha、arXiv）与 `RetrieveResponse`（本地向量 / 混合检索）**分离但共享** `FailureReason`、`failure_detail`、`ok` 与统一的 `degradation_log` 派生语义 —— 两者语义不同（外部 provider 响应 vs 本地检索器响应），强行复用会在后续扩展 rerank / source score / document metadata 时持续变形。
 
@@ -42,7 +47,7 @@
 | W8 Arm 3（依赖锁定三刀） | ✅ 完成 | `requirements-lock.txt` + CI 三档证据（`0477ea3` / `9698182`） |
 | W8 Arm 4（provider 失败原因结构化） | ✅ **已落地**（2026-09-17） | `rag/response.py` 新增 + `bocha.py`/`arxiv.py`/`retriever.py` 三路真填充 + 删 `classify_tool_exception`；受控对照以 mock 形式落在 `tests/test_arm4_failure_reasons.py`（零网络更稳） |
 | W8 Arm 5（评测口径 / 质量闸 / stderr） | ✅ **已完成**（含历史回填，2026-09-17） | `eval/quality.py`（闸）+ `eval/stats.py`（bootstrap）+ `eval/aggregate.py`（聚合一处定义）+ `tools/w8_backfill_stderr.py`（回填）。**DoD 全部闭环**，回填记录见下节 |
-| W8 Arm 6（可复现元数据 8 字段） | ⬜ 未开始 | `provenance.py` 已有 git 三件套，**缺 prompt_hash / judge model / independent / scorer_version** |
+| W8 Arm 6（可复现元数据） | ✅ **已落地**（2026-09-18） | `eval/prompt_hash.py` 新增（6 slot）；provenance 从 4 字段扩到 **10 字段**（+`prompt_hash`/`prompt_slots`/`scorer_version`/`citation_judge_model`/`coverage_judge_model`/`citation_judge_independent`）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性；趋势表新增「尺子变了」检查。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1` |
 | W8 Arm 7（产物治理双轨） | ⬜ 未开始 | `.gitignore` 三条 `!` 白名单**均无注释** |
 | W8 after 基线 | ⬜ 阻塞中 | 依赖 Arm 1~7 全部落地 + 代码冻结 |
 
@@ -73,9 +78,10 @@
 
 1. ✅ **已完**：文档状态同步 → Arm 4 真填充 → 删临时异常映射 → 补测试（20 条）
 2. ✅ **已完**：Arm 5 质量闸 → **D1 成本守恒** → stderr/bootstrap → 字段重命名 → 报告带 ±stderr 与 §0 质量闸小节 → **75 个历史 run 回填完成并验收**（见上节）
-3. ⬜ **补复现元数据**：Arm 6 四字段（prompt_hash / judge model / independent / scorer_version）+ summary 聚合
-4. ⬜ **命名三分**：`invoke_status` / `metrics_status`（受历史产物兼容约束，`tools/w7_backfill_*.py` 读旧 key）
-5. ⬜ **冻结代码后做实验**：Arm 7 只读台账 → 固定代码 → after 基线（**20 题 × 9 runs ≈ ¥11 / 6.5h / ±7.3pp**）→ 只报有统计支撑的结论
+3. ✅ **已完**：Arm 6 可复现元数据 —— 5 个提示词构建器抽为唯一产生点 → `prompt_hash`（对开关敏感）→ 裁判模型/独立性结构化 → `scorer_version` → raw/summary/history/report 四处落地 + 22 条测试
+4. ⬜ **Arm 7 产物治理双轨**：gitignore 白名单注释 + 本地只读台账
+5. ⬜ **命名三分**：`invoke_status` / `metrics_status`（受历史产物兼容约束，`tools/w7_backfill_*.py` 读旧 key）
+6. ⬜ **冻结代码后做实验**：固定代码 → after 基线（**20 题 × 9 runs ≈ ¥11 / 6.5h / ±7.3pp**）→ 只报有统计支撑的结论
 6. ⬜ **最后对外材料**：README 能力与限制 → 博客③ → 引用链接
 
 ## 未决 / 待拍板

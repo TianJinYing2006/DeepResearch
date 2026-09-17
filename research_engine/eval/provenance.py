@@ -12,6 +12,12 @@
    在 W7 六臂里**没有任何一格被测过**（§10.4 依据 1）。
    ⇒ 本模块把配置快照升级为「全项目配置唯一真相源」。
 
+3. **「裁判是谁」长期缺席**（W8 Arm 6 补齐）—— W7 结论的硬伤是「裁判兼任被测」：
+   `citation_accuracy` 直读主链路 validator 的裁决，凡改动 validator 的 arm，
+   其数值同时含**被测效应 + 裁判效应**（实测纯裁判效应 +7.53pp）。
+   但这个事实**只写在结论文档里，没写进产物** ⇒ 任何一个 run 的 summary.json
+   单独拿出来都看不出自己的数字是谁裁的。本模块把它变成结构化字段。
+
 设计约束
 - **纯读、无副作用、零 LLM 调用**（与现有 132 个测试同律）。
 - git 不可用时**如实返回 unknown / 空值，绝不抛异常** —— eval 流水线不能因元数据挂掉。
@@ -27,6 +33,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import config
+from research_engine.eval.aggregate import SCORER_VERSION
+from research_engine.eval.prompt_hash import prompt_hash, prompt_slots
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -136,11 +144,102 @@ def config_snapshot() -> Dict[str, Any]:
     }
 
 
+# ---------- W8 Arm 6：裁判 provenance ----------
+
+#: `citation_accuracy` 的裁判是否**独立于被测对象**。
+#:
+#: 这是**事实判断，不是配置项**：本项目的评测层不重跑 validator，而是直读主链路
+#: `state.citations`（`eval/metrics.compute_citation` 的注释明确写了「不再重跑
+#: validator——那是又一次 LLM 对查」）。⇒ 裁判 = 被测链路的一部分，恒为 False。
+#: 想变 True 必须先改评测实现（引入独立复判），**不能只改这个常量** ——
+#: 常量与实现对不上就是自欺，故下面 `CITATION_JUDGE_NOTE` 把理由一并写进产物。
+CITATION_JUDGE_INDEPENDENT = False
+
+CITATION_JUDGE_NOTE = (
+    "citation_accuracy 直读主链路 validator 的裁决产物，评测层不做独立复判；"
+    "凡改动 validator 的 run，其数值同时含『被测效应 + 裁判效应』"
+    "（W7 实测纯裁判效应 +7.53pp，与被测效应同量级）⇒ 不可与其他 run 直接比较"
+)
+
+
+def judge_provenance() -> Dict[str, Any]:
+    """裁判侧 provenance（W8 Arm 6）：**谁裁的、裁得独不独立**。
+
+    模型名一律走 agent / eval 侧的单一产生点（`validator_model_name` /
+    `judge_model_name`），不在本文件里再写一遍 `config.llm.*` ——
+    否则「改了配置但 provenance 记的是旧名」会成为一个极难发现的假象。
+    """
+    # 延迟导入：validator / metrics 会拉起 LLM 客户端与 pydantic 模型，
+    # 而 provenance 被 report_gen 等纯文档路径引用，不该顺带把它们拖进来。
+    from research_engine.agents.validator import validator_model_name
+    from research_engine.eval.metrics import judge_model_name
+
+    return {
+        "citation_judge_model": validator_model_name(),
+        "coverage_judge_model": judge_model_name(),
+        "citation_judge_independent": CITATION_JUDGE_INDEPENDENT,
+    }
+
+
+#: 单条 raw 记录要从整轮 provenance 里带走的字段（**集中一处**，防止以后漏抄）。
+#: `_run_one` 的 ok / failed / timeout 三条落盘路径全部走 `raw_provenance_fields()`，
+#: 新增 provenance 字段只需改这里 + `run_provenance()`。
+RAW_PROVENANCE_KEYS: tuple = (
+    "git_commit",
+    "git_dirty",
+    "git_diff_hash",
+    "config_snapshot",
+    "prompt_hash",
+    "prompt_slots",
+    "scorer_version",
+    "citation_judge_model",
+    "coverage_judge_model",
+    "citation_judge_independent",
+)
+
+
+#: 历史产物（Arm 6 之前的 raw）缺失这些字段时的**如实默认值**。
+#: 一律用 None / UNKNOWN，**不回填当期值** —— 回填会让「历史 run 曾用旧提示词」
+#: 这个事实消失，那正是 §10.4 与 Arm 6 要消灭的问题。
+PROVENANCE_DEFAULTS: Dict[str, Any] = {
+    "git_commit": UNKNOWN,
+    "git_dirty": False,
+    "git_diff_hash": "",
+    "config_snapshot": None,
+    "prompt_hash": None,
+    "prompt_slots": None,
+    "scorer_version": None,
+    "citation_judge_model": None,
+    "coverage_judge_model": None,
+    "citation_judge_independent": None,
+}
+
+
+def raw_provenance_fields(prov: Dict[str, Any]) -> Dict[str, Any]:
+    """从整轮 provenance 里挑出要写进**单条 raw** 的字段（缺键如实留空，不编）。"""
+    return {k: prov.get(k) for k in RAW_PROVENANCE_KEYS}
+
+
+def provenance_from_raw_record(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """从一条 raw 记录里读回跑批时刻的 provenance（缺字段走 `PROVENANCE_DEFAULTS`）。
+
+    抽到这里是为了让 `run._provenance_from_raw` 与将来的离线回填脚本共用同一份读法
+    —— 两处读法不同 ⇔ 同一个字段有两个真相。
+    """
+    return {k: raw.get(k, PROVENANCE_DEFAULTS[k]) for k in RAW_PROVENANCE_KEYS}
+
+
 def run_provenance(repo_root: Optional[Path] = None) -> Dict[str, Any]:
     """一次算好整轮 run 的 provenance（git 子进程只跑一次，不按条目重复调）。
 
-    返回 `{git_commit, git_dirty, git_diff_hash, config_snapshot}`，可直接并入 raw 记录。
+    返回 `{git_*, config_snapshot, prompt_hash, prompt_slots, scorer_version,
+    citation_judge_model, coverage_judge_model, citation_judge_independent}`，
+    可直接（经 `raw_provenance_fields`）并入 raw 记录。
     """
     rev = code_revision(repo_root)
     rev["config_snapshot"] = config_snapshot()
+    rev["prompt_slots"] = prompt_slots()
+    rev["prompt_hash"] = prompt_hash(rev["prompt_slots"])
+    rev["scorer_version"] = SCORER_VERSION
+    rev.update(judge_provenance())
     return rev

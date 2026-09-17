@@ -45,6 +45,24 @@ REPLAN_SYSTEM = """你是一位资深研究规划专家。之前的子问题分�
 """
 
 
+def build_planner_system(cfg=None) -> str:
+    """Planner system 提示词的**唯一产生点**（W8 Arm 6）。
+
+    为什么要抽成纯函数：`prompt_hash` 必须覆盖「**实际跑起来的**提示词」，
+    而 planner 的提示词含 `max_subquestions` 占位符 —— 哈希常量模板会漏掉
+    「配置改了但模板没改」这类变更。抽成 ``cfg`` 的纯函数后，指纹模块只要
+    喂同一份 config 就能拿到与生产逐字相同的串。
+    """
+    c = cfg if cfg is not None else config
+    return PLANNER_SYSTEM.format(max_subquestions=c.research.max_subquestions)
+
+
+def build_replan_system(cfg=None) -> str:
+    """重规划 system 提示词的唯一产生点（同上）。"""
+    c = cfg if cfg is not None else config
+    return REPLAN_SYSTEM.format(max_subquestions=c.research.max_subquestions)
+
+
 class Planner:
     """研究规划器。"""
 
@@ -58,7 +76,7 @@ class Planner:
 
     def plan(self, topic: str, user_instructions: str = "", state: Any = None) -> List[SubQuestion]:
         router = get_router()
-        system = PLANNER_SYSTEM.format(max_subquestions=config.research.max_subquestions)
+        system = build_planner_system()
         user = f"研究主题：{topic}\n"
         if user_instructions:
             user += f"用户附加要求：{user_instructions}\n"
@@ -98,7 +116,7 @@ class Planner:
     ) -> List[SubQuestion]:
         """方向跑偏时的全量重分解（Q2-B 兜底，受 max_replan 限次）。"""
         router = get_router()
-        system = REPLAN_SYSTEM.format(max_subquestions=config.research.max_subquestions)
+        system = build_replan_system()
         subs_text = "\n".join(f"- {s.id}: {s.question}" for s in subs) or "（无）"
         find_text = "\n".join(f"- {getattr(f, 'content', '')[:150]}" for f in findings[:12]) or "（无）"
         user = (

@@ -47,6 +47,18 @@ WRITER_SYSTEM = """你是一位专业的研究报告撰写者。基于给定的�
 - 无材料小节仍保留二级标题并写"信息不足"。"""
 
 
+def build_writer_system(cfg=None) -> str:
+    """Writer system 提示词的**唯一产生点**（W8 Arm 6）。
+
+    W7 教训：分节喂料开关 `writer_sectioned_feed_enabled` 不只是换喂料方式，
+    它**同时换提示词**（WRITER_SYSTEM vs WRITER_SYSTEM_LEGACY）。这意味着
+    「同一 commit 下开关翻转」= 换了被测对象，但旧的 provenance 完全看不见。
+    抽成纯函数后，开关 → 提示词 → 指纹这条链可被哈希与单测锁定。
+    """
+    c = cfg if cfg is not None else config
+    return WRITER_SYSTEM if c.experiment.writer_sectioned_feed_enabled else WRITER_SYSTEM_LEGACY
+
+
 class Writer:
     """报告撰写器。
 
@@ -77,8 +89,9 @@ class Writer:
         context_text = self.context.format_for_writer(findings, subquestions)
 
         subq_text = "\n".join(f"- {s.question}" for s in subquestions)
+        # W8 Arm 6：system 由 build_writer_system() 产出（唯一产生点，含开关选版）
+        system = build_writer_system()
         if sectioned:
-            system = WRITER_SYSTEM
             user = (
                 f"研究主题：{topic}\n\n"
                 f"子问题清单：\n{subq_text}\n\n"
@@ -86,7 +99,6 @@ class Writer:
                 "请严格按子问题分节撰写研究报告。"
             )
         else:
-            system = WRITER_SYSTEM_LEGACY
             user = (
                 f"研究主题：{topic}\n\n"
                 f"子问题：\n{subq_text}\n\n"

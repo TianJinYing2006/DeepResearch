@@ -13,6 +13,22 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from research_engine.eval.stats import summarize_metric
 
+#: **评分器（scorer）版本** —— 跨 run 可比性的第一道闸（W8 Arm 6）。
+#:
+#: 语义：两个 run 的 `scorer_version` 不同 ⇒ 其指标数值**不可直接相减**。
+#: 它回答的是「这两份数是同一把尺子量的吗」——比任何 delta 计算都先一步。
+#:
+#: 何时 +1（**口径变了**，数值含义不同）：
+#:   - `METRIC_SOURCES` 的映射变了（换指标 / 换分母 / 换字段）
+#:   - 判定阈值变了（`SEMANTIC_SIM_THRESHOLD`、完成率的 300 字 / 2 节门槛）
+#:   - 覆盖度 / 引用指标的**计算代码**变了（含去重口径、缺失值处理）
+#: 何时 **不** +1（纯重构，数值逐条不变）：
+#:   - 抽函数、改命名、加类型注解、补文档
+#:
+#: ⚠️ **裁判提示词的变化不归这里管** —— coverage 由 LLM 裁判，
+#: 提示词改了 ⇒ `prompt_hash` 会变，由它单独捕获（两者都要看）。
+SCORER_VERSION = "w8.1"
+
 #: 指标名 → (metrics 段名, 段内键名)。**新增指标只改这里**。
 METRIC_SOURCES: Tuple[Tuple[str, str, str], ...] = (
     ("completion_rate", "completion", "complete"),

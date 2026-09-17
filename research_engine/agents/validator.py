@@ -85,6 +85,30 @@ VALIDATOR_SYSTEM = """你是研究事实核查员。你的任务是校验报告�
 """
 
 
+def build_validator_system(cfg=None) -> str:
+    """Validator system 提示词的**唯一产生点**（W8 Arm 6）。
+
+    ⚠️ 这是全项目**最需要被指纹盯住的一处**：`validator_fixes_enabled` 开关
+    会在两套判据（含 `claim_echo` 逐字回显要求）之间切换，而 validator 的裁决
+    **直接就是** `citation_accuracy` 这个主指标本身（评测不重跑裁判，直读主链路产物）。
+    W7 已实测：仅换裁判即可产生 +7.53pp 的差。⇒ 提示词选版必须进 provenance。
+    """
+    c = cfg if cfg is not None else config
+    tpl = VALIDATOR_SYSTEM if c.experiment.validator_fixes_enabled else VALIDATOR_SYSTEM_LEGACY
+    return tpl.format(min_sources=config_min_sources(c))
+
+
+def validator_model_name(cfg=None) -> str:
+    """主链路 validator 用的模型名（W8 Arm 6：eval 侧 `citation_judge_model` 的唯一来源）。
+
+    不直接写 `config.llm.validator_model` 的原因：eval 报告里叫「裁判模型」，
+    生产里叫「validator 模型」，若两处各写一遍，改配置时容易只改一处 ——
+    而这两个名字指的是**同一次 LLM 调用**。
+    """
+    c = cfg if cfg is not None else config
+    return c.llm.validator_model
+
+
 class CitationVerdictItem(BaseModel):
     """单条引用的 LLM 校验 verdict（Q3=A 按 finding_id 对齐，Q5=A 增 is_meta 复核）。"""
 
@@ -364,7 +388,8 @@ class Validator:
             f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
             for r in to_check
         )
-        system_prompt = VALIDATOR_SYSTEM if fixes_enabled else VALIDATOR_SYSTEM_LEGACY
+        # W8 Arm 6：唯一产生点（含开关选版 + min_sources 渲染），与 prompt_hash 逐字一致
+        system_prompt = build_validator_system()
         user = (
             f"研究发现：\n{findings_text}\n\n"
             f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
@@ -380,10 +405,14 @@ class Validator:
             try:
                 # 与 critic.py 同款：Pydantic schema + 纠错重试，防漏 key 静默默认
                 # W5（Q2）：role="validator" 进职责桶（直建实例不传 state 的漏计由类级差值补全）
-                client = LLMClient(model=config.llm.validator_model, role="validator")
+                client = LLMClient(model=validator_model_name(), role="validator")
                 data = client.chat_json(
                     [
-                        {"role": "system", "content": system_prompt.format(min_sources=config_min_sources())},
+                        # ⚠️ Arm 6：system_prompt 已由 build_validator_system() **渲染完毕**
+                        # （内含 min_sources），这里再 .format() 一次会因为模板里残留的
+                        # JSON 花括号而 KeyError —— 而它被下面的 except 兜住 ⇒
+                        # 「提示词坏了」会上报成「LLM 调用失败」，是最难查的假象。
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user},
                     ],
                     state=state,
@@ -494,5 +523,7 @@ class Validator:
         return SequenceMatcher(None, a.strip(), b.strip()).ratio()
 
 
-def config_min_sources() -> int:
-    return config.research.min_sources_for_crosscheck
+def config_min_sources(cfg=None) -> int:
+    """多源印证阈值（唯一产生点；`cfg` 参数供 prompt 指纹复用，默认取全局 config）。"""
+    c = cfg if cfg is not None else config
+    return c.research.min_sources_for_crosscheck

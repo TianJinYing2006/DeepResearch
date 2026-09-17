@@ -13,7 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from research_engine.eval.provenance import code_revision, config_snapshot
+from research_engine.eval.provenance import (
+    CITATION_JUDGE_NOTE,
+    code_revision,
+    config_snapshot,
+)
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 EVAL_REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "eval-report.md"
@@ -47,9 +51,10 @@ def _git_head() -> str:
     return code_revision()["git_commit"]
 
 
-def write_baseline(run_id: str, dataset_meta: Dict[str, Any]) -> Path:
+def write_baseline(run_id: str, dataset_meta: Dict[str, Any], summary: Optional[Dict[str, Any]] = None) -> Path:
     """v0 基线冻结快照（Q7：首个 run 自动落 baseline；后续仅当无 history 时生成）。"""
     run_dir = RESULTS_DIR / run_id
+    summary = summary or {}
     baseline = {
         "baseline_id": "v0",
         "git_commit": _git_head(),
@@ -61,6 +66,9 @@ def write_baseline(run_id: str, dataset_meta: Dict[str, Any]) -> Path:
             "concurrency": 3,
             "wall_clock": "40~60min（并发 3，20 条）",
         },
+        # W8 Arm 6：v0 冻结快照同样要能回答「用的哪套提示词 / 哪版评分口径」
+        "prompt_hash": summary.get("prompt_hash"),
+        "scorer_version": summary.get("scorer_version"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
     baseline["hash"] = _snapshot_hash(baseline)
@@ -103,6 +111,11 @@ def append_history(run_id: str, summary: Dict[str, Any], metrics_mean: Dict[str,
         # W8 §10.4 第 2 条：每轮 run 都记 config 快照（history 亦不例外）
         # —— 只写 run 级一条，不按题目重复（配置在同一 run 内不变）
         "config_snapshot": summary.get("config_snapshot"),
+        # W8 Arm 6：趋势表必须能看出「相邻两轮的**尺子**是否同一把」——
+        # 否则跨轮 delta 会把「口径变了」误记成「被测变差」。
+        "prompt_hash": summary.get("prompt_hash"),
+        "scorer_version": summary.get("scorer_version"),
+        "citation_judge_independent": summary.get("citation_judge_independent"),
         "delta_pp_from_prev": delta,
         "status": summary.get("struct", {}).get("regression", "PASS"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -114,6 +127,51 @@ def append_history(run_id: str, summary: Dict[str, Any], metrics_mean: Dict[str,
 
 def _fmt_pct(x: float) -> str:
     return f"{x * 100:.1f}%"
+
+
+def _prompt_slots_block(summary: Dict[str, Any]) -> str:
+    """§2 的 prompt slot 指纹明细（纯函数，便于单测锁定）。
+
+    `prompt_hash` 只给一个汇总值，够用来判断「变了没变」；要定位**哪一段**变了，
+    必须看逐 slot 明细。历史产物没有该字段 ⇒ 显式说明，不留空行让人以为是空表。
+    """
+    slots = summary.get("prompt_slots")
+    if not slots:
+        return "> ⚠️ `prompt_slots` 未记录（Arm 6 之前的历史产物）——"
+        "该 run 的提示词版本不可逐段追溯。\n\n"
+    lines = "\n".join(f"> - `{k}`：`{v}`" for k, v in sorted(slots.items()))
+    return f"> **提示词逐段指纹**（`prompt_slots`，用于定位 prompt_hash 变化时是哪一段变了）：\n{lines}\n\n"
+
+
+def _ruler_notes(history: List[Dict[str, Any]]) -> List[str]:
+    """Arm 6：趋势表下方的「**尺子是否同一把**」检查。
+
+    相邻两轮若 `prompt_hash` 或 `scorer_version` 不同，则这一格的 delta 里
+    混进了「口径变化」—— 这不是被测变差，是我们换了量它的方式。
+    不做这条检查，趋势表就会持续制造假信号。
+    """
+    notes: List[str] = [""]
+    warned = False
+    for prev, cur in zip(history, history[1:]):
+        diffs = [
+            f"`{k}`：{prev.get(k) or '—'} → {cur.get(k) or '—'}"
+            for k in ("prompt_hash", "scorer_version", "citation_judge_independent")
+            if prev.get(k) != cur.get(k)
+        ]
+        if not diffs:
+            continue
+        warned = True
+        notes.append(
+            f"> ⚠️ `{prev['run_id']}` → `{cur['run_id']}`：**尺子变了**（{'；'.join(diffs)}）"
+            " ⇒ 这两轮之间的 delta **不构成趋势**。"
+        )
+    if not warned:
+        notes.append(
+            "> ✅ 相邻轮次的 `prompt_hash` / `scorer_version` / 裁判独立性一致"
+            "（或历史产物已如实标为未记录）⇒ 本表 delta 至少不含口径变化。"
+        )
+    notes.append("")
+    return notes
 
 
 def _insufficient_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -345,7 +403,7 @@ def generate_report(
     if not results:
         print("⚠️ results 为空，跳过 baseline/history 写入")
         return EVAL_REPORT_PATH
-    baseline_path = write_baseline(run_id, meta)
+    baseline_path = write_baseline(run_id, meta, summary)
     history_path = append_history(run_id, summary, metrics_mean_effective)
 
     # ---- 3. 指标表（§5.5.4：均值必须并列 stderr 与有效题数）----
@@ -480,6 +538,31 @@ def generate_report(
         "> - 因果：仅在同题/同证据池/同预算/固定独立裁判等条件满足时支持因果解释。",
         "",
     ]
+
+    # ---- Arm 6：裁判独立性 + 复现元数据（**读任何数字之前必须先看到**）----
+    # 为什么放在这里而不是 §8「已知局限」：那条限制会让 citation_accuracy 的跨 run
+    # delta 失去意义，读者必须先知道，再读表 —— 写在最后一节等于没写。
+    _indep = summary.get("citation_judge_independent")
+    if _indep is True:
+        _indep_s = "✅ `true`"
+        _indep_tail = "评测层引入了独立复判，跨 run 的 citation_accuracy 可直接比较。"
+    elif _indep is False:
+        _indep_s = "🚨 **`false`**"
+        _indep_tail = CITATION_JUDGE_NOTE
+    else:
+        _indep_s = "❔ **未记录**（Arm 6 之前的历史产物）"
+        _indep_tail = "该 run 的 raw 未记录裁判元数据 ⇒ 其 citation_accuracy 的裁判身份不可追溯。"
+    judge_lines = [
+        f"### 🚨 裁判独立性：`citation_judge_independent` = {_indep_s}",
+        "",
+        f"> {_indep_tail}",
+        "",
+        f"> - `prompt_hash`（本次实际跑的提示词指纹）= `{summary.get('prompt_hash') or '—'}`",
+        f"> - `scorer_version`（评分口径版本）= `{summary.get('scorer_version') or '—'}`",
+        f"> - 裁判模型：citation = `{summary.get('citation_judge_model') or '—'}`，"
+        f"coverage = `{summary.get('coverage_judge_model') or '—'}`",
+        "",
+    ]
     trend_lines = [
         "> ⚠️ 本表数值由各 run 的 summary 直读**主链路 validator**裁决，而各 run 的实验配置与裁判模型并不一致；",
         "> 「vs 上轮(pp)」仅作记录，**不构成可比趋势**（W7 实测：同一引用集仅换裁判即产生 +7.53pp 差异）。",
@@ -504,6 +587,7 @@ def generate_report(
                 f"{m.get('citation_accuracy', 0) * 100:.1f}% | {m.get('coverage', 0) * 100:.1f}% | "
                 f"{m.get('retrieval_hit_rate', 0) * 100:.1f}% | {d_s} |"
             )
+        trend_lines.extend(_ruler_notes(history))
 
     # ---- Arm 5 §5.5.1：run 级质量闸（**只告警不阻断**）----
     verdict = summary.get("verdict", "unknown")
@@ -530,16 +614,17 @@ def generate_report(
 
 {chr(10).join(comparability_lines)}
 
-{verdict_block}
-## 1. 数据集说明
+{chr(10).join(judge_lines)}
+{verdict_block}## 1. 数据集说明
 - version: {meta.get('version', 'unknown')} / created_at: {meta.get('created_at', 'unknown')}
 - anchor_samples: {meta.get('anchor_samples', [])}
 - 标注方法学: {meta.get('annotation', 'ai_draft + human_calibration')}
 
 ## 2. 运行环境与双锚
 - git commit: {summary.get('git_commit')} / dataset version: {summary.get('dataset_version')}
+- 工作区脏标记 `git_dirty` = {summary.get('git_dirty')} / 未暂存改动指纹 `git_diff_hash` = `{summary.get('git_diff_hash') or '—'}`
 - 墙钟/并发/统计: {summary.get('total')} 条，并发 3，生成于 {summary.get('generated_at')}
-
+{_prompt_slots_block(summary)}
 ## 3. 指标表（7 项，Q8 含检索命中率）
 {header}{chr(10).join(rows_tbl)}
 
@@ -575,7 +660,8 @@ def generate_report(
 - 真实 API 非确定性（博查/arXiv 结果随时间漂移）
 - 成本为精确加权（input/output 拆分 × W3 pricing 表），价格有时效
 - **引用准确率的裁判未与被测对象解耦**：`citation_accuracy` 直读主链路 validator 裁决，凡改动 validator 的 run
-  其数值同时含「被测效应 + 裁判效应」，**不可与其他 run 直接比较**（W7 实测裁判效应 +7.53pp 与被测效应同量级）
+  其数值同时含「被测效应 + 裁判效应」，**不可与其他 run 直接比较**（W7 实测裁判效应 +7.53pp 与被测效应同量级）。
+  Arm 6 起该事实已结构化为 summary 字段 `citation_judge_independent`，并在报告顶部显著呈现
 {_w7_experiment_section()}"""
     EVAL_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     EVAL_REPORT_PATH.write_text(report, encoding="utf-8")

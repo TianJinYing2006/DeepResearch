@@ -23,6 +23,40 @@ Signal = str  # "continue" | "revise" | "stop"
 # W7 Arm1 TBD-1b：gap 反思轮次专用封顶（不复用 max_total_hops=20）
 MAX_GAP_REFLECTIONS = 6
 
+_CRITIC_SYSTEM_BASE = (
+    "你是深度研究 Agent 的质量 critic。基于已有发现判断研究是否充分，"
+    "或是否需要换角度重新检索，或方向是否彻底跑偏需要重分解。"
+    "W7 新增：若判为充分但仍有未补上的知识缺口，请在 knowledge_gap 中说明，"
+    "并给出 next_queries 弥补；若缺口已被补全或无法给出查询，knowledge_gap 留空。"
+)
+
+# W7 Arm1（critic_gap_enabled）注入的动态片段。**必须在指纹覆盖范围内**——
+# 它由一个实验开关控制，同 commit 下开/关会得到不同的提示词与不同的裁决倾向。
+_CRITIC_GAP_EXTRA = (
+    "Bug-4 修复补充：判断 sufficient 时使用'基本充分'标准——如果已有发现能支撑报告"
+    "的主体结论，仅有少量细节缺口，应判 sufficient=true 并在 knowledge_gap 中说明缺口；"
+    "只有当主体结论缺乏支撑时才判 sufficient=false。无论 sufficient 取何值，"
+    "只要存在知识缺口就应填写 knowledge_gap 和 next_queries。"
+)
+
+_CRITIC_SYSTEM_TAIL = (
+    "只输出 JSON：{\"sufficient\": bool, \"needs_replan\": bool, \"knowledge_gap\": str, "
+    "\"next_queries\": [{\"sq_id\": str, \"query\": str}]}。"
+)
+
+
+def build_critic_system(cfg=None) -> str:
+    """Critic system 提示词的**唯一产生点**（W8 Arm 6）。
+
+    为什么 critic 必须单独抽出来：它的提示词是**运行时拼装**的 ——
+    `critic_gap_enabled` 开关会把 `_CRITIC_GAP_EXTRA` 这段裁决标准插进去。
+    若只哈希常量模板，则「开关翻转导致 critic 行为改变」这件事在 provenance 里
+    **完全不可见** —— 而 W7 已实测 critic 行为直接决定 avg_steps 与覆盖度。
+    """
+    c = cfg if cfg is not None else config
+    gap_extra = _CRITIC_GAP_EXTRA if c.experiment.critic_gap_enabled else ""
+    return _CRITIC_SYSTEM_BASE + gap_extra + _CRITIC_SYSTEM_TAIL
+
 
 class CriticVerdict(BaseModel):
     """critic LLM 裁决的结构化 schema（防模型漏 key 被静默默认值误判）。"""
@@ -161,24 +195,11 @@ class Critic:
         if self.llm_fn is not None:
             return self.llm_fn(state)
         # 真实 LLM 裁决（生产路径；token 累加由 router 在 Q6 完成）。
-        from config import config as _cfg
         from research_engine.llm.client import LLMClient
-        gap_extra = ""
-        if _cfg.experiment.critic_gap_enabled:
-            gap_extra = (
-                "Bug-4 修复补充：判断 sufficient 时使用'基本充分'标准——如果已有发现能支撑报告"
-                "的主体结论，仅有少量细节缺口，应判 sufficient=true 并在 knowledge_gap 中说明缺口；"
-                "只有当主体结论缺乏支撑时才判 sufficient=false。无论 sufficient 取何值，"
-                "只要存在知识缺口就应填写 knowledge_gap 和 next_queries。"
-            )
-        system = (
-            "你是深度研究 Agent 的质量 critic。基于已有发现判断研究是否充分，"
-            "或是否需要换角度重新检索，或方向是否彻底跑偏需要重分解。"
-            "W7 新增：若判为充分但仍有未补上的知识缺口，请在 knowledge_gap 中说明，"
-            "并给出 next_queries 弥补；若缺口已被补全或无法给出查询，knowledge_gap 留空。"
-            + gap_extra +
-            "只输出 JSON：{\"sufficient\": bool, \"needs_replan\": bool, \"knowledge_gap\": str, \"next_queries\": [{\"sq_id\": str, \"query\": str}]}。"
-        )
+
+        # W8 Arm 6：提示词由 build_critic_system() 产出（唯一产生点），
+        # 保证 provenance 的 prompt_hash 与这里发出去的串逐字一致。
+        system = build_critic_system()
         subs = "; ".join(f"{sq.id}: {sq.question}" for sq in state.subquestions)
         reflection_round = len(state.reflection_log) + 1
         user = (
