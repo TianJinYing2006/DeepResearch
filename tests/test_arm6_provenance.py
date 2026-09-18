@@ -195,7 +195,7 @@ def test_raw_failure_path_carries_provenance(tmp_path):
         res = _run_one({"id": "q9", "query": "x"}, {"version": "1.1"}, tmp_path, g, prov)
     finally:
         run_mod.RETRY_SLEEP_S = orig
-    assert res["status"] == "failed"
+    assert res["invoke_status"] == "failed"
     assert res["raw"]["prompt_hash"] == prov["prompt_hash"]
     assert res["raw"]["scorer_version"] == prov["scorer_version"]
 
@@ -241,7 +241,7 @@ def _minimal_summary() -> dict:
 
 def _minimal_results() -> list:
     return [{
-        "q_id": "q1", "status": "ok",
+        "q_id": "q1", "metrics_status": "ok",
         "metrics": {
             "completion": {"complete": True}, "citation": {"fidelity_rate": 0.9},
             "coverage": {"coverage": 0.8}, "retrieval_hit": {"retrieval_hit_rate": 0.7},

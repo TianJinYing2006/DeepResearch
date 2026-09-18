@@ -45,6 +45,12 @@ from research_engine.eval.quality import (
     QualityThresholds,
     evaluate_run_verdict,
 )
+from research_engine.eval.status_keys import (
+    INVOKE_STATUS,
+    METRICS_STATUS,
+    read_invoke_status,
+    read_metrics_status,
+)
 from research_engine.graph import create_graph
 from research_engine.llm.client import LLMClient
 
@@ -93,7 +99,7 @@ def _run_one(
     graph,
     prov: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """单条 Graph 运行：返回 (status, raw_dict)。异常重试 1 次（Q4 三档）。
+    """单条 Graph 运行：返回 (invoke_status, raw_dict)。异常重试 1 次（Q4 三档）。
 
     成本归因：类级计数器在并发下是全局累计，单条落盘快照会互相污染——
     因此单条成本用 state.token_used（该 run 自己的硬闸计数），
@@ -127,19 +133,23 @@ def _run_one(
                 **raw_provenance_fields(p),
                 "dataset_version": meta.get("version", "unknown"),
                 "wall_clock_s": round(time.time() - t0, 1),
-                "status": "done" if state.status == "done" else "incomplete",
+                # W8 命名三分：层② 落盘键名 = `invoke_status`（不再写裸 `status`）。
+                # 语义仍是「这次 invoke 怎么样」，值取自 graph 的 `state.status`
+                # —— 注意 `state.status` 是层① 之外的 graph 流转状态，**不是**同义词，
+                # 它落在 `state` 命名空间内（见 status_keys.BARE_STATUS_SITES）。
+                INVOKE_STATUS: "done" if state.status == "done" else "incomplete",
                 "error": state.error,
             }
-            return {"status": "ok", "raw": raw}
+            return {INVOKE_STATUS: "ok", "raw": raw}
         except Exception as exc:  # noqa: BLE001
             last_err = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             attempt += 1
             if attempt <= 1:  # Level 1/3：瞬态与致命统一重试 1 次（Q4）
                 time.sleep(RETRY_SLEEP_S)
     return {
-        "status": "failed",
+        INVOKE_STATUS: "failed",
         "raw": {
-            "q_id": q_id, "query": topic, "error": last_err, "status": "failed",
+            "q_id": q_id, "query": topic, "error": last_err, INVOKE_STATUS: "failed",
             **raw_provenance_fields(p),
             "dataset_version": meta.get("version", "unknown"),
         },
@@ -185,18 +195,18 @@ def phase1(dataset: Dict[str, Any], run_dir: Path, concurrency: int) -> None:
                     # W8 §10.4：超时条目同样落 provenance —— 超时恰是要诊断的场景，
                     # 没有配置快照就无法判断「是配置问题还是偶发」
                     (raw_dir / f"{q_id}.raw.json").write_text(
-                        json.dumps({"q_id": q_id, "status": "timeout", "error": "task timeout",
+                        json.dumps({"q_id": q_id, INVOKE_STATUS: "timeout", "error": "task timeout",
                                     **raw_provenance_fields(prov)}, ensure_ascii=False),
                         encoding="utf-8",
                     )
                     done_failed += 1
                     continue
-                if res["status"] == "ok":
+                if res[INVOKE_STATUS] == "ok":
                     (raw_dir / f"{res['raw']['q_id']}.raw.json").write_text(
                         json.dumps(res["raw"], ensure_ascii=False, indent=1), encoding="utf-8"
                     )
                     done_ok += 1
-                    if res["raw"]["status"] != "done":
+                    if res["raw"][INVOKE_STATUS] != "done":
                         done_failed += 1
                 else:
                     (raw_dir / f"{res['raw']['q_id']}.raw.json").write_text(
@@ -232,7 +242,7 @@ def _evaluate_one(row: Dict[str, Any], raw: Dict[str, Any], judge, eval_dir: Pat
         metrics = compute_all(evaluate_state, row, judge=judge)
     except Exception:  # noqa: BLE001
         return {
-            "q_id": q_id, "status": "failed",
+            "q_id": q_id, METRICS_STATUS: "failed",
             "error": f"evaluate 异常：{traceback.format_exc()}",
         }
 
@@ -244,7 +254,9 @@ def _evaluate_one(row: Dict[str, Any], raw: Dict[str, Any], judge, eval_dir: Pat
     partial = bool(missing)
     return {
         "q_id": q_id,
-        "status": "partial" if partial else "ok",
+        # W8 命名三分：层③ 落盘键名 = `metrics_status`（「指标齐备性」，与层① 流程健康度、
+        # 层② 执行结果三者互不相犯）
+        METRICS_STATUS: "partial" if partial else "ok",
         "missing_metrics": missing,
         "metrics": metrics,
     }
@@ -279,12 +291,16 @@ def phase2(
             results.append(json.loads(out.read_text(encoding="utf-8")))
             continue
         raw = json.loads(rp.read_text(encoding="utf-8"))
-        if raw.get("status") not in ("done", "incomplete", None):
-            # failed / timeout：无 state 可评，直接透传
-            res = {"q_id": q_id, "status": raw.get("status", "failed"), "missing_metrics": [], "metrics": None,
+        # W8 命名三分：层② 读法走 dual-read —— 新 raw 是 `invoke_status`，
+        # 历史 raw 只有裸 `status`（**不回填**，见 status_keys 模块 docstring）
+        invoke_status = read_invoke_status(raw)
+        if invoke_status not in ("done", "incomplete", None):
+            # failed / timeout：无 state 可评 ⇒ 层② 的值**原样透传**给层③（同值下传）
+            res = {"q_id": q_id, METRICS_STATUS: invoke_status or "failed",
+                   "missing_metrics": [], "metrics": None,
                    "error": raw.get("error")}
         elif rows.get(q_id) is None:
-            res = {"q_id": q_id, "status": "failed", "missing_metrics": [], "metrics": None,
+            res = {"q_id": q_id, METRICS_STATUS: "failed", "missing_metrics": [], "metrics": None,
                    "error": "dataset 中无对应行"}
         else:
             res = _evaluate_one(rows[q_id], raw, judge, eval_dir)
@@ -422,9 +438,12 @@ def _summarize(
                 # prompt_hash / prompt_slots / scorer_version / 裁判模型 / 裁判独立性）
                 **{k: _prov.get(k) for k in RAW_PROVENANCE_KEYS}}
 
-    complete = [r for r in results if r.get("status") == "ok"]
-    partial = [r for r in results if r.get("status") == "partial"]
-    failed = [r for r in results if r.get("status") != "ok" and r.get("status") != "partial"]
+    # W8 命名三分：层③ 计数口径 = `metrics_status`。
+    # 走 dual-read 是**必须**的 —— phase2 断点续跑会直接 json.loads 既有 `*.eval.json`，
+    # 那些历史文件里只有裸 `status`（不回填）。
+    complete = [r for r in results if read_metrics_status(r) == "ok"]
+    partial = [r for r in results if read_metrics_status(r) == "partial"]
+    failed = [r for r in results if read_metrics_status(r) not in ("ok", "partial")]
 
     # 指标聚合的**一处定义**（`eval/aggregate.py`）——离线回填脚本共用，避免两处口径分叉
     metrics_mean, metrics_stderr = compute_metrics(results)

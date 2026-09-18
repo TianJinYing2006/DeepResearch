@@ -416,6 +416,29 @@ f"print('query={query!r}')\n"
 > | **`run_status`** | **流程健康度**（本字段） | Arm 1 新增，`ResearchState` |
 > | **`invoke_status`** | 单次调用的**执行结果** | 层② `_run_one` 返回（`run.py:110/117/157`，原名 `status`，取值 `ok/failed/timeout`） |
 > | **`metrics_status`** | **指标齐备性** | 层③ phase2（`run.py:203/215/243/246`，原名 `status`，取值 `ok/partial/failed/timeout`） |
+>
+> **⚠️ 命名裁决 · 落地形态（2026-09-18 实现，本节为唯一口径描述）**
+>
+> 键名契约的唯一真相源 = `research_engine/eval/status_keys.py`（常量 + dual-read 读函数 + 豁免登记表）。
+>
+> | 层 | 键名 | 落盘位置 | 取值 |
+> | --- | --- | --- | --- |
+> | ① | `run_status` | `ResearchState`（不落盘为裸键） | `success`/`degraded`/`failed` |
+> | ② | **`invoke_status`** | `raw/*.raw.json` **顶层** | `done`/`incomplete`/`failed`/`timeout` |
+> | ③ | **`metrics_status`** | `eval/*.eval.json` **顶层** | `ok`/`partial`/`failed`/`timeout` |
+>
+> * **层② 的取值有两套词汇表 —— 这是事实，不是笔误**：`_run_one()` 的**返回值**（内存、不落盘）用 `ok`/`failed`
+>   （"拿到 raw 了没"）；**落盘**的 raw 顶层用 `done`/`incomplete`/`failed`/`timeout`（"graph 产出报告了没"）。
+>   两者同层、粗细两种粒度：`ok` ⇔ `done|incomplete`。单测对两套值集合**分别**锁定，防止"既然同名了就把值也合并"。
+> * **方向 = 写侧只出新键 + 读侧 dual-read（新键优先、回落旧键）**。层③ 的回落分支是**必需**的：
+>   phase2 断点续跑会直接 `json.loads` 既有 `*.eval.json` 再交给 `_summarize`，那些历史文件里只有裸 `status`。
+> * **历史产物一律不回填**（**决策**，2026-09-18）。三条理由：① 它们是 Arm 7 台账的**取证对象**，产物只读；
+>   ② `tools/w7_backfill_*.py` 的「W7 零成本可复算」依赖 raw 逐字节不变；③ 回填会抹掉「这批数产生于旧口径」这个事实
+>   （同 Arm 6 拒绝回填 `prompt_hash` 的理由）。
+> * **DoD 口径边界**：本项只覆盖层②③（"裸 `status`"的语义歧义源头即此处）。层①之外的其余裸 `status` 各自的独立语义
+>   已在 `status_keys.BARE_STATUS_SITES` 逐条登记，并由单测验证「登记为真」——
+>   其中 `history.json` 的 `status` 经核实是**恒为 `"PASS"` 的空转字段**（它写的是 `summary.struct.regression`，
+>   而全仓从未有任何代码写入 `summary.struct`），其改名/删除待 Arm 7 台账 review 后一并拍板（**待办**）。
 
 #### 5.1.2 降级追踪器
 
@@ -783,7 +806,7 @@ def _default_code_script() -> str:
 > **拍板结论（Q3=A）**：原方案「把 `complete` 拆成四字段」**降级为附属产出**。
 > 理由是它治不了实测出的病：`run_20260910_173540` 拆完之后会是 `raw_written=20, quality_complete=0`，
 > **仍然需要一个人主动去看 `quality_complete` 是不是 0** —— **加字段 ≠ 加护栏**。
-> **命名裁决（Q3 附带，选甲）**：phase2 侧 `status` 改名为 `metrics_status`；`run_status`（Arm 1）独占「流程健康度」语义。
+> **命名裁决（Q3 附带，选甲）**：phase2 侧 `status` 改名为 `metrics_status`；`run_status`（Arm 1）独占「流程健康度」语义 —— ✅ **2026-09-18 落地**（键名契约唯一真相源 = `research_engine/eval/status_keys.py`；落盘只出 `metrics_status`，读侧 dual-read 兼容历史裸 `status`，历史产物不回填；详见 §5.1.1「命名裁决 · 落地形态」）。
 
 #### 5.5.1 主刀：run 级质量闸
 
@@ -1149,7 +1172,7 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 
 * [x] 受控对照实验：注入一个 LLM 失败 ⇒ `run_status == "degraded"` 且 `degradation_log` 非空；**注入一个让 invoke 抛异常的故障 ⇒ `run_status == "failed"` 且 `error` 结构化（这是 failed 路径的唯一验收）** —— ✅ **2026-09-16 以零 LLM 单测落地**（`tests/test_arm1_run_status.py` 26 条：用 fake graph 注入异常断言 `failed`；用 MagicMock 让 provider 抛错断言 `degraded` 链路的留痕与 drain）
 
-* [ ] **命名裁决三分落地**：`run_status`（流程健康度）／`invoke_status`（层② `_run_one` 返回，原名 `status`）／`metrics_status`（层③ phase2，原名 `status`）；新增单测：落盘记录中**不存在**语义歧义的裸 `status` 键 —— ⏳ **`run_status` 侧已落地**（新增字段 + 三态常量 + 文档命名注）；**层②/层③的重命名（`invoke_status` / `metrics_status`）尚未做**，属本次范围的遗留项（改这两个名字会触碰 `run.py` 多处落盘键与既有 W7 产物，需单独评估兼容性）
+* [x] **命名裁决三分落地**：`run_status`（流程健康度）／`invoke_status`（层② `_run_one` 返回，原名 `status`）／`metrics_status`（层③ phase2，原名 `status`）；新增单测：落盘记录中**不存在**语义歧义的裸 `status` 键 —— ✅ **2026-09-18 落地**（做法与口径边界见 §5.1.1「命名裁决 · 落地形态」）。**核心决策 =「写侧只出新键 + 读侧 dual-read + 历史产物一律不回填」**：历史 raw/eval 同时是 Arm 7 台账的取证对象与 `tools/w7_backfill_*.py` 的零成本复算输入，改写它们等于毁证（实测 1,498 条 raw + 1,443 条 eval 全部经 dual-read 读出旧键，取值零越界）。**DoD 口径边界**：本项只覆盖**层②③ 的落盘记录**（这也是"裸 `status`"所指的语义歧义源头）；层①之外的其余裸 `status` 已在 `status_keys.BARE_STATUS_SITES` 逐条登记、并由单测验证「登记为真」，其中含一项实证发现 —— **`history.json` 的 `status` 是恒为 `"PASS"` 的空转字段**（写的是 `summary.struct.regression`，而全仓从未有任何代码写入 `summary.struct`）
 
 * [ ] ~~`partial` 四态之一~~ ← **Q4 删除**（与 `degraded` 判定条件完全相同，改由报告层按子问题覆盖率派生）
 
@@ -1373,6 +1396,15 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 | **Arm 6** | **同一 run 内所有 raw 的 `config_snapshot` 逐字节相同**（Q8=C6-A，验证"内嵌同一对象"而非手抄副本） | 序列化后全等 |
 | **Arm 6** | **`config_snapshot` 含 `validator_model` 顶层字段，且改 `VALIDATOR_MODEL` env ⇒ 快照随之变化**（Q8=C6-A） | 字段存在且跟随 config |
 | **Arm 6** | **raw 记录中不存在平铺的 `model_name` / `search_provider` / `python_version` / `max_step_budget` / `experiment` 键**（Q8=C6-A 回归护栏） | 键不存在 |
+| **Arm 1（命名三分）** | **端到端落盘扫描**：phase1+phase2 真跑（fake graph/judge）⇒ 每个落盘 json **顶层**无裸 `status`；raw 里唯一残留的 `status` 必须在 `state` 快照内；eval/summary 任意层级都无 | 落盘记录无歧义裸键 |
+| **Arm 1（命名三分）** | **层② 四条落盘路径**（`done`/`incomplete`/`failed`/`timeout`）均只写 `invoke_status` | 写侧只出新键 |
+| **Arm 1（命名三分）** | **层③ 三条落盘路径**（`ok`/`partial`/`failed`）均只写 `metrics_status`；层② `failed`/`timeout` 的透传记录同 | 写侧只出新键 |
+| **Arm 1（命名三分）** | **dual-read 优先级**：两键并存且**取值冲突**时新键必须赢；仅旧键时回落；皆无得 `None` | 优先级不可反转 |
+| **Arm 1（命名三分）** | **`_summarize` 仍能消费只有旧键的历史 eval**（断点续跑路径） | 兼容不破 |
+| **Arm 1（命名三分）** | **历史产物未被回填**：真仓库历史 raw/eval 仍带裸 `status` 且读得出；三份 before 基线 run 逐字节未动 | 证据只读 |
+| **Arm 1（命名三分）** | **未收敛裸 `status` 登记表为真**：`state.status` / `history.json` / W7 manifest / Langfuse 四条落点逐条验证存在 | 登记不是口号 |
+| **Arm 1（命名三分）** | **源码级守卫**：`run.py` 的 AST 字符串常量中无 `"status"`；报告「失败与异常附录」段内无裸 `status` 字面量且走 dual-read | 契约不被绕过 |
+| **Arm 1（命名三分）** | **两套词汇表分别锁定**（`_run_one` 返回 `ok/failed` vs 落盘 `done/incomplete/failed/timeout`） | 防同名顺手并值 |
 
 ### 9.2 集成测试
 
@@ -1710,3 +1742,4 @@ citation 14.41pp / retrieval_hit 7.75pp；SE(3v9)：4.42 / 2.26 / 1.19pp）⇒
 | 2026-09-18 **补记** | **实现** | **Arm 6（可复现元数据）落地**（PR #4 ⇒ `fa66d27`，同上漏登，就地补登） | 新增 `eval/prompt_hash.py`（**6 slot**，对「开关翻转但代码未变」敏感 —— D-06）；provenance 由 4 字段扩到 **10 字段**（+`prompt_hash` / `prompt_slots` / `scorer_version` / `citation_judge_model` / `coverage_judge_model` / `citation_judge_independent`）；**5 个 system 提示词构建器抽为唯一产生点**（`planner` / `validator` / `writer` / `critic` / `metrics`），历史 raw 缺新字段**如实为 `None`、不回填**（D-07）；`citation_judge_independent` 按**事实判断**实现而非写成常量（D-08）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1`。**验证**：ruff 全绿；pytest **254 → 291**（+`tests/test_arm6_provenance.py`） | `fa66d27` + `eval/prompt_hash.py`（新增）、`eval/provenance.py`、`eval/{aggregate,metrics,report_gen,run}.py`、`agents/{planner,validator,writer}.py`、`critic.py` |
 | 2026-09-18 | **实现** | **Arm 7（产物治理双轨）落地 —— 双轨分开走：git 侧收敛到「引用即入库」判据，磁盘侧只出只读台账、绝不动手删** | **① 轨道 1 白名单收敛**：`.gitignore` eval 纪律段由「三条无注释 `!`」重写为「每条例外必须在**紧邻上方独立注释行**写明出处」，判据升级为**引用即入库**（只有被 `docs/` 正式文档或代码引用的 run 才允许进白名单）。**收敛结果**：原 189 个跟踪文件中 **94 项偏离白名单**，现已做到 `git ls-files research_engine/eval/results` 顶层**恰 8 项 ≡ 白名单集合**（5 个 run + `w7_experiment_20260911_194151` + `curated/` + `history.json`）。6 条例外出处逐条落实：`run_20260911_194156`（arm0 基线）/ `run_20260911_232515`（turbo 降档臂）/ `run_v11_compare`（298 条归因夹具来源）/ `run_20260906_184156`（`sampling-workbook.md` 逐条链其 raw，删即死链）/ `run_20260907_001658`（v0→v1 漂移前车之鉴）/ `w7_experiment_20260911_194151`（六臂容器 manifest+CODE_REVISION）；`curated/` 与 `history.json` 以 `# keep:` 行登记，后者注明**读写方**（`report_gen.append_history()` 写、趋势表读）—— 它们不是 run，靠「读写方」而非「被人挑过」入库。**唯一一处 `git rm --cached`**：`history_bak_v10.json` 在 `docs/` 与代码中**零引用**（W5 `22e0d73` 误入库）⇒ 移出索引、**磁盘文件保留**，并新增 `*_bak_*.json` 规则防止它转为常驻未跟踪噪音。**新增单点裁判 `tools/check_results_whitelist.py`**：三类违规 —— 已跟踪但不在白名单 / 白名单条目缺出处或出处不满足「引用即入库」/ 出处**只来自自动枚举文档**；配套 `tests/test_arm7_artifact_governance.py` **13 条**（含**活体守卫** `test_real_repository_is_consistent`，直接审真仓库，防止文档与实现分叉）；CI 新增步骤 `Eval 产物白名单纪律（Arm 7）`。**裁判经变异测试验证非空转**：注入行尾注释 / 删掉出处行 ⇒ 均 `exit 1`，还原后恢复通过。**② ⚠️ 两处实测修正 —— 照原文 §5.7.1 实现必踩坑**：ⓐ **`.gitignore` 只认行首 `#`** —— 写成 `!path/  # 注释` 会把注释吞进 pattern ⇒ **`!` 规则整条失效**（这正是原三条白名单「看着写了注释、实际不匹配」的根因）；出处必须**独立成注释行**写在规则紧邻上方，且**空行会打断归属**（已固化进单测）。ⓑ **自动枚举文档不算证据** —— `docs/eval-report.md` 由 `report_gen.py` 自动写出，实测含 **74 个**互不相同的 run id（≈无差别枚举），而手写结论 `docs/eval-w7-conclusion.md` 只提 **4 个** ⇒ 只出现在自动表里的 run **不能**充当入库证据；`AUTO_ENUMERATED_DOCS` 写入裁判，台账以 `spec_from_file_location` **加载同一常量**，避免两处分叉。**③ 轨道 2 只读台账**：新增 `tools/w8_artifact_ledger.py`（严格只读：只统计体积/mtime + 扫引用，**不删/不移/不重命名**）⇒ 产出 `docs/eval-artifact-ledger.md`：**101 个顶层条目 / 143.6 MB**（已入库 8.4 MB、未入库 **135.2 MB**），其中 **有手写引用 20 个 / 20.6 MB**（引用**含**结论文档/代码的 **17 个 / 15.2 MB**；仅来自看板/需求文档的 3 个 —— 见下方「登记反转」与决策 D-13）。引用列拆成「手写文档 / 代码证据」与「仅出现在自动表痕」两摊，并写死清理判据：**真正的归档候选 = 入库为「—」且 仅自动表痕为「⚠️ 是」，任何删除动作前须先确认该 run 不在 `tools/w7_backfill_*.py` 的输入集合内**（那两个脚本直接读 `run_dir/raw/*.raw.json`，是 W7 零成本可复算的唯一证据源）。**踩坑**：台账输出自己必然列出所有 run 名 ⇒ 回扫时每个都被判成「有引用」（**自指污染**，一度把 17 虚增到 101）⇒ 生成时以 `extra_auto` 排除输出文件自身。**踩坑②（「登记反转」，道理相反）**：`history_bak_v10.json` 原本零引用才被 `git rm --cached`，但治理过程把它的名字写进了 `docs/project-status.md` 与本文档 ⇒ **第二次生成时它被判成「有手写引用」**（17 → 18；事故复盘再点名两个受损 run 后 → **20**）⇒ 引用计数**只增不减是有偏的**。已在台账文末立规矩：review 只看「结论文档 / 代码」的引用，**写进处置记录 / 台账 / 变更日志的一律不算** —— 这是与「怕误删」相反方向的自欺风险：**怕被描述过就当成有证据**。**DoD 收口**：§7 Arm 7 轨道 1 五项**全部 ✅**（含 `history_bak_v10.json` 附带发现）、轨道 2 台账 ✅，**唯一 ⬜ = 「台账经人工 review 后独立拍板」**（待主理人；review 前不得删除/移动/重命名任何产物）。**验证**：ruff 全绿；pytest **291 → 304**（+13）；`check_md_tables.py` 0 不一致。同步改动：§5.7.1 第 2 条改写 + **新增第 3 条（自动枚举不算证据）与第 5 条（落地形态）**、§7 Arm 7 DoD | 本文档 + `.gitignore`、`tools/check_results_whitelist.py`、`tools/w8_artifact_ledger.py`、`tests/test_arm7_artifact_governance.py`、`docs/eval-artifact-ledger.md`（新增）、`.github/workflows/ci.yml` |
 | 2026-09-18 | 🚨 **事故复盘** | **Arm 7 落地后误执行一次跨边界 `git checkout` ⇒ 产物被物理删除（`results/` 143.6 MB → 31 MB），已恢复 99.85%，5 个文件永久丢失** | **经过**：Arm 7 用 `git rm --cached` 把跟踪文件从 189 降到 8 条白名单后，我误执行了一次跨越该边界的 `git checkout`（本意只是同步分支）⇒ git 认为那些路径「属于旧版本」而**从磁盘删除**，删目录时连目录内**未跟踪**的 raw/eval 一并带走。**恢复三步**：① 从 D 盘回收站按 `$I` 元数据里的原始路径定向还原 **2,418 个文件**（`.workbuddy/restore_results_from_recycle.py`）；② `git checkout -f -- research_engine/eval/results` 补回被删的 tracked 文件；③ 从事故前做的物理备份回拷 ⇒ 现 **3,206 文件 / 151.8 MB**（台账口径 143.5 MB / 100 条目）。**永久丢失 5 个文件**（≈0.1 MB，被 git 硬删除且从未进对象库）：`run_20260910_033127/raw/q_014.raw.json`、`run_20260911_004201/eval/q_016` / `q_018` / `q_019` / `q_020.eval.json` —— 均属**无引用、非白名单**的历史 run，**不影响** W7 权威容器 `w7_experiment_20260911_194151` 与任何结论文档；但这两个 run 的 `summary.json` 仍写 `complete=20/20` ⇒ **文件与 summary 不自洽**，若要继续引用须重新生成 raw。**三条副作用/教训**：① **`git rm --cached` 只保护执行它那一刻的工作树** —— 治理动作「让已跟踪文件转为未跟踪」会给**任何后续 checkout/reset/pull** 埋雷 ⇒ 立**铁律 2**（决策 D-12）：移出索引后 master/dev 必须同指向，已用 `git branch -f master dev` 消除边界；② 还原把所有结果文件 **mtime 刷成恢复时刻** ⇒ 台账「最后修改」列**失去取证价值**（已写入台账自述）；③ 「登记的反转」被放大 —— 复盘写出受损 run 名后，台账手写引用数 18 → **20**，且自动把 **before 基线三个 run** 标成「仅看板/需求文档引用」⇒ 该分类**只作提示、不可作删除依据**（决策 D-13）。同步改动：§5.7.2 新增事故表 + 铁律 2、§7 Arm 7 DoD 台账条改三档口径、台账生成器加「最后修改列失效」自述与 `GOVERNANCE_DOCS` 软标记、看板新增缺陷 D5 + 决策 D-12/D-13 | 本文档 + `tools/w8_artifact_ledger.py`、`docs/eval-artifact-ledger.md`、`docs/project-status.md`、`.workbuddy/restore_results_from_recycle.py`（一次性脚本，未入库） |
+| 2026-09-18 | **实现** | **命名三分（Arm 1 遗留项）落地 —— 三层 `status` 键名各自归位；做法 =「写侧只出新键 + 读侧 dual-read + 历史产物一律不回填」** | **① 键名契约唯一真相源**：新增 `research_engine/eval/status_keys.py`（常量 `INVOKE_STATUS`/`METRICS_STATUS`/`LEGACY_STATUS` + `read_invoke_status()`/`read_metrics_status()` + **未收敛裸 `status` 登记表 `BARE_STATUS_SITES`**）。层② = `raw/*.raw.json` 顶层 `invoke_status`（`done`/`incomplete`/`failed`/`timeout`）；层③ = `eval/*.eval.json` 顶层 `metrics_status`（`ok`/`partial`/`failed`/`timeout`）。**② 写侧**：`run.py` 共 **7 处落盘键**改名 —— `_run_one` 三条路径（ok / incomplete / failed）、phase1 超时落盘、`_evaluate_one`（ok/partial/failed）、phase2 透传与「dataset 无对应行」；`_run_one` 返回 dict 的 `status` → `invoke_status`，消费方 `phase1` 同步。**③ 读侧 dual-read**：`phase2`（读 raw）、`_summarize`（层③ 计数）、`report_gen` 失败异常附录、`tools/measure_paired_rho.py` 全部改走读函数（该工具补 `sys.path` 引导以 import 契约模块）。**④ 关键设计决策 = 历史产物不回填**，三条理由：它们是 Arm 7 台账的**取证对象**（产物只读）／`tools/w7_backfill_*.py` 的「W7 零成本可复算」依赖 raw 逐字节不变／回填会抹掉「这批数产生于旧口径」（同 Arm 6 拒回填 `prompt_hash`）。**⑤ 全量只读对账**：真仓库 **1,498 条 raw + 1,443 条 eval** 经 dual-read **全部读出、取值零越界**；三份 before 基线 run（`001005`/`011813`/`022440`）逐字节未动。**⑥ 新增 `tests/test_status_naming.py` 26 条**：**端到端落盘扫描**（真跑 phase1+phase2 后扫每个落盘 json —— 顶层无裸 `status`；raw 里唯一残留的 `status` 必须在 `state` 快照内；eval/summary/phase1_global_stats 任意层级皆无）、层②四条与层③三条落盘路径、dual-read 优先级（**两键冲突时新键必须赢**）、历史 eval 旧键仍可被 `_summarize` 消费、**两份反向守卫**（历史未被回填 / 兼容分支未被删）、源码级 AST 守卫（`run.py` 字符串常量中无 `"status"`）、报告异常附录段守卫、两套词汇表分别锁定。**⑦ 一处实证发现（由登记表的「登记为真」用例挖出）**：`results/history.json` 每条记录的 `status` 自称「回归判定」，实际写的是 `summary.struct.regression`，而**全仓从未有任何代码写入 `summary.struct`**（只有 `run.py` 空结果分支写过 `"struct": {}`）⇒ 该字段**恒为 `"PASS"` 且零读取方**，是空转字段；改名/删除要重写**已跟踪**的 `history.json`（Arm 7 台账 review 未过）⇒ **留待 review 后一并拍板**，本次仅把该事实固化成用例 `test_history_status_is_vacuous`。**DoD 口径边界**：本项只覆盖层②③（"裸 `status`"的语义歧义源头即此处）；其余四处裸 `status`（`state.status` 快照 / `history.json` / W7 manifest `runs[].status` / Langfuse trace）语义各自独立，已逐条登记并由 `test_bare_status_sites_registry_is_true` 验证存在。**验证**：ruff 全绿；pytest **304 → 330**；`check_md_tables.py` 0 不一致。同步改动：§5.1.1 新增「命名裁决 · 落地形态」表 + 四条约束、§5.5 命名裁决注补落地、§7 Arm 1 DoD 第 12 条勾选并写明口径边界、§9.1 单测表 +9 行 | 本文档 + `research_engine/eval/status_keys.py`（新增）、`eval/run.py`、`eval/report_gen.py`、`tools/measure_paired_rho.py`、`tests/test_status_naming.py`（新增）、`tests/test_arm5_quality_gate.py`、`tests/test_arm6_provenance.py`、`tests/test_eval_provenance.py` |

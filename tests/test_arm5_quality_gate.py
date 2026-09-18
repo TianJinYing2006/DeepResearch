@@ -26,7 +26,9 @@ from research_engine.eval.stats import (
 def _row(completion=1.0, citation=0.8, steps=3.0, coverage=0.5, retrieval=0.6,
          existence=0.9, relaxed=0.85, insufficient=0.1, stop="critic_stop", status="ok"):
     return {
-        "status": status,
+        # W8 命名三分：层③ 键名 = `metrics_status`（旧裸 `status` 的 dual-read 回落
+        # 由 tests/test_status_naming.py 单独覆盖，此处一律走新键）
+        "metrics_status": status,
         "metrics": {
             "completion": {"complete": completion},
             "citation": {"fidelity_rate": citation, "relaxed_rate": relaxed, "existence_rate": existence},
