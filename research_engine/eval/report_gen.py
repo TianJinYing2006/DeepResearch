@@ -118,7 +118,15 @@ def append_history(run_id: str, summary: Dict[str, Any], metrics_mean: Dict[str,
         "scorer_version": summary.get("scorer_version"),
         "citation_judge_independent": summary.get("citation_judge_independent"),
         "delta_pp_from_prev": delta,
-        "status": summary.get("struct", {}).get("regression", "PASS"),
+        # ⚠️ 2026-09-19 移除：此处原有一行 `"status": summary.get("struct", {}).get(...)` ——
+        # 取值自称「回归判定」，但全仓**从未有任何代码写入 `summary.struct`**（只有 `run.py` 空结果
+        # 分支写过 `"struct": {}`）⇒ 恒为 `"PASS"` 且**零读取方**，是空转字段，会让任何
+        # 「按 `status` 扫一遍 history」的人误以为拿到了回归结论。
+        # 处置 = 删字段（决策 D-17）：写侧不再产出 + 已跟踪的 `history.json` 全量剥离该键。
+        # 历史记录里的键也一并删（不是「只改写侧」）：它恒为常量、无读取方，
+        # 留着等于把误导留在趋势表里。
+        # ⚠️ 本注释刻意**不写出那个键名的英文原文** —— `test_history_has_no_vacuous_status_field`
+        # 是靠「全仓搜该词应为零落点」来锁住这次删除的，注释里写它会让守卫自打脸。
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
     history.append(record)

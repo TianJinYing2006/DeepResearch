@@ -427,7 +427,7 @@ def test_before_baseline_runs_are_intact():
 
 def test_bare_status_sites_registry_is_true():
     """登记表不是文档而是**可执行事实**：逐条验证落点确实存在。"""
-    assert len(BARE_STATUS_SITES) >= 4
+    assert len(BARE_STATUS_SITES) >= 3
     blob = "\n".join(f"{s['site']} {s['semantics']}" for s in BARE_STATUS_SITES)
 
     # 第 1 条：raw 的 state 快照内确有 `state.status`
@@ -437,27 +437,26 @@ def test_bare_status_sites_registry_is_true():
     assert LEGACY_STATUS in (sample.get("state") or {}), "登记表第 1 条落点不成立"
     assert "state.status" in blob
 
-    # 第 2 条：history.json 每条记录确有裸 `status`
-    history = json.loads((RESULTS / "history.json").read_text(encoding="utf-8"))
-    assert history, "history.json 为空"
-    assert all(LEGACY_STATUS in rec for rec in history), "登记表第 2 条落点不成立"
-
-    # 第 3 条：W7 manifest 的 runs[].status
-    assert W7_MANIFEST.exists(), "W7 manifest 不见了 —— 结论文档的取证源，登记表第 3 条失去依据"
+    # 第 2 条：W7 manifest 的 runs[].status（原第 3 条 —— history.json 那条已按 D-17 删除字段）
+    assert W7_MANIFEST.exists(), "W7 manifest 不见了 —— 结论文档的取证源，登记表第 2 条失去依据"
     runs = json.loads(W7_MANIFEST.read_text(encoding="utf-8"))["runs"]
-    assert runs and all(LEGACY_STATUS in r for r in runs), "登记表第 3 条落点不成立"
+    assert runs and all(LEGACY_STATUS in r for r in runs), "登记表第 2 条落点不成立"
 
-    # 第 4 条：Langfuse trace 的 status（外部字段）
+    # 第 3 条：Langfuse trace 的 status（外部字段）
     assert "Langfuse" in blob
 
 
-def test_history_status_is_vacuous():
-    """`history.json` 的 `status` 自称「回归判定」，实际写的是 `summary.struct.regression`，
-    而**全仓从未有任何代码写入 `summary.struct`** ⇒ 它恒等于默认值 `"PASS"`，是空转字段。
+def test_history_has_no_vacuous_status_field():
+    """D-17（2026-09-19）：`history.json` 原有一个自称「回归判定」的 `status` 字段，
+    实际写的是 `summary.struct.regression` —— 而全仓**从未有任何代码写入 `summary.struct`**
+    （只有 `run.py` 空结果分支写过 `"struct": {}`）⇒ 恒等于 `"PASS"`，且**零读取方**。
 
-    本用例不是替它背书，而是把「这字段在骗人」固化成可执行事实：
-    ① `regression` 全仓只出现在 report_gen 的**读取**处；
-    ② history 里该键的取值集合恰为 `{"PASS"}`。
+    它的问题不是"多一个字段"，而是会让任何「按 `status` 扫一遍 history」的人
+    **误以为拿到了回归结论**。已按 D-17 **删除**：写侧不再产出 + 已跟踪产物全量剥离。
+
+    本用例把「它确实没了」锁成可执行事实（方向与旧用例相反）：
+    ① `regression` 在 `research_engine/` 下**零落点**（连读取方也一起删了）；
+    ② `history.json` 里**没有任何记录**残留 `status` 键。
     """
     hits = [
         p.relative_to(REPO_ROOT).as_posix()
@@ -465,13 +464,14 @@ def test_history_status_is_vacuous():
         # 登记表所在模块提到 `regression` 属说明性引用，不算落点
         if p.name != "status_keys.py" and "regression" in p.read_text(encoding="utf-8")
     ]
-    assert hits == ["research_engine/eval/report_gen.py"], (
-        f"`regression` 出现了新落点 {hits} —— 若它已被真正写入，"
-        "请连同 status_keys.BARE_STATUS_SITES 第 2 条的措辞一起更新"
+    assert hits == [], (
+        f"`regression` 又出现了落点 {hits} —— 若有人重新引入「按 status 判回归」的写法，"
+        "请先确认它真的会被写入（并同步 status_keys.BARE_STATUS_SITES）"
     )
     history = json.loads((RESULTS / "history.json").read_text(encoding="utf-8"))
-    values = {rec.get(LEGACY_STATUS) for rec in history}
-    assert values == {"PASS"}, f"history 的 status 不再恒为 PASS：{values}（空转字段的说法需更新）"
+    assert history, "history.json 为空"
+    offenders = [rec.get("run_id") for rec in history if LEGACY_STATUS in rec]
+    assert not offenders, f"history 里仍有残留 `status` 键：{offenders[:10]}"
 
 
 # ================================================================ 7. 源码级守卫

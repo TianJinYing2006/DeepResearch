@@ -92,6 +92,13 @@ def read_metrics_status(res: Mapping[str, Any]) -> Optional[str]:
 #: **层②③ 之外**残留的裸 `status` 落点。每条都是独立语义、各自有主，**不在命名三分范围**。
 #: 单测逐条验证「登记为真」（落点确实存在、语义确实如述）——
 #: 目的是让「还有哪些 status 没收敛、为什么」成为**可执行的事实**而不是一句口头说明。
+#:
+#: ⚠️ **项被收敛后要从表里移除，不要留「已解决」的说明**（2026-09-19，决策 D-17）：
+#: 原第 2 条 `results/history.json` 的 `status` 自称「回归判定」、实际写 `summary.struct.regression`，
+#: 而全仓从未写入 `summary.struct` ⇒ 恒为 `"PASS"` 且零读取方。已**删除该字段**
+#: （写侧不再产出 + 已跟踪产物全量剥离），并由 `test_history_has_no_vacuous_status_field`
+#: 反向锁住「不再存在」。留一条「已解决」条目会让 `len(BARE_STATUS_SITES)` 永远虚高、
+#: 也让人误以为还有活体落点。
 BARE_STATUS_SITES: Tuple[Dict[str, str], ...] = (
     {
         "site": "`ResearchState.status` → 落盘在 raw 的 state 快照内，键路径 `state.status`",
@@ -99,16 +106,6 @@ BARE_STATUS_SITES: Tuple[Dict[str, str], ...] = (
         "why_kept": "层① 之外的独立语义；它是 Pydantic schema 字段，改名会与 state 模型脱钩。"
                     "落盘时**不是裸键**（嵌在 `state` 命名空间下），读法 `metrics.py` 的 "
                     "`state.get(\"status\")` 不会与顶层 `invoke_status` 混淆",
-    },
-    {
-        "site": "`report_gen.append_history()` → `results/history.json` 每条记录的 `status`",
-        "semantics": "**自称**「回归判定」，实际写的是 `summary.struct.regression` —— "
-                     "而全仓**从未有任何代码写入 `summary.struct`**（只有 `run.py` 空结果分支写过 "
-                     "`\"struct\": {}`）⇒ 该字段恒为默认值 `\"PASS\"`，是个**空转字段**",
-        "why_kept": "层④。**零读取方（write-only）且恒为常量** ⇒ 本轮未收敛，已登记为待拍板项："
-                    "改名/删除要重写已跟踪的 `history.json`（Arm 7 review 未过），"
-                    "故留到 review 后一并处置。单测 `test_history_status_is_vacuous` 锁住该事实，"
-                    "防止有人误以为它真在判回归",
     },
     {
         "site": "W7 容器 manifest（`w7_experiment` 产出）的 `runs[].status`",

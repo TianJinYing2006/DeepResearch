@@ -26,6 +26,10 @@ samples/
 .vscode/
 *.swp
 
+# 工具/客户端元数据（非项目源码；留着会让 `git status --porcelain` 非空，
+# 而 provenance 的 `git_dirty` 就取它的非空 ⇒ 基线会被记成「工作区脏」）
+.reasonix/
+
 # 系统
 .DS_Store
 Thumbs.db
