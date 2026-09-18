@@ -11,8 +11,8 @@
 | --- | --- |
 | 更新 | **2026-09-18**（Arm 7 双轨已落地并合入 master，代码核到 Arm 7 提交） |
 | 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~7 全部落地，仅剩 Arm 7 轨道 2 台账待主理人 review；之后进入命名三分 → after 基线）** |
-| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key）。最新一次针对 `fa66d27`（Arm 6）：push 事件 run `35270450417` + PR 事件 run `35270461607` **双绿** |
-| 最近交付 | **PR #4 已合并**（dev → master，fast-forward）⇒ master = `fa66d27` <https://github.com/TianJinYing2006/DeepResearch/pull/4> |
+| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。Arm 7 三处证据：dev push run `35276910231` + PR 事件 run `35277040980` + master 合并后 run `35277170030` —— **三run 全 success**（`ce0b8ba` / `184f11b`） |
+| 最近交付 | **PR #5 已合并**（dev → master）⇒ master = `184f11b` <https://github.com/TianJinYing2006/DeepResearch/pull/5>（合并时刻 2026-09-18 05:31） |
 | 最近基线 | **before 基线**（2026-09-16，20 题 × 3 runs，`research_engine/` 零改动） |
 | 测试基线 | **304 全绿**（Arm 7 落地前 **291**，本次 **+13** = `tests/test_arm7_artifact_governance.py`）。历史：W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → Arm 6 +22（⚠️ 期间另有若干非 Arm 归属的增量，故逐项相加与当期总数并不严格相等，勿据此推导） |
 | Python | **仅支持 3.11~3.13**（跑批与验收请以 CI matrix 为准，本机 3.14 不作验证依据） |
@@ -36,6 +36,9 @@
 | **D-10** | **自动枚举的文档不构成「引用」**：`docs/eval-report.md` 不算入库证据 | 2026-09-18 ✅ 已落地 | `report_gen.py` 自动写出的报告实测含 **74 个**互不相同的 run id（≈全量枚举），而手写结论 `docs/eval-w7-conclusion.md` 只提 **4 个** ⇒ 若承认自动表，「引用即入库」判据自我作废。要点在一件事：**只有「被人挑选过」才算数**。口径由 `AUTO_ENUMERATED_DOCS` 常量单点定义，白名单裁判与台账用 `spec_from_file_location` 加载同一份，避免两处分叉 |
 | **D-11** | **Arm 7 双轨的处置纪律不同：git 侧可以动手（可回溯），磁盘侧只能出账（不可回溯）** | 2026-09-18 ✅ 已落地 | git 侧误伤可用 `git checkout` 恢复；磁盘侧 `results/raw/*.raw.json` 是 W7「零成本可复算」的唯一证据源（`tools/w7_backfill_*.py` 直接读），误删等于销毁证据且**无任何回滚**。⇒ 第一刀只做只读台账，清理须在 review 后单独拍板 |
 
+| **D-12** | **做过「移出索引」类操作（`git rm --cached`）后，本机不得再跨该边界 checkout** —— master 与 dev 必须**同指向** | 2026-09-18 ⚠️ **用事故换来** | `git rm --cached` **只保护执行它那一刻的工作树**：这些路径变成「被忽略」，对后续 checkout / reset / pull 而言它们**属于旧版本**。实测：Arm 7 把 189 个跟踪文件降到 8 条白名单后，一次跨边界 `git checkout` 让 git 把产物**从磁盘物理删除**（删目录时连未跟踪的 raw 一起带走）⇒ `results/` **143.6 MB → 31 MB**。本地已用 `git branch -f master dev` 消除边界。**推广**：任何「让已跟踪文件转为未跟踪」的治理动作，都必须配套「禁止跨边界切换」的纪律，否则等于给协作者埋雷 |
+| **D-13** | **台账的「有手写引用」要区分「引用含结论文档/代码」与「引用仅来自看板/需求文档」，且后者只是软标记、不得当作删除依据** | 2026-09-18 ✅ 已落地 | 两个相反方向的陷阱：① **登记的反转** —— 治理过程把产物名写进处置记录，于是「描述过」被当成「有证据」（实测手写引用数 17 → 18 → 20）；② 反向误判更危险 —— 自动把「仅被看板/需求文档引用」判成「不算证据」时，**before 基线三个 run**（`run_20260916_001005` / `011813` / `022440`，靠 §10.4/§10.5.8 验收记录存续）会被误标为可删。故该分类只做提示（`tools/w8_artifact_ledger.py` `GOVERNANCE_DOCS`），**删除仍须人工确认** |
+
 `SearchResponse`（外部搜索：Bocha、arXiv）与 `RetrieveResponse`（本地向量 / 混合检索）**分离但共享** `FailureReason`、`failure_detail`、`ok` 与统一的 `degradation_log` 派生语义 —— 两者语义不同（外部 provider 响应 vs 本地检索器响应），强行复用会在后续扩展 rerank / source score / document metadata 时持续变形。
 
 ## 模块状态
@@ -52,7 +55,7 @@
 | W8 Arm 4（provider 失败原因结构化） | ✅ **已落地**（2026-09-17） | `rag/response.py` 新增 + `bocha.py`/`arxiv.py`/`retriever.py` 三路真填充 + 删 `classify_tool_exception`；受控对照以 mock 形式落在 `tests/test_arm4_failure_reasons.py`（零网络更稳） |
 | W8 Arm 5（评测口径 / 质量闸 / stderr） | ✅ **已完成**（含历史回填，2026-09-17） | `eval/quality.py`（闸）+ `eval/stats.py`（bootstrap）+ `eval/aggregate.py`（聚合一处定义）+ `tools/w8_backfill_stderr.py`（回填）。**DoD 全部闭环**，回填记录见下节 |
 | W8 Arm 6（可复现元数据） | ✅ **已交付**（2026-09-18，PR #4 已合并 ⇒ `fa66d27`） | `eval/prompt_hash.py` 新增（6 slot）；provenance 从 4 字段扩到 **10 字段**（+`prompt_hash`/`prompt_slots`/`scorer_version`/`citation_judge_model`/`coverage_judge_model`/`citation_judge_independent`）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性；趋势表新增「尺子变了」检查。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1` |
-| W8 Arm 7（产物治理双轨） | ✅ **已交付**（2026-09-18） | **轨道 1**：`.gitignore` 白名单重写为「引用即入库」+ 出处独立注释行 ⇒ `git ls-files research_engine/eval/results` 顶层 **恰 8 项 ≡ 白名单集合**（原 94 项偏离全收敛）；`history_bak_v10.json` 因零引用 `git rm --cached`（磁盘保留）。新增单点裁判 `tools/check_results_whitelist.py`（**已接 CI**，变异测试验证非空转）+ 13 条单测。**轨道 2**：`tools/w8_artifact_ledger.py`（只读）⇒ `docs/eval-artifact-ledger.md`（101 条目 / 143.6 MB，**18 个有手写引用**，其中 1 个属「登记反转」：因写入处置说明才获得引用、review 时须剔除）。**⬜ 唯一未完成 = 台账待主理人 review** —— review 前不得删除/移动/重命名任何产物 |
+| W8 Arm 7（产物治理双轨） | ✅ **已交付**（2026-09-18） | **轨道 1**：`.gitignore` 白名单重写为「引用即入库」+ 出处独立注释行 ⇒ `git ls-files research_engine/eval/results` 顶层 **恰 8 项 ≡ 白名单集合**（原 94 项偏离全收敛）；`history_bak_v10.json` 因零引用 `git rm --cached`（磁盘保留）。新增单点裁判 `tools/check_results_whitelist.py`（**已接 CI**，变异测试验证非空转）+ 13 条单测。**轨道 2**：`tools/w8_artifact_ledger.py`（只读）⇒ `docs/eval-artifact-ledger.md`（100 条目 / 143.5 MB；有手写引用 20 个，其中引用含结论文档/代码的 **17 个**、仅来自看板/需求文档的 3 个需人工确认）。**⬜ 唯一未完成 = 台账待主理人 review** —— review 前不得删除/移动/重命名任何产物。**⚠️ 中途出过一次数据事故（已恢复，见缺陷 D5）** |
 | W8 after 基线 | ⬜ 阻塞中 | 依赖 Arm 1~7 落地 ✅ + **命名三分** + 代码冻结（Arm 7 台账 review 不阻塞它，仅阻塞磁盘清理） |
 
 ## Arm 5 历史回填记录（2026-09-17 迁移，已完成）
@@ -76,6 +79,7 @@
 | D1 | ~~**成本静默归零**：`phase1_global_stats.json` 缺失时返回 `{}` ⇒ 成本直接取 0，且 **shape 与真实结果完全相同、无任何标记**。已在 before 基线第 3 轮发生（cost=¥0 而 raw token=1,017,784）~~ | ✅ **已修**（Arm 5 附带，2026-09-17）：降级为 raw 累加 token + `cost_yuan=None` + `cost_degraded=true` + `cost_basis`；报告层显示「⚠️ 不可重建」而非 ¥0。⚠️ **历史污染未清**：dry-run 扫出 2 个 run（`run_20260916_022440`、`run_v11_compare`）记的 token 少于 raw 实际 |
 | D2 | Arm 2 是**功能性修复而非纵深防御**：旧模板引号叠加 ⇒ 对任何 query 都 `SyntaxError` ⇒ 基线三轮 code_exec 144 条、**成功 0**。⇒ **after 基线里 code_exec 会真的产出结果，这部分差异必须单独归因，不得计入 W8 质量提升** | 归因口径 |
 | D3 | 裸 `status` 字段在三层的语义混用（run / invoke / metrics）—— 涉及文件与行数见任务清单，且受历史产物兼容约束 | Arm 1 命名三分（残余） |
+| **D5** | 🚨 **Arm 7 期间的数据事故（已恢复，但非 100%）**：一次**跨 Arm 7 边界**的 `git checkout` 让 git 把「旧 HEAD 跟踪、新 HEAD 不再跟踪」的路径连同其目录下**未跟踪**的 raw/eval 一起删除 ⇒ `results/` 从 **143.6 MB 掉到 31 MB**。**恢复**：① 从 D 盘回收站按 `$I` 元数据里的原始路径定向还原 **2,418 个文件**；② 用 git index 补回被删除的 tracked 文件；③ 从物理备份回拷 ⇒ 现 **3,206 文件 / 151.8 MB**（台账口径 143.5 MB）。**永久丢失 5 个文件**（≈0.1 MB）：`run_20260910_033127/raw/q_014.raw.json`、`run_20260911_004201/eval/q_016` / `q_018` / `q_019` / `q_020.eval.json` —— 均属无引用、非白名单的历史 run，**不影响** W7 权威容器与任何结论文档。**副作用**：还原把全部结果文件 mtime 刷成恢复时刻（台账该列失去取证价值）；上述两 run 的 `summary.json` 仍写 `complete=20/20` ⇒ **文件缺失与 summary 不自洽** | 已立铁律（决策 D-12）；台账已自述该列失效；两 run 若要继续引用需重新生成 raw |
 | D4 | 不要用 coverage 提升验收 W8：实测 MDE=12.38pp > 预期效应 4~10pp，**统计上不可判定**。W8 的验收口径是**确定性断言（故障可归因率 0%→100%）** | 验收口径 |
 
 ## 执行顺序（按顺序串行，勿并行铺开）
@@ -96,5 +100,6 @@
 | W7 五开关去留 | `CRITIC_GAP_ENABLED` 等五个开关默认全开、主链路静默吃默认值，`.env.example`/README 零提及。见 `docs/w7-switch-disposition.md` |
 | GitHub 凭据链修复 | `~/.gitconfig` 的 helper 写成反斜杠路径导致推送取不到凭据，永久修法 `gh auth setup-git`（改全局配置） |
 | Gitee 凭据存储 | 是否把令牌存入 wincred（安全决策） |
-| 台账 review（**Arm 7 轨道 2 唯一阻塞点**） | `docs/eval-artifact-ledger.md` 需主理人过目拍板：**83 个无手写引用的条目（≈126.9 MB）是否归档/删除**。review 前不得删除、移动、重命名任何产物（`tools/w7_backfill_*.py` 依赖 raw 作为 W7 零成本可复算的唯一证据源）。候选判据：入库为「—」且 仅自动表痕为「⚠️ 是」。⚠️ **引用只增不减是有偏的**：治理过程会把产物名写进处置记录 ⇒ 「写了说明」不等于「原本被引用」 |
+| 台账 review（**Arm 7 轨道 2 唯一阻塞点**） | `docs/eval-artifact-ledger.md` 需主理人过目拍板：**100 个条目中，83 个（≈128.3 MB）没有任何「结论文档 / 代码」引用** —— 是否归档/删除。review 前不得删除、移动、重命名任何产物（`tools/w7_backfill_*.py` 依赖 raw 作为 W7 零成本可复算的唯一证据源）。候选判据：入库为「—」且 仅自动表痕为「⚠️ 是」。⚠️ 两条反向陷阱：① **引用只增不减是有偏的** —— 治理过程会把产物名写进处置记录，「写了说明」≠「原本被引用」；② 反之，**「引用仅来自看板/需求文档」也不等于可删**（before 基线三个 run 正是靠 §10.4 验收记录存续）⇒ 只能人工确认 |
+| 事故残留清理 | `.workbuddy/_arm7_results_backup/`（**3,206 文件 / 151.8 MB** 物理备份）与 `.workbuddy/restore_results_from_recycle.py`（一次性还原脚本）—— 事故已恢复完毕，**待主理人确认后**才可删（`git rm --cached` 边界已用 `git branch -f master dev` 消除） |
 | README 需补 Arm 7 纪律 | 新贡献者跑完 eval 后 `results/` 默认被 ignore，**只有被 `docs/` 文档引用并写进白名单才入库**；README 未提这条，容易出现「有结论文档、无对应产物」的悬空引用 |
