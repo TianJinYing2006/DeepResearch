@@ -173,12 +173,12 @@ def main() -> int:
         print(f"  - {name:32s} [{kind}]")
 
     if violations:
-        print(f"\n❌ 白名单纪律违规 {len(violations)} 处：", file=sys.stderr)
+        print(f"\n[FAIL] 白名单纪律违规 {len(violations)} 处：", file=sys.stderr)
         for v in violations:
             print(f"  - {v}", file=sys.stderr)
         return 1
 
-    print("\n✅ 白名单集合 ≡ git 跟踪集合，且每条都写明了引用出处")
+    print("\n[PASS] 白名单集合 ≡ git 跟踪集合，且每条都写明了引用出处")
     return 0
 
 

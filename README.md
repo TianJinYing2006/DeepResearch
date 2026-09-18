@@ -68,7 +68,7 @@ cp .env.example .env
 - `QDRANT_URL`：Qdrant 地址（默认 `http://127.0.0.1:6333`）
 - `FAST_MODEL` / `SMART_MODEL` / `STRATEGIC_MODEL`：三层模型（默认 qwen-turbo / qwen-plus / qwen-plus）
 - `PLANNER_MODEL` / `CRITIC_MODEL`（W4 分档）：规划与裁决各自独立模型；不设则回落 `STRATEGIC_MODEL`。演示强推理时：`PLANNER_MODEL=qwen-max`（规划只跑 1 次，成本增量 ≈ +¥0.007/run）；`CRITIC_MODEL=deepseek-r1` 注意裁决每轮 +10~30s 延迟——演示建议 `qwen-max` 够用。
-- **W7 主链路行为开关**：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED` 当前默认均为 `true`。它们是主链路开关，不是可忽略的实验残留；默认值/代码去留将在 W8 固定证据池、独立裁判、同预算重测后裁定，详见 `docs/w7-switch-disposition.md`。
+- **W7 主链路行为开关**：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED` 当前默认均为 `true`。它们是主链路开关，不是可忽略的实验残留；当前默认先保留；代码去留将在 W8 固定证据池、独立裁判、同预算重测后裁定，详见 `docs/w7-switch-disposition.md`。
 
 ### 3.2 工具：arXiv 学术检索 + 代码执行（W4）
 
@@ -165,6 +165,24 @@ CitationEvaluator().evaluate(report, findings)
 # C: 报告质量
 ReportEvaluator().evaluate(topic, report)
 ```
+
+### 评测跑批与产物纪律（W8）
+
+正式评测会调用外部模型/API 并产生费用；在做版本比较前，应先冻结代码提交、配置和数据集，再运行固定规模的 baseline。评测产物默认写入 `results/`，该目录默认被 Git 忽略；只有被正式结论文档引用、并在 `.gitignore` 白名单中登记出处的产物才允许入库。
+
+跑完评测后先检查白名单纪律：
+
+```powershell
+python tools/check_results_whitelist.py
+```
+
+不要直接手动删除、移动或重命名 `results/` 中的历史产物。W7 回填和 W8 台账都可能依赖 `raw/*.raw.json` 作为零成本复算证据；需要清理或归档时，先查看 `docs/eval-artifact-ledger.md` 并完成人工 review。
+
+### W7 主链路开关（默认行为）
+
+W7 的五个开关属于主链路行为选择，不是独立插件；未设置环境变量时均默认为 `true`。正式跑批或版本比较时，应把它们的有效值随 provenance 一起记录：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED`。
+
+其中 `CRITIC_GAP_ENABLED=true` 可保留 coverage，但实测约增加 118% 的 steps；`VALIDATOR_FIXES_ENABLED` 与 `VALIDATOR_ASSERTIVE_FILTER_ENABLED` 默认保留已知缺陷修复；`WRITER_SECTIONED_FEED_ENABLED` 与 `VALIDATOR_TRIM_ENABLED` 暂维持开启，待 W8 重新测量后再裁定。不要在未记录开关值的情况下横向比较评测结果。
 
 ## 设计要点
 
