@@ -183,7 +183,7 @@ def test_raw_failure_path_still_records_provenance(tmp_path):
         res = _run_one({"id": "q_009", "query": "x"}, {"version": "1.1"}, tmp_path, g, prov)
     finally:
         run_mod.RETRY_SLEEP_S = orig
-    assert res["status"] == "failed"
+    assert res["invoke_status"] == "failed"
     assert res["raw"]["config_snapshot"] == prov["config_snapshot"]
     assert res["raw"]["git_commit"] == prov["git_commit"]
 

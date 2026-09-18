@@ -46,7 +46,13 @@ import json
 import math
 import os
 import sys
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from research_engine.eval.status_keys import METRICS_STATUS, read_metrics_status  # noqa: E402
 
 T_THR = 2.8  # 双侧 α≈0.05、power≈0.8 的 t 值（n≈20 时实际 2.09，取 2.8 偏保守）
 
@@ -78,7 +84,8 @@ def load_run(run_dir: str, metric: str) -> Dict[str, float]:
                 d = json.load(fh)
         except Exception:  # noqa: BLE001
             continue
-        if d.get("status") != "ok":
+        # W8 命名三分：层③ 读法走 dual-read（新 `metrics_status` 优先、回落历史裸 `status`）
+        if read_metrics_status(d) != "ok":
             continue
         qid = d.get("q_id")
         if not qid:
@@ -196,7 +203,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for d in dirs:
         r = load_run(d, a.metric)
         if not r:
-            print(f"{d} 里没读到任何 status=ok 的指标", file=sys.stderr)
+            print(f"{d} 里没读到任何 {METRICS_STATUS}=ok 的指标", file=sys.stderr)
             return 2
         runs.append(r)
 

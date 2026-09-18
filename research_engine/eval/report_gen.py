@@ -18,6 +18,7 @@ from research_engine.eval.provenance import (
     code_revision,
     config_snapshot,
 )
+from research_engine.eval.status_keys import read_metrics_status
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 EVAL_REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "eval-report.md"
@@ -493,7 +494,8 @@ def generate_report(
     # ---- 4. 失败与异常附录 ----
     anomalies = []
     for r in results:
-        if r.get("status") != "ok":
+        # W8 命名三分：层③ 读法走 dual-read（新 `metrics_status` 优先、回落历史裸 `status`）
+        if read_metrics_status(r) != "ok":
             anomalies.append(r)
             continue
         c = (r.get("metrics") or {}).get("cost", {})
@@ -503,7 +505,7 @@ def generate_report(
         elif c.get("total_tokens", 0) > 60_000:
             anomalies.append(r)
     anomaly_lines = "\n".join(
-        f"- {r.get('q_id')} [{r.get('status')}]"
+        f"- {r.get('q_id')} [{read_metrics_status(r)}]"
         + (f" {((r.get('metrics') or {}).get('cost') or {}).get('total_tokens', '')}tok"
            f" ¥{((r.get('metrics') or {}).get('cost') or {}).get('total_cost', '')}"
            if r.get("metrics") else "")
