@@ -1,4 +1,4 @@
-# eval 报告（run_20260916_022440）
+# eval 报告（run_20260919_004620）
 
 > ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
 > 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
@@ -13,29 +13,55 @@
 > - 因果：仅在同题/同证据池/同预算/固定独立裁判等条件满足时支持因果解释。
 
 
+### 🚨 裁判独立性：`citation_judge_independent` = 🚨 **`false`**
+
+> citation_accuracy 直读主链路 validator 的裁决产物，评测层不做独立复判；凡改动 validator 的 run，其数值同时含『被测效应 + 裁判效应』（W7 实测纯裁判效应 +7.53pp，与被测效应同量级）⇒ 不可与其他 run 直接比较
+
+> - `prompt_hash`（本次实际跑的提示词指纹）= `cf95dafc78f98348`
+> - `scorer_version`（评分口径版本）= `w8.1`
+> - 裁判模型：citation = `qwen-plus`，coverage = `qwen-plus`
+
+## 0. run 级质量闸（Arm 5 §5.5.1，**只告警不阻断**）
+
+**verdict：`ok` ✅**
+
+触发原因：
+  - （无）
+
+> `suspicious` = 指标跌破阈值，**被测可能已彻底降级**；`broken` = **评测管线自身**大面积失败（尺子坏了，均值不可信）。
+> 阈值为**外置参数**（`--thresholds-json`），默认组由 `run_20260910_173540` 反推，**尚未在新主链路基线上校准** ⇒ 当前只告警、不阻断。
 ## 1. 数据集说明
-- version: 1.1 / created_at: 2026-09-06
-- anchor_samples: ['q_001']
-- 标注方法学: ai_draft + human_calibration
+- version: pilot / created_at: 2026-09-09
+- anchor_samples: []
+- 标注方法学: 2 题 pilot 用于验证 w7_experiment 管线
 
 ## 2. 运行环境与双锚
-- git commit: 6c83af1ae9c544ea227822c599f682e2f7ce8490 / dataset version: 1.1
-- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-16T12:15:41
+- git commit: f723c2d0ecc33aff9fd8a3680664603534b98696 / dataset version: pilot
+- 工作区脏标记 `git_dirty` = False / 未暂存改动指纹 `git_diff_hash` = `e3b0c44298fc1c14`
+- 墙钟/并发/统计: 2 条，并发 3，生成于 2026-09-19T00:51:41
+> **提示词逐段指纹**（`prompt_slots`，用于定位 prompt_hash 变化时是哪一段变了）：
+> - `coverage_judge`：`1e9427851bb5785b`
+> - `critic`：`b983ea38597be7e4`
+> - `planner`：`33cdb1ed7a57274d`
+> - `planner_replan`：`5eb4c0b52bcc0fb2`
+> - `validator`：`d96e4e8f4df9d183`
+> - `writer`：`56b82da428f4e179`
+
 
 ## 3. 指标表（7 项，Q8 含检索命中率）
-| 指标 | 目标 | 本轮 | 达标 |
-|---|---|---|---|
-| completion_rate | ≥90% | 100.0% | ✅ |
-| citation_accuracy | ≥85%（**严格口径** verified） | 81.8% | ⚠️ |
-| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 82.7% | ✅ |
-| coverage | ≥90% | 45.6% | ⚠️ |
-| retrieval_hit_rate | 记录基线 | 59.6% | ✅ |
-| avg_steps | 记录基线 | 8.9 轮 | ✅ |
-| reflection_critic_stop_rate | ≥90% | 89.5% | ⚠️ |
+| 指标 | 目标 | 本轮（均值 ± stderr） | 有效题数 n | 达标 |
+|---|---|---|---|---|
+| completion_rate | ≥90% | 100.0% | 2 | ✅ |
+| citation_accuracy | ≥85%（**严格口径** verified） | 72.1% ± 1.5pp | 2 | ⚠️ |
+| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 72.1% ± 1.5pp | 2 | ✅ |
+| coverage | ≥90% | 41.7% ± 5.9pp | 2 | ⚠️ |
+| retrieval_hit_rate | 记录基线 | 62.5% ± 8.8pp | 2 | ✅ |
+| avg_steps | 记录基线 | 4.5 轮 ± 1.76 | 2 | ✅ |
+| reflection_critic_stop_rate | ≥90% | 100.0% | 2 | ✅ |
 
-💰 总 token（Phase1 研究）：0，成本：¥0.0（Phase2 judge 另计 69689 token）
-  - 模型名桶：—
-  - 职责桶：—
+💰 总 token（Phase1 研究）：56244，成本：¥0.0617（Phase2 judge 另计 4692 token）
+  - 模型名桶：qwen-plus: 41119tok ¥0.0567, qwen-turbo: 15125tok ¥0.0050
+  - 职责桶：planner: 2601tok, critic: 9506tok, smart: 11718tok, compress: 15125tok, validator: 17294tok
 
 📏 **双口径与人工口径归属（W7 TBD-5 诚实披露，不得省略）：**
   - **严格口径**（`citation_accuracy`）= `verified = existence AND faithful`（引对编号 **且** 忠实）—— W2 契约口径，跨版本对比**一律以此为准**。
@@ -43,18 +69,16 @@
   - **⚠️ W5 人工抽检 83~92% 属「宽松口径」**：人工判的是「这论断有没有依据」，**不逐条核对编号** ⇒ 与机器严格口径**不是同一件事**；二者差异的**绝大部分是口径差**，**不是 validator 误拒**。
   - 人工抽检样本仅 **12 条**、置信区间极宽，**不作为真值**；宽松口径仅作**解释性附注**，不参与任何达标判定。
 
-📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 76.6%**（98/128 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 19 篇报告）。
+📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 66.7%**（6/9 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 2 篇报告）。
   - 读法：比例**极低**可能意味着模型改为编造而非承认缺口；比例**极高**意味着检索没喂饱。两种极端都值得人工抽检，但**不作为任何达标判据**。
 
 
 ## 4. 失败与异常附录
-- 完整 19 / 部分 0 / 失败 1
-- q_004 [ok] 62996tok ¥0.0882
-- q_005 [ok] 93415tok ¥0.1308
-- q_007 [timeout] error=task timeout
-- q_009 [ok] 70269tok ¥0.0984
-- q_010 [ok] 122076tok ¥0.1709
-- q_012 [ok] 77366tok ¥0.1083
+- 指标齐全 2 /
+  指标部分 0 /
+  指标失败 0
+  （§5.5.2 旧键 `complete/partial/failed` 仍写入，标 deprecated）
+- 无
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
@@ -151,6 +175,10 @@
 | run_20260916_001005 | 100.0% | 71.8% | 39.5% | 53.0% | completion_rate:+0.0, citation_accuracy:+2.0, coverage:+26.5, retrieval_hit_rate:+29.8 |
 | run_20260916_011813 | 100.0% | 73.6% | 50.4% | 54.6% | completion_rate:+0.0, citation_accuracy:+1.8, coverage:+10.9, retrieval_hit_rate:+1.6 |
 | run_20260916_022440 | 100.0% | 81.8% | 45.6% | 59.6% | completion_rate:+0.0, citation_accuracy:+8.2, coverage:-4.8, retrieval_hit_rate:+5.0 |
+| run_20260919_004620 | 100.0% | 72.1% | 41.7% | 62.5% | completion_rate:+0.0, citation_accuracy:-9.7, coverage:-3.9, retrieval_hit_rate:+2.9 |
+
+> ⚠️ `run_20260916_022440` → `run_20260919_004620`：**尺子变了**（`prompt_hash`：— → cf95dafc78f98348；`scorer_version`：— → w8.1；`citation_judge_independent`：— → —） ⇒ 这两轮之间的 delta **不构成趋势**。
+
 
 
 ## 8. 已知局限
@@ -158,7 +186,8 @@
 - 真实 API 非确定性（博查/arXiv 结果随时间漂移）
 - 成本为精确加权（input/output 拆分 × W3 pricing 表），价格有时效
 - **引用准确率的裁判未与被测对象解耦**：`citation_accuracy` 直读主链路 validator 裁决，凡改动 validator 的 run
-  其数值同时含「被测效应 + 裁判效应」，**不可与其他 run 直接比较**（W7 实测裁判效应 +7.53pp 与被测效应同量级）
+  其数值同时含「被测效应 + 裁判效应」，**不可与其他 run 直接比较**（W7 实测裁判效应 +7.53pp 与被测效应同量级）。
+  Arm 6 起该事实已结构化为 summary 字段 `citation_judge_independent`，并在报告顶部显著呈现
 
 ## 9. W7 技术债对照实验（权威容器 `w7_experiment_20260911_194151`）
 
