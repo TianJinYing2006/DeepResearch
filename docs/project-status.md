@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-18**（Arm 7 双轨已落地并合入 master，代码核到 Arm 7 提交） |
+| 更新 | **2026-09-18**（Arm 7 双轨 + 事故复盘均已合入 master，代码核到 `5f9aece`） |
 | 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~7 全部落地，仅剩 Arm 7 轨道 2 台账待主理人 review；之后进入命名三分 → after 基线）** |
-| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。Arm 7 三处证据：dev push run `35276910231` + PR 事件 run `35277040980` + master 合并后 run `35277170030` —— **三run 全 success**（`ce0b8ba` / `184f11b`） |
-| 最近交付 | **PR #5 已合并**（dev → master）⇒ master = `184f11b` <https://github.com/TianJinYing2006/DeepResearch/pull/5>（合并时刻 2026-09-18 05:31） |
+| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。最新一轮（`f2d5c3c`）：dev push run `35310140078` + PR 事件 run `35310228251` —— 全 success；PR #5 那轮为 `35276910231` / `35277040980` / master `35277170030` |
+| 最近交付 | **PR #5 + PR #6 均已合并**（dev → master）⇒ master = `5f9aece`　[#5](https://github.com/TianJinYing2006/DeepResearch/pull/5) / [#6](https://github.com/TianJinYing2006/DeepResearch/pull/6)（PR #6 = 事故复盘 + 台账三档口径 + 看板同步；**看板自身不再单独开 PR**，随下一次合并并入） |
 | 最近基线 | **before 基线**（2026-09-16，20 题 × 3 runs，`research_engine/` 零改动） |
 | 测试基线 | **304 全绿**（Arm 7 落地前 **291**，本次 **+13** = `tests/test_arm7_artifact_governance.py`）。历史：W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → Arm 6 +22（⚠️ 期间另有若干非 Arm 归属的增量，故逐项相加与当期总数并不严格相等，勿据此推导） |
 | Python | **仅支持 3.11~3.13**（跑批与验收请以 CI matrix 为准，本机 3.14 不作验证依据） |
