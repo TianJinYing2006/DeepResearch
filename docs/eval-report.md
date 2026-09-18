@@ -1,4 +1,4 @@
-# eval 报告（run_20260919_004620）
+# eval 报告（run_20260919_005617）
 
 > ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
 > 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
@@ -31,14 +31,14 @@
 > `suspicious` = 指标跌破阈值，**被测可能已彻底降级**；`broken` = **评测管线自身**大面积失败（尺子坏了，均值不可信）。
 > 阈值为**外置参数**（`--thresholds-json`），默认组由 `run_20260910_173540` 反推，**尚未在新主链路基线上校准** ⇒ 当前只告警、不阻断。
 ## 1. 数据集说明
-- version: pilot / created_at: 2026-09-09
-- anchor_samples: []
-- 标注方法学: 2 题 pilot 用于验证 w7_experiment 管线
+- version: 1.1 / created_at: 2026-09-06
+- anchor_samples: ['q_001']
+- 标注方法学: ai_draft + human_calibration
 
 ## 2. 运行环境与双锚
-- git commit: f723c2d0ecc33aff9fd8a3680664603534b98696 / dataset version: pilot
+- git commit: 5acb019b2707a9d8ec6073d3c6cd0e238edb91b5 / dataset version: 1.1
 - 工作区脏标记 `git_dirty` = False / 未暂存改动指纹 `git_diff_hash` = `e3b0c44298fc1c14`
-- 墙钟/并发/统计: 2 条，并发 3，生成于 2026-09-19T00:51:41
+- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-19T01:44:35
 > **提示词逐段指纹**（`prompt_slots`，用于定位 prompt_hash 变化时是哪一段变了）：
 > - `coverage_judge`：`1e9427851bb5785b`
 > - `critic`：`b983ea38597be7e4`
@@ -51,17 +51,17 @@
 ## 3. 指标表（7 项，Q8 含检索命中率）
 | 指标 | 目标 | 本轮（均值 ± stderr） | 有效题数 n | 达标 |
 |---|---|---|---|---|
-| completion_rate | ≥90% | 100.0% | 2 | ✅ |
-| citation_accuracy | ≥85%（**严格口径** verified） | 72.1% ± 1.5pp | 2 | ⚠️ |
-| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 72.1% ± 1.5pp | 2 | ✅ |
-| coverage | ≥90% | 41.7% ± 5.9pp | 2 | ⚠️ |
-| retrieval_hit_rate | 记录基线 | 62.5% ± 8.8pp | 2 | ✅ |
-| avg_steps | 记录基线 | 4.5 轮 ± 1.76 | 2 | ✅ |
-| reflection_critic_stop_rate | ≥90% | 100.0% | 2 | ✅ |
+| completion_rate | ≥90% | 100.0% | 20 | ✅ |
+| citation_accuracy | ≥85%（**严格口径** verified） | 74.3% ± 6.0pp | 20 | ⚠️ |
+| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 74.3% ± 6.0pp | 20 | ✅ |
+| coverage | ≥90% | 42.1% ± 7.0pp | 20 | ⚠️ |
+| retrieval_hit_rate | 记录基线 | 52.5% ± 4.7pp | 20 | ✅ |
+| avg_steps | 记录基线 | 7.6 轮 ± 0.51 | 20 | ✅ |
+| reflection_critic_stop_rate | ≥90% | 90.0% ± 6.5pp | 20 | ✅ |
 
-💰 总 token（Phase1 研究）：56244，成本：¥0.0617（Phase2 judge 另计 4692 token）
-  - 模型名桶：qwen-plus: 41119tok ¥0.0567, qwen-turbo: 15125tok ¥0.0050
-  - 职责桶：planner: 2601tok, critic: 9506tok, smart: 11718tok, compress: 15125tok, validator: 17294tok
+💰 总 token（Phase1 研究）：866440，成本：¥0.793（Phase2 judge 另计 62972 token）
+  - 模型名桶：qwen-plus: 485083tok ¥0.6630, qwen-turbo: 381357tok ¥0.1300
+  - 职责桶：planner: 21242tok, critic: 157739tok, smart: 133983tok, compress: 381357tok, validator: 172119tok
 
 📏 **双口径与人工口径归属（W7 TBD-5 诚实披露，不得省略）：**
   - **严格口径**（`citation_accuracy`）= `verified = existence AND faithful`（引对编号 **且** 忠实）—— W2 契约口径，跨版本对比**一律以此为准**。
@@ -69,16 +69,17 @@
   - **⚠️ W5 人工抽检 83~92% 属「宽松口径」**：人工判的是「这论断有没有依据」，**不逐条核对编号** ⇒ 与机器严格口径**不是同一件事**；二者差异的**绝大部分是口径差**，**不是 validator 误拒**。
   - 人工抽检样本仅 **12 条**、置信区间极宽，**不作为真值**；宽松口径仅作**解释性附注**，不参与任何达标判定。
 
-📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 66.7%**（6/9 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 2 篇报告）。
+📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 85.7%**（102/119 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 20 篇报告）。
   - 读法：比例**极低**可能意味着模型改为编造而非承认缺口；比例**极高**意味着检索没喂饱。两种极端都值得人工抽检，但**不作为任何达标判据**。
 
 
 ## 4. 失败与异常附录
-- 指标齐全 2 /
+- 指标齐全 20 /
   指标部分 0 /
   指标失败 0
   （§5.5.2 旧键 `complete/partial/failed` 仍写入，标 deprecated）
-- 无
+- q_009 [ok] 72466tok ¥0.1015
+- q_019 [ok] 60246tok ¥0.0843
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
@@ -176,6 +177,7 @@
 | run_20260916_011813 | 100.0% | 73.6% | 50.4% | 54.6% | completion_rate:+0.0, citation_accuracy:+1.8, coverage:+10.9, retrieval_hit_rate:+1.6 |
 | run_20260916_022440 | 100.0% | 81.8% | 45.6% | 59.6% | completion_rate:+0.0, citation_accuracy:+8.2, coverage:-4.8, retrieval_hit_rate:+5.0 |
 | run_20260919_004620 | 100.0% | 72.1% | 41.7% | 62.5% | completion_rate:+0.0, citation_accuracy:-9.7, coverage:-3.9, retrieval_hit_rate:+2.9 |
+| run_20260919_005617 | 100.0% | 74.3% | 42.1% | 52.5% | completion_rate:+0.0, citation_accuracy:+2.2, coverage:+0.4, retrieval_hit_rate:-10.0 |
 
 > ⚠️ `run_20260916_022440` → `run_20260919_004620`：**尺子变了**（`prompt_hash`：— → cf95dafc78f98348；`scorer_version`：— → w8.1；`citation_judge_independent`：— → —） ⇒ 这两轮之间的 delta **不构成趋势**。
 
