@@ -9,12 +9,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-18**（命名三分落地，dev 待推送；master 仍为 `5f9aece`） |
-| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~7 + 命名三分全部落地，仅剩 Arm 7 轨道 2 台账待主理人 review；之后进入 after 基线）** |
-| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。最新一轮（`f2d5c3c`）：dev push run `35310140078` + PR 事件 run `35310228251` —— 全 success；PR #5 那轮为 `35276910231` / `35277040980` / master `35277170030`。⚠️ **命名三分这一轮尚未推送，CI 状态待补** |
-| 最近交付 | **PR #5 + PR #6 均已合并**（dev → master）⇒ master = `5f9aece`　[#5](https://github.com/TianJinYing2006/DeepResearch/pull/5) / [#6](https://github.com/TianJinYing2006/DeepResearch/pull/6)（PR #6 = 事故复盘 + 台账三档口径 + 看板同步；**看板自身不再单独开 PR**，随下一次合并并入）。**在途**：命名三分（dev，待开 PR） |
+| 更新 | **2026-09-18**（命名三分已合入 master ⇒ 代码核到 `3736bee`） |
+| 阶段 | W1~W7 已收官；**W8 进行中（Arm 1~7 + 命名三分全部落地并合入 master，仅剩 Arm 7 轨道 2 台账待主理人 review；之后进入 after 基线）** |
+| 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。**PR #7 这一轮**：dev push `35312917303` + PR 事件 `35312919557` + master 合并后 `35313178353` —— 全 success。⚠️ 该轮**第一跳 `35312654571` 三档同时红**（`test_before_baseline_runs_are_intact` 把「只在本机存在、未入库的 before 基线 run」当成了用例前提，CI 检出里没有 ⇒ 已改为「存在即校验、不存在则如实 skip」，见 `79845c6`）。其前一轮（`f2d5c3c`）为 `35310140078` / `35310228251` |
+| 最近交付 | **PR #5 / #6 / #7 均已合入 master ⇒ `3736bee`**　[#5](https://github.com/TianJinYing2006/DeepResearch/pull/5) / [#6](https://github.com/TianJinYing2006/DeepResearch/pull/6) / [#7](https://github.com/TianJinYing2006/DeepResearch/pull/7)（PR #7 = W8 命名三分。**看板自身不单独开 PR**，随下一次合并并入） |
 | 最近基线 | **before 基线**（2026-09-16，20 题 × 3 runs，`research_engine/` 零改动） |
-| 测试基线 | **330 全绿**（命名三分 **+26** = `tests/test_status_naming.py`）。历史：W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → Arm 6 +22 → Arm 7 +13（⚠️ 期间另有若干非 Arm 归属的增量，故逐项相加与当期总数并不严格相等，勿据此推导） |
+| 测试基线 | **330 全绿**（命名三分 **+26** = `tests/test_status_naming.py`，已由 CI 三档确认）。历史：W7 期 131 → Arm 1 +26 → Arm 2 +39 → Arm 3 +20 → Arm 4 +20 → Arm 5 +18 → Arm 6 +22 → Arm 7 +13（⚠️ 期间另有若干非 Arm 归属的增量，故逐项相加与当期总数并不严格相等，勿据此推导） |
 | Python | **仅支持 3.11~3.13**（跑批与验收请以 CI matrix 为准，本机 3.14 不作验证依据） |
 | 结论文档 | W7：`docs/eval-w7-conclusion.md`；W8：`docs/requirements/8-fault-transparency-and-reproducibility.md` |
 
@@ -36,10 +36,12 @@
 | **D-10** | **自动枚举的文档不构成「引用」**：`docs/eval-report.md` 不算入库证据 | 2026-09-18 ✅ 已落地 | `report_gen.py` 自动写出的报告实测含 **74 个**互不相同的 run id（≈全量枚举），而手写结论 `docs/eval-w7-conclusion.md` 只提 **4 个** ⇒ 若承认自动表，「引用即入库」判据自我作废。要点在一件事：**只有「被人挑选过」才算数**。口径由 `AUTO_ENUMERATED_DOCS` 常量单点定义，白名单裁判与台账用 `spec_from_file_location` 加载同一份，避免两处分叉 |
 | **D-11** | **Arm 7 双轨的处置纪律不同：git 侧可以动手（可回溯），磁盘侧只能出账（不可回溯）** | 2026-09-18 ✅ 已落地 | git 侧误伤可用 `git checkout` 恢复；磁盘侧 `results/raw/*.raw.json` 是 W7「零成本可复算」的唯一证据源（`tools/w7_backfill_*.py` 直接读），误删等于销毁证据且**无任何回滚**。⇒ 第一刀只做只读台账，清理须在 review 后单独拍板 |
 
-| **D-12** | **做过「移出索引」类操作（`git rm --cached`）后，本机不得再跨该边界 checkout** —— master 与 dev 必须**同指向** | 2026-09-18 ⚠️ **用事故换来** | `git rm --cached` **只保护执行它那一刻的工作树**：这些路径变成「被忽略」，对后续 checkout / reset / pull 而言它们**属于旧版本**。实测：Arm 7 把 189 个跟踪文件降到 8 条白名单后，一次跨边界 `git checkout` 让 git 把产物**从磁盘物理删除**（删目录时连未跟踪的 raw 一起带走）⇒ `results/` **143.6 MB → 31 MB**。本地已用 `git branch -f master dev` 消除边界。**推广**：任何「让已跟踪文件转为未跟踪」的治理动作，都必须配套「禁止跨边界切换」的纪律，否则等于给协作者埋雷 |
+| **D-12** | **做过「移出索引」类操作（`git rm --cached`）后，本机不得再跨该边界 checkout** —— master 与 dev 必须**同指向** | 2026-09-18 ⚠️ **用事故换来** | `git rm --cached` **只保护执行它那一刻的工作树**：这些路径变成「被忽略」，对后续 checkout / reset / pull 而言它们**属于旧版本**。实测：Arm 7 把 189 个跟踪文件降到 8 条白名单后，一次跨边界 `git checkout` 让 git 把产物**从磁盘物理删除**（删目录时连未跟踪的 raw 一起带走）⇒ `results/` **143.6 MB → 31 MB**。本地已用 `git branch -f master dev` 消除边界（**⚠️ 远端无法维持同指向，见 D-15**）。**推广**：任何「让已跟踪文件转为未跟踪」的治理动作，都必须配套「禁止跨边界切换」的纪律，否则等于给协作者埋雷 |
 | **D-13** | **台账的「有手写引用」要区分「引用含结论文档/代码」与「引用仅来自看板/需求文档」，且后者只是软标记、不得当作删除依据** | 2026-09-18 ✅ 已落地 | 两个相反方向的陷阱：① **登记的反转** —— 治理过程把产物名写进处置记录，于是「描述过」被当成「有证据」（实测手写引用数 17 → 18 → 20）；② 反向误判更危险 —— 自动把「仅被看板/需求文档引用」判成「不算证据」时，**before 基线三个 run**（`run_20260916_001005` / `011813` / `022440`，靠 §10.4/§10.5.8 验收记录存续）会被误标为可删。故该分类只做提示（`tools/w8_artifact_ledger.py` `GOVERNANCE_DOCS`），**删除仍须人工确认** |
 
 | **D-14** | **命名三分的方向 =「写侧只出新键 + 读侧 dual-read」，历史产物一律不回填** | 2026-09-18 ✅ 已落地 | 三条理由：① 历史 raw/eval 是 **Arm 7 台账的取证对象**，产物只读；② `tools/w7_backfill_*.py` 的「W7 零成本可复算」**依赖 raw 逐字节不变**；③ 回填会抹掉「这批数产生于旧口径」这个事实（与 **D-07** 拒回填 `prompt_hash` 同源）。⚠️ **与 §5.5.2 的「旧键同时写入」方向相反，这是刻意的**：那里产物**可重写**（summary 每次重算），所以把兼容成本压在写侧；这里产物**不可重写**，所以兼容责任落在读侧。代价已实测可接受：**1,498 raw + 1,443 eval 经 dual-read 全部读出、取值零越界** |
+
+| **D-15** | **远端 master 与 dev 长期分叉：master 恒为 merge 提交 ⇒ D-12 的「同指向」只能在本机成立** | 2026-09-18，处置方式由于晏拍板（**选 merge 提交**，不重写远端历史） | **发现（PR #7 合并时暴露）**：PR #5 / #6 实际是以 **merge 提交**合入的（`184f11b` 双父 `[0144705, ce0b8ba]`、`5f9aece` 双父 `[184f11b, f2d5c3c]`）⇒ 远端 master 的尖端落在 dev 祖先链**之外**，对 dev 做 `PATCH force:false` 会得 `422 not a fast forward`；且 `5f9aece` 这个提交在本地仓库**根本不存在**。**内容层面零风险（已实测）**：`tree(5f9aece) == tree(f2d5c3c) == a831cd09` —— master 上没有任何 dev 历史里没有的东西，merge 提交只是把 dev 侧裹了壳；PR #7 合入后的 `3736bee` 其 tree 也 `== tree(79845c6)`。**⇒ D-12 口径据此收窄**：`git rm --cached` 边界的危险性靠**本机** master/dev 同指向消除（本次已 `git branch -f master dev` ⇒ 两者均 `79845c6`），远端 master 是否线性**不影响本机 checkout 安全**。**已知代价**：每次合并都会让远端分叉再深一层；将来若要线性历史，需另开议题（改走 rebase 合并，或一次性 force 对齐） |
 
 `SearchResponse`（外部搜索：Bocha、arXiv）与 `RetrieveResponse`（本地向量 / 混合检索）**分离但共享** `FailureReason`、`failure_detail`、`ok` 与统一的 `degradation_log` 派生语义 —— 两者语义不同（外部 provider 响应 vs 本地检索器响应），强行复用会在后续扩展 rerank / source score / document metadata 时持续变形。
 
@@ -58,7 +60,7 @@
 | W8 Arm 5（评测口径 / 质量闸 / stderr） | ✅ **已完成**（含历史回填，2026-09-17） | `eval/quality.py`（闸）+ `eval/stats.py`（bootstrap）+ `eval/aggregate.py`（聚合一处定义）+ `tools/w8_backfill_stderr.py`（回填）。**DoD 全部闭环**，回填记录见下节 |
 | W8 Arm 6（可复现元数据） | ✅ **已交付**（2026-09-18，PR #4 已合并 ⇒ `fa66d27`） | `eval/prompt_hash.py` 新增（6 slot）；provenance 从 4 字段扩到 **10 字段**（+`prompt_hash`/`prompt_slots`/`scorer_version`/`citation_judge_model`/`coverage_judge_model`/`citation_judge_independent`）；raw 三条落盘路径统一走 `raw_provenance_fields()`；报告**在指标表之前**显著呈现裁判独立性；趋势表新增「尺子变了」检查。当前 `prompt_hash=cf95dafc78f98348`、`scorer_version=w8.1` |
 | W8 Arm 7（产物治理双轨） | ✅ **已交付**（2026-09-18） | **轨道 1**：`.gitignore` 白名单重写为「引用即入库」+ 出处独立注释行 ⇒ `git ls-files research_engine/eval/results` 顶层 **恰 8 项 ≡ 白名单集合**（原 94 项偏离全收敛）；`history_bak_v10.json` 因零引用 `git rm --cached`（磁盘保留）。新增单点裁判 `tools/check_results_whitelist.py`（**已接 CI**，变异测试验证非空转）+ 13 条单测。**轨道 2**：`tools/w8_artifact_ledger.py`（只读）⇒ `docs/eval-artifact-ledger.md`（100 条目 / 143.5 MB；有手写引用 20 个，其中引用含结论文档/代码的 **17 个**、仅来自看板/需求文档的 3 个需人工确认）。**⬜ 唯一未完成 = 台账待主理人 review** —— review 前不得删除/移动/重命名任何产物。**⚠️ 中途出过一次数据事故（已恢复，见缺陷 D5）** |
-| W8 命名三分（Arm 1 遗留项） | ✅ **已交付**（2026-09-18，dev 在途） | 键名契约唯一真相源 `research_engine/eval/status_keys.py`（新增）：层② `invoke_status`（raw 顶层）/ 层③ `metrics_status`（eval 顶层）/ `LEGACY_STATUS` 只读。`run.py` **7 处落盘键**改名；读侧（`phase2` / `_summarize` / `report_gen` 异常附录 / `tools/measure_paired_rho.py`）全部 dual-read。**核心决策：历史产物一律不回填**（取证对象 + W7 零成本复算）⇒ 全量只读对账 **1,498 raw + 1,443 eval 全部读出、取值零越界**。新增 `tests/test_status_naming.py` **26 条**（含端到端落盘扫描 + 两份反向守卫 + AST 源码守卫）。**副作用登记**：发现 `history.json` 的 `status` 是恒为 `"PASS"` 的空转字段（见下方「未决 / 待拍板」） |
+| W8 命名三分（Arm 1 遗留项） | ✅ **已交付并合入 master**（2026-09-18，PR #7 ⇒ `3736bee`） | 键名契约唯一真相源 `research_engine/eval/status_keys.py`（新增）：层② `invoke_status`（raw 顶层）/ 层③ `metrics_status`（eval 顶层）/ `LEGACY_STATUS` 只读。`run.py` **7 处落盘键**改名；读侧（`phase2` / `_summarize` / `report_gen` 异常附录 / `tools/measure_paired_rho.py`）全部 dual-read。**核心决策：历史产物一律不回填**（取证对象 + W7 零成本复算）⇒ 全量只读对账 **1,498 raw + 1,443 eval 全部读出、取值零越界**。新增 `tests/test_status_naming.py` **26 条**（含端到端落盘扫描 + 两份反向守卫 + AST 源码守卫）。**副作用登记**：发现 `history.json` 的 `status` 是恒为 `"PASS"` 的空转字段（见下方「未决 / 待拍板」） |
 | W8 after 基线 | ⬜ 阻塞中 | 依赖 Arm 1~7 落地 ✅ + 命名三分 ✅ + 代码冻结（Arm 7 台账 review 不阻塞它，仅阻塞磁盘清理） |
 
 ## Arm 5 历史回填记录（2026-09-17 迁移，已完成）
