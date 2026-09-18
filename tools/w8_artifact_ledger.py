@@ -40,6 +40,19 @@ def _load_auto_enumerated_docs() -> set[str]:
 
 AUTO_ENUMERATED_DOCS = _load_auto_enumerated_docs()
 
+# 「看板 / 需求文档」类引用：这两份文档**既**记录实质验收证据（如 §10.4 用某个 run 验收 DoD），
+# **也**记录处置动作（「把 X 删掉」「X 零引用」）⇒ 光看「被它引用」分不清是哪种。
+# 因此这一类**只作为软标记**（提示人工确认），**绝不是「不算证据」**：
+# 反过来误判才是真风险 —— before 基线的三个 run 正是靠 §10.4/§10.5.8 的验收记录存续的。
+# 实测来源（2026-09-18）：事故复盘把 `run_20260910_033127` / `run_20260911_004201` 写进文档后，
+# 台账「有手写引用」条目数从 18 跳到 20 —— 见 render() 里的「登记的反转」注。
+GOVERNANCE_DOCS = frozenset(
+    {
+        "docs/project-status.md",
+        "docs/requirements/8-fault-transparency-and-reproducibility.md",
+    }
+)
+
 # 扫描引用时要跳过的目录：产物自己当然会「引用」自己，排除掉才是有效证据
 SCAN_SKIP_DIRS = {".git", ".workbuddy", "results", "__pycache__", "node_modules", ".venv", ".deps"}
 SCAN_SUFFIXES = {".md", ".py", ".yml", ".yaml", ".txt", ".json"}
@@ -156,11 +169,14 @@ def build_rows(repo_root: Path, extra_auto: frozenset[str] = frozenset()) -> tup
                 "refs": cited,
                 "manual_refs": manual,
                 "only_auto": not manual and bool(cited),
+                "governance_only": bool(manual) and all(p in GOVERNANCE_DOCS for p in manual),
             }
         )
     rows.sort(key=lambda r: r["size"], reverse=True)
 
     manual_named = [r for r in rows if r["manual_refs"]]
+    effective = [r for r in manual_named if not r["governance_only"]]
+    gov_only = [r for r in manual_named if r["governance_only"]]
     total = sum(r["size"] for r in rows)
     summary = {
         "total": total,
@@ -170,6 +186,10 @@ def build_rows(repo_root: Path, extra_auto: frozenset[str] = frozenset()) -> tup
         "count": len(rows),
         "manual_named": len(manual_named),
         "manual_named_size": sum(r["size"] for r in manual_named),
+        "manual_effective": len(effective),
+        "manual_effective_size": sum(r["size"] for r in effective),
+        "governance_only": len(gov_only),
+        "governance_only_size": sum(r["size"] for r in gov_only),
     }
     return rows, summary
 
@@ -187,6 +207,8 @@ def render(rows: list[dict], summary: dict) -> str:
     ]
     for r in rows:
         refs = "<br>".join(f"`{p}`" for p in r["manual_refs"]) or "—"
+        if r["governance_only"]:
+            refs += "<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）**"
         lines.append(
             f"| `{r['name']}` | {r['size_human']} | {r['mtime']} | "
             f"{'✅' if r['tracked'] else '—'} | {r['category']} | {refs} | "
@@ -205,6 +227,8 @@ def render(rows: list[dict], summary: dict) -> str:
         f"| 其中已入库（受白名单约束） | {_human(summary['tracked'])} |",
         f"| 其中未入库（本地仅作追溯） | **{_human(summary['untracked'])}** |",
         f"| 有【手写引用】的条目 | {summary['manual_named']} 个 / {_human(summary['manual_named_size'])} |",
+        f"| └─ 其中引用**含**结论文档 / 代码 | {summary['manual_effective']} 个 / {_human(summary['manual_effective_size'])} |",
+        f"| └─ 其中引用**仅来自**看板 / 需求文档（⚠️ **需人工确认**，不可据此删除） | {summary['governance_only']} 个 / {_human(summary['governance_only_size'])} |",
         "",
         f"> ⚠️ **引用分两档，别混为一谈**：`{named_namespace}` 由脚本自动写出、会把几乎所有 run 无差别地"
         "列进表格（实测 `docs/eval-report.md` 含 74 个 run id，而手写的 `docs/eval-w7-conclusion.md` 只提 4 个）"
@@ -223,6 +247,13 @@ def render(rows: list[dict], summary: dict) -> str:
         "⚠️ **下一刀（尚未执行，需单独拍板）**：「入库 = —」且「仅出现在自动表痕 = ⚠️ 是」的条目才是真正的归档候选；"
         "而且任何删除动作都必须先确认该 run 不在 `tools/w7_backfill_*.py` 的输入集合里 —— "
         "那两个脚本直接读 `run_dir/raw/*.raw.json`，那是 W7 零成本可复算的唯一证据源。",
+        "",
+        "> 🚨 **「最后修改」列自 2026-09-18 起已失去取证价值**：一次**跨越 Arm 7 边界**的 `git checkout`（`git rm --cached` 把路径移出索引后，"
+        "跨边界切换会让 git 认为这些路径属于旧版本）把**产物**连同未跟踪的 raw 一起从磁盘删除，`results/` 一度从 143.6 MB 掉到 31 MB。"
+        "恢复动作（从回收站按 `$I` 元数据定向还原 + 物理备份回拷）把**全部**文件的 mtime 刷成了恢复时刻 —— 故本列现在只反映"
+        "「最后一次触碰」，不再反映「产物何时产生」。**另有 5 个文件被 git 硬删除且从未进过对象库，永久丢失**"
+        "（`run_20260910_033127/raw/q_014.raw.json`、`run_20260911_004201/eval/q_016|q_018|q_019|q_020.eval.json`）。"
+        "事故详情见 `docs/requirements/8-fault-transparency-and-reproducibility.md` §5.7.2 与 `docs/project-status.md` 缺陷 D5。",
         "",
     ]
     return "\n".join(lines)
