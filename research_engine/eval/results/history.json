@@ -2000,5 +2000,129 @@
    "retrieval_hit_rate": 0.3
   },
   "generated_at": "2026-09-19T02:35:34"
+ },
+ {
+  "run_id": "run_20260919_023550",
+  "verdict": "ok",
+  "verdict_reasons": [],
+  "git_commit": "6dc6173c62202b8b5fd73415c7ceef83234e0208",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.7751,
+   "citation_accuracy_relaxed": 0.8061,
+   "existence_rate": 0.981,
+   "coverage": 0.4125,
+   "retrieval_hit_rate": 0.5453,
+   "avg_steps": 7.95,
+   "reflection_critic_stop_rate": 0.95,
+   "insufficient_marker_ratio": 0.7867
+  },
+  "metrics_stderr": {
+   "completion_rate": {
+    "n": 20,
+    "stderr": 0.0,
+    "ci95": [
+     1.0,
+     1.0
+    ]
+   },
+   "citation_accuracy": {
+    "n": 20,
+    "stderr": 0.0431,
+    "ci95": [
+     0.6864,
+     0.8565
+    ]
+   },
+   "citation_accuracy_relaxed": {
+    "n": 20,
+    "stderr": 0.0411,
+    "ci95": [
+     0.7178,
+     0.8833
+    ]
+   },
+   "existence_rate": {
+    "n": 20,
+    "stderr": 0.0051,
+    "ci95": [
+     0.9709,
+     0.9906
+    ]
+   },
+   "coverage": {
+    "n": 20,
+    "stderr": 0.079,
+    "ci95": [
+     0.2583,
+     0.5667
+    ]
+   },
+   "retrieval_hit_rate": {
+    "n": 20,
+    "stderr": 0.0494,
+    "ci95": [
+     0.4449,
+     0.639
+    ]
+   },
+   "avg_steps": {
+    "n": 20,
+    "stderr": 0.7511,
+    "ci95": [
+     6.55,
+     9.55
+    ]
+   },
+   "reflection_critic_stop_rate": {
+    "n": 20,
+    "stderr": 0.0483,
+    "ci95": [
+     0.85,
+     1.0
+    ]
+   },
+   "insufficient_marker_ratio": {
+    "n": 20,
+    "stderr": 0.0518,
+    "ci95": [
+     0.6767,
+     0.8789
+    ]
+   }
+  },
+  "metrics_ok": 20,
+  "metrics_partial": 0,
+  "metrics_failed": 0,
+  "config_snapshot": {
+   "planner_model": "qwen-plus",
+   "critic_model": "qwen-plus",
+   "fast_model": "qwen-turbo",
+   "smart_model": "qwen-plus",
+   "validator_model": "qwen-plus",
+   "python_version": "3.13.14",
+   "token_budget": 200000,
+   "max_total_hops": 20,
+   "per_subq_hop_cap": 5,
+   "max_replan": 1,
+   "search_provider": "bocha",
+   "experiment": {
+    "critic_gap_enabled": true,
+    "validator_fixes_enabled": true,
+    "validator_assertive_filter_enabled": true,
+    "writer_sectioned_feed_enabled": true,
+    "validator_trim_enabled": true
+   }
+  },
+  "prompt_hash": "cf95dafc78f98348",
+  "scorer_version": "w8.1",
+  "citation_judge_independent": false,
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": -0.5,
+   "coverage": 2.1,
+   "retrieval_hit_rate": 1.7
+  },
+  "generated_at": "2026-09-19T03:25:10"
  }
 ]
