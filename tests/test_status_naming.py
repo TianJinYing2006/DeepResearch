@@ -402,20 +402,24 @@ def test_legacy_eval_artifacts_are_not_backfilled():
 
 
 def test_before_baseline_runs_are_intact():
-    """before 基线的三个 run 是 §10.4 验收记录的取证源 ⇒ 逐字节未被本 Arm 触碰。"""
-    checked = 0
-    for run_id in BEFORE_BASELINE_RUNS:
-        raw_dir = RESULTS / run_id / "raw"
-        if not raw_dir.exists():
-            continue
-        checked += 1
-        for p in sorted(raw_dir.glob("*.raw.json")):
+    """三个 before 基线 run 是 §10.4 验收记录的取证源 ⇒ 在本机必须逐字节未被本 Arm 触碰。
+
+    ⚠️ **这三个 run 不在 git 白名单里** —— 它们靠「治理文档引用」存续（决策 D-13 的
+    `GOVERNANCE_DOCS` 场景，`tools/check_results_whitelist.py` 明确不许它们因此入库）
+    ⇒ **CI / 新克隆上根本不存在**。所以本用例的语义只能是「**存在即必须未被回填**」：
+    找不到就如实跳过，绝不假装通过；全仓「未回填」的硬守卫由 `test_legacy_*` 用
+    **已入库**的历史 run 承担（那两个用例在 CI 上是真跑的，第一轮 CI 红正好证明了这点）。
+    """
+    present = [r for r in BEFORE_BASELINE_RUNS if (RESULTS / r / "raw").exists()]
+    if not present:
+        pytest.skip("三个 before 基线 run 均不在本工作区（未入库，仅被治理文档引用）")
+
+    for run_id in present:
+        files = sorted((RESULTS / run_id / "raw").glob("*.raw.json"))
+        assert files, f"{run_id} 的 raw 目录为空 —— 取证源不完整"
+        for p in files:
             data = json.loads(p.read_text(encoding="utf-8"))
             assert INVOKE_STATUS not in data, f"{p} 被回填了新键 —— 历史产物只读！"
-        assert list(
-            (RESULTS / run_id / "raw").glob("*.raw.json")
-        ), f"{run_id} 的 raw 不见了"
-    assert checked > 0, "三个 before 基线 run 一个都没找到 —— 台账纪律的取证基础没了"
 
 
 # ================================================================ 6. 未收敛裸 status 的登记为真

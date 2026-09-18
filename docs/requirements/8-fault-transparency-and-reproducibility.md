@@ -1401,7 +1401,7 @@ query 通过 `CodeExecInput.metadata` 传入，执行器将其透传到 `CodeExe
 | **Arm 1（命名三分）** | **层③ 三条落盘路径**（`ok`/`partial`/`failed`）均只写 `metrics_status`；层② `failed`/`timeout` 的透传记录同 | 写侧只出新键 |
 | **Arm 1（命名三分）** | **dual-read 优先级**：两键并存且**取值冲突**时新键必须赢；仅旧键时回落；皆无得 `None` | 优先级不可反转 |
 | **Arm 1（命名三分）** | **`_summarize` 仍能消费只有旧键的历史 eval**（断点续跑路径） | 兼容不破 |
-| **Arm 1（命名三分）** | **历史产物未被回填**：真仓库历史 raw/eval 仍带裸 `status` 且读得出；三份 before 基线 run 逐字节未动 | 证据只读 |
+| **Arm 1（命名三分）** | **历史产物未被回填**：真仓库**已入库**的历史 raw/eval 仍带裸 `status` 且读得出（CI 上真跑）；三份 before 基线 run **未入库**（D-13 治理文档场景）⇒ 该用例语义为「**存在即必须未被回填**」，不存在则如实跳过 | 证据只读 |
 | **Arm 1（命名三分）** | **未收敛裸 `status` 登记表为真**：`state.status` / `history.json` / W7 manifest / Langfuse 四条落点逐条验证存在 | 登记不是口号 |
 | **Arm 1（命名三分）** | **源码级守卫**：`run.py` 的 AST 字符串常量中无 `"status"`；报告「失败与异常附录」段内无裸 `status` 字面量且走 dual-read | 契约不被绕过 |
 | **Arm 1（命名三分）** | **两套词汇表分别锁定**（`_run_one` 返回 `ok/failed` vs 落盘 `done/incomplete/failed/timeout`） | 防同名顺手并值 |
