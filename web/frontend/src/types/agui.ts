@@ -96,6 +96,8 @@ export interface RunFinishedEvent extends AguiEvent {
   stop_reason: 'completed' | 'cancelled'
   run_status: RunStatus
   token_used: number
+  /** LLM 成本估算（元）。口径：无 input/output 拆分，按最贵 output 单价计的**上界**。 */
+  cost_estimate_cny?: number
   degradation_count: number
   has_report: boolean
   result: ResearchResult

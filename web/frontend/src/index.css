@@ -164,6 +164,25 @@
   }
 }
 
+/* 进度条循环高光：一条高亮带从左往右扫过。
+   ⚠️ 只表达「仍在推进」，**不改变任何进度数值** —— 总进度仍只由可确认的数据推导，
+   不因为有了动画就假装知道剩余比例。
+   位移量按高亮带宽度 w-1/3 计算：起点 -100%（完全在左边界外）→ 终点 400%（完全掠过右边界）。 */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

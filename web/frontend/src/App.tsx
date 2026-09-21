@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ProgressBar } from './components/ProgressBar'
@@ -36,6 +36,11 @@ export default function App() {
   const [searchProvider, setSearchProvider] = useState('')
   const [enableArxiv, setEnableArxiv] = useState(true)
   const [options, setOptions] = useState<RunOptions | null>(null)
+  // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
+  // 原来是累加各节点 duration_ms ⇒ 只有节点完成才会跳变，等待 LLM 时看起来卡住。
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
+  const [, setTick] = useState(0)
+  const stoppedAtRef = useRef<number | null>(null)
   const {
     runId,
     events,
@@ -74,17 +79,42 @@ export default function App() {
   )
 
   const running = status === 'starting' || status === 'running' || status === 'stopping'
+
+  // 运行时长实时化：运行中每 250ms 触发一次重渲染；停止时冻结在结束那一刻。
+  // 用 ref 记录停止时刻而非 state，避免 effect 里 setState 引发额外渲染循环。
+  useEffect(() => {
+    if (!runStartedAt) return
+    if (running) {
+      stoppedAtRef.current = null
+      const id = window.setInterval(() => setTick((value) => value + 1), 250)
+      return () => window.clearInterval(id)
+    }
+    if (stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
+  }, [runStartedAt, running])
+
   const steps = useMemo(() => events.filter(isStepFinished), [events])
   const degradations = useMemo(() => events.filter(isDegradation), [events])
   const lastStep = steps[steps.length - 1]
   const lastDelta = useMemo(() => lastEventOfType(events, 'STATE_DELTA') as StateDeltaEvent | undefined, [events])
   const finished = useMemo(() => lastEventOfType(events, 'RUN_FINISHED') as RunFinishedEvent | undefined, [events])
+  // 完整活动：原先 .slice(-18) 会把早期事件挤掉，导致「之前的活动丢失」。
+  // 容器本身已可滚动，这里不再截断。
   const timeline = useMemo(
-    () => events.filter((event) => event.type !== 'STEP_STARTED').slice(-18).reverse(),
+    // 带上原始下标：reverse 后新事件会使所有位置后移，若用倒序下标当 key 会让
+    // 每个条目都「变成另一个元素」而重载。绑定原始事件下标后 key 稳定。
+    () => events
+      .map((event, index) => ({ event, index }))
+      .filter((entry) => entry.event.type !== 'STEP_STARTED')
+      .reverse(),
     [events],
   )
 
-  const elapsedMs = steps.reduce((total, step) => total + step.duration_ms, 0)
+  // 实时运行时长（不再等节点完成才累加）
+  const elapsedMs = runStartedAt ? Math.max(0, (stoppedAtRef.current ?? Date.now()) - runStartedAt) : 0
+  // 成本估算由后端按 config.llm.pricing 计算（前端没有定价表，不能自己拍单价）
+  const costLabel = finished?.cost_estimate_cny === undefined
+    ? running ? '运行结束后给出估算' : '本次未提供估算'
+    : `≈ ¥${formatCost(finished.cost_estimate_cny)}（按 output 单价的上界）`
   const tokenUsed = finished?.token_used ?? lastStep?.token_used ?? 0
   const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
   const findingsCount = lastDelta?.findings_count ?? 0
@@ -97,6 +127,9 @@ export default function App() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!topic.trim() || running) return
+    // 从发起时刻开始计时（不是等第一个节点完成）
+    setRunStartedAt(Date.now())
+    stoppedAtRef.current = null
     void start(topic, instructions, maxTotalHops, searchProvider || undefined, enableArxiv)
   }
 
@@ -361,9 +394,9 @@ export default function App() {
 
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard label="已完成节点" value={String(steps.length)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
-            <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail="费用未提供，不估算" accent="cyan" />
+            <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="cyan" />
             <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
-            <MetricCard label="运行时长" value={formatDuration(elapsedMs)} detail={lastStep ? `深度 ${lastStep.depth}` : '节点耗时累计'} accent="amber" />
+            <MetricCard label="运行时长" value={formatDuration(elapsedMs)} detail={running ? '实时计时中' : lastStep ? `深度 ${lastStep.depth}` : '自发起时刻起'} accent="amber" />
           </section>
 
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
@@ -373,8 +406,8 @@ export default function App() {
                 <EmptyState icon="⌁" title="等待研究开始" text="事件会按最新优先排列，断线重连不会重新启动研究。" />
               ) : (
                 <div className="mt-5 max-h-[520px] space-y-1 overflow-y-auto pr-1">
-                  {timeline.map((event, index) => (
-                    <TimelineItem key={`${event.type}-${events.length - index}`} event={event} />
+                  {timeline.map(({ event, index }) => (
+                    <TimelineItem key={index} event={event} />
                   ))}
                 </div>
               )}
@@ -681,6 +714,12 @@ function nodeLabel(node: string): string {
 
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toLocaleString('zh-CN') : '0'
+}
+
+function formatCost(cny: number): string {
+  // 研究单跑常在几分钱量级，固定两位会把 0.004 显示成 0.00 ⇒ 小额度多留两位
+  if (cny === 0) return '0'
+  return cny < 0.01 ? cny.toFixed(4) : cny.toFixed(2)
 }
 
 function formatDuration(milliseconds: number): string {

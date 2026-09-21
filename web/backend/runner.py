@@ -27,6 +27,23 @@ from .agui import (
 )
 
 
+def _estimate_cost_cny(token_used: int) -> float:
+    """按 ``config.llm.pricing`` 估算本次 run 的 LLM 成本（元）。
+
+    ⚠️ 口径（必须与展示一致，否则等于又造一个假数字）：
+    state 只有 ``token_used`` 总数、**没有 input/output 拆分**，因此统一按
+    **最贵的 output 档**计价 ⇒ 得到的是**保守上界**，真实成本只会更低。
+    与 observability 模块的成本展示口径一致（W3 Q6）。
+
+    未计入：搜索 API 按次计费（不占 token），本估算只覆盖 LLM。
+    """
+    from config import config
+
+    pricing = config.llm.pricing or {}
+    unit = max((tier.get("output", 0.0) for tier in pricing.values()), default=0.0)
+    return round(token_used / 1000.0 * unit, 4)
+
+
 class RunManager:
     """管理多个前台运行的生命周期（**不做**任务持久化 —— ADR-0001 + D-19）。"""
 
@@ -210,6 +227,8 @@ class RunManager:
             "stop_reason": step.stop_reason,
             "run_status": step.state.run_status,
             "token_used": step.state.token_used,
+            # 成本估算（元）。口径见 _estimate_cost_cny：按最贵 output 单价计的**上界**。
+            "cost_estimate_cny": _estimate_cost_cny(step.state.token_used),
             "degradation_count": len(step.state.degradation_log),
             "has_report": bool(report),
             "result": {
