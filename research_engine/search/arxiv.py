@@ -29,6 +29,13 @@ from research_engine.failure_reasons import FailureReason  # W8 Arm 4
 from research_engine.search.base import SearchProvider, SearchResponse, SearchResult
 
 ARXIV_API = "https://export.arxiv.org/api/query"
+# 间歇性连接失败的重试次数与退避（秒）。
+# 实测（2026-09-22）：代理对 export.arxiv.org 的 CONNECT 隧道约 **40% 失败**
+# （连测 5 次 3 成 2 败），表现为 ProxyError / Max retries exceeded —— 端点本身是好的，
+# 属于**间歇性**网络故障，重试一次基本就能成。
+# ⚠️ 只重试**连接类**异常：HTTP 4xx/5xx 是服务端的明确答复，重试不会改变结果。
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF = (1.0, 2.0)  # 第 2、3 次尝试前的额外等待（叠加在 3s 礼貌间隔之上）
 ARXIV_NS = {
     "atom": "http://www.w3.org/2005/Atom",
     "arxiv": "http://arxiv.org/schemas/atom",
@@ -70,7 +77,6 @@ class ArxivSearchProvider(SearchProvider):
         self._limiter = RateLimiter(min_interval=3.0)
 
     def search(self, query: str, max_results: int = DEFAULT_MAX_RESULTS) -> SearchResponse:
-        self._limiter.wait()  # 3s 间隔约束（Q3）
         params = {
             "search_query": f"all:{query}",
             "start": 0,
@@ -78,29 +84,43 @@ class ArxivSearchProvider(SearchProvider):
             "sortBy": "relevance",
             "sortOrder": "descending",
         }
-        # ① 传输/协议层：按异常类型精确归类（W8 Arm 4 —— 不再靠 classify_tool_exception 猜）
-        try:
-            resp = requests.get(ARXIV_API, params=params, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-        except requests.exceptions.Timeout as e:
-            return self._fail(query, FailureReason.TIMEOUT.value, str(e))
-        except requests.exceptions.HTTPError as e:
-            return self._fail(query, FailureReason.PROVIDER_ERROR.value,
-                              f"HTTP {getattr(e.response, 'status_code', None)}: {e}")
-        except requests.exceptions.RequestException as e:
-            return self._fail(query, FailureReason.PROVIDER_ERROR.value, str(e))
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            self._limiter.wait()  # 3s 间隔约束（Q3）
+            # ① 传输/协议层：按异常类型精确归类（W8 Arm 4 —— 不再靠 classify_tool_exception 猜）
+            try:
+                resp = requests.get(ARXIV_API, params=params, timeout=REQUEST_TIMEOUT)
+                resp.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                # HTTP 是服务端明确答复（含 5xx）—— 重试不会改变结果，直接归类
+                return self._fail(query, FailureReason.PROVIDER_ERROR.value,
+                                  f"HTTP {getattr(e.response, 'status_code', None)}: {e}")
+            except requests.exceptions.Timeout as e:
+                if attempt < MAX_ATTEMPTS:
+                    time.sleep(RETRY_BACKOFF[attempt - 1])
+                    continue
+                return self._fail(query, FailureReason.TIMEOUT.value,
+                                  f"重试 {MAX_ATTEMPTS} 次仍超时: {e}")
+            except requests.exceptions.RequestException as e:
+                # ConnectionError / ProxyError 等**间歇性**连接故障 ⇒ 值得重试
+                if attempt < MAX_ATTEMPTS:
+                    time.sleep(RETRY_BACKOFF[attempt - 1])
+                    continue
+                return self._fail(query, FailureReason.PROVIDER_ERROR.value,
+                                  f"重试 {MAX_ATTEMPTS} 次仍失败: {e}")
 
-        # ② 解析层：拿到 200 但不合法 Atom ⇒ parse_error（与「确实没结果」分开）
-        try:
-            results = self._parse(resp.text)
-        except Exception as e:  # noqa: BLE001 — 本段只做 XML 解析，归为 parse_error 是准确的
-            return self._fail(query, FailureReason.PARSE_ERROR.value, str(e))
+            # ② 解析层：拿到 200 但不合法 Atom ⇒ parse_error（与「确实没结果」分开）
+            try:
+                results = self._parse(resp.text)
+            except Exception as e:  # noqa: BLE001 — 本段只做 XML 解析，归为 parse_error 是准确的
+                return self._fail(query, FailureReason.PARSE_ERROR.value, str(e))
 
-        # ③ 正常响应但零命中：是「结果」不是「故障」（D-03 不上抛为 run 级降级）
-        if not results:
-            return SearchResponse(query=query, results=[],
-                                  failure_reason=FailureReason.EMPTY_RESULT.value)
-        return SearchResponse(query=query, results=results)
+            # ③ 正常响应但零命中：是「结果」不是「故障」（D-03 不上抛为 run 级降级）
+            if not results:
+                return SearchResponse(query=query, results=[],
+                                      failure_reason=FailureReason.EMPTY_RESULT.value)
+            return SearchResponse(query=query, results=results)
+
+        return self._fail(query, FailureReason.PROVIDER_ERROR.value, "重试循环意外退出")
 
     @staticmethod
     def _fail(query: str, reason: str, detail: str) -> SearchResponse:
