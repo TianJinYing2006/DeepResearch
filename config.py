@@ -62,6 +62,9 @@ class SearchConfig:
     bocha_api_key: str = field(default_factory=lambda: _env("BOCHA_API_KEY"))
     #: Tavily（1000 次/月免费，专为 Agent 设计）。博查额度耗尽时可切到此源。
     tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
+    #: 学术检索（arXiv）开关。出口不通或不需要学术源时可关掉，避免每跳都记一条降级。
+    enable_arxiv: bool = field(
+        default_factory=lambda: _env("ENABLE_ARXIV", "true").lower() != "false")
     max_results: int = 8
     # W4 Q3：Semantic Scholar 后处理管道（可选，缺 key 静默跳过；citationCount 只采不决策）
     semantic_scholar_api_key: str = field(default_factory=lambda: _env("SEMANTIC_SCHOLAR_API_KEY"))

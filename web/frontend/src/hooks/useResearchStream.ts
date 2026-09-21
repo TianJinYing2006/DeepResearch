@@ -42,6 +42,8 @@ export function useResearchStream() {
     topic: string,
     instructions: string,
     maxTotalHops: number,
+    searchProvider?: string,
+    enableArxiv?: boolean,
   ) => {
     closeSource()
     terminalRef.current = false
@@ -61,6 +63,8 @@ export function useResearchStream() {
           topic: topic.trim(),
           instructions: instructions.trim(),
           max_total_hops: maxTotalHops,
+          search_provider: searchProvider,
+          enable_arxiv: enableArxiv,
         }),
       })
       if (!response.ok) throw new Error(await responseError(response, '启动研究失败'))

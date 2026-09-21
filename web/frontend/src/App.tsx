@@ -1,4 +1,4 @@
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ProgressBar } from './components/ProgressBar'
@@ -12,6 +12,7 @@ import type {
   CitationResult,
   DegradationEvent,
   RunFinishedEvent,
+  RunOptions,
   StateDeltaEvent,
   StepFinishedEvent,
 } from './types/agui'
@@ -31,6 +32,10 @@ export default function App() {
   const [instructions, setInstructions] = useState('')
   const [maxTotalHops, setMaxTotalHops] = useState(20)
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
+  // 运行选项：搜索引擎 / 学术检索。空串表示尚未从 /api/options 拿到默认值。
+  const [searchProvider, setSearchProvider] = useState('')
+  const [enableArxiv, setEnableArxiv] = useState(true)
+  const [options, setOptions] = useState<RunOptions | null>(null)
   const {
     runId,
     events,
@@ -42,6 +47,24 @@ export default function App() {
     start,
     cancel,
   } = useResearchStream()
+
+  // 拉可用选项：只把已配 key 的搜索源列为可选，避免选了没 key 的源跑完整场才发现全降级。
+  // 拉不到不阻断（沿用本地默认），属于降级而非故障。
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/options')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: RunOptions | null) => {
+        if (cancelled || !data) return
+        setOptions(data)
+        const usable = data.search_providers.filter((provider) => provider.available)
+        const preferred = usable.find((provider) => provider.value === data.default_provider) ?? usable[0]
+        setSearchProvider((current) => current || preferred?.value || '')
+        setEnableArxiv(data.enable_arxiv_default)
+      })
+      .catch(() => { /* 保持本地默认，不阻断主流程 */ })
+    return () => { cancelled = true }
+  }, [])
 
   const running = status === 'starting' || status === 'running' || status === 'stopping'
   const steps = useMemo(() => events.filter(isStepFinished), [events])
@@ -67,7 +90,7 @@ export default function App() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!topic.trim() || running) return
-    void start(topic, instructions, maxTotalHops)
+    void start(topic, instructions, maxTotalHops, searchProvider || undefined, enableArxiv)
   }
 
   const copyReport = async () => {
@@ -167,6 +190,43 @@ export default function App() {
               <span>快速 1</span>
               <span>深入 50</span>
             </div>
+
+            <label className="field-label mt-5" htmlFor="provider">搜索引擎</label>
+            <select
+              id="provider"
+              className="field-control mt-2"
+              value={searchProvider}
+              onChange={(event) => setSearchProvider(event.target.value)}
+              disabled={running}
+            >
+              {options
+                ? options.search_providers.map((provider) => (
+                    <option key={provider.value} value={provider.value} disabled={!provider.available}>
+                      {provider.label}{provider.available ? '' : '（未配置 key）'}
+                    </option>
+                  ))
+                : <option value="">加载中…</option>}
+            </select>
+            {options?.search_providers.some((provider) => !provider.available) ? (
+              <p className="mt-1.5 text-[10px] leading-4 text-slate-600">
+                标注「未配置 key」的源不可用 —— 选它会导致整场检索零结果。
+              </p>
+            ) : null}
+
+            <div className="mt-5 flex items-center gap-3">
+              <input
+                id="arxiv"
+                type="checkbox"
+                className="h-4 w-4 accent-emerald-400"
+                checked={enableArxiv}
+                onChange={(event) => setEnableArxiv(event.target.checked)}
+                disabled={running}
+              />
+              <label className="field-label mb-0" htmlFor="arxiv">开启学术检索（arXiv）</label>
+            </div>
+            <p className="mt-1 text-[10px] leading-4 text-slate-600">
+              关闭后不再请求 arXiv；出口不通时关掉可避免每跳产生降级记录。
+            </p>
 
             <button className="primary-button mt-6 w-full" type="submit" disabled={running || !topic.trim()}>
               <span>{status === 'starting' ? '启动中' : '开始研究'}</span>

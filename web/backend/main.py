@@ -16,6 +16,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from config import config
+from research_engine.search.base import KNOWN_PROVIDERS
+
 from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS
 from .runner import RunManager
 
@@ -45,10 +48,46 @@ class StartRequest(BaseModel):
     topic: str = Field(..., description="研究主题")
     instructions: str = Field("", description="附加要求")
     max_total_hops: Optional[int] = Field(None, ge=1, le=50, description="全局检索跳数上限")
+    search_provider: Optional[str] = Field(None, description="搜索引擎：bocha | tavily（不传则用配置默认值）")
+    enable_arxiv: Optional[bool] = Field(None, description="是否开启学术检索（arXiv）")
 
 
 class StartResponse(BaseModel):
     run_id: str
+
+
+#: 搜索源展示名 —— 新增 provider 时在此登记即可被前端 /api/options 列出
+_PROVIDER_LABELS = {"bocha": "博查", "tavily": "Tavily"}
+
+
+def _provider_has_key(name: str) -> bool:
+    """该搜索源是否配了 key（决定前端是否把它列为可选）。"""
+    if name == "bocha":
+        return bool(config.search.bocha_api_key)
+    if name == "tavily":
+        return bool(config.search.tavily_api_key)
+    return False
+
+
+@app.get("/api/options")
+def options() -> dict:
+    """前端运行选项：可用的搜索源 + 学术检索默认值。
+
+    只把**已配 key** 的源列为可用 —— 否则用户选了没 key 的源，整场研究每跳都
+    降级为零结果，跑完了才发现白跑（博查额度耗尽正是这个情形，只能靠 403 事后发现）。
+    ⚠️ 已配 key ≠ 额度充足：额度耗尽只能在调用时由 provider 报出。
+    """
+    from research_engine.search.base import KNOWN_PROVIDERS
+    providers = [
+        {"value": name, "label": _PROVIDER_LABELS.get(name, name),
+         "available": _provider_has_key(name)}
+        for name in KNOWN_PROVIDERS
+    ]
+    return {
+        "search_providers": providers,
+        "default_provider": config.search.provider,
+        "enable_arxiv_default": config.search.enable_arxiv,
+    }
 
 
 @app.get("/api/health")
@@ -60,7 +99,20 @@ def health() -> dict:
 def start(req: StartRequest) -> StartResponse:
     if not req.topic.strip():
         raise HTTPException(status_code=400, detail="topic 不能为空")
-    return StartResponse(run_id=manager.start(req.topic, req.instructions, req.max_total_hops))
+    # 搜索引擎必须**启动前**校验：未知源 / 未配 key 若放行，整场研究每跳都降级为零
+    # 结果，跑完才在报告里发现白跑（博查额度耗尽就是这个情形的极端版）。
+    if req.search_provider is not None:
+        if req.search_provider not in KNOWN_PROVIDERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知搜索引擎：{req.search_provider}（可用：{' / '.join(KNOWN_PROVIDERS)}）")
+        if not _provider_has_key(req.search_provider):
+            raise HTTPException(
+                status_code=400,
+                detail=f"搜索引擎「{req.search_provider}」未配置 API key，请在 .env 中补上后重启服务")
+    return StartResponse(run_id=manager.start(
+        req.topic, req.instructions, req.max_total_hops,
+        req.search_provider, req.enable_arxiv))
 
 
 @app.post("/api/research/{run_id}/cancel")

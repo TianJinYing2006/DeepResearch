@@ -234,7 +234,11 @@ class Researcher:
         返回 (pooled_findings, tool_stats)——tool_stats 供"状态快照"消息（Q8）。
         """
         code_enabled = should_execute(query)
-        targets: Dict[str, Any] = {"web": self._search_web, "rag": self._search_rag, "arxiv": self._search_arxiv}
+        targets: Dict[str, Any] = {"web": self._search_web, "rag": self._search_rag}
+        # 学术检索（arXiv）可关：出口不通时它会每跳记一条 provider_error 降级，
+        # 用户明确不需要学术源时关掉，可让 run_status 回到 success。
+        if config.search.enable_arxiv:
+            targets["arxiv"] = self._search_arxiv
         if code_enabled:
             targets["code"] = self._search_code
 

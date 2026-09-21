@@ -20,6 +20,23 @@ export interface RunStartedEvent extends AguiEvent {
   run_id: string
   topic: string
   max_total_hops: number
+  /** 后端**实际生效**的搜索引擎（可能与用户所选不同，如配置缺失回落默认值） */
+  search_provider?: string
+  /** 后端实际生效的学术检索（arXiv）开关 */
+  enable_arxiv?: boolean
+}
+
+/** 搜索源选项（来自 GET /api/options）。available=false 表示未配 key，选了会全降级。 */
+export interface SearchProviderOption {
+  value: string
+  label: string
+  available: boolean
+}
+
+export interface RunOptions {
+  search_providers: SearchProviderOption[]
+  default_provider: string
+  enable_arxiv_default: boolean
 }
 
 export interface StepFinishedEvent extends AguiEvent {

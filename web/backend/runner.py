@@ -42,7 +42,9 @@ class RunManager:
 
     # ------------------------------------------------------------------ 生命周期
 
-    def start(self, topic: str, instructions: str = "", max_total_hops: int | None = None) -> str:
+    def start(self, topic: str, instructions: str = "", max_total_hops: int | None = None,
+              search_provider: str | None = None,
+              enable_arxiv: bool | None = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。"""
         run_id = uuid.uuid4().hex[:12]
         self._frames[run_id] = []
@@ -50,7 +52,8 @@ class RunManager:
         self._cancel[run_id] = threading.Event()
         t = threading.Thread(
             target=self._worker,
-            args=(run_id, topic, instructions, max_total_hops),
+            args=(run_id, topic, instructions, max_total_hops,
+                  search_provider, enable_arxiv),
             name=f"research-{run_id}",
             daemon=True,
         )
@@ -111,20 +114,32 @@ class RunManager:
         self._queues[run_id].put(frame)
 
     def _worker(self, run_id: str, topic: str, instructions: str,
-                max_total_hops: int | None) -> None:
+                max_total_hops: int | None,
+                search_provider: str | None = None,
+                enable_arxiv: bool | None = None) -> None:
         try:
             from config import config
 
             if max_total_hops is not None:
                 config.research.max_total_hops = max_total_hops
+            # 搜索引擎 / 学术检索：本次 run 的运行期覆盖。
+            # ⚠️ 必须设在 `self._graph_factory()` **之前** —— Researcher 在 __init__
+            # 里由工厂装配 provider，建图后再改 config 对本场 run 无效。
+            if search_provider is not None:
+                config.search.provider = search_provider
+            if enable_arxiv is not None:
+                config.search.enable_arxiv = enable_arxiv
 
             graph = self._graph_factory()
             # 把跳数上限随 RUN_STARTED 下发 ⇒ 前端才能算**真实的**检索阶段进度
             # （depth / max_total_hops），而不是做一个只会动的假条。
+            # 搜索源 / 学术检索同样下发 ⇒ 前端显示的是**实际生效**的配置，不是用户点的那个。
             self._emit(run_id, RUN_STARTED, {
                 "run_id": run_id,
                 "topic": topic,
                 "max_total_hops": config.research.max_total_hops,
+                "search_provider": config.search.provider,
+                "enable_arxiv": config.search.enable_arxiv,
             })
 
             seen_progress = 0
