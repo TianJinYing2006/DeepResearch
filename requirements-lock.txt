@@ -4,6 +4,8 @@ altair==6.3.0
     # via streamlit
 annotated-types==0.8.0
     # via pydantic
+annotated-doc==0.0.5
+    # via fastapi
 anyio==4.15.1
     # via
     #   httpx
@@ -37,6 +39,8 @@ distro==1.9.0
     # via
     #   langsmith
     #   openai
+fastapi==0.141.1
+    # via -r requirements.txt
 googleapis-common-protos==1.75.3
     # via opentelemetry-exporter-otlp-proto-http
 grpcio==1.84.0
