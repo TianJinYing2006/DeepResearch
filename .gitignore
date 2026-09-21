@@ -65,3 +65,9 @@ research_engine/eval/results/*_SUPERSEDED.json
 research_engine/eval/results/*_DISCARDED.json
 research_engine/eval/results/*_bak_*.json
 research_engine/eval/results/_tmp_*/
+
+# W9 前端（Node 构建链）—— 依据：docs/requirements/9-web-ui-rewrite.md（D-20 拍板）
+node_modules/
+# 出处：D-20 拍板要求 package-lock.json 入库以保证供应链可复现 ⇒ 此处刻意不忽略它
+web/frontend/dist/
+web/frontend/.vite/
