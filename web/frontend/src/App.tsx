@@ -66,6 +66,13 @@ export default function App() {
     return () => { cancelled = true }
   }, [])
 
+  // 分段切换器需要知道选中项的下标，才能平移高亮块
+  const providers = options?.search_providers ?? []
+  const activeProviderIndex = Math.max(
+    providers.findIndex((provider) => provider.value === searchProvider),
+    0,
+  )
+
   const running = status === 'starting' || status === 'running' || status === 'stopping'
   const steps = useMemo(() => events.filter(isStepFinished), [events])
   const degradations = useMemo(() => events.filter(isDegradation), [events])
@@ -191,42 +198,77 @@ export default function App() {
               <span>深入 50</span>
             </div>
 
-            <label className="field-label mt-5" htmlFor="provider">搜索引擎</label>
-            <select
-              id="provider"
-              className="field-control mt-2"
-              value={searchProvider}
-              onChange={(event) => setSearchProvider(event.target.value)}
-              disabled={running}
+            <p className="field-label mt-5 mb-0" id="provider-label">搜索引擎</p>
+            <div
+              role="radiogroup"
+              aria-labelledby="provider-label"
+              className="relative mt-2 flex overflow-hidden rounded-xl border border-white/10 bg-black/20 transition hover:border-white/20"
             >
-              {options
-                ? options.search_providers.map((provider) => (
-                    <option key={provider.value} value={provider.value} disabled={!provider.available}>
-                      {provider.label}{provider.available ? '' : '（未配置 key）'}
-                    </option>
-                  ))
-                : <option value="">加载中…</option>}
-            </select>
-            {options?.search_providers.some((provider) => !provider.available) ? (
+              {/* 滑动高亮块：选中项变化时平移（300ms ease-out）—— 原生 select 在暗色主题下
+                  渲染不可控（下拉箭头/选项底色），改用分段切换器，风格与表单其余控件一致 */}
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 rounded-lg bg-emerald-400/[0.14] ring-1 ring-inset ring-emerald-400/40 transition-transform duration-300 ease-out"
+                style={{
+                  width: `${100 / Math.max(providers.length, 1)}%`,
+                  transform: `translateX(${activeProviderIndex * 100}%)`,
+                }}
+              />
+              {providers.length > 0 ? (
+                providers.map((provider) => (
+                  <button
+                    key={provider.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={searchProvider === provider.value}
+                    onClick={() => setSearchProvider(provider.value)}
+                    disabled={!provider.available || running}
+                    title={provider.available ? undefined : '未配置 API key，不可用'}
+                    className={`relative z-10 flex-1 px-3 py-2.5 text-xs font-semibold transition-colors duration-200 ${
+                      searchProvider === provider.value
+                        ? 'text-emerald-200'
+                        : 'text-slate-400 hover:text-slate-200'
+                    } disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:text-slate-600`}
+                  >
+                    {provider.label}
+                    {provider.available ? null : <span className="ml-1 text-[10px] font-normal">（未配置）</span>}
+                  </button>
+                ))
+              ) : (
+                <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-600">加载中…</span>
+              )}
+            </div>
+            {providers.some((provider) => !provider.available) ? (
               <p className="mt-1.5 text-[10px] leading-4 text-slate-600">
-                标注「未配置 key」的源不可用 —— 选它会导致整场检索零结果。
+                标注「未配置」的源不可用 —— 选它会导致整场检索零结果。
               </p>
             ) : null}
 
-            <div className="mt-5 flex items-center gap-3">
-              <input
-                id="arxiv"
-                type="checkbox"
-                className="h-4 w-4 accent-emerald-400"
-                checked={enableArxiv}
-                onChange={(event) => setEnableArxiv(event.target.checked)}
+            <div className="mt-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="field-label mb-0">学术检索（arXiv）</p>
+                <p className="mt-1 text-[10px] leading-4 text-slate-600">
+                  关闭后不再请求 arXiv，可避免该源产生的降级记录。
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enableArxiv}
+                aria-label="学术检索（arXiv）"
+                onClick={() => setEnableArxiv(!enableArxiv)}
                 disabled={running}
-              />
-              <label className="field-label mb-0" htmlFor="arxiv">开启学术检索（arXiv）</label>
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-out disabled:cursor-not-allowed disabled:opacity-40 ${
+                  enableArxiv ? 'bg-emerald-400/80' : 'bg-white/10'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-300 ease-out ${
+                    enableArxiv ? 'translate-x-[1.375rem]' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
             </div>
-            <p className="mt-1 text-[10px] leading-4 text-slate-600">
-              关闭后不再请求 arXiv；出口不通时关掉可避免每跳产生降级记录。
-            </p>
 
             <button className="primary-button mt-6 w-full" type="submit" disabled={running || !topic.trim()}>
               <span>{status === 'starting' ? '启动中' : '开始研究'}</span>
