@@ -258,13 +258,19 @@ export default function App() {
                 aria-label="学术检索（arXiv）"
                 onClick={() => setEnableArxiv(!enableArxiv)}
                 disabled={running}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-out disabled:cursor-not-allowed disabled:opacity-40 ${
-                  enableArxiv ? 'bg-emerald-400/80' : 'bg-white/10'
+                className={`relative h-6 w-11 shrink-0 rounded-full ring-1 ring-inset transition-colors duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-40 ${
+                  enableArxiv
+                    ? 'bg-emerald-400/90 ring-emerald-300/40'
+                    : 'bg-white/[0.08] ring-white/10 hover:bg-white/[0.14]'
                 }`}
               >
+                {/* 位移量 = 轨道 44px − 滑块 20px − 左右各 2px 边距 = 20px（标准值 translate-x-5）。
+                    ⚠️ 必须显式 left-0.5：只给 top 的话水平位置取决于 absolute 的静态位置，
+                    而 button 默认 text-align:center 会让它在浏览器间飘移。 */}
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-300 ease-out ${
-                    enableArxiv ? 'translate-x-[1.375rem]' : 'translate-x-0.5'
+                  aria-hidden="true"
+                  className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-md shadow-black/30 transition-transform duration-300 ease-out ${
+                    enableArxiv ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
