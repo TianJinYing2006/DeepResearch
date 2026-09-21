@@ -1,6 +1,13 @@
 """arXiv 学术检索 Provider（W4 Q3 定案：官方 API 直连，零新增依赖）。
 
-- API：http://export.arxiv.org/api/query（官方就是 http，非 https——别被强制跳转坑）
+- API：**https**://export.arxiv.org/api/query
+  ⚠️ 2026-09 修正：原实现用 ``http://``，并注明「官方就是 http，非 https」。
+  **该结论已过时** —— arXiv 现在对 http 返回 **301 强制跳转 https**，而跳转链在
+  本项目部署环境下会失败（代理对重定向后的 CONNECT 隧道返回 502），表现为
+  整个 arXiv 源**持续 provider_error**、每跳都记一条降级。改为 https 直连后
+  实测恢复（HTTP 200 + 可解析条目），且省掉一次往返。
+  教训：外部 API 的 scheme 约定会变，且「能跳转」不等于「跳转链在代理后可用」——
+  能被 301 救回来的请求，也可能死在重定向之后的那一跳上。
 - 排序：sortBy=relevance（研究要相关证据，不是最新 arXiv）
 - 限流：模块级 RateLimiter min_interval=3s（官方礼貌请求要求；每轮仅 1 次请求，
   实测 2~4 轮最坏 +12s，且在线程池内不阻塞 web/rag）
@@ -21,7 +28,7 @@ import requests
 from research_engine.failure_reasons import FailureReason  # W8 Arm 4
 from research_engine.search.base import SearchProvider, SearchResponse, SearchResult
 
-ARXIV_API = "http://export.arxiv.org/api/query"
+ARXIV_API = "https://export.arxiv.org/api/query"
 ARXIV_NS = {
     "atom": "http://www.w3.org/2005/Atom",
     "arxiv": "http://arxiv.org/schemas/atom",
