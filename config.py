@@ -52,9 +52,16 @@ class LLMConfig:
 
 @dataclass
 class SearchConfig:
-    """网络搜索配置（可切换 Provider）。"""
+    """网络搜索配置（可切换 Provider）。
+
+    ``provider`` 取值见 :func:`research_engine.search.base.create_search_provider`
+    （目前 ``bocha`` / ``tavily``）。⚠️ 该开关必须经工厂函数装配才生效 —— 直接
+    ``BochaSearchProvider()`` 会绕过配置，使切换失效（W9 接线时修）。
+    """
     provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "bocha"))
     bocha_api_key: str = field(default_factory=lambda: _env("BOCHA_API_KEY"))
+    #: Tavily（1000 次/月免费，专为 Agent 设计）。博查额度耗尽时可切到此源。
+    tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
     max_results: int = 8
     # W4 Q3：Semantic Scholar 后处理管道（可选，缺 key 静默跳过；citationCount 只采不决策）
     semantic_scholar_api_key: str = field(default_factory=lambda: _env("SEMANTIC_SCHOLAR_API_KEY"))

@@ -15,6 +15,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
+from config import config
 from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     FailureReason,
     classify_exception,
@@ -22,7 +23,7 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
 )
 from research_engine.rag.retriever import HybridRetriever
 from research_engine.search.arxiv import ArxivSearchProvider
-from research_engine.search.bocha import BochaSearchProvider
+from research_engine.search.base import SearchProvider, create_search_provider
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.tools.code_exec import exec_code, should_execute
 
@@ -65,7 +66,10 @@ class Researcher:
     """单跳检索器（并行全工具）。"""
 
     def __init__(self):
-        self.search: BochaSearchProvider = BochaSearchProvider()
+        # W9 接线修复：原先硬编码 BochaSearchProvider()，使 config.search.provider
+        # （SEARCH_PROVIDER 环境变量）形同虚设 —— 配了 tavily 也仍走博查。
+        # 改走工厂函数，搜索源真正可切换（博查额度耗尽时可切 Tavily）。
+        self.search: SearchProvider = create_search_provider(config.search.provider)
         self.arxiv: ArxivSearchProvider = ArxivSearchProvider()
         self.retriever = HybridRetriever()
         # W8 Arm 1：降级记录缓冲区（共享实现，见 state.DegradationSink）

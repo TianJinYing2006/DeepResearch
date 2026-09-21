@@ -59,8 +59,16 @@ class SearchProvider(ABC):
 
 
 def create_search_provider(name: str = "bocha") -> SearchProvider:
-    """按名称创建搜索 Provider。"""
+    """按名称创建搜索 Provider（``config.search.provider`` 的唯一装配入口）。
+
+    支持 ``bocha``（博查，默认）与 ``tavily``（1000 次/月免费，专为 Agent 设计）。
+    未知名称**直接抛错而非静默回退到默认源** —— 配错了搜索源却不吭声，比启动失败
+    危险得多（会用错的源跑完整场研究，产物看起来正常）。
+    """
     if name == "bocha":
         from research_engine.search.bocha import BochaSearchProvider
         return BochaSearchProvider()
-    raise ValueError(f"未知搜索 Provider: {name}")
+    if name == "tavily":
+        from research_engine.search.tavily import TavilySearchProvider
+        return TavilySearchProvider()
+    raise ValueError(f"未知搜索 Provider: {name}（可用：bocha / tavily）")
