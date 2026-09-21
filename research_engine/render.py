@@ -22,6 +22,18 @@ from research_engine.state import Citation, ResearchFinding
 _PATTERN = re.compile(r"\[来源:\s*([^\]]+)\]")
 
 
+def _deg_get(entry: Any, key: str, default: str = "") -> Any:
+    """从降级条目取值，兼容 ``DegradationEntry`` 与 dict 两种形态。
+
+    ``degradation_log`` 的元素在图内是 :class:`DegradationEntry`（Pydantic），
+    但经 LangGraph 序列化 / 反序列化、或 JSON 落盘回读后会变成 dict。
+    按项目 dual-read 惯例两种都读得动，避免展示层因形态差异静默取空。
+    """
+    if isinstance(entry, dict):
+        return entry.get(key, default)
+    return getattr(entry, key, default)
+
+
 class ReportRenderer:
     """把 Writer 原始报告渲染成可审计展示版 report_display。"""
 
@@ -150,6 +162,47 @@ class ReportRenderer:
             f"- **Replan 次数**：{getattr(state, 'replan_count', 0)}"
         )
 
+    # ---- 检索链路健康告警（搜索源全线不通时不再静默产出报告）----
+
+    def build_retrieval_warning(self, state: Any) -> str:
+        """报告顶部告警：**未取得任何真实检索结果**时醒目提示。
+
+        背景：搜索源全线故障（如 API 额度耗尽、向量库未启动）时，各节点会各自
+        优雅降级为零结果，流程仍会跑完并产出一份**看起来正常**的报告 —— 但那其实
+        是模型无依据生成的内容。原先这类事实只躺在 ``degradation_log`` 折叠区里，
+        极易被误当成有检索支撑的结论。
+
+        判定（保守，只在确凿时告警）：
+
+        * ``findings`` 非空 ⇒ 确有检索产出，不告警；
+        * 无检索类降级记录 ⇒ 零结果不是检索故障导致，不告警；
+        * 其余（有检索故障 **且** 零 finding）⇒ 告警。
+
+        ⚠️ 只影响展示文本，**不改动 ``run_status``** —— success/degraded/failed
+        三态是 W8 契约，不新增第四态；也不额外写 ``degradation_log``（避免污染
+        「故障可归因率」的统计口径）。
+        """
+        findings = list(getattr(state, "findings", []) or [])
+        deg = list(getattr(state, "degradation_log", []) or [])
+        if findings or not deg:
+            return ""
+        # 只认检索类组件：web_search / rag_search / rag_search:<backend>
+        faults = [d for d in deg if "search" in str(_deg_get(d, "component", ""))]
+        if not faults:
+            return ""
+        by_comp = Counter(str(_deg_get(d, "component", "")) for d in faults)
+        by_reason = Counter(str(_deg_get(d, "reason", "")) for d in faults)
+        comp_txt = "、".join(f"{c} ×{n}" for c, n in by_comp.most_common())
+        reason_txt = "、".join(f"`{r}` ×{n}" for r, n in by_reason.most_common())
+        return "\n".join([
+            "\n\n> # 🚨 本次运行未取得任何真实检索结果",
+            "> **报告缺少外部依据，正文主要由模型自行生成，请勿作为事实引用。**",
+            f"> - 检索故障 {len(faults)} 次（按组件）：{comp_txt}",
+            f"> - 故障原因分布：{reason_txt}",
+            "> - 典型根因：搜索 API 额度耗尽 / 未配置 / 出口不通；或本地向量库未启动",
+            "> - 处置：确认搜索 key 有效且有额度、向量库可达后重跑",
+        ])
+
     # ---- 主入口 ----
 
     def render(self, report: str, citations: List[Citation],
@@ -163,6 +216,10 @@ class ReportRenderer:
             display += self.build_trust_statement(citations)
             display += self.build_failed_appendix(citations)
             display += self.build_run_provenance(state)
+            # 检索健康告警**置顶**：降级明细默认折叠在 UI 里，不置顶等于没有告警
+            warning = self.build_retrieval_warning(state)
+            if warning:
+                display = warning + "\n" + display
             return display
         except Exception:  # noqa: BLE001
             return report
