@@ -20,6 +20,8 @@ export interface RunStartedEvent extends AguiEvent {
   run_id: string
   topic: string
   max_total_hops: number
+  /** 后端**实际生效**的子问题数上限（Planner 分解数量的软约束） */
+  max_subquestions?: number
   /** 后端**实际生效**的搜索引擎（可能与用户所选不同，如配置缺失回落默认值） */
   search_provider?: string
   /** 后端实际生效的学术检索（arXiv）开关 */
@@ -37,6 +39,8 @@ export interface RunOptions {
   search_providers: SearchProviderOption[]
   default_provider: string
   enable_arxiv_default: boolean
+  max_total_hops_default: number
+  max_subquestions_default: number
 }
 
 export interface StepFinishedEvent extends AguiEvent {

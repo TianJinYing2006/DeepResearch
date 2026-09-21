@@ -42,6 +42,7 @@ export function useResearchStream() {
     topic: string,
     instructions: string,
     maxTotalHops: number,
+    maxSubquestions: number,
     searchProvider?: string,
     enableArxiv?: boolean,
   ) => {
@@ -63,6 +64,7 @@ export function useResearchStream() {
           topic: topic.trim(),
           instructions: instructions.trim(),
           max_total_hops: maxTotalHops,
+          max_subquestions: maxSubquestions,
           search_provider: searchProvider,
           enable_arxiv: enableArxiv,
         }),

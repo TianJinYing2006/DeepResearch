@@ -71,3 +71,4 @@ node_modules/
 # 出处：D-20 拍板要求 package-lock.json 入库以保证供应链可复现 ⇒ 此处刻意不忽略它
 web/frontend/dist/
 web/frontend/.vite/
+web/frontend/tsconfig.tsbuildinfo

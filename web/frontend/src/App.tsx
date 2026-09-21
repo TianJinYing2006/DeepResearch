@@ -31,6 +31,7 @@ export default function App() {
   const [topic, setTopic] = useState('')
   const [instructions, setInstructions] = useState('')
   const [maxTotalHops, setMaxTotalHops] = useState(20)
+  const [maxSubquestions, setMaxSubquestions] = useState(4)
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   // 运行选项：搜索引擎 / 学术检索。空串表示尚未从 /api/options 拿到默认值。
   const [searchProvider, setSearchProvider] = useState('')
@@ -66,6 +67,13 @@ export default function App() {
         const preferred = usable.find((provider) => provider.value === data.default_provider) ?? usable[0]
         setSearchProvider((current) => current || preferred?.value || '')
         setEnableArxiv(data.enable_arxiv_default)
+        // 后端默认值优先：滑块初值不该是前端拍的常量，否则改了 .env 前端还显示旧值
+        if (typeof data.max_total_hops_default === 'number') {
+          setMaxTotalHops(data.max_total_hops_default)
+        }
+        if (typeof data.max_subquestions_default === 'number') {
+          setMaxSubquestions(data.max_subquestions_default)
+        }
       })
       .catch(() => { /* 保持本地默认，不阻断主流程 */ })
     return () => { cancelled = true }
@@ -130,7 +138,8 @@ export default function App() {
     // 从发起时刻开始计时（不是等第一个节点完成）
     setRunStartedAt(Date.now())
     stoppedAtRef.current = null
-    void start(topic, instructions, maxTotalHops, searchProvider || undefined, enableArxiv)
+    void start(topic, instructions, maxTotalHops, maxSubquestions,
+      searchProvider || undefined, enableArxiv)
   }
 
   const copyReport = async () => {
@@ -230,6 +239,29 @@ export default function App() {
               <span>快速 1</span>
               <span>深入 50</span>
             </div>
+
+            <div className="mt-5 flex items-center justify-between">
+              <label className="field-label mb-0" htmlFor="subquestions">子问题数上限</label>
+              <span className="rounded-lg bg-black/25 px-2.5 py-1 font-mono text-sm text-emerald-200">{maxSubquestions}</span>
+            </div>
+            <input
+              id="subquestions"
+              className="mt-3 w-full accent-emerald-400"
+              type="range"
+              min={1}
+              max={8}
+              value={maxSubquestions}
+              onChange={(event) => setMaxSubquestions(Number(event.target.value))}
+              disabled={running}
+            />
+            <div className="mt-1 flex justify-between text-[10px] text-slate-600">
+              <span>聚焦 1</span>
+              <span>发散 8</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+              规划阶段把主题切成几个可独立检索的子问题；每个子问题至少占 1 跳，
+              上限太高会摊薄每跳的深度。
+            </p>
 
             <p className="field-label mt-5 mb-0" id="provider-label">搜索引擎</p>
             <div
@@ -683,7 +715,7 @@ function connectionPresentation(status: ConnectionStatus) {
 function eventPresentation(event: AguiEvent) {
   switch (event.type) {
     case 'RUN_STARTED':
-      return { icon: '▶', iconClass: 'border-cyan-300/15 bg-cyan-300/[0.07] text-cyan-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳` }
+      return { icon: '▶', iconClass: 'border-cyan-300/15 bg-cyan-300/[0.07] text-cyan-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
     case 'STEP_FINISHED': {
       const step = event as StepFinishedEvent
       return { icon: '✓', iconClass: 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: nodeLabel(step.node), detail: `${formatDuration(step.duration_ms)} · 深度 ${step.depth} · ${formatNumber(step.token_used)} token` }

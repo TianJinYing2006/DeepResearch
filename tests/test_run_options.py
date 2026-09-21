@@ -1,10 +1,11 @@
-"""运行选项（搜索引擎切换 + 学术检索开关）单测。
+"""运行选项（搜索引擎切换 + 学术检索开关 + 子问题数上限）单测。
 
-覆盖三层：
+覆盖四层：
 1. `/api/options` 只把**已配 key** 的搜索源列为可用；
 2. 启动校验：未知源 / 未配 key 的源必须 **400 早失败**（否则整场研究每跳降级为零
    结果，跑完才发现白跑 —— 博查额度耗尽正是这个情形）；
-3. `config.search.enable_arxiv=False` 时 Researcher 不再调度 arXiv。
+3. 子问题数上限：滑块值落到本场 run 的 config，并真正进 Planner 提示词；
+4. `config.search.enable_arxiv=False` 时 Researcher 不再调度 arXiv。
 """
 from __future__ import annotations
 
@@ -91,7 +92,38 @@ def test_start_without_options_still_works(client):
     assert resp.status_code == 200
 
 
-# ---- 3) 学术检索开关 ----
+# ---- 3) 子问题数上限（运行期覆盖 + 提示词携带）----
+
+def test_options_exposes_subquestion_default(client):
+    data = client.get("/api/options").json()
+    assert isinstance(data["max_subquestions_default"], int)
+    assert isinstance(data["max_total_hops_default"], int)
+
+
+def test_start_rejects_out_of_range_subquestions(client):
+    """越界必须 422 —— 否则 Planner 会拿到荒谬的上限去拼提示词。"""
+    assert client.post("/api/research", json={"topic": "t", "max_subquestions": 9}).status_code == 422
+    assert client.post("/api/research", json={"topic": "t", "max_subquestions": 0}).status_code == 422
+
+
+def test_worker_overrides_max_subquestions_for_this_run(client, monkeypatch):
+    """滑块值必须落到**本场 run** 的 config，并真正进 Planner 的提示词。
+
+    Planner 的 system prompt 里写着「数量控制在 {max_subquestions} 个以内」，
+    而 build_planner_system() 是**调用时**现读 config 的 —— 所以覆盖点必须在
+    建图（_graph_factory）之前，且覆盖后提示词里要能看到新数字。
+    """
+    from research_engine.agents.planner import build_planner_system
+
+    monkeypatch.setattr(config.research, "max_subquestions", 4)
+    run_id = api.manager.start("t", "", None, None, None, 7)
+    api.manager._threads[run_id].join(timeout=5)
+
+    assert config.research.max_subquestions == 7
+    assert "7 个以内" in build_planner_system()
+
+
+# ---- 4) 学术检索开关 ----
 
 def _bare_researcher():
     from research_engine.agents.researcher import Researcher

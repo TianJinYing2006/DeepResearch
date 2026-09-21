@@ -48,6 +48,7 @@ class StartRequest(BaseModel):
     topic: str = Field(..., description="研究主题")
     instructions: str = Field("", description="附加要求")
     max_total_hops: Optional[int] = Field(None, ge=1, le=50, description="全局检索跳数上限")
+    max_subquestions: Optional[int] = Field(None, ge=1, le=8, description="Planner 子问题数上限")
     search_provider: Optional[str] = Field(None, description="搜索引擎：bocha | tavily（不传则用配置默认值）")
     enable_arxiv: Optional[bool] = Field(None, description="是否开启学术检索（arXiv）")
 
@@ -87,6 +88,8 @@ def options() -> dict:
         "search_providers": providers,
         "default_provider": config.search.provider,
         "enable_arxiv_default": config.search.enable_arxiv,
+        "max_total_hops_default": config.research.max_total_hops,
+        "max_subquestions_default": config.research.max_subquestions,
     }
 
 
@@ -112,7 +115,7 @@ def start(req: StartRequest) -> StartResponse:
                 detail=f"搜索引擎「{req.search_provider}」未配置 API key，请在 .env 中补上后重启服务")
     return StartResponse(run_id=manager.start(
         req.topic, req.instructions, req.max_total_hops,
-        req.search_provider, req.enable_arxiv))
+        req.search_provider, req.enable_arxiv, req.max_subquestions))
 
 
 @app.post("/api/research/{run_id}/cancel")

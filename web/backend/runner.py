@@ -61,7 +61,8 @@ class RunManager:
 
     def start(self, topic: str, instructions: str = "", max_total_hops: int | None = None,
               search_provider: str | None = None,
-              enable_arxiv: bool | None = None) -> str:
+              enable_arxiv: bool | None = None,
+              max_subquestions: int | None = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。"""
         run_id = uuid.uuid4().hex[:12]
         self._frames[run_id] = []
@@ -70,7 +71,7 @@ class RunManager:
         t = threading.Thread(
             target=self._worker,
             args=(run_id, topic, instructions, max_total_hops,
-                  search_provider, enable_arxiv),
+                  search_provider, enable_arxiv, max_subquestions),
             name=f"research-{run_id}",
             daemon=True,
         )
@@ -133,12 +134,17 @@ class RunManager:
     def _worker(self, run_id: str, topic: str, instructions: str,
                 max_total_hops: int | None,
                 search_provider: str | None = None,
-                enable_arxiv: bool | None = None) -> None:
+                enable_arxiv: bool | None = None,
+                max_subquestions: int | None = None) -> None:
         try:
             from config import config
 
             if max_total_hops is not None:
                 config.research.max_total_hops = max_total_hops
+            # 子问题数上限：与跳数同构的运行期覆盖。Planner 在 plan() 里现读
+            # config 拼 system prompt（build_planner_system），所以同样必须设在建图前。
+            if max_subquestions is not None:
+                config.research.max_subquestions = max_subquestions
             # 搜索引擎 / 学术检索：本次 run 的运行期覆盖。
             # ⚠️ 必须设在 `self._graph_factory()` **之前** —— Researcher 在 __init__
             # 里由工厂装配 provider，建图后再改 config 对本场 run 无效。
@@ -155,6 +161,7 @@ class RunManager:
                 "run_id": run_id,
                 "topic": topic,
                 "max_total_hops": config.research.max_total_hops,
+                "max_subquestions": config.research.max_subquestions,
                 "search_provider": config.search.provider,
                 "enable_arxiv": config.search.enable_arxiv,
             })
