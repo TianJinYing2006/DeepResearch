@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-21**（**W9 前端板块补齐 + §7.8 CI 与边界守卫已落地**：23 条 Web/SSE 测试全绿、ruff 全过、MD 表格 0 不一致、`DR_DEMO=1` 实跑完整流程）｜骨架落地于 **2026-09-20**（`iter_run()` + SSE/AG-UI + 取消 + FastAPI/React 最小骨架，**352 全绿**）｜承接：呈现层重构**已拍板 D-20**（FastAPI + React/Vite/TS + Tailwind + SSE，对齐 AG-UI 语义不引 CopilotKit；ADR-0001 追加 §1.1 修订——允许升级呈现层、不扩展产品边界）；after 基线 3 轮结案、**D-18 已拍板不续跑**、确定性 DoD 8/8、本地 dev/master 均指向 53ad3b1、代码冻结于 f723c2d |
+| 更新 | **2026-09-22**（**W9 前端板块补齐 + §7.8 CI 与边界守卫已落地**：23 条 Web/SSE 测试全绿、ruff 全过、MD 表格 0 不一致、`DR_DEMO=1` 实跑完整流程）｜骨架落地于 **2026-09-20**（`iter_run()` + SSE/AG-UI + 取消 + FastAPI/React 最小骨架，**352 全绿**）｜承接：呈现层重构**已拍板 D-20**（FastAPI + React/Vite/TS + Tailwind + SSE，对齐 AG-UI 语义不引 CopilotKit；ADR-0001 追加 §1.1 修订——允许升级呈现层、不扩展产品边界）；after 基线 3 轮结案、**D-18 已拍板不续跑**、确定性 DoD 8/8、本地 dev/master 均指向 53ad3b1、代码冻结于 f723c2d |
 | 阶段 | W1~W7 已收官；**W8 已收尾**（Arm 1~7 + 命名三分 + 台账 review + after 基线 3 轮全部结案；确定性 DoD 8/8；剩余 = 对外材料）→ **W9 Web UI 重构：拍板完成 + 骨架已落地，待第 5 步（视觉 / 测试补充 / CI）** |
 | 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。**PR #7 这一轮**：dev push `35312917303` + PR 事件 `35312919557` + master 合并后 `35313178353` —— 全 success。⚠️ 该轮**第一跳 `35312654571` 三档同时红**（`test_before_baseline_runs_are_intact` 把「只在本机存在、未入库的 before 基线 run」当成了用例前提，CI 检出里没有 ⇒ 已改为「存在即校验、不存在则如实 skip」，见 `79845c6`）。其前一轮（`f2d5c3c`）为 `35310140078` / `35310228251` |
 | 最近交付 | **W8 after 基线结案 + 确定性 DoD 验收表 ⇒ `53ad3b1`**（新增 `docs/eval-w8-after-baseline.md`、`docs/eval-w8-dod.md`，`tools/paired_before_after.py` 转正，**D-18 拍板不续跑**）｜**PR #5 / #6 / #7 均已合入 master ⇒ `65aabee`**　[#5](https://github.com/TianJinYing2006/DeepResearch/pull/5) / [#6](https://github.com/TianJinYing2006/DeepResearch/pull/6) / [#7](https://github.com/TianJinYing2006/DeepResearch/pull/7)（PR #7 = W8 命名三分。**看板自身不单独开 PR**，随下一次合并并入） |
@@ -118,6 +118,16 @@
 | W8 关键统计数字 | coverage Δ=−5.1pp（SE 3.81）、citation +3.1pp（3.29）、retrieval −2.5pp（1.39）、steps −1.2（0.48）；MDE(3v3) = 10.66 / 9.21 / 3.88 / 1.36 |
 
 **后续只允许做对外材料**：README 能力与限制 → 博客③ → 引用链接与出处整理。
+
+## W9 后续增量：Planner 输出治理
+
+| 项 | 状态 / 决策 |
+| --- | --- |
+| 动态子问题预算与 Planner 输出收口 | ✅ 已完成（`01292e3`）：`ceil(max_total_hops / 实际子问题数)`、plan/replan 共用解析收口、截断留痕、空问题回退、重复 ID 规范化；CI `35752032986` success |
+| replan LLM fallback 留痕 | ✅ 已完成（`918c79e`）：replan LLM 异常写入 `degradation_log`，`reason=llm_error`、`fallback_action=keep_previous_subquestions`；不与策略事件通道耦合 |
+| `planner_output_truncated` 语义 | ✅ 已定案：P2 落地 `planner_events` 后从 `FailureReason` / `degradation_log` 删除；`FailureReason` 只保留故障原因，规范化事件使用独立事件类型 |
+| P2 实施顺序 | ⏳ `planner_events` → 截断指标统计；两者完成前不做调度行为变更 |
+| round-robin 调度 | ⛔ 当前不做；只有实测证明 FIFO 存在偏斜时才单独立项，避免改变 W8 查询顺序基线 |
 
 ## 未决 / 待拍板
 
