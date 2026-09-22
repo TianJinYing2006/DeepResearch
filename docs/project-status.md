@@ -125,8 +125,10 @@
 | --- | --- |
 | 动态子问题预算与 Planner 输出收口 | ✅ 已完成（`01292e3`）：`ceil(max_total_hops / 实际子问题数)`、plan/replan 共用解析收口、截断留痕、空问题回退、重复 ID 规范化；CI `35752032986` success |
 | replan LLM fallback 留痕 | ✅ 已完成（`918c79e`）：replan LLM 异常写入 `degradation_log`，`reason=llm_error`、`fallback_action=keep_previous_subquestions`；不与策略事件通道耦合 |
-| `planner_output_truncated` 语义 | ✅ 已定案：P2 落地 `planner_events` 后从 `FailureReason` / `degradation_log` 删除；`FailureReason` 只保留故障原因，规范化事件使用独立事件类型 |
-| P2 实施顺序 | ⏳ `planner_events` → 截断指标统计；两者完成前不做调度行为变更 |
+| `planner_output_truncated` 语义 | ✅ 已落地：已从 `FailureReason` / `degradation_log` 删除；截断、空问题过滤、重复 ID 重写改走独立 `planner_events`，不再推导 `run_status=degraded` |
+| `planner_events` 独立通道 | ✅ 已完成：state 纯追加、plan/replan 共用、报告尾部「规划治理」、`STATE_DELTA` 下发累计计数；事件类型为 `subquestions_truncated` / `empty_question_dropped` / `duplicate_id_rewritten` |
+| replan 解析后为空 | ✅ 已完成：与 replan LLM 异常同样进入 `degradation_log`，`fallback_action=keep_previous_subquestions` |
+| 截断指标统计 | ⏳ 下一项：在独立事件通道之上补运行级聚合指标；不改变调度顺序 |
 | round-robin 调度 | ⛔ 当前不做；只有实测证明 FIFO 存在偏斜时才单独立项，避免改变 W8 查询顺序基线 |
 
 ## 未决 / 待拍板

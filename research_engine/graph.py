@@ -145,6 +145,8 @@ class DeepResearchGraph:
                 "subquestions": subs,
                 "frontier": frontier,
                 "per_subq_hop": per_subq_hop,
+                # Planner 策略事件与故障分流：事件只进 planner_events，不推导 degraded。
+                "planner_events": self.planner.drain_planner_events(),
                 # W8 Arm 1：planner 降级记录（如 LLM 失败退化为「主题即子问题」）交给 reducer
                 "degradation_log": self.planner.drain_degradations(),
                 "status": "planning",
@@ -282,6 +284,9 @@ class DeepResearchGraph:
                     "replan_count": state.replan_count + 1,
                     "needs_replan": False,
                     "next_queries": [],
+                    # replan 与 plan 共用同一事件通道，避免规范化事件丢失。
+                    "planner_events": self.planner.drain_planner_events(),
+                    "degradation_log": self.planner.drain_degradations(),
                     "token_used": state.token_used,  # Q6-B：replan 的 LLM token 累计写回
                     "progress": [
                         {"stage": "revise", "msg": f"重分解：{len(new_subs)} 个子问题（replan_count={state.replan_count + 1}）"}

@@ -49,6 +49,12 @@ REPLAN_SYSTEM = """你是一位资深研究规划专家。之前的子问题分�
 """
 
 
+# Planner 规范化事件：这是策略/治理审计流，不是 FailureReason。
+PLANNER_EVENT_SUBQUESTIONS_TRUNCATED = "subquestions_truncated"
+PLANNER_EVENT_EMPTY_QUESTION_DROPPED = "empty_question_dropped"
+PLANNER_EVENT_DUPLICATE_ID_REWRITTEN = "duplicate_id_rewritten"
+
+
 def build_planner_system(cfg=None) -> str:
     """Planner system 提示词的**唯一产生点**（W8 Arm 6）。
 
@@ -73,14 +79,26 @@ class Planner:
     def __init__(self):
         # W8 Arm 1：降级记录缓冲区（同 Researcher，由 graph 节点 drain 后入 state）
         self.degradations = DegradationSink()
+        # 规范化/策略事件与故障分流：只进入 planner_events，不影响 run_status。
+        self._planner_events: List[Dict[str, Any]] = []
 
     def drain_degradations(self) -> List[DegradationEntry]:
         """取走并清空降级记录（graph 节点调用）。"""
         return self.degradations.drain_degradations()
 
+    def drain_planner_events(self) -> List[Dict[str, Any]]:
+        """取走并清空 Planner 规范化事件（graph 节点调用）。"""
+        events = list(self._planner_events)
+        self._planner_events = []
+        return events
+
+    def _record_planner_event(self, event: str, phase: str, **fields: Any) -> None:
+        """追加一条扁平策略事件；事件不属于 ``FailureReason``。"""
+        self._planner_events.append({"event": event, "phase": phase, **fields})
+
     # ---- 输出收口：解析规范化 + 数量截断（plan / replan 共用，避免只修一处）----
 
-    def _parse_subquestions(self, data: Dict[str, Any]) -> List[SubQuestion]:
+    def _parse_subquestions(self, data: Dict[str, Any], phase: str) -> List[SubQuestion]:
         """把 LLM 的 JSON 解析成规范化子问题（过滤空问题 + 重写重复 ID）。
 
         重复 ID 是隐性 bug 源：`per_subq_hop` 按 ``sq_id`` 计数，两个子问题共用
@@ -88,18 +106,27 @@ class Planner:
         """
         result: List[SubQuestion] = []
         used_ids: set[str] = set()
+        empty_count = 0
         for item in data.get("subquestions", []):
             question = str(item.get("question", "")).strip()
             if not question:
-                continue  # 空问题无检索意义，直接丢弃（尾部兜底见 _bound_*）
+                empty_count += 1
+                continue  # 空问题无检索意义，直接丢弃（尾部兜底见 plan/replan）
             raw_id = str(item.get("id", "")).strip()
             sq_id = raw_id or f"q{len(result) + 1}"
+            original_id = sq_id
             if sq_id in used_ids:
                 index = len(result) + 1
                 sq_id = f"q{index}"
                 while sq_id in used_ids:
                     index += 1
                     sq_id = f"q{index}"
+                self._record_planner_event(
+                    PLANNER_EVENT_DUPLICATE_ID_REWRITTEN,
+                    phase,
+                    original_id=original_id,
+                    rewritten_id=sq_id,
+                )
             used_ids.add(sq_id)
             result.append(
                 SubQuestion(
@@ -108,27 +135,31 @@ class Planner:
                     rationale=str(item.get("rationale", "")).strip(),
                 )
             )
+        if empty_count:
+            self._record_planner_event(
+                PLANNER_EVENT_EMPTY_QUESTION_DROPPED,
+                phase,
+                count=empty_count,
+            )
         return result
 
     def _bound_subquestions(self, subs: List[SubQuestion], phase: str) -> List[SubQuestion]:
-        """按 ``max_subquestions`` 截断并**留痕**（plan / replan 唯一收口点）。
+        """按 ``max_subquestions`` 截断并写入独立 Planner 事件。
 
-        截断一律记 ``planner_output_truncated``：项目原则是「降级是信号，不静默」
-        （见 failure_reasons.D-03 的反向论证）。detail 用 ``k=v; k=v`` 稳定格式而非
-        自由中文，便于后续统计 / 告警（需要更强可观测时再给 DegradationEntry 加
-        ``metadata`` 字段）。
+        截断是策略性执行约束，不是故障；它不能污染 ``degradation_log`` 或
+        ``run_status``，但仍必须可审计。
         """
         limit = config.research.max_subquestions
         if len(subs) <= limit:
             return subs
         kept = subs[:limit]
-        self.degradations._record_degradation(
-            component="planner",
-            reason=FailureReason.PLANNER_OUTPUT_TRUNCATED.value,
-            detail=(f"phase={phase}; returned={len(subs)}; accepted={len(kept)}; "
-                    f"dropped={len(subs) - len(kept)}; limit={limit}"),
-            fallback_action="truncate_subquestions",
-            node="planner",
+        self._record_planner_event(
+            PLANNER_EVENT_SUBQUESTIONS_TRUNCATED,
+            phase,
+            returned=len(subs),
+            accepted=len(kept),
+            dropped=len(subs) - len(kept),
+            limit=limit,
         )
         return kept
 
@@ -142,7 +173,7 @@ class Planner:
 
         try:
             data = router.strategic_json(system, user, state=state)
-            subs = self._parse_subquestions(data)
+            subs = self._parse_subquestions(data, phase="plan")
             if not subs:
                 # 解析后一个不剩（空列表 / 全是空 question）：与 LLM 失败后果相同 ——
                 # frontier 空 ⇒ critic 立刻 stop ⇒ 报告空跑。必须退化到「主题即子问题」。
@@ -188,9 +219,18 @@ class Planner:
         )
         try:
             data = router.strategic_json(system, user, state=state)
-            new_subs = self._parse_subquestions(data)
+            new_subs = self._parse_subquestions(data, phase="replan")
             if not new_subs:
-                return subs  # 解析后为空 ⇒ 沿用旧子问题，不空转
+                # 解析后为空与 LLM 异常的后果相同：沿用上一版子问题，
+                # 但必须留痕，不能让 replan 静默成功。
+                self.degradations._record_degradation(
+                    component="llm",
+                    reason=FailureReason.LLM_ERROR.value,
+                    detail="phase=replan; planner 返回的子问题解析后为空",
+                    fallback_action="keep_previous_subquestions",
+                    node="planner",
+                )
+                return subs
             return self._bound_subquestions(new_subs, phase="replan") or subs
         except Exception as e:  # noqa: BLE001
             # 真故障：replan 的 LLM 失败必须进入 degradation_log，不能静默沿用旧计划。

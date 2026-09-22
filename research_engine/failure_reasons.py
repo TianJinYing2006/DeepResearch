@@ -61,18 +61,11 @@ class FailureReason(StrEnum):
     EMPTY_RESULT = "empty_result"  # provider 正常响应但无结果
     PARSE_ERROR = "parse_error"  # 返回了数据但解析失败
 
-    # ---- 非工具层产生（5 值；Q4 新增 4 值 + W9 后新增 1 值，由 Arm 1 直接构造）----
+    # ---- 非工具层产生（4 值；由 Arm 1 直接构造）----
     LLM_ERROR = "llm_error"  # LLM 调用失败（非超时、非限流）
     TOKEN_LIMIT = "token_limit"  # 触发 token 硬闸 / 上下文超长
     RECURSION_LIMIT = "recursion_limit"  # GraphRecursionError
     INTERNAL = "internal"  # 其他未分类异常
-    #: Planner 返回的子问题数超过上限（max_subquestions），尾部被系统截断。
-    #: **不是故障**，是「模型没遵守数量约束、系统执行了配置约束」——但也不允许静默，
-    #: 故记入 degradation_log 供审计（⇒ run_status=degraded）。
-    #: ⚠️ 若实测发现它导致 degraded 噪声过大（例如用户把上限调成 1 时几乎必现），
-    #: 翻转点只有 Planner._bound_subquestions 一处 —— 改成不进 degradation_log、
-    #: 走独立审计通道即可，不要在调用点散落判断（同 D-03 的「一处定义全局生效」）。
-    PLANNER_OUTPUT_TRUNCATED = "planner_output_truncated"
 
 
 #: 工具层 5 值 —— **只**由工具层（Arm 4）产生，写入 ``SearchResponse.failure_reason``。
@@ -87,7 +80,7 @@ TOOL_REASONS: FrozenSet[str] = frozenset(
     )
 )
 
-#: 非工具类 5 值 —— 没有工具层来源，由 Arm 1 各产生点直接构造 ``DegradationEntry``。
+#: 非工具类 4 值 —— 没有工具层来源，由 Arm 1 各产生点直接构造 ``DegradationEntry``。
 NON_TOOL_REASONS: FrozenSet[str] = frozenset(
     r.value
     for r in (
@@ -95,7 +88,6 @@ NON_TOOL_REASONS: FrozenSet[str] = frozenset(
         FailureReason.TOKEN_LIMIT,
         FailureReason.RECURSION_LIMIT,
         FailureReason.INTERNAL,
-        FailureReason.PLANNER_OUTPUT_TRUNCATED,
     )
 )
 

@@ -723,7 +723,10 @@ function eventPresentation(event: AguiEvent) {
     case 'STATE_DELTA': {
       const delta = event as StateDeltaEvent
       const message = delta.progress_added[delta.progress_added.length - 1]?.msg || '状态已更新'
-      return { icon: '↗', iconClass: 'border-violet-300/15 bg-violet-300/[0.07] text-violet-200', title: '研究状态更新', detail: message }
+      const governance = delta.planner_events_count > 0
+        ? ` · 规划治理 ${delta.planner_events_count} 条`
+        : ''
+      return { icon: '↗', iconClass: 'border-violet-300/15 bg-violet-300/[0.07] text-violet-200', title: '研究状态更新', detail: message + governance }
     }
     case 'DEGRADATION': {
       const degradation = event as DegradationEvent

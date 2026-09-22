@@ -57,6 +57,7 @@ export interface StateDeltaEvent extends AguiEvent {
   progress_added: Array<{ stage?: string; msg?: string }>
   findings_count: number
   visited_sources_count: number
+  planner_events_count: number
   run_status: RunStatus
 }
 

@@ -188,6 +188,7 @@ class RunManager:
                     "progress_added": added,
                     "findings_count": len(step.state.findings),
                     "visited_sources_count": len(step.state.visited_sources),
+                    "planner_events_count": len(step.state.planner_events),
                     "run_status": step.state.run_status,
                 })
 

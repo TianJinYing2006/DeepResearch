@@ -162,6 +162,51 @@ class ReportRenderer:
             f"- **Replan 次数**：{getattr(state, 'replan_count', 0)}"
         )
 
+    # ---- Planner 治理事件：策略约束可见，但不伪装成故障 ----
+
+    def build_planner_governance(self, state: Any) -> str:
+        """报告尾部展示 Planner 规范化事件。
+
+        ``planner_events`` 只记录策略性收口（截断、空问题过滤、重复 ID 重写），
+        不参与 ``run_status`` 判定；把它呈现出来是为了让用户知道 Planner 输出
+        如何被系统规范化，而不是把正常治理误报成运行故障。
+        """
+        events = list(getattr(state, "planner_events", []) or [])
+        if not events:
+            return ""
+
+        counts = Counter(str(_deg_get(event, "event", "unknown")) for event in events)
+        lines = ["\n\n---\n## 🧭 规划治理",
+                 f"- **治理事件**：{len(events)} 条（不计入运行降级）"]
+
+        for event_name, count in counts.items():
+            matching = [event for event in events
+                        if str(_deg_get(event, "event", "unknown")) == event_name]
+            phases = Counter(str(_deg_get(event, "phase", "unknown")) for event in matching)
+            phase_text = "、".join(f"{phase} ×{amount}" for phase, amount in phases.items())
+            if event_name == "subquestions_truncated":
+                detail = "；".join(
+                    f"{_deg_get(event, 'phase', 'unknown')}："
+                    f"返回 {_deg_get(event, 'returned', '?')}，接受 {_deg_get(event, 'accepted', '?')}，"
+                    f"丢弃 {_deg_get(event, 'dropped', '?')}（上限 {_deg_get(event, 'limit', '?')}）"
+                    for event in matching
+                )
+            elif event_name == "empty_question_dropped":
+                detail = "；".join(
+                    f"{_deg_get(event, 'phase', 'unknown')}：过滤 {_deg_get(event, 'count', '?')} 条空问题"
+                    for event in matching
+                )
+            elif event_name == "duplicate_id_rewritten":
+                detail = "；".join(
+                    f"{_deg_get(event, 'phase', 'unknown')}："
+                    f"{_deg_get(event, 'original_id', '?')} → {_deg_get(event, 'rewritten_id', '?')}"
+                    for event in matching
+                )
+            else:
+                detail = "；".join(str(event) for event in matching)
+            lines.append(f"- **{event_name}** ×{count}（{phase_text}）：{detail}")
+        return "\n".join(lines)
+
     # ---- 检索链路健康告警（搜索源全线不通时不再静默产出报告）----
 
     def build_retrieval_warning(self, state: Any) -> str:
@@ -215,6 +260,7 @@ class ReportRenderer:
             display = self.annotate_types(report, findings, citations)
             display += self.build_trust_statement(citations)
             display += self.build_failed_appendix(citations)
+            display += self.build_planner_governance(state)
             display += self.build_run_provenance(state)
             # 检索健康告警**置顶**：降级明细默认折叠在 UI 里，不置顶等于没有告警
             warning = self.build_retrieval_warning(state)

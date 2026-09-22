@@ -22,6 +22,7 @@ from config import config
 from research_engine.agents.planner import Planner, build_planner_system, build_replan_system
 from research_engine.failure_reasons import FailureReason
 from research_engine.graph import effective_per_subq_hop_cap
+from research_engine.render import ReportRenderer
 from research_engine.state import ResearchState, SubQuestion
 
 
@@ -189,7 +190,7 @@ def _subquestions_payload(items):
     return {"subquestions": items}
 
 
-def test_plan_truncates_and_records_degradation(monkeypatch):
+def test_plan_truncates_and_records_planner_event(monkeypatch):
     monkeypatch.setattr(config.research, "max_subquestions", 4)
     _patch_router(monkeypatch, _subquestions_payload(
         [{"id": f"q{i + 1}", "question": f"问题 {i + 1}", "rationale": "r"} for i in range(6)]))
@@ -198,15 +199,18 @@ def test_plan_truncates_and_records_degradation(monkeypatch):
     result = planner.plan("主题")
 
     assert len(result) == 4
-    logs = planner.drain_degradations()
-    assert len(logs) == 1
-    assert logs[0].reason == FailureReason.PLANNER_OUTPUT_TRUNCATED.value
-    # 结构化字段（利于统计 / 告警），不是自由中文
-    for token in ("phase=plan", "returned=6", "accepted=4", "dropped=2", "limit=4"):
-        assert token in logs[0].detail, f"detail 缺失字段 {token}：{logs[0].detail}"
+    assert planner.drain_degradations() == []
+    events = planner.drain_planner_events()
+    assert len(events) == 1
+    assert events[0]["event"] == "subquestions_truncated"
+    assert events[0]["phase"] == "plan"
+    assert events[0]["returned"] == 6
+    assert events[0]["accepted"] == 4
+    assert events[0]["dropped"] == 2
+    assert events[0]["limit"] == 4
 
 
-def test_replan_uses_same_subquestion_bound(monkeypatch):
+def test_replan_uses_same_subquestion_bound_and_event(monkeypatch):
     """replan 必须走同一收口 —— 否则只修 plan() 会漏掉这条路。"""
     monkeypatch.setattr(config.research, "max_subquestions", 2)
     _patch_router(monkeypatch, _subquestions_payload(
@@ -217,10 +221,14 @@ def test_replan_uses_same_subquestion_bound(monkeypatch):
     result = planner.replan("主题", old, [], "跑偏")
 
     assert len(result) == 2
-    logs = planner.drain_degradations()
-    assert len(logs) == 1
-    assert logs[0].reason == FailureReason.PLANNER_OUTPUT_TRUNCATED.value
-    assert "phase=replan" in logs[0].detail
+    assert planner.drain_degradations() == []
+    events = planner.drain_planner_events()
+    assert len(events) == 1
+    assert events[0]["event"] == "subquestions_truncated"
+    assert events[0]["phase"] == "replan"
+    assert events[0]["returned"] == 5
+    assert events[0]["accepted"] == 2
+    assert events[0]["dropped"] == 3
 
 
 def test_no_degradation_when_within_limit(monkeypatch):
@@ -241,9 +249,22 @@ def test_duplicate_subquestion_ids_are_rewritten(monkeypatch):
         {"id": "q1", "question": "问题 3"},
     ]))
 
-    result = Planner().plan("主题")
+    planner = Planner()
+    result = planner.plan("主题")
     ids = [s.id for s in result]
     assert len(set(ids)) == len(ids), f"ID 仍重复：{ids}"
+    events = planner.drain_planner_events()
+    assert events == [{
+        "event": "duplicate_id_rewritten",
+        "phase": "plan",
+        "original_id": "q1",
+        "rewritten_id": "q2",
+    }, {
+        "event": "duplicate_id_rewritten",
+        "phase": "plan",
+        "original_id": "q1",
+        "rewritten_id": "q3",
+    }]
 
 
 def test_empty_questions_fall_back_to_topic_only(monkeypatch):
@@ -264,6 +285,11 @@ def test_empty_questions_fall_back_to_topic_only(monkeypatch):
     logs = planner.drain_degradations()
     assert logs and logs[0].reason == FailureReason.LLM_ERROR.value
     assert logs[0].fallback_action == "topic_only"
+    assert planner.drain_planner_events() == [{
+        "event": "empty_question_dropped",
+        "phase": "plan",
+        "count": 2,
+    }]
 
 
 def test_replan_llm_failure_records_degradation(monkeypatch):
@@ -286,6 +312,72 @@ def test_replan_llm_failure_records_degradation(monkeypatch):
     assert logs[0].reason == FailureReason.LLM_ERROR.value
     assert logs[0].fallback_action == "keep_previous_subquestions"
     assert "phase=replan" in logs[0].detail
+
+
+def test_replan_empty_parse_records_degradation(monkeypatch):
+    """replan 解析后为空也必须留痕，不能静默沿用旧子问题。"""
+    _patch_router(monkeypatch, _subquestions_payload([
+        {"id": "q1", "question": "   "},
+    ]))
+
+    planner = Planner()
+    old = [SubQuestion(id="q1", question="旧问题", rationale="")]
+    result = planner.replan("主题", old, [], "跑偏")
+
+    assert result == old
+    logs = planner.drain_degradations()
+    assert len(logs) == 1
+    assert logs[0].reason == FailureReason.LLM_ERROR.value
+    assert logs[0].fallback_action == "keep_previous_subquestions"
+    assert "phase=replan" in logs[0].detail
+
+
+def test_graph_plan_drains_planner_events_into_state_delta(monkeypatch):
+    """graph 节点必须把事件送进 add reducer，而不是只留在 Planner 实例上。"""
+    from research_engine.graph import DeepResearchGraph
+
+    monkeypatch.setattr(config.research, "max_subquestions", 1)
+    _patch_router(monkeypatch, _subquestions_payload([
+        {"id": "q1", "question": "问题 1"},
+        {"id": "q2", "question": "问题 2"},
+    ]))
+
+    graph = DeepResearchGraph.__new__(DeepResearchGraph)
+    graph.planner = Planner()
+    delta = graph._plan(ResearchState(topic="主题"))
+
+    assert delta["degradation_log"] == []
+    assert delta["planner_events"] == [{
+        "event": "subquestions_truncated",
+        "phase": "plan",
+        "returned": 2,
+        "accepted": 1,
+        "dropped": 1,
+        "limit": 1,
+    }]
+    assert graph.planner.drain_planner_events() == []
+
+
+def test_planner_events_are_audit_only_and_rendered(monkeypatch):
+    """策略事件进入独立通道：不写 degradation，也不把 run_status 变 degraded。"""
+    monkeypatch.setattr(config.research, "max_subquestions", 1)
+    _patch_router(monkeypatch, _subquestions_payload([
+        {"id": "q1", "question": "问题 1"},
+        {"id": "q2", "question": "问题 2"},
+    ]))
+
+    planner = Planner()
+    assert len(planner.plan("主题")) == 1
+    assert planner.drain_degradations() == []
+    events = planner.drain_planner_events()
+    state = ResearchState(topic="主题", planner_events=events)
+
+    assert state.resolve_run_status(has_report=True) == "success"
+    rendered = ReportRenderer().render("正文", [], [], state)
+    assert "规划治理" in rendered
+    assert "subquestions_truncated" in rendered
+    assert "不计入运行降级" in rendered
+
 
 def test_prompt_requires_priority_order():
     """prompt 必须说明「按重要性降序 + 尾部会被丢弃」，否则截断砍谁全凭运气。"""
