@@ -358,6 +358,68 @@ def test_graph_plan_drains_planner_events_into_state_delta(monkeypatch):
     assert graph.planner.drain_planner_events() == []
 
 
+def test_graph_revise_drains_planner_events_into_state_delta(monkeypatch):
+    """replan 侧同样必须把事件送进 state —— 否则重分解产生的规范化事件会丢失。"""
+    from research_engine.graph import DeepResearchGraph
+
+    monkeypatch.setattr(config.research, "max_subquestions", 1)
+    _patch_router(monkeypatch, _subquestions_payload([
+        {"id": "q1", "question": "问题 1"},
+        {"id": "q2", "question": "问题 2"},
+    ]))
+
+    graph = DeepResearchGraph.__new__(DeepResearchGraph)
+    graph.planner = Planner()
+    state = ResearchState(
+        topic="主题", needs_replan=True, replan_count=0,
+        subquestions=[SubQuestion(id="q1", question="旧问题", rationale="")],
+    )
+    delta = graph._revise(state)
+
+    assert delta["degradation_log"] == []
+    assert delta["planner_events"] == [{
+        "event": "subquestions_truncated",
+        "phase": "replan",
+        "returned": 2,
+        "accepted": 1,
+        "dropped": 1,
+        "limit": 1,
+    }]
+    assert graph.planner.drain_planner_events() == []
+
+
+def test_graph_revise_drains_replan_failure_into_state_delta(monkeypatch):
+    """replan 的 LLM 真故障必须经 `_revise` 送进 `state.degradation_log`。
+
+    这是**层间漏接**的回归闸：Planner 把降级写进自己的**缓冲区**不等于进了 state ——
+    若 `_revise` 不 drain，那条记录就是死记录，而 Planner 层测试（直接调
+    `planner.drain_degradations()`）照样全绿，回归会静默发生。历史上真的发生过一次。
+    """
+    import research_engine.agents.planner as planner_mod
+    from research_engine.graph import DeepResearchGraph
+
+    class _FailingRouter:
+        def strategic_json(self, system, user, state=None):
+            raise RuntimeError("replan boom")
+
+    monkeypatch.setattr(planner_mod, "get_router", lambda: _FailingRouter())
+
+    graph = DeepResearchGraph.__new__(DeepResearchGraph)
+    graph.planner = Planner()
+    old = [SubQuestion(id="q1", question="旧问题", rationale="")]
+    state = ResearchState(topic="主题", needs_replan=True, replan_count=0,
+                          subquestions=old)
+    delta = graph._revise(state)
+
+    assert len(delta["degradation_log"]) == 1, "replan 故障必须抵达 state，不能只留在缓冲区"
+    entry = delta["degradation_log"][0]
+    assert entry.reason == FailureReason.LLM_ERROR.value
+    assert entry.fallback_action == "keep_previous_subquestions"
+    assert "phase=replan" in entry.detail
+    assert delta["subquestions"] == old, "故障时沿用旧子问题，不空转"
+    assert graph.planner.drain_degradations() == []
+
+
 def test_planner_events_are_audit_only_and_rendered(monkeypatch):
     """策略事件进入独立通道：不写 degradation，也不把 run_status 变 degraded。"""
     monkeypatch.setattr(config.research, "max_subquestions", 1)
