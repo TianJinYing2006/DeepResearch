@@ -192,6 +192,14 @@ class Planner:
             if not new_subs:
                 return subs  # 解析后为空 ⇒ 沿用旧子问题，不空转
             return self._bound_subquestions(new_subs, phase="replan") or subs
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            # 真故障：replan 的 LLM 失败必须进入 degradation_log，不能静默沿用旧计划。
+            self.degradations._record_degradation(
+                component="llm",
+                reason=FailureReason.LLM_ERROR.value,
+                detail=f"phase=replan; error={e}",
+                fallback_action="keep_previous_subquestions",
+                node="planner",
+            )
             # 降级：沿用旧子问题，不空转
             return subs

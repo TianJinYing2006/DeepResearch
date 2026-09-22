@@ -266,6 +266,27 @@ def test_empty_questions_fall_back_to_topic_only(monkeypatch):
     assert logs[0].fallback_action == "topic_only"
 
 
+def test_replan_llm_failure_records_degradation(monkeypatch):
+    """replan 的 LLM 真故障必须留痕，不能静默沿用旧子问题。"""
+    import research_engine.agents.planner as planner_mod
+
+    class _FailingRouter:
+        def strategic_json(self, system, user, state=None):
+            raise RuntimeError("replan boom")
+
+    monkeypatch.setattr(planner_mod, "get_router", lambda: _FailingRouter())
+
+    planner = Planner()
+    old = [SubQuestion(id="q1", question="旧问题", rationale="")]
+    result = planner.replan("主题", old, [], "跑偏")
+
+    assert result == old
+    logs = planner.drain_degradations()
+    assert len(logs) == 1
+    assert logs[0].reason == FailureReason.LLM_ERROR.value
+    assert logs[0].fallback_action == "keep_previous_subquestions"
+    assert "phase=replan" in logs[0].detail
+
 def test_prompt_requires_priority_order():
     """prompt 必须说明「按重要性降序 + 尾部会被丢弃」，否则截断砍谁全凭运气。"""
     assert "重要性降序" in build_planner_system()
