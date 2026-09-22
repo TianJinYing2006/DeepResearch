@@ -14,7 +14,7 @@
 | 能力 | 说明 |
 |------|------|
 | **多 Agent 编排** | Planner（分解子问题）→ Researcher（多跳检索）→ Writer（生成报告）→ Validator（引用校验），LangGraph 状态机驱动 |
-| **多跳检索** | 基于"信息充分度"动态判断是否继续检索，上限 5 跳防死循环 |
+| **多跳检索** | 基于"信息充分度"动态判断是否继续检索；全局预算 `max_total_hops=20`，每子问题跳数上限按实际子问题数动态切分 `ceil(20 / n)`（`config.per_subq_hop_cap=5` 仅在子问题数不可得时作静态兜底） |
 | **RAG 多源融合** | 网络搜索（博查）+ arXiv 学术检索 + 代码执行 + 私有知识库（Qdrant 混合检索）四路证据并行召回 |
 | **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级（W2：来源类型标注/失败隔离/运行溯源四桶） |
 | **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划+裁决，W4 拆 planner/critic 分档可配强推理） |
@@ -111,12 +111,24 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 python cli.py "2026 年 RAG 技术的最新进展"
 ```
 
-**Web UI 方式：**
+**Web UI 方式（W9 呈现层：FastAPI + React/Vite + SSE）：**
 ```bash
-python -m streamlit run web/app.py
+# 后端（SSE 端口 8000）
+uvicorn web.backend.main:app --host 127.0.0.1 --port 8000
+
+# 前端（另开终端，Vite dev server 5173）
+cd web/frontend && npm install && npm run dev
 ```
 
-Web UI 支持：上传文档到 RAG 知识库、设置多跳深度、实时查看研究进度、输出带引用的报告。
+打开 http://localhost:5173 。生产模式下由 FastAPI 直接托管 `web/frontend/dist/`，只需启动后端。
+
+Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限）、实时查看阶段进度与降级事件、查看 token/cost、
+**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源。
+
+> 事件语义对齐 [AG-UI](https://docs.ag-ui.com/)；取消采用**协作式**而非抢占式 —— 取消请求立即生效，
+> 执行停止在下一个节点安全边界，取消后不再启动新的研究节点与 LLM 调用。详见 `docs/requirements/9-web-ui-rewrite.md`。
+>
+> ⚠️ `web/app.py` 是 W9 之前的 Streamlit 旧版入口，**已废弃**，保留仅为对照，不再维护。
 
 ## 目录结构
 
@@ -145,7 +157,17 @@ DeepResearch/
 │       ├── retrieval_eval.py # 检索命中率
 │       ├── citation_eval.py  # 引用准确率
 │       └── report_eval.py    # 报告质量 LLM-as-judge
-├── web/app.py                # Streamlit Web UI
+├── web/                      # W9 呈现层（FastAPI + React/Vite + SSE，对齐 AG-UI）
+│   ├── backend/
+│   │   ├── main.py           # FastAPI 应用装配与 HTTP/SSE 端点
+│   │   ├── agui.py           # AG-UI 事件编码 + 心跳帧
+│   │   ├── runner.py         # 前台运行管理与协作式取消
+│   │   └── demo_graph.py     # DR_DEMO=1 离线演示图（零 LLM）
+│   ├── frontend/             # React + TypeScript + Vite + Tailwind
+│   │   └── src/lib/progress.ts  # 分层进度（不做假进度条）
+│   └── app.py                # ⚠️ 已废弃：W9 之前的 Streamlit 旧入口
+├── tools/
+│   └── check_frontend_boundary.py  # CI 边界守卫：前端目录不得 import research_engine
 ├── cli.py                    # CLI 入口
 ├── config.py                 # 配置
 └── requirements.txt
@@ -269,7 +291,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **330 项全绿** | 离线可跑（零 LLM、零 key），CI 三档 3.11/3.12/3.13 全绿 |
+| 单元测试 | **352 项全绿** | 离线可跑（零 LLM、零 key），CI 三档 3.11/3.12/3.13 全绿；其中 Web/SSE 专项 23 条（流式 15 + HTTP 8），另有 `frontend` job 跑 `tsc --noEmit` + `vite build` |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |

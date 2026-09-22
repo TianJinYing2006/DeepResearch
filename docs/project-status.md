@@ -103,7 +103,20 @@
 6. ✅ **已完**：命名三分 —— `invoke_status` / `metrics_status` 落盘（写侧只出新键）+ 读侧 dual-read；**历史产物不回填**（Arm 7 取证纪律 + `tools/w7_backfill_*.py` 零成本复算）；新增 26 条单测（含端到端落盘扫描与两份反向守卫）
 7. ✅ **已完**：冻结代码 `f723c2d` → after 基线 **3 runs**（48~51 分钟/轮、¥0.79~0.92/轮，远快于原估 1.2h）→ 四指标**全部不可判定** → **D-18 拍板：以 3 轮结案、不续跑后 6 轮**。⚠️ 原估「±7.3pp / ¥11 / 6.5h」均被实测推翻（coverage 的 MDE(3v9) 实测 **9.66pp** > 预期效应 4~10pp；实际 3 轮仅 ¥2.5 / 2h29m）
 8. ✅ **已完**：**确定性 DoD 验收表**（`docs/eval-w8-dod.md`，8/8 项有测试 + CI 证据）+ 实测结果**回写设计文档**（新增 §3.3.1-b「瓶颈在 before 侧」、§10.5.6 补实测行、§10.5.7 拍板处补执行更正）
-9. ⬜ **最后对外材料**：README 能力与限制 → 博客③ → 引用链接
+9. 🟡 **最后对外材料**：README 能力与限制 → 博客③ → 引用链接 —— **README 的 W9 部分已于 2026-09-23 同步**（见下表），剩博客③ → 引用链接
+
+### 对外材料：README 同步记录（2026-09-23）
+
+| 位置 | 改动 | 原因 |
+| --- | --- | --- |
+| 「核心能力 · 多跳检索」 | 「上限 5 跳」→ 全局 `max_total_hops=20` + 每子问题动态切分 `ceil(20/n)`；`per_subq_hop_cap=5` 降级为静态兜底 | 与「防幻觉三件套」上方「超 20 跳了就停」的表述自相矛盾；动态口径才是 W9 后的真实行为 |
+| 「运行 · Web UI 方式」 | `streamlit run web/app.py` → `uvicorn web.backend.main:app` + Vite dev server；补 SSE/AG-UI/协作式取消（14.4s/31.4s）说明；标注 `web/app.py` **已废弃** | W9（D-20）已交付 FastAPI + React/Vite；README 仍写 Streamlit |
+| 「目录结构」 | `web/app.py` → `web/backend/{main,agui,runner}.py` + `web/frontend/` + `tools/check_frontend_boundary.py` | 同上 |
+| 「eval 诚实数字 · 单元测试」 | 330 项 → **352 项**（含 Web/SSE 专项 23 条，另 `frontend` job 跑 `tsc --noEmit` + `vite build`） | W9 新增测试后未回写 |
+
+⚠️ **遗留（未动，需拍板）**：`requirements.txt:17` 仍有 `streamlit>=1.36.0`（`requirements-lock.txt:247` 锁 `streamlit==1.64.0`）。
+由于 `web/app.py` 已废弃、代码零引用，**该依赖可清**；但清 `requirements.txt` 必须同步重编译 `requirements-lock.txt`
+（Arm 3 依赖锁定三刀的纪律），属跨文件操作，本次未做。
 
 ## W8 收尾纪律：产物冻结（2026-09-19，D-18 拍板后生效）
 
