@@ -105,7 +105,13 @@ class ResearchConfig:
 
     # ---- W1 新增：全局预算 / 硬闸（呼应 grill Q4/Q5/Q6）----
     max_total_hops: int = 20    # 全局总跳数上限；与旧 max_depth×max_subquestions=5×4 精确等价（Q4=A）
-    per_subq_hop_cap: int = 5   # 每子问题跳数上限 = max_total_hops/max_subquestions，防 starvation（Q5=A）
+    # ⚠️ 语义变更（W9 后）：动态化前它是**实际生效**的每子问题跳数上限；动态化后它
+    # 退化为「子问题数不可得时的静态兜底」。真正生效值是
+    # `ceil(max_total_hops / 实际子问题数)`（见 graph.effective_per_subq_hop_cap）。
+    # 默认配置下两者相等（ceil(20/4)=5）⇒ 与 W1 的 Q5=A 防饿死语义逐跳等价。
+    # 用 ceil 而非 floor：floor 会让「每子问题上限 × 子问题数」小于总预算
+    # （如 8 个子问题 → 2×8=16 < 20），导致预算没用完就被 cap 提前掐停。
+    per_subq_hop_cap: int = 5   # 每子问题跳数上限的静态兜底（max_total_hops/max_subquestions，Q5=A）
     max_replan: int = 1         # revise 触发 Planner.replan 的最大次数，硬上限防空转（Q2-B 兜底）
     token_budget: int = 200_000 # LLM token 总预算，作为硬闸停止条件之一（Q6-B）；正常等价预算下不先于 hop 触发
 

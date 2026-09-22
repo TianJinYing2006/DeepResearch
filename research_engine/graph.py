@@ -17,6 +17,7 @@ W1 重构（grill 设计，见 .workbuddy/design-grill.md）：
 """
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from contextlib import nullcontext
@@ -49,6 +50,35 @@ from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行
     STOP_RUNNING,
     RunStep,
 )
+
+
+def effective_per_subq_hop_cap(state: ResearchState, rc: Any = None) -> int:
+    """本场 run **实际生效**的每子问题跳数上限（局部保护阈值，不是预算分配器）。
+
+    为什么不能直接用 ``rc.per_subq_hop_cap``：那个常量写死了「一定 4 个子问题」的
+    假设（5 = 20 ÷ 4），而子问题数是 LLM 定的、软约束，会偏离：
+
+    * 8 个子问题 → 常量 5 会让前 4 个各吃 5 跳、后 4 个 **0 跳**（静默饿死）；
+    * 1 个子问题 → 常量 5 只用掉 5 跳，**浪费 15 跳**，而停止原因显示「无待检索查询」，
+      看起来像搜不到东西，实际是 cap 掐断。
+
+    用 ``ceil`` 而非 ``floor``：``floor`` 会让「cap × 子问题数」小于总预算
+    （8 个子问题 → 2×8=16 < 20），预算还没用完就被 cap 提前停。``ceil`` 下 cap 只是
+    「任一子问题最多几跳」，**真正的边界是全局 ``max_total_hops`` 硬闸**，不会超。
+
+    默认配置下 ``ceil(20/4) = 5``，与 W1 的常量**逐跳等价** ⇒ 不污染已冻结基线。
+
+    Args:
+        state: 当前状态（取 ``subquestions`` 数量）。
+        rc: 研究配置；缺省用全局 ``config.research``。
+    """
+    if rc is None:
+        rc = config.research
+    subq_count = len(state.subquestions)
+    if subq_count <= 0:
+        # 子问题数不可得（未规划 / 异常）→ 退回静态兜底，不改旧行为
+        return max(1, rc.per_subq_hop_cap)
+    return max(1, math.ceil(rc.max_total_hops / subq_count))
 
 
 class DeepResearchGraph:
@@ -128,6 +158,7 @@ class DeepResearchGraph:
         rc = config.research
         frontier = list(state.frontier)
         per_subq_hop = dict(state.per_subq_hop)
+        effective_cap = effective_per_subq_hop_cap(state, rc)
 
         # 跳过已达"每子问题跳数上限"的查询（Q5=A 防饿死软约束）；不放进 depth
         head = None
@@ -136,7 +167,7 @@ class DeepResearchGraph:
         while frontier:
             cand = frontier.pop(0)
             sid = cand.get("sq_id", "")
-            if per_subq_hop.get(sid, 0) >= rc.per_subq_hop_cap:
+            if per_subq_hop.get(sid, 0) >= effective_cap:
                 continue
             head = cand
             sq_id = sid
@@ -144,12 +175,16 @@ class DeepResearchGraph:
             break
 
         if head is None:
-            # 剩余查询全被 per_cap 过滤 → 队列实质性空，交给 critic 判 stop
+            # 剩余查询全被 per_cap 过滤 → 队列实质性空，交给 critic 判 stop。
+            # ⚠️ 消息必须带上 cap 数值：否则用户/日志只看到「无待检索查询」，会误判成
+            # 「搜不到东西」，而真实原因是局部跳数上限掐断（P0-5）。
             return {
                 "frontier": [],
                 "status": "researching",
                 "progress": [
-                    {"stage": "research", "msg": "剩余查询均达每子问题跳数上限，停止检索"}
+                    {"stage": "research",
+                     "msg": f"剩余查询均达每子问题跳数上限（cap={effective_cap}，"
+                            f"子问题数={len(state.subquestions)}），停止检索"}
                 ],
             }
 

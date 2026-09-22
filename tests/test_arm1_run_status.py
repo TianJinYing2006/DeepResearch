@@ -146,9 +146,9 @@ def test_reason_table_is_partitioned():
     """一张表、两个产生点、按来源分组；两组不重叠且并集为全表。"""
     assert TOOL_REASONS | NON_TOOL_REASONS == ALL_REASONS
     assert not (TOOL_REASONS & NON_TOOL_REASONS)
-    assert len(ALL_REASONS) == 9  # 工具层 5 + 非工具层 4
+    assert len(ALL_REASONS) == 10  # 工具层 5 + 非工具层 5（含 planner_output_truncated）
     assert len(TOOL_REASONS) == 5
-    assert len(NON_TOOL_REASONS) == 4
+    assert len(NON_TOOL_REASONS) == 5
 
 
 def test_tool_vs_non_tool_classification():

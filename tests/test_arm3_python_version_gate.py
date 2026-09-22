@@ -161,7 +161,7 @@ def test_reason_sets_hold_plain_strings():
     """两组 frozenset 存的是**纯字符串**，`is_tool_reason` 逐字面值判断（单向派生契约的判据）。"""
     assert all(isinstance(x, str) and type(x) is str for x in ALL_REASONS)
     assert TOOL_REASONS.isdisjoint(NON_TOOL_REASONS)
-    assert len(ALL_REASONS) == 9
+    assert len(ALL_REASONS) == 10  # 工具层 5 + 非工具层 5（含 planner_output_truncated）
     for reason in TOOL_REASONS:
         assert is_tool_reason(reason)
     for reason in NON_TOOL_REASONS:
