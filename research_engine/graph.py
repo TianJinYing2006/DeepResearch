@@ -17,8 +17,11 @@ W1 重构（grill 设计，见 .workbuddy/design-grill.md）：
 """
 from __future__ import annotations
 
+import math
+import time
 import uuid
-from typing import Any, Dict, List
+from contextlib import nullcontext
+from typing import Any, Callable, Dict, Iterator, List
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -40,6 +43,42 @@ from research_engine.observability import (  # W3：可观测层（Q1~Q7）
 )
 from research_engine.render import ReportRenderer
 from research_engine.state import ResearchState, SubQuestion
+from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行载体
+    STOP_CANCELLED,
+    STOP_COMPLETED,
+    STOP_ERROR,
+    STOP_RUNNING,
+    RunStep,
+)
+
+
+def effective_per_subq_hop_cap(state: ResearchState, rc: Any = None) -> int:
+    """本场 run **实际生效**的每子问题跳数上限（局部保护阈值，不是预算分配器）。
+
+    为什么不能直接用 ``rc.per_subq_hop_cap``：那个常量写死了「一定 4 个子问题」的
+    假设（5 = 20 ÷ 4），而子问题数是 LLM 定的、软约束，会偏离：
+
+    * 8 个子问题 → 常量 5 会让前 4 个各吃 5 跳、后 4 个 **0 跳**（静默饿死）；
+    * 1 个子问题 → 常量 5 只用掉 5 跳，**浪费 15 跳**，而停止原因显示「无待检索查询」，
+      看起来像搜不到东西，实际是 cap 掐断。
+
+    用 ``ceil`` 而非 ``floor``：``floor`` 会让「cap × 子问题数」小于总预算
+    （8 个子问题 → 2×8=16 < 20），预算还没用完就被 cap 提前停。``ceil`` 下 cap 只是
+    「任一子问题最多几跳」，**真正的边界是全局 ``max_total_hops`` 硬闸**，不会超。
+
+    默认配置下 ``ceil(20/4) = 5``，与 W1 的常量**逐跳等价** ⇒ 不污染已冻结基线。
+
+    Args:
+        state: 当前状态（取 ``subquestions`` 数量）。
+        rc: 研究配置；缺省用全局 ``config.research``。
+    """
+    if rc is None:
+        rc = config.research
+    subq_count = len(state.subquestions)
+    if subq_count <= 0:
+        # 子问题数不可得（未规划 / 异常）→ 退回静态兜底，不改旧行为
+        return max(1, rc.per_subq_hop_cap)
+    return max(1, math.ceil(rc.max_total_hops / subq_count))
 
 
 class DeepResearchGraph:
@@ -58,6 +97,10 @@ class DeepResearchGraph:
         # W8 Arm 1（§5.1.4）：异常退出契约 —— 保留原始异常对象供调试。
         # run() 不再 re-raise（改为返回 run_status="failed" 的 state），故调用方只能从这里取到异常。
         self.last_exception: BaseException | None = None
+        # W9（需求 9 §7.1）：流式运行的终止原因，取值见 research_engine.streaming.STOP_REASONS。
+        # ⚠️ 与 run_status 是两套东西：run_status 表达**系统健康度**（三态，进 eval 判定），
+        #    last_stop_reason 表达**流是怎么结束的**（含 cancelled，仅 UI 路径关心）。
+        self.last_stop_reason: str = STOP_RUNNING
         self.graph = self._build()
 
     def _build(self):
@@ -102,6 +145,8 @@ class DeepResearchGraph:
                 "subquestions": subs,
                 "frontier": frontier,
                 "per_subq_hop": per_subq_hop,
+                # Planner 策略事件与故障分流：事件只进 planner_events，不推导 degraded。
+                "planner_events": self.planner.drain_planner_events(),
                 # W8 Arm 1：planner 降级记录（如 LLM 失败退化为「主题即子问题」）交给 reducer
                 "degradation_log": self.planner.drain_degradations(),
                 "status": "planning",
@@ -115,6 +160,7 @@ class DeepResearchGraph:
         rc = config.research
         frontier = list(state.frontier)
         per_subq_hop = dict(state.per_subq_hop)
+        effective_cap = effective_per_subq_hop_cap(state, rc)
 
         # 跳过已达"每子问题跳数上限"的查询（Q5=A 防饿死软约束）；不放进 depth
         head = None
@@ -123,7 +169,7 @@ class DeepResearchGraph:
         while frontier:
             cand = frontier.pop(0)
             sid = cand.get("sq_id", "")
-            if per_subq_hop.get(sid, 0) >= rc.per_subq_hop_cap:
+            if per_subq_hop.get(sid, 0) >= effective_cap:
                 continue
             head = cand
             sq_id = sid
@@ -131,12 +177,16 @@ class DeepResearchGraph:
             break
 
         if head is None:
-            # 剩余查询全被 per_cap 过滤 → 队列实质性空，交给 critic 判 stop
+            # 剩余查询全被 per_cap 过滤 → 队列实质性空，交给 critic 判 stop。
+            # ⚠️ 消息必须带上 cap 数值：否则用户/日志只看到「无待检索查询」，会误判成
+            # 「搜不到东西」，而真实原因是局部跳数上限掐断（P0-5）。
             return {
                 "frontier": [],
                 "status": "researching",
                 "progress": [
-                    {"stage": "research", "msg": "剩余查询均达每子问题跳数上限，停止检索"}
+                    {"stage": "research",
+                     "msg": f"剩余查询均达每子问题跳数上限（cap={effective_cap}，"
+                            f"子问题数={len(state.subquestions)}），停止检索"}
                 ],
             }
 
@@ -234,6 +284,9 @@ class DeepResearchGraph:
                     "replan_count": state.replan_count + 1,
                     "needs_replan": False,
                     "next_queries": [],
+                    # replan 与 plan 共用同一事件通道，避免规范化事件丢失。
+                    "planner_events": self.planner.drain_planner_events(),
+                    "degradation_log": self.planner.drain_degradations(),
                     "token_used": state.token_used,  # Q6-B：replan 的 LLM token 累计写回
                     "progress": [
                         {"stage": "revise", "msg": f"重分解：{len(new_subs)} 个子问题（replan_count={state.replan_count + 1}）"}
@@ -389,6 +442,100 @@ class DeepResearchGraph:
         # status 字段（旧的状态机字段）同步为 failed，保持与 run_status 不矛盾。
         state.status = "failed"
         return state
+
+
+    # ---------------------------------------------------------------- W9 流式运行
+
+    def iter_run(
+        self,
+        topic: str,
+        user_instructions: str = "",
+        thread_id: str | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> Iterator[RunStep]:
+        """流式运行：每完成一个 graph 节点 yield 一次完整 state 快照。
+
+        与 :meth:`run` 的关系：``run()`` 可视为「只取终局快照」的特化版。
+        **本方法不改写 run()** —— CLI 与 eval 依赖它，且 W8 已冻结其判定口径。
+
+        🚨 **两条路径严格分离**（需求 9 §7.3.3，本方法最容易踩的坑）：
+
+        - **真实异常** ⇒ 与 ``run()`` **共用** :meth:`_recover_from_exception`，
+          保证「故障可归因」只有一处实现、不被稀释。
+        - **取消** ⇒ **绝不**走该函数。取消是**正常终止不是故障**；一旦走它就会被
+          ``set_error()`` 写成 ``run_status="failed"``，直接污染 W8
+          「故障可归因率 100%」这条 A 类验收。
+
+        Args:
+            should_cancel: 取消谓词，在**每个节点 yield 之后**调用
+                （契约 C3：当前节点允许自然结束）。返回 True 则不再启动下一节点（C2/C5）。
+        """
+        if thread_id is None:
+            thread_id = f"dr-{uuid.uuid4().hex[:12]}"
+        initial = ResearchState(topic=topic, user_instructions=user_instructions)
+        cfg = {"configurable": {"thread_id": thread_id},
+               "recursion_limit": config.research.max_total_hops * 2 + 20}
+        self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
+        token_base = LLMClient.tokens_total  # Q3=D'：与 run() 同一对账口径
+        self.last_exception = None
+        self.last_stop_reason = STOP_RUNNING
+        lf = get_langfuse()
+        # 生成器整体包在 trace 内（消费是连续的）；未启用观测时用 nullcontext 保持结构一致。
+        ctx = (start_trace(self.trace_id, topic, thread_id=thread_id,
+                           user_instructions=user_instructions)
+               if (lf is not None and self.trace_id) else nullcontext())
+        with ctx:
+            yield from self._iter_steps(initial, cfg, should_cancel, token_base)
+
+    def _iter_steps(
+        self,
+        initial: ResearchState,
+        cfg: Dict[str, Any],
+        should_cancel: Callable[[], bool] | None,
+        token_base: int,
+    ) -> Iterator[RunStep]:
+        """:meth:`iter_run` 的生成器主体（分离出来只为让 try/except 覆盖整个流）。"""
+        seen_degradations = 0
+        index = 0
+        last_state = initial
+        stop = STOP_COMPLETED
+        clock = time.perf_counter()
+        try:
+            for chunk in self.graph.stream(initial, cfg, stream_mode="values"):
+                state = ResearchState(**chunk) if isinstance(chunk, dict) else chunk
+                # ⚠️ 实测（2026-09-20）：values 模式**首帧是初始 state**（progress 为空）
+                #    ⇒ node 为 None，无节点信息，跳过且不计数。
+                node = state.progress[-1].get("stage") if state.progress else None
+                if not node:
+                    clock = time.perf_counter()
+                    continue
+                # 降级增量：degradation_log 是 operator.add reducer ⇒ 切片即可，不必比内容
+                new_deg = tuple(state.degradation_log[seen_degradations:])
+                seen_degradations = len(state.degradation_log)
+                now = time.perf_counter()
+                duration_ms = int((now - clock) * 1000)
+                clock = now
+                yield RunStep(index=index, node=node, state=state,
+                              new_degradations=new_deg, duration_ms=duration_ms)
+                last_state = state
+                index += 1
+                # 检查点在 yield **之后** ⇒ 当前节点已自然结束（C3）；
+                # break ⇒ 不再启动下一节点（C2）、不再产生新 LLM 调用（C5）。
+                if should_cancel is not None and should_cancel():
+                    stop = STOP_CANCELLED
+                    break
+        except Exception as exc:  # noqa: BLE001 —— 与 run() 同口径：转结构化状态，不吞
+            self.last_exception = exc
+            last_state = self._recover_from_exception(exc, cfg, initial)
+            stop = STOP_ERROR
+
+        # 终局 step：正常结束 / 取消 / 异常 **三种都会产出且仅产出一个**
+        self.last_stop_reason = stop
+        yield RunStep(index=index, node=None, state=last_state,
+                      new_degradations=(), duration_ms=0,
+                      terminal=True, stop_reason=stop)
+        # Q3=D'：与 run() 同一对账口径（异常路径同样走到这里，兜底 state 保证 token_used 有默认值）
+        self.tokens_diff = (LLMClient.tokens_total - token_base) - last_state.token_used
 
 
 def create_graph() -> DeepResearchGraph:

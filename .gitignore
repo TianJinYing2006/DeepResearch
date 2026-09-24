@@ -16,6 +16,8 @@ venv/
 # 测试/临时文件
 *.log
 .write_test
+# 本地简历、浏览器配置与一次性工作台产物（只隔离，不入库）
+local-artifacts/
 # W1 端到端冒烟脚本（临时，不入库；本地用 Docker+Qdrant 跑 RAG 真验证时使用）
 run_e2e_smoke.py
 # RAG 验证样例文档（临时，不入库）
@@ -25,6 +27,10 @@ samples/
 .idea/
 .vscode/
 *.swp
+
+# 工具/客户端元数据（非项目源码；留着会让 `git status --porcelain` 非空，
+# 而 provenance 的 `git_dirty` 就取它的非空 ⇒ 基线会被记成「工作区脏」）
+.reasonix/
 
 # 系统
 .DS_Store
@@ -61,3 +67,14 @@ research_engine/eval/results/*_SUPERSEDED.json
 research_engine/eval/results/*_DISCARDED.json
 research_engine/eval/results/*_bak_*.json
 research_engine/eval/results/_tmp_*/
+
+# W9 前端（Node 构建链）—— 依据：docs/requirements/9-web-ui-rewrite.md（D-20 拍板）
+node_modules/
+# 出处：D-20 拍板要求 package-lock.json 入库以保证供应链可复现 ⇒ 此处刻意不忽略它
+web/frontend/dist/
+web/frontend/.vite/
+web/frontend/tsconfig.tsbuildinfo
+# P1 浏览器 E2E 产物（Playwright）：失败截图 / trace / HTML 报告，只在本机留档
+web/frontend/test-results/
+web/frontend/playwright-report/
+web/frontend/.playwright/

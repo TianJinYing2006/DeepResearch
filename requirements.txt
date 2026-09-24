@@ -13,8 +13,9 @@ beautifulsoup4>=4.12.0
 rank-bm25>=0.2.2
 jieba>=0.42.1
 
-# Web UI
-streamlit>=1.36.0
+# Web UI（W9：FastAPI + React/Vite + SSE；旧的 Streamlit 入口 web/app.py 已于 2026-09-23 删除）
+fastapi>=0.141,<0.142
+uvicorn>=0.52,<0.53
 
 # 工具
 python-dotenv>=1.0.0

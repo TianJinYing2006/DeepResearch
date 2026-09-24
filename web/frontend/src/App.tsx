@@ -1,0 +1,935 @@
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { ProgressBar } from './components/ProgressBar'
+import { ReportView } from './components/ReportView'
+import {
+  type ConnectionStatus,
+  type StreamStatus,
+  useResearchStream,
+} from './hooks/useResearchStream'
+import type {
+  AguiEvent,
+  CitationResult,
+  DegradationEvent,
+  RunFinishedEvent,
+  RunOptions,
+  RunStartedEvent,
+  StateDeltaEvent,
+  StepFinishedEvent,
+} from './types/agui'
+
+const NODE_LABELS: Record<string, string> = {
+  plan: '规划问题',
+  research: '检索证据',
+  critic: '评估缺口',
+  revise: '修订查询',
+  write: '撰写报告',
+  validate: '校验引用',
+  render: '渲染结果',
+}
+
+interface LaunchParams {
+  topic: string
+  instructions: string
+  maxTotalHops: number
+  maxSubquestions: number
+  searchProvider?: string
+  enableArxiv?: boolean
+}
+
+export default function App() {
+  const [topic, setTopic] = useState('')
+  const [instructions, setInstructions] = useState('')
+  const [maxTotalHops, setMaxTotalHops] = useState(20)
+  const [maxSubquestions, setMaxSubquestions] = useState(4)
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
+  // 运行选项：搜索引擎 / 学术检索。空串表示尚未从 /api/options 拿到默认值。
+  const [searchProvider, setSearchProvider] = useState('')
+  const [enableArxiv, setEnableArxiv] = useState(true)
+  const [options, setOptions] = useState<RunOptions | null>(null)
+  // P1-7 重试：记住**上一次实际发起**的参数（不是当前表单值）——
+  // 用户可能在运行期间改了滑块，重试必须重跑原来那次，否则「重试」名不副实。
+  const [lastRequest, setLastRequest] = useState<LaunchParams | null>(null)
+  const [exportState, setExportState] = useState<'idle' | 'exported' | 'failed'>('idle')
+  // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
+  // 原来是累加各节点 duration_ms ⇒ 只有节点完成才会跳变，等待 LLM 时看起来卡住。
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
+  const [, setTick] = useState(0)
+  const stoppedAtRef = useRef<number | null>(null)
+  const {
+    runId,
+    events,
+    status,
+    connectionStatus,
+    error,
+    result,
+    progress,
+    start,
+    cancel,
+  } = useResearchStream()
+
+  // 拉可用选项：只把已配 key 的搜索源列为可选，避免选了没 key 的源跑完整场才发现全降级。
+  // 拉不到不阻断（沿用本地默认），属于降级而非故障。
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/options')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: RunOptions | null) => {
+        if (cancelled || !data) return
+        setOptions(data)
+        const usable = data.search_providers.filter((provider) => provider.available)
+        const preferred = usable.find((provider) => provider.value === data.default_provider) ?? usable[0]
+        setSearchProvider((current) => current || preferred?.value || '')
+        setEnableArxiv(data.enable_arxiv_default)
+        // 后端默认值优先：滑块初值不该是前端拍的常量，否则改了 .env 前端还显示旧值
+        if (typeof data.max_total_hops_default === 'number') {
+          setMaxTotalHops(data.max_total_hops_default)
+        }
+        if (typeof data.max_subquestions_default === 'number') {
+          setMaxSubquestions(data.max_subquestions_default)
+        }
+      })
+      .catch(() => { /* 保持本地默认，不阻断主流程 */ })
+    return () => { cancelled = true }
+  }, [])
+
+  // 分段切换器需要知道选中项的下标，才能平移高亮块
+  const providers = options?.search_providers ?? []
+  const activeProviderIndex = Math.max(
+    providers.findIndex((provider) => provider.value === searchProvider),
+    0,
+  )
+
+  const running = status === 'starting' || status === 'running' || status === 'stopping'
+
+  // 运行时长实时化：运行中每 250ms 触发一次重渲染；停止时冻结在结束那一刻。
+  // 用 ref 记录停止时刻而非 state，避免 effect 里 setState 引发额外渲染循环。
+  useEffect(() => {
+    if (!runStartedAt) return
+    if (running) {
+      stoppedAtRef.current = null
+      const id = window.setInterval(() => setTick((value) => value + 1), 250)
+      return () => window.clearInterval(id)
+    }
+    if (stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
+  }, [runStartedAt, running])
+
+  const steps = useMemo(() => events.filter(isStepFinished), [events])
+  const degradations = useMemo(() => events.filter(isDegradation), [events])
+  const lastStep = steps[steps.length - 1]
+  const lastDelta = useMemo(() => lastEventOfType(events, 'STATE_DELTA') as StateDeltaEvent | undefined, [events])
+  const finished = useMemo(() => lastEventOfType(events, 'RUN_FINISHED') as RunFinishedEvent | undefined, [events])
+  // 完整活动：原先 .slice(-18) 会把早期事件挤掉，导致「之前的活动丢失」。
+  // 容器本身已可滚动，这里不再截断。
+  const timeline = useMemo(
+    // 带上原始下标：reverse 后新事件会使所有位置后移，若用倒序下标当 key 会让
+    // 每个条目都「变成另一个元素」而重载。绑定原始事件下标后 key 稳定。
+    () => events
+      .map((event, index) => ({ event, index }))
+      .filter((entry) => entry.event.type !== 'STEP_STARTED')
+      .reverse(),
+    [events],
+  )
+
+  // 实时运行时长（不再等节点完成才累加）
+  const elapsedMs = runStartedAt ? Math.max(0, (stoppedAtRef.current ?? Date.now()) - runStartedAt) : 0
+  // 成本估算由后端按 config.llm.pricing 计算（前端没有定价表，不能自己拍单价）
+  const costLabel = finished?.cost_estimate_cny === undefined
+    ? running ? '运行结束后给出估算' : '本次未提供估算'
+    : `≈ ¥${formatCost(finished.cost_estimate_cny)}（按 output 单价的上界）`
+  const tokenUsed = finished?.token_used ?? lastStep?.token_used ?? 0
+  // P1-2：时限由后端下发（RUN_STARTED / /api/options），前端不自己拍默认值 ——
+  // 否则改了 DR_RUN_TIMEOUT_SECONDS 前端还显示旧值，等于又造一个假数字。
+  const timeoutSeconds = useMemo(() => {
+    const started = events.find((event) => event.type === 'RUN_STARTED') as RunStartedEvent | undefined
+    return started?.timeout_seconds ?? options?.run_timeout_seconds ?? null
+  }, [events, options])
+  const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - elapsedMs)
+  const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
+  const findingsCount = lastDelta?.findings_count ?? 0
+  const verifiedCitations = result?.citations.filter((citation) => citation.verified).length ?? 0
+  const ragSourceCount = result?.visited_sources.filter(isKnowledgeBaseSource).length ?? 0
+  const currentActivity = latestActivity(events)
+  const statusInfo = statusPresentation(status)
+  const connectionInfo = connectionPresentation(connectionStatus)
+
+  const launch = (params: LaunchParams) => {
+    // 从发起时刻开始计时（不是等第一个节点完成）
+    setRunStartedAt(Date.now())
+    stoppedAtRef.current = null
+    setLastRequest(params)
+    setExportState('idle')
+    void start(params.topic, params.instructions, params.maxTotalHops,
+      params.maxSubquestions, params.searchProvider, params.enableArxiv)
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!topic.trim() || running) return
+    launch({
+      topic,
+      instructions,
+      maxTotalHops,
+      maxSubquestions,
+      searchProvider: searchProvider || undefined,
+      enableArxiv,
+    })
+  }
+
+  // P1-7 重试：**重新发起一次同样参数的研究**，不是断点续跑 ——
+  // D-19 定的是前台模型、不做持久化，进程里没有可续跑的中间态。
+  const handleRetry = () => {
+    if (!lastRequest || running) return
+    launch(lastRequest)
+  }
+
+  const copyReport = async () => {
+    if (!result?.report) return
+    await navigator.clipboard.writeText(result.report)
+    setCopyState('copied')
+    window.setTimeout(() => setCopyState('idle'), 1600)
+  }
+
+  // P1-6：改走后端导出 —— 前端 Blob 那份只有正文，脱离页面后无从自证来源；
+  // 后端版本带 run_id / run_status / 降级条数等审计元数据与引用清单。
+  const exportReport = async () => {
+    if (!runId) return
+    try {
+      const response = await fetch(`/api/research/${runId}/report?format=md`)
+      if (!response.ok) {
+        setExportState('failed')
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `deepresearch-${runId}.md`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setExportState('exported')
+      window.setTimeout(() => setExportState('idle'), 1600)
+    } catch {
+      setExportState('failed')
+    }
+  }
+
+  return (
+    <div className="min-h-screen">
+      <header className="border-b border-white/[0.07] bg-[#07100f]/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-lg text-emerald-200 shadow-[inset_0_0_20px_rgba(52,211,153,0.08)]">
+              ◈
+            </div>
+            <div>
+              <p className="font-semibold tracking-tight text-white">DeepResearch</p>
+              <p className="text-xs text-slate-500">可审计研究工作台</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${connectionInfo.className}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${connectionInfo.dotClass}`} />
+              {connectionInfo.label}
+            </span>
+            <span className="hidden rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-500 sm:inline-flex">
+              AG-UI 事件语义
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
+          <form className="surface-card p-5" onSubmit={handleSubmit}>
+            <div className="mb-6 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">新研究</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">描述问题，研究过程会实时推送到右侧。</p>
+              </div>
+              <span className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.07] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200/80">
+                Live
+              </span>
+            </div>
+
+            <label className="field-label" htmlFor="topic">研究主题</label>
+            <textarea
+              id="topic"
+              className="field-control min-h-28 resize-y"
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="例如：生成式 AI 对企业知识管理的实际影响"
+              disabled={running}
+              maxLength={1000}
+              required
+            />
+
+            <label className="field-label mt-5" htmlFor="instructions">附加要求 <span className="normal-case tracking-normal text-slate-600">（可选）</span></label>
+            <textarea
+              id="instructions"
+              className="field-control min-h-24 resize-y"
+              value={instructions}
+              onChange={(event) => setInstructions(event.target.value)}
+              placeholder="指定时间范围、关注维度、报告风格等"
+              disabled={running}
+              maxLength={2000}
+            />
+
+            <div className="mt-5 flex items-center justify-between">
+              <label className="field-label mb-0" htmlFor="hops">最大检索跳数</label>
+              <span className="rounded-lg bg-black/25 px-2.5 py-1 font-mono text-sm text-emerald-200">{maxTotalHops}</span>
+            </div>
+            <input
+              id="hops"
+              className="mt-3 w-full accent-emerald-400"
+              type="range"
+              min={1}
+              max={50}
+              value={maxTotalHops}
+              onChange={(event) => setMaxTotalHops(Number(event.target.value))}
+              disabled={running}
+            />
+            <div className="mt-1 flex justify-between text-[10px] text-slate-600">
+              <span>快速 1</span>
+              <span>深入 50</span>
+            </div>
+
+            <div className="mt-5 flex items-center justify-between">
+              <label className="field-label mb-0" htmlFor="subquestions">子问题数上限</label>
+              <span className="rounded-lg bg-black/25 px-2.5 py-1 font-mono text-sm text-emerald-200">{maxSubquestions}</span>
+            </div>
+            <input
+              id="subquestions"
+              className="mt-3 w-full accent-emerald-400"
+              type="range"
+              min={1}
+              max={8}
+              value={maxSubquestions}
+              onChange={(event) => setMaxSubquestions(Number(event.target.value))}
+              disabled={running}
+            />
+            <div className="mt-1 flex justify-between text-[10px] text-slate-600">
+              <span>聚焦 1</span>
+              <span>发散 8</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+              规划阶段把主题切成几个可独立检索的子问题；每个子问题至少占 1 跳，
+              上限太高会摊薄每跳的深度。
+            </p>
+
+            <p className="field-label mt-5 mb-0" id="provider-label">搜索引擎</p>
+            <div
+              role="radiogroup"
+              aria-labelledby="provider-label"
+              className="relative mt-2 flex overflow-hidden rounded-xl border border-white/10 bg-black/20 transition hover:border-white/20"
+            >
+              {/* 滑动高亮块：选中项变化时平移（300ms ease-out）—— 原生 select 在暗色主题下
+                  渲染不可控（下拉箭头/选项底色），改用分段切换器，风格与表单其余控件一致 */}
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 rounded-lg bg-emerald-400/[0.14] ring-1 ring-inset ring-emerald-400/40 transition-transform duration-300 ease-out"
+                style={{
+                  width: `${100 / Math.max(providers.length, 1)}%`,
+                  transform: `translateX(${activeProviderIndex * 100}%)`,
+                }}
+              />
+              {providers.length > 0 ? (
+                providers.map((provider) => (
+                  <button
+                    key={provider.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={searchProvider === provider.value}
+                    onClick={() => setSearchProvider(provider.value)}
+                    disabled={!provider.available || running}
+                    title={provider.available ? undefined : '未配置 API key，不可用'}
+                    className={`relative z-10 flex-1 px-3 py-2.5 text-xs font-semibold transition-colors duration-200 ${
+                      searchProvider === provider.value
+                        ? 'text-emerald-200'
+                        : 'text-slate-400 hover:text-slate-200'
+                    } disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:text-slate-600`}
+                  >
+                    {provider.label}
+                    {provider.available ? null : <span className="ml-1 text-[10px] font-normal">（未配置）</span>}
+                  </button>
+                ))
+              ) : (
+                <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-600">加载中…</span>
+              )}
+            </div>
+            {providers.some((provider) => !provider.available) ? (
+              <p className="mt-1.5 text-[10px] leading-4 text-slate-600">
+                标注「未配置」的源不可用 —— 选它会导致整场检索零结果。
+              </p>
+            ) : null}
+
+            <div className="mt-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="field-label mb-0">学术检索（arXiv）</p>
+                <p className="mt-1 text-[10px] leading-4 text-slate-600">
+                  关闭后不再请求 arXiv，可避免该源产生的降级记录。
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enableArxiv}
+                aria-label="学术检索（arXiv）"
+                onClick={() => setEnableArxiv(!enableArxiv)}
+                disabled={running}
+                className={`relative h-6 w-11 shrink-0 rounded-full ring-1 ring-inset transition-colors duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-40 ${
+                  enableArxiv
+                    ? 'bg-emerald-400/90 ring-emerald-300/40'
+                    : 'bg-white/[0.08] ring-white/10 hover:bg-white/[0.14]'
+                }`}
+              >
+                {/* 位移量 = 轨道 44px − 滑块 20px − 左右各 2px 边距 = 20px（标准值 translate-x-5）。
+                    ⚠️ 必须显式 left-0.5：只给 top 的话水平位置取决于 absolute 的静态位置，
+                    而 button 默认 text-align:center 会让它在浏览器间飘移。 */}
+                <span
+                  aria-hidden="true"
+                  className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-md shadow-black/30 transition-transform duration-300 ease-out ${
+                    enableArxiv ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <button className="primary-button mt-6 w-full" type="submit" disabled={running || !topic.trim()}>
+              <span>{status === 'starting' ? '启动中' : '开始研究'}</span>
+              <span aria-hidden="true">→</span>
+            </button>
+
+            {(status === 'running' || status === 'stopping') && (
+              <button className="danger-button mt-3 w-full" type="button" onClick={() => void cancel()} disabled={status === 'stopping'}>
+                <span>{status === 'stopping' ? '正在安全停止' : '停止研究'}</span>
+              </button>
+            )}
+
+            {status === 'stopping' && (
+              <p className="mt-3 text-xs leading-5 text-amber-100/70">
+                取消请求已生效。当前节点会自然结束，系统不会再启动下一节点。
+              </p>
+            )}
+          </form>
+
+          <section className="surface-card p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">运行边界</p>
+            <div className="mt-4 space-y-3 text-xs leading-5 text-slate-400">
+              <BoundaryItem title="核心逻辑" text="研究判断全部留在 Python 后端" />
+              <BoundaryItem title="费用口径" text="只展示后端实值，缺失时不做估算" />
+              <BoundaryItem title="取消语义" text="节点边界停止，不把取消记为故障" />
+            </div>
+          </section>
+
+          <section className="surface-card p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">文档摄取状态</p>
+                <p className="mt-1 text-xs text-slate-500">本轮知识库参与情况</p>
+              </div>
+              <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-xs text-slate-300">{ragSourceCount}</span>
+            </div>
+            <p className="mt-4 text-xs leading-5 text-slate-400">
+              {result
+                ? ragSourceCount > 0
+                  ? `本轮命中 ${ragSourceCount} 个本地知识库来源。`
+                  : '本轮结果未命中本地知识库来源。'
+                : '研究完成后显示 RAG 文档命中情况；当前协议不伪造摄取进度。'}
+            </p>
+          </section>
+        </aside>
+
+        <div className="min-w-0 space-y-6">
+          <section className="surface-card overflow-hidden">
+            <div className="border-b border-white/[0.07] px-5 py-5 sm:px-6">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}
+                      data-testid="status-badge"
+                    >
+                      {statusInfo.label}
+                    </span>
+                    {runId && <span className="font-mono text-[11px] text-slate-600">RUN {runId}</span>}
+                  </div>
+                  <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                    {topic.trim() || '把复杂问题变成可追溯的研究结论'}
+                  </h1>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+                    {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <ProgressBar progress={progress} cancelling={status === 'stopping'} />
+            </div>
+          </section>
+
+          {error && (
+            <section
+              className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-5 py-4 text-sm text-rose-100"
+              data-testid="error-card"
+            >
+              <div className="flex gap-3">
+                <span aria-hidden="true">!</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">需要注意</p>
+                    {/* P1-5 结构化错误：把 code / 归因组件 / 节点摆到台面上，
+                        用户不用从 message 文本里猜「这是谁的锅」 */}
+                    <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/80" data-testid="error-code">
+                      {error.code}
+                    </span>
+                    {error.component && (
+                      <span className="rounded-md bg-black/25 px-2 py-0.5 text-[10px] text-rose-200/70">
+                        {error.component}
+                      </span>
+                    )}
+                    {error.node && (
+                      <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/70">
+                        节点 {error.node}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-rose-100/80">{error.message}</p>
+                  {error.detail && (
+                    <p className="mt-1 break-all font-mono text-[11px] leading-5 text-rose-200/55">
+                      {error.detail}
+                    </p>
+                  )}
+                  {error.hint && (
+                    <p className="mt-2 text-xs leading-5 text-rose-100/70" data-testid="error-hint">
+                      {error.hint}
+                    </p>
+                  )}
+                  {lastRequest && (
+                    <button
+                      className="secondary-button mt-3 !px-3 !py-2"
+                      type="button"
+                      onClick={handleRetry}
+                      disabled={running}
+                      data-testid="retry-button"
+                    >
+                      {running ? '运行中，暂不能重试' : '用同样参数重试'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {status === 'timeout' && (
+            <section
+              className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-4 text-sm text-amber-100"
+              data-testid="timeout-card"
+            >
+              <p className="font-semibold">研究已在时限处停止</p>
+              <p className="mt-1 text-xs leading-5 text-amber-100/75">
+                {timeoutSeconds === null
+                  ? '单次运行有墙钟时限，到点后在节点边界停止。'
+                  : `本次时限 ${formatDuration(timeoutSeconds * 1000)}（后端 DR_RUN_TIMEOUT_SECONDS）。`}
+                停止发生在节点边界，最坏多等一个节点；已完成的节点与统计全部保留。
+                超时既不算「完成」也不算「取消」，更不是故障 —— 不计入运行失败率。
+              </p>
+            </section>
+          )}
+
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="已完成节点" value={String(steps.length)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
+            <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="cyan" />
+            <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
+            <MetricCard
+              label="运行时长"
+              value={formatDuration(elapsedMs)}
+              detail={
+                running && remainingMs !== null
+                  ? `剩余约 ${formatDuration(remainingMs)}`
+                  : lastStep
+                    ? `深度 ${lastStep.depth}`
+                    : '自发起时刻起'
+              }
+              accent="amber"
+            />
+          </section>
+
+          <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
+            <div className="surface-card min-h-[360px] p-5 sm:p-6">
+              <SectionHeading eyebrow="Live trace" title="研究活动" detail={`${events.length} 条事件`} />
+              {/* P1-7 移动端：窄屏留给活动流的高度更小，避免一屏全是时间线 */}
+              {timeline.length === 0 ? (
+                <EmptyState icon="⌁" title="等待研究开始" text="事件会按最新优先排列，断线重连不会重新启动研究。" />
+              ) : (
+                <div className="mt-5 max-h-[360px] space-y-1 overflow-y-auto pr-1 sm:max-h-[520px]">
+                  {timeline.map(({ event, index }) => (
+                    <TimelineItem key={index} event={event} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="surface-card p-5 sm:p-6">
+              <SectionHeading eyebrow="Transparency" title="降级与恢复" detail={`${degradations.length} 项`} />
+              {degradations.length === 0 ? (
+                <EmptyState icon="✓" title="暂无降级" text={running ? '如有工具或供应商降级，会在这里立即显示。' : '本次运行没有收到降级事件。'} />
+              ) : (
+                <div className="mt-5 space-y-3">
+                  {degradations.map((event, index) => (
+                    <div key={`${event.component}-${index}`} className="rounded-xl border border-amber-300/15 bg-amber-300/[0.06] p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-amber-100">{event.component}</span>
+                        <span className="rounded-md bg-black/20 px-2 py-1 text-[10px] text-amber-200/70">{event.reason}</span>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-slate-400">{event.detail || '未提供详情'}</p>
+                      <p className="mt-2 text-[11px] text-amber-200/60">回退：{event.fallback_action || '已由后端处理'}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {result && (
+            <>
+              <section className="surface-card overflow-hidden">
+                <div className="flex flex-col justify-between gap-4 border-b border-white/[0.07] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Research report</p>
+                    <h2 className="mt-1 text-xl font-semibold text-white" data-testid="report-heading">研究报告</h2>
+                    <p className="mt-1 text-xs text-slate-500">Markdown 安全渲染 · {result.report.length.toLocaleString('zh-CN')} 字符</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="secondary-button !px-3 !py-2" type="button" onClick={() => void copyReport()} disabled={!result.report}>
+                      {copyState === 'copied' ? '已复制' : '复制正文'}
+                    </button>
+                    {/* P1-6：走后端导出（正文 + 审计元数据 + 引用清单），不是前端 Blob 那份纯正文 */}
+                    <button
+                      className="secondary-button !px-3 !py-2"
+                      type="button"
+                      onClick={() => void exportReport()}
+                      disabled={!runId}
+                      data-testid="export-button"
+                    >
+                      {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
+                    </button>
+                  </div>
+                </div>
+                <div className="px-5 py-6 sm:px-8 sm:py-8">
+                  {result.report ? (
+                    <ReportView report={result.report} />
+                  ) : (
+                    <EmptyState icon="◌" title="暂无完整报告" text="运行在报告生成前停止，已完成的事件与统计仍保留。" />
+                  )}
+                </div>
+              </section>
+
+              <section className="surface-card p-5 sm:p-6">
+                <SectionHeading
+                  eyebrow="Evidence"
+                  title="引用校验"
+                  detail={`${verifiedCitations} / ${result.citations.length} 严格通过`}
+                />
+                {result.citations.length === 0 ? (
+                  <EmptyState icon="∅" title="没有引用记录" text="报告可能在引用校验前停止，或本轮未生成可校验引用。" />
+                ) : (
+                  <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                    {result.citations.map((citation, index) => (
+                      <CitationCard key={`${citation.source}-${index}`} citation={citation} index={index} />
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="grid gap-6 lg:grid-cols-2">
+                {/* P1-7 移动端：`min-w-0` 必须有 —— grid 子项默认 `min-width:auto`，
+                    长 URL / 长单词会把列撑得比容器宽，整页出现横向滚动条。 */}
+                <div className="surface-card min-w-0 p-5 sm:p-6">
+                  <SectionHeading eyebrow="Sources" title="访问来源" detail={`${result.visited_sources.length} 个`} />
+                  <div className="mt-5 space-y-2">
+                    {result.visited_sources.length ? result.visited_sources.map((source, index) => (
+                      <SourceRow key={`${source}-${index}`} source={source} index={index} />
+                    )) : <EmptyState icon="∅" title="暂无来源" text="没有可展示的来源记录。" />}
+                  </div>
+                </div>
+
+                <div className="surface-card min-w-0 p-5 sm:p-6">
+                  <SectionHeading eyebrow="Reflection" title="决策轨迹" detail={`${result.reflection_log.length} 轮`} />
+                  <div className="mt-5 space-y-3">
+                    {result.reflection_log.length ? result.reflection_log.map((entry, index) => (
+                      <div key={index} className="surface-card-muted p-4">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-slate-200">第 {String(entry.depth ?? index + 1)} 轮判断</span>
+                          {entry.decision != null && <span className="rounded-md bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">{String(entry.decision)}</span>}
+                        </div>
+                        <p className="text-xs leading-5 text-slate-500">{reflectionSummary(entry)}</p>
+                      </div>
+                    )) : <EmptyState icon="∅" title="暂无决策轨迹" text="本轮没有可展示的 critic 记录。" />}
+                  </div>
+                </div>
+              </section>
+
+              {Object.keys(result.validator_stats).length > 0 && (
+                <section className="surface-card p-5 sm:p-6">
+                  <SectionHeading eyebrow="Audit" title="校验统计" detail={`研究深度 ${result.depth}`} />
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {Object.entries(result.validator_stats).map(([key, value]) => (
+                      <div key={key} className="surface-card-muted p-4">
+                        <p className="truncate text-[11px] uppercase tracking-[0.1em] text-slate-600">{humanizeKey(key)}</p>
+                        <p className="mt-2 font-mono text-lg font-semibold text-slate-200">{formatUnknown(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function BoundaryItem({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="flex gap-3">
+      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400/70" />
+      <p><span className="font-medium text-slate-300">{title}：</span>{text}</p>
+    </div>
+  )
+}
+
+function MetricCard({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: 'emerald' | 'cyan' | 'violet' | 'amber' }) {
+  const accentClass = {
+    emerald: 'from-emerald-400/20 text-emerald-200',
+    cyan: 'from-cyan-400/20 text-cyan-200',
+    violet: 'from-violet-400/20 text-violet-200',
+    amber: 'from-amber-400/20 text-amber-200',
+  }[accent]
+  return (
+    <div className={`surface-card bg-gradient-to-br ${accentClass} to-transparent p-4`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 truncate text-xs text-slate-500">{detail}</p>
+    </div>
+  )
+}
+
+function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
+  return (
+    <div className="flex items-end justify-between gap-4">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300/55">{eyebrow}</p>
+        <h2 className="mt-1 text-lg font-semibold text-white">{title}</h2>
+      </div>
+      <p className="text-xs text-slate-600">{detail}</p>
+    </div>
+  )
+}
+
+function EmptyState({ icon, title, text }: { icon: string; title: string; text: string }) {
+  return (
+    <div className="grid min-h-48 place-items-center text-center">
+      <div className="max-w-xs">
+        <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-500">{icon}</div>
+        <p className="mt-3 text-sm font-medium text-slate-300">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-600">{text}</p>
+      </div>
+    </div>
+  )
+}
+
+function TimelineItem({ event }: { event: AguiEvent }) {
+  const view = eventPresentation(event)
+  return (
+    <div className="group flex gap-3 rounded-xl px-2 py-3 transition hover:bg-white/[0.025]">
+      <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border text-xs ${view.iconClass}`}>{view.icon}</div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-3">
+          <p className="truncate text-xs font-semibold text-slate-300">{view.title}</p>
+          <span className="shrink-0 font-mono text-[10px] text-slate-700">{event.type}</span>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{view.detail}</p>
+      </div>
+    </div>
+  )
+}
+
+function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
+  const verified = citation.verified
+  return (
+    <article className={`rounded-xl border p-4 ${verified ? 'border-emerald-300/15 bg-emerald-300/[0.04]' : 'border-amber-300/15 bg-amber-300/[0.04]'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] text-slate-600">#{index + 1}</span>
+          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${verified ? 'bg-emerald-300/10 text-emerald-200' : 'bg-amber-300/10 text-amber-200'}`}>
+            {verified ? '严格通过' : citation.verified_relaxed ? '宽松通过' : '待复核'}
+          </span>
+        </div>
+        <span className="font-mono text-xs text-slate-500">{Math.round(citation.confidence * 100)}%</span>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-slate-300">{citation.claim}</p>
+      <div className="mt-3 border-t border-white/[0.06] pt-3">
+        <SourceLink source={citation.source} />
+        {citation.note && <p className="mt-2 text-xs leading-5 text-slate-600">{citation.note}</p>}
+      </div>
+    </article>
+  )
+}
+
+function SourceRow({ source, index }: { source: string; index: number }) {
+  return (
+    <div className="surface-card-muted flex items-center gap-3 p-3">
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-black/20 font-mono text-[10px] text-slate-600">{index + 1}</span>
+      <div className="min-w-0 flex-1"><SourceLink source={source} /></div>
+      <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-slate-600">{sourceType(source)}</span>
+    </div>
+  )
+}
+
+function SourceLink({ source }: { source: string }) {
+  if (/^https?:\/\//i.test(source)) {
+    return <a className="block truncate text-xs text-emerald-300/80 hover:text-emerald-200" href={source} target="_blank" rel="noreferrer">{source}</a>
+  }
+  return <p className="truncate font-mono text-xs text-slate-400">{source}</p>
+}
+
+function isStepFinished(event: AguiEvent): event is StepFinishedEvent {
+  return event.type === 'STEP_FINISHED'
+}
+
+function isDegradation(event: AguiEvent): event is DegradationEvent {
+  return event.type === 'DEGRADATION'
+}
+
+function lastEventOfType(events: AguiEvent[], type: AguiEvent['type']): AguiEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index].type === type) return events[index]
+  }
+  return undefined
+}
+
+function latestActivity(events: AguiEvent[]): string {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event.type === 'STATE_DELTA') {
+      const added = (event as StateDeltaEvent).progress_added
+      const message = added[added.length - 1]?.msg
+      if (message) return message
+    }
+  }
+  return ''
+}
+
+function statusPresentation(status: StreamStatus) {
+  return {
+    idle: { label: '等待任务', className: 'border-white/10 bg-white/[0.03] text-slate-400' },
+    starting: { label: '正在启动', className: 'border-cyan-300/20 bg-cyan-300/[0.08] text-cyan-200' },
+    running: { label: '研究进行中', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
+    stopping: { label: '正在安全停止', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
+    done: { label: '研究完成', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
+    cancelled: { label: '已取消', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
+    timeout: { label: '已到时限停止', className: 'border-amber-300/25 bg-amber-300/[0.10] text-amber-200' },
+    error: { label: '运行失败', className: 'border-rose-300/20 bg-rose-300/[0.08] text-rose-200' },
+  }[status]
+}
+
+function connectionPresentation(status: ConnectionStatus) {
+  return {
+    idle: { label: '等待实时流', className: 'border-white/10 bg-white/[0.03] text-slate-500', dotClass: 'bg-slate-600' },
+    connecting: { label: '连接中', className: 'border-cyan-300/15 bg-cyan-300/[0.05] text-cyan-200', dotClass: 'animate-pulse bg-cyan-300' },
+    live: { label: '实时连接', className: 'border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200', dotClass: 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,0.7)]' },
+    reconnecting: { label: '正在重连', className: 'border-amber-300/15 bg-amber-300/[0.05] text-amber-200', dotClass: 'animate-pulse bg-amber-300' },
+    closed: { label: '连接已关闭', className: 'border-white/10 bg-white/[0.03] text-slate-500', dotClass: 'bg-slate-600' },
+  }[status]
+}
+
+function eventPresentation(event: AguiEvent) {
+  switch (event.type) {
+    case 'RUN_STARTED':
+      return { icon: '▶', iconClass: 'border-cyan-300/15 bg-cyan-300/[0.07] text-cyan-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
+    case 'STEP_FINISHED': {
+      const step = event as StepFinishedEvent
+      return { icon: '✓', iconClass: 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: nodeLabel(step.node), detail: `${formatDuration(step.duration_ms)} · 深度 ${step.depth} · ${formatNumber(step.token_used)} token` }
+    }
+    case 'STATE_DELTA': {
+      const delta = event as StateDeltaEvent
+      const message = delta.progress_added[delta.progress_added.length - 1]?.msg || '状态已更新'
+      const governance = delta.planner_events_count > 0
+        ? ` · 规划治理 ${delta.planner_events_count} 条`
+        : ''
+      return { icon: '↗', iconClass: 'border-violet-300/15 bg-violet-300/[0.07] text-violet-200', title: '研究状态更新', detail: message + governance }
+    }
+    case 'DEGRADATION': {
+      const degradation = event as DegradationEvent
+      return { icon: '!', iconClass: 'border-amber-300/15 bg-amber-300/[0.07] text-amber-200', title: `${degradation.component} 已降级`, detail: degradation.detail || degradation.reason }
+    }
+    case 'RUN_FINISHED': {
+      const runFinished = event as RunFinishedEvent
+      return { icon: '■', iconClass: runFinished.cancelled ? 'border-amber-300/15 bg-amber-300/[0.07] text-amber-200' : 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: runFinished.cancelled ? '研究已在安全边界停止' : '研究已完成', detail: `${formatNumber(runFinished.token_used)} token · ${runFinished.degradation_count} 项降级` }
+    }
+    case 'RUN_ERROR':
+      return { icon: '×', iconClass: 'border-rose-300/15 bg-rose-300/[0.07] text-rose-200', title: '研究运行失败', detail: String(event.message ?? '未知错误') }
+    default:
+      return { icon: '·', iconClass: 'border-white/10 bg-white/[0.03] text-slate-500', title: event.type, detail: '事件已接收' }
+  }
+}
+
+function nodeLabel(node: string): string {
+  return NODE_LABELS[node] ?? node
+}
+
+function formatNumber(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString('zh-CN') : '0'
+}
+
+function formatCost(cny: number): string {
+  // 研究单跑常在几分钱量级，固定两位会把 0.004 显示成 0.00 ⇒ 小额度多留两位
+  if (cny === 0) return '0'
+  return cny < 0.01 ? cny.toFixed(4) : cny.toFixed(2)
+}
+
+function formatDuration(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return '0s'
+  const seconds = Math.round(milliseconds / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
+}
+
+function isKnowledgeBaseSource(source: string): boolean {
+  return source.startsWith('rag:') || source.startsWith('local://')
+}
+
+function sourceType(source: string): string {
+  if (source.startsWith('rag:') || source.startsWith('local://')) return 'rag'
+  if (source.includes('arxiv.org')) return 'arxiv'
+  if (source.startsWith('code:')) return 'code'
+  return 'web'
+}
+
+function reflectionSummary(entry: Record<string, unknown>): string {
+  const summary = entry.gap ?? entry.knowledge_gap ?? entry.reason ?? entry.summary
+  if (summary != null && String(summary).trim()) return String(summary)
+  const rest = Object.entries(entry)
+    .filter(([key]) => !['depth', 'decision'].includes(key))
+    .map(([key, value]) => `${humanizeKey(key)}：${formatUnknown(value)}`)
+  return rest.join('；') || '未提供更多说明。'
+}
+
+function humanizeKey(key: string): string {
+  return key.replace(/_/g, ' ')
+}
+
+function formatUnknown(value: unknown): string {
+  if (typeof value === 'number') {
+    if (value >= 0 && value <= 1 && !Number.isInteger(value)) return `${Math.round(value * 100)}%`
+    return value.toLocaleString('zh-CN')
+  }
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (value == null) return '—'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}

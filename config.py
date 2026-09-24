@@ -52,9 +52,19 @@ class LLMConfig:
 
 @dataclass
 class SearchConfig:
-    """网络搜索配置（可切换 Provider）。"""
+    """网络搜索配置（可切换 Provider）。
+
+    ``provider`` 取值见 :func:`research_engine.search.base.create_search_provider`
+    （目前 ``bocha`` / ``tavily``）。⚠️ 该开关必须经工厂函数装配才生效 —— 直接
+    ``BochaSearchProvider()`` 会绕过配置，使切换失效（W9 接线时修）。
+    """
     provider: str = field(default_factory=lambda: _env("SEARCH_PROVIDER", "bocha"))
     bocha_api_key: str = field(default_factory=lambda: _env("BOCHA_API_KEY"))
+    #: Tavily（1000 次/月免费，专为 Agent 设计）。博查额度耗尽时可切到此源。
+    tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY"))
+    #: 学术检索（arXiv）开关。出口不通或不需要学术源时可关掉，避免每跳都记一条降级。
+    enable_arxiv: bool = field(
+        default_factory=lambda: _env("ENABLE_ARXIV", "true").lower() != "false")
     max_results: int = 8
     # W4 Q3：Semantic Scholar 后处理管道（可选，缺 key 静默跳过；citationCount 只采不决策）
     semantic_scholar_api_key: str = field(default_factory=lambda: _env("SEMANTIC_SCHOLAR_API_KEY"))
@@ -95,7 +105,13 @@ class ResearchConfig:
 
     # ---- W1 新增：全局预算 / 硬闸（呼应 grill Q4/Q5/Q6）----
     max_total_hops: int = 20    # 全局总跳数上限；与旧 max_depth×max_subquestions=5×4 精确等价（Q4=A）
-    per_subq_hop_cap: int = 5   # 每子问题跳数上限 = max_total_hops/max_subquestions，防 starvation（Q5=A）
+    # ⚠️ 语义变更（W9 后）：动态化前它是**实际生效**的每子问题跳数上限；动态化后它
+    # 退化为「子问题数不可得时的静态兜底」。真正生效值是
+    # `ceil(max_total_hops / 实际子问题数)`（见 graph.effective_per_subq_hop_cap）。
+    # 默认配置下两者相等（ceil(20/4)=5）⇒ 与 W1 的 Q5=A 防饿死语义逐跳等价。
+    # 用 ceil 而非 floor：floor 会让「每子问题上限 × 子问题数」小于总预算
+    # （如 8 个子问题 → 2×8=16 < 20），导致预算没用完就被 cap 提前掐停。
+    per_subq_hop_cap: int = 5   # 每子问题跳数上限的静态兜底（max_total_hops/max_subquestions，Q5=A）
     max_replan: int = 1         # revise 触发 Planner.replan 的最大次数，硬上限防空转（Q2-B 兜底）
     token_budget: int = 200_000 # LLM token 总预算，作为硬闸停止条件之一（Q6-B）；正常等价预算下不先于 hop 触发
 

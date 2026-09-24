@@ -61,7 +61,7 @@ class FailureReason(StrEnum):
     EMPTY_RESULT = "empty_result"  # provider 正常响应但无结果
     PARSE_ERROR = "parse_error"  # 返回了数据但解析失败
 
-    # ---- 非工具层产生（4 值；Q4 新增，由 Arm 1 直接构造）----
+    # ---- 非工具层产生（4 值；由 Arm 1 直接构造）----
     LLM_ERROR = "llm_error"  # LLM 调用失败（非超时、非限流）
     TOKEN_LIMIT = "token_limit"  # 触发 token 硬闸 / 上下文超长
     RECURSION_LIMIT = "recursion_limit"  # GraphRecursionError

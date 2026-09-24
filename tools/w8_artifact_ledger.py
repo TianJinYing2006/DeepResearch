@@ -53,10 +53,29 @@ GOVERNANCE_DOCS = frozenset(
     }
 )
 
-# 扫描引用时要跳过的目录：产物自己当然会「引用」自己，排除掉才是有效证据
-SCAN_SKIP_DIRS = {".git", ".workbuddy", "results", "__pycache__", "node_modules", ".venv", ".deps"}
+# 扫描引用时要跳过的目录。
+# ⚠️ 2026-09-18 修正（本工具的核心判据 bug）：原先把 `results` 一并跳过，理由是「产物自己当然会
+# 引用自己」—— 那只对**自指**成立。`w7_experiment_*/manifest.json` 里的 `runs[].run_dir` 是
+# **包含 / 溯源登记**，不是自引用；整目录跳过导致 58 个 run / 110.0 MB 被误判成「无引用」
+# （详见 docs/eval-artifact-ledger.md 的第四档说明）。现在改为「走进去扫、逐条排除自指」，
+# 见 `_results_owner()`。
+# `.workbuddy` 仍**必须**跳过：它装着事故物理备份（`_arm7_results_backup/`）与逐日流水，
+# 后者会把 run 名当「处置记录」写进去 —— 计入即重现「登记的反转」（写了说明 ≠ 原本被引用）。
+SCAN_SKIP_DIRS = {".git", ".workbuddy", "__pycache__", "node_modules", ".venv", ".deps"}
 SCAN_SUFFIXES = {".md", ".py", ".yml", ".yaml", ".txt", ".json"}
 MAX_TEXT_BYTES = 4 * 1024 * 1024
+
+
+def _results_owner(rel_posix: str) -> str | None:
+    """仓库相对路径若位于 `results/` 内，返回它所属的**顶层条目名**，否则 `None`。
+
+    用途有二：① 判定「结构登记」这一档引用（第四档，见 D-13）；② 排除自指。
+    """
+    prefix = RESULTS_REL + "/"
+    if not rel_posix.startswith(prefix):
+        return None
+    return rel_posix[len(prefix) :].split("/", 1)[0]
+
 
 CATEGORY_RULES = [
     ("_SUPERSEDED", "被取代"),
@@ -109,7 +128,11 @@ def _readable_text(path: Path) -> bool:
 
 
 def scan_references(repo_root: Path, names: set[str]) -> dict[str, list[str]]:
-    """全仓扫描（排除产物目录自身），返回 {条目名: [引用文件...]}。"""
+    """全仓扫描，返回 {条目名: [引用文件...]}。
+
+    `results/` **也扫**（见 SCAN_SKIP_DIRS 的说明），但逐条排除自指：`results/<X>/...` 里提到
+    `<X>` 不算证据。反过来，`results/<X>/manifest.json` 提到 `<Y>` 是**结构登记**，算第四档证据。
+    """
     hits: dict[str, list[str]] = {name: [] for name in names}
 
     for dirpath, dirnames, filenames in os.walk(repo_root):
@@ -122,12 +145,16 @@ def scan_references(repo_root: Path, names: set[str]) -> dict[str, list[str]]:
                 text = file.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
+            rel = file.relative_to(repo_root).as_posix()
+            owner = _results_owner(rel)
             for name in names:
+                if owner == name:
+                    continue  # 自指：产物写自己的名字不构成引用证据
                 if name in text and len(hits[name]) < 5:
-                    rel = file.relative_to(repo_root).as_posix()
                     if rel not in hits[name]:
                         hits[name].append(rel)
     return hits
+
 
 
 def classify(name: str) -> str:
@@ -157,7 +184,12 @@ def build_rows(repo_root: Path, extra_auto: frozenset[str] = frozenset()) -> tup
     for entry in entries:
         size, mtime = dir_size_and_mtime(entry)
         cited = refs.get(entry.name, [])
-        manual = [p for p in cited if p not in auto_docs]
+        # 自动枚举文档（如 docs/eval-report.md）会把几乎所有 run 无差别列一遍 ⇒ 不算证据
+        outside = [p for p in cited if p not in auto_docs]
+        # 第四档「结构登记」：来自 results/ 内部（manifest 的 runs[].run_dir 等）—— 机器登记，非处置记录
+        structural = [p for p in outside if _results_owner(p) is not None]
+        # 手写引用：来自结论文档 / 代码等 results/ 之外的文件
+        prose = [p for p in outside if _results_owner(p) is None]
         rows.append(
             {
                 "name": entry.name,
@@ -167,16 +199,26 @@ def build_rows(repo_root: Path, extra_auto: frozenset[str] = frozenset()) -> tup
                 "tracked": entry.name in tracked_top,
                 "category": classify(entry.name),
                 "refs": cited,
-                "manual_refs": manual,
-                "only_auto": not manual and bool(cited),
-                "governance_only": bool(manual) and all(p in GOVERNANCE_DOCS for p in manual),
+                "prose_refs": prose,
+                "structural_refs": structural,
+                "evidence_refs": prose + structural,
+                "only_auto": not (prose or structural) and bool(cited),
+                # ⚠️ 软标记只看**手写**引用：不得因「结构登记里有它」就放过人工确认。
+                # 反例（2026-09-18 实测）：before 基线三个 run 的唯一手写提法在 §10.4 验收记录里，
+                # 但 `results/history.json` 也登记了它们的 run_id —— 若让结构登记压掉软标记，
+                # 台账就不再提示「这条只有处置记录撑着」。
+                "governance_only": bool(prose) and all(p in GOVERNANCE_DOCS for p in prose),
             }
         )
     rows.sort(key=lambda r: r["size"], reverse=True)
 
-    manual_named = [r for r in rows if r["manual_refs"]]
-    effective = [r for r in manual_named if not r["governance_only"]]
-    gov_only = [r for r in manual_named if r["governance_only"]]
+    prose_named = [r for r in rows if r["prose_refs"]]
+    prose_effective = [r for r in prose_named if not r["governance_only"]]
+    gov_only = [r for r in prose_named if r["governance_only"]]
+    structural_named = [r for r in rows if r["structural_refs"]]
+    structural_only = [r for r in structural_named if not r["prose_refs"]]
+    evidence_backed = [r for r in rows if r["evidence_refs"]]
+    no_evidence = [r for r in rows if not r["evidence_refs"]]
     total = sum(r["size"] for r in rows)
     summary = {
         "total": total,
@@ -184,14 +226,23 @@ def build_rows(repo_root: Path, extra_auto: frozenset[str] = frozenset()) -> tup
         "tracked": sum(r["size"] for r in rows if r["tracked"]),
         "untracked": sum(r["size"] for r in rows if not r["tracked"]),
         "count": len(rows),
-        "manual_named": len(manual_named),
-        "manual_named_size": sum(r["size"] for r in manual_named),
-        "manual_effective": len(effective),
-        "manual_effective_size": sum(r["size"] for r in effective),
+        "prose_named": len(prose_named),
+        "prose_named_size": sum(r["size"] for r in prose_named),
+        "prose_effective": len(prose_effective),
+        "prose_effective_size": sum(r["size"] for r in prose_effective),
         "governance_only": len(gov_only),
         "governance_only_size": sum(r["size"] for r in gov_only),
+        "structural_named": len(structural_named),
+        "structural_named_size": sum(r["size"] for r in structural_named),
+        "structural_only": len(structural_only),
+        "structural_only_size": sum(r["size"] for r in structural_only),
+        "evidence_backed": len(evidence_backed),
+        "evidence_backed_size": sum(r["size"] for r in evidence_backed),
+        "no_evidence": len(no_evidence),
+        "no_evidence_size": sum(r["size"] for r in no_evidence),
     }
     return rows, summary
+
 
 
 def render(rows: list[dict], summary: dict) -> str:
@@ -202,16 +253,17 @@ def render(rows: list[dict], summary: dict) -> str:
         "> **本台账由只读扫描生成，未删除/移动/重命名任何产物。** 磁盘清理须在本台账 review 之后单独拍板 —— "
         "原因是 `tools/w7_backfill_*.py` 直接读 `run_dir/raw/*.raw.json`，那是 W7 零成本可复算的唯一证据源。",
         "",
-        "| 目录 / 文件 | 体积 | 最后修改 | 入库 | 类别 | 引用来源（手写文档 / 代码，可作入库证据） | 仅出现在自动表痕 |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| 目录 / 文件 | 体积 | 最后修改 | 入库 | 类别 | 手写引用（结论文档 / 代码） | 结构登记（`results/` 内，如 manifest 的 `runs[].run_dir`） | 仅出现在自动表痕 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in rows:
-        refs = "<br>".join(f"`{p}`" for p in r["manual_refs"]) or "—"
+        prose = "<br>".join(f"`{p}`" for p in r["prose_refs"]) or "—"
         if r["governance_only"]:
-            refs += "<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）**"
+            prose += "<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）**"
+        structural = "<br>".join(f"`{p}`" for p in r["structural_refs"]) or "—"
         lines.append(
             f"| `{r['name']}` | {r['size_human']} | {r['mtime']} | "
-            f"{'✅' if r['tracked'] else '—'} | {r['category']} | {refs} | "
+            f"{'✅' if r['tracked'] else '—'} | {r['category']} | {prose} | {structural} | "
             f"{'⚠️ 是' if r['only_auto'] else '—'} |"
         )
 
@@ -226,13 +278,23 @@ def render(rows: list[dict], summary: dict) -> str:
         f"| `results/` 总占用 | **{summary['total_human']}** |",
         f"| 其中已入库（受白名单约束） | {_human(summary['tracked'])} |",
         f"| 其中未入库（本地仅作追溯） | **{_human(summary['untracked'])}** |",
-        f"| 有【手写引用】的条目 | {summary['manual_named']} 个 / {_human(summary['manual_named_size'])} |",
-        f"| └─ 其中引用**含**结论文档 / 代码 | {summary['manual_effective']} 个 / {_human(summary['manual_effective_size'])} |",
-        f"| └─ 其中引用**仅来自**看板 / 需求文档（⚠️ **需人工确认**，不可据此删除） | {summary['governance_only']} 个 / {_human(summary['governance_only_size'])} |",
+        f"| 有【证据】的条目（手写引用 **或** 结构登记） | {summary['evidence_backed']} 个 / {_human(summary['evidence_backed_size'])} |",
+        f"| └─ 有【手写引用】的条目 | {summary['prose_named']} 个 / {_human(summary['prose_named_size'])} |",
+        f"| &nbsp;&nbsp;&nbsp;&nbsp;└─ 其中引用**含**结论文档 / 代码 | {summary['prose_effective']} 个 / {_human(summary['prose_effective_size'])} |",
+        f"| &nbsp;&nbsp;&nbsp;&nbsp;└─ 其中引用**仅来自**看板 / 需求文档（⚠️ **需人工确认**，不可据此删除） | {summary['governance_only']} 个 / {_human(summary['governance_only_size'])} |",
+        f"| └─ 有【结构登记】的条目（第四档，登记在 `results/` 内部） | {summary['structural_named']} 个 / {_human(summary['structural_named_size'])} |",
+        f"| &nbsp;&nbsp;&nbsp;&nbsp;└─ 其中**没有**任何手写引用（结构登记独立支撑） | {summary['structural_only']} 个 / {_human(summary['structural_only_size'])} |",
+        f"| **无任何证据**（手写与结构登记都没有） | **{summary['no_evidence']} 个 / {_human(summary['no_evidence_size'])}** |",
         "",
-        f"> ⚠️ **引用分两档，别混为一谈**：`{named_namespace}` 由脚本自动写出、会把几乎所有 run 无差别地"
+        f"> ⚠️ **自动枚举不算证据**：`{named_namespace}` 由脚本自动写出、会把几乎所有 run 无差别地"
         "列进表格（实测 `docs/eval-report.md` 含 74 个 run id，而手写的 `docs/eval-w7-conclusion.md` 只提 4 个）"
         " ⇒ **只出现在自动表里 = 没有被人挑选过**，不能充当入库证据。表中「⚠️ 是」的正是这类。",
+        "",
+        "> 🧩 **第四档「结构登记」（2026-09-18 新增）**：登记写在 `results/` **内部**的机器可读文件里，"
+        "典型是 `w7_experiment_*/manifest.json` 的 `runs[].run_dir` —— 它逐条记录了「这次实验实际跑出了哪些 run」，"
+        "属**溯源/包含**关系，与「处置记录」无关，**与手写引用等效**。另有一类同样查不到的："
+        "`tools/measure_paired_rho.py --runs` 是 **argv 传参且从不落盘**，那些 run 名在仓库里天生无迹可循"
+        " ⇒ **不得因为「扫不到引用」就判它可删**。",
         "",
         "> 类别判定：`*_SUPERSEDED` = 被取代、`*_DISCARDED` = 已废弃、`_tmp_*` = 临时、`_bak_*` = 备份快照；"
         "其余为「未知」，需人工定性后再决定是否归档。",
@@ -244,9 +306,22 @@ def render(rows: list[dict], summary: dict) -> str:
         "写进「处置记录」「台账」「变更日志」的一律不算。这是 **`git rm --cached` 与评审相反的方向**："
         "前者担心误删证据，这里担心的是「描述过就被当成有证据」。",
         "",
-        "⚠️ **下一刀（尚未执行，需单独拍板）**：「入库 = —」且「仅出现在自动表痕 = ⚠️ 是」的条目才是真正的归档候选；"
+        "⚠️ **下一刀（尚未执行，需单独拍板）**：只有「手写引用 = —」**且**「结构登记 = —」**且**"
+        "「仅出现在自动表痕 = ⚠️ 是」三条同时成立的条目才是归档候选；"
         "而且任何删除动作都必须先确认该 run 不在 `tools/w7_backfill_*.py` 的输入集合里 —— "
         "那两个脚本直接读 `run_dir/raw/*.raw.json`，那是 W7 零成本可复算的唯一证据源。",
+        "",
+        "> ✅ **2026-09-18 主理人 review 已结案：维持现状，不删除任何产物。** 15 条待决条目已逐条定性，"
+        "记录见 `docs/project-status.md` 的决策记录。结案理由：真正「可考虑清」的量级约 **2.0 MB**"
+        "（2 个零字节空目录 + `_tmp_backup_not_committed` + `*_DISCARDED`），而 `results/` 总计 143.5 MB、"
+        "D 盘可用 29 GB ⇒ **清理收益为零**，却要再承担一次 D5 那类「跨边界删除产物」的风险。"
+        "另：10 个 `w7_experiment_*` 是 W7 实验记录**本体**（arm 定义 + notes），即使只有几 KB 也必须保留；"
+        "`run_20260916_*` 三条 before 基线的 run 是对照臂，由 `history.json` 与 §10.4 验收记录双重支撑。",
+        "",
+        "> 🔧 **2026-09-18 判据修正（本表口径变化的原因）**：`SCAN_SKIP_DIRS` 原先把 `results` 整个跳过，"
+        "理由是「产物自己会引用自己」—— 那只对**自指**成立。修正为「走进去扫、逐条排除自指」后，"
+        "原先 58 个被判「无引用」的 run 恢复为「有结构登记」（合计 110.0 MB）。"
+        "**修正前若按原口径清理，会销毁 W7 配对实验的证据基座**（ρ=0.551 / MDE=12.38pp 的逐题输入）。",
         "",
         "> 🚨 **「最后修改」列自 2026-09-18 起已失去取证价值**：一次**跨越 Arm 7 边界**的 `git checkout`（`git rm --cached` 把路径移出索引后，"
         "跨边界切换会让 git 认为这些路径属于旧版本）把**产物**连同未跟踪的 raw 一起从磁盘删除，`results/` 一度从 143.6 MB 掉到 31 MB。"
@@ -270,14 +345,23 @@ def main() -> int:
         out_path = REPO_ROOT / args.out
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(render(rows, summary), encoding="utf-8")
-        print(f"📒 台账已写入：{args.out}")
+        print(f"[WRITE] 台账已写入：{args.out}")
 
     print(f"顶层条目 {summary['count']} 个 / 总占用 {summary['total_human']}")
     print(f"  已入库 {_human(summary['tracked'])} / 未入库 {_human(summary['untracked'])}")
-    print(f"  有手写引用 {summary['manual_named']} 个 / {_human(summary['manual_named_size'])}")
+    print(f"  有手写引用 {summary['prose_named']} 个 / {_human(summary['prose_named_size'])}")
+    print(f"  有结构登记 {summary['structural_named']} 个 / {_human(summary['structural_named_size'])}")
+    print(f"  无任何证据 {summary['no_evidence']} 个 / {_human(summary['no_evidence_size'])}")
     for r in rows[:10]:
-        flag = "✅" if r["tracked"] else "  "
-        proof = "手写" if r["manual_refs"] else ("仅自动表痕" if r["only_auto"] else "无")
+        flag = "[TRACKED]" if r["tracked"] else "[LOCAL]  "
+        if r["prose_refs"]:
+            proof = "手写"
+        elif r["structural_refs"]:
+            proof = "结构登记"
+        elif r["only_auto"]:
+            proof = "仅自动表痕"
+        else:
+            proof = "无"
         print(f"  {flag} {r['name']:<34} {r['size_human']:>10}  {r['category']:<6} 引用={proof}")
     return 0
 

@@ -1,0 +1,203 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-width: 320px;
+    background: #07100f;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    color: #e8f0ed;
+    background:
+      radial-gradient(circle at 12% 4%, rgba(49, 196, 141, 0.13), transparent 27rem),
+      radial-gradient(circle at 88% 18%, rgba(54, 131, 255, 0.10), transparent 25rem),
+      linear-gradient(180deg, #07100f 0%, #081211 42%, #060b0b 100%);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    color: #f3fffa;
+    background: rgba(52, 211, 153, 0.34);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #091211;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid #091211;
+    border-radius: 999px;
+    background: #29443d;
+  }
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-2xl border border-white/[0.08] bg-[#0d1816]/90 shadow-[0_22px_70px_rgba(0,0,0,0.22)] backdrop-blur-xl;
+  }
+
+  .surface-card-muted {
+    @apply rounded-xl border border-white/[0.07] bg-white/[0.025];
+  }
+
+  .field-label {
+    @apply mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100/55;
+  }
+
+  .field-control {
+    @apply w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/10 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .primary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-emerald-950 shadow-[0_10px_30px_rgba(52,211,153,0.18)] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 disabled:shadow-none;
+  }
+
+  .secondary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .danger-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:border-amber-300/35 hover:bg-amber-300/15 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .report-prose {
+    @apply text-[15px] leading-7 text-slate-300;
+  }
+
+  /* P1-7 移动端：标题与代码块在窄屏上要能装下，否则会把整页撑出横向滚动条 */
+  .report-prose h1 {
+    @apply mb-5 mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl;
+  }
+
+  .report-prose h2 {
+    @apply mb-3 mt-9 border-b border-white/10 pb-2 text-lg font-semibold text-emerald-50 sm:text-xl;
+  }
+
+  .report-prose h3 {
+    @apply mb-2 mt-6 text-lg font-semibold text-slate-100;
+  }
+
+  .report-prose p,
+  .report-prose ul,
+  .report-prose ol,
+  .report-prose blockquote {
+    @apply my-4;
+  }
+
+  .report-prose ul {
+    @apply list-disc pl-6;
+  }
+
+  .report-prose ol {
+    @apply list-decimal pl-6;
+  }
+
+  .report-prose li {
+    @apply my-1.5 pl-1;
+  }
+
+  .report-prose blockquote {
+    @apply rounded-r-lg border-l-2 border-emerald-400/50 bg-emerald-400/[0.06] px-4 py-2 text-slate-300;
+  }
+
+  .report-prose a {
+    @apply break-all text-emerald-300 underline decoration-emerald-400/30 underline-offset-4 hover:text-emerald-200;
+  }
+
+  .report-prose code {
+    @apply rounded bg-black/30 px-1.5 py-0.5 font-mono text-[0.9em] text-emerald-200;
+  }
+
+  .report-prose pre {
+    @apply my-5 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-4 text-[13px] sm:text-sm;
+  }
+
+  .report-prose pre code {
+    @apply bg-transparent p-0;
+  }
+
+  /* 表格**不**在这里加 overflow-hidden：宽表在窄屏上会被裁掉且无法横向查看。
+     横向滚动交给 ReportView 的 table 组件包装层（P1-7 移动端适配）。 */
+  .report-prose table {
+    @apply my-5 w-full border-collapse text-left text-sm;
+  }
+
+  /* 长 URL / 无空格长串（中文报告常见）在窄屏上会顶破容器 ⇒ 允许任意处断行 */
+  .report-prose :where(p, li, h1, h2, h3, th, td, blockquote) {
+    overflow-wrap: anywhere;
+  }
+
+  .report-prose th {
+    @apply border border-white/10 bg-white/[0.05] px-3 py-2 font-semibold text-slate-100;
+  }
+
+  .report-prose td {
+    @apply border border-white/10 px-3 py-2 align-top;
+  }
+
+  .report-prose hr {
+    @apply my-8 border-white/10;
+  }
+}
+
+/* 进度条循环高光：一条高亮带从左往右扫过。
+   ⚠️ 只表达「仍在推进」，**不改变任何进度数值** —— 总进度仍只由可确认的数据推导，
+   不因为有了动画就假装知道剩余比例。
+   位移量按高亮带宽度 w-1/3 计算：起点 -100%（完全在左边界外）→ 终点 400%（完全掠过右边界）。 */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

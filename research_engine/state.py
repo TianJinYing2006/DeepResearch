@@ -162,6 +162,11 @@ class ResearchState(BaseModel):
     critic_stop_reason: str = Field(default="", description="W7 Arm1：本轮 critic 停止原因（hard_stop/gap_unresolved/no_next_queries/critic_stop/continue/gap_continue/revise）")
     # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
     reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
+    # Planner 规范化/策略事件：纯追加，但不属于故障，不参与 run_status 判定。
+    planner_events: Annotated[List[Dict[str, Any]], operator.add] = Field(
+        default_factory=list,
+        description="Planner 治理事件流（截断/空问题过滤/重复 ID 重写），不推导 degraded",
+    )
 
     # 报告
     report: str = Field(default="", description="最终报告（Writer 原始输出，编号协议不变）")

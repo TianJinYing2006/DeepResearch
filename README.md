@@ -14,12 +14,14 @@
 | 能力 | 说明 |
 |------|------|
 | **多 Agent 编排** | Planner（分解子问题）→ Researcher（多跳检索）→ Writer（生成报告）→ Validator（引用校验），LangGraph 状态机驱动 |
-| **多跳检索** | 基于"信息充分度"动态判断是否继续检索，上限 5 跳防死循环 |
+| **多跳检索** | 基于"信息充分度"动态判断是否继续检索；全局预算 `max_total_hops=20`，每子问题跳数上限按实际子问题数动态切分 `ceil(20 / n)`（`config.per_subq_hop_cap=5` 仅在子问题数不可得时作静态兜底） |
 | **RAG 多源融合** | 网络搜索（博查）+ arXiv 学术检索 + 代码执行 + 私有知识库（Qdrant 混合检索）四路证据并行召回 |
 | **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级（W2：来源类型标注/失败隔离/运行溯源四桶） |
 | **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划+裁决，W4 拆 planner/critic 分档可配强推理） |
 | **全链路可观测** | Langfuse trace：7 节点 span（含 critic 循环逐跳）+ 每次 LLM 调用 generation（token/cost），CLI/Web 知情打印 + trace URL 回显 |
 | **评测体系** | 检索命中率 + 引用准确率 + 报告质量（LLM-as-judge）三重评测 |
+| **故障可归因（W8）** | 工具/provider/RAG/内部错误均有明确 `failure_reason`；`run_status`/`invoke_status`/`metrics_status` 三层状态分层，失败 run 不会伪装成成功 |
+| **可复现与产物治理（W8）** | 每轮 run 落盘配置快照、五开关生效值、`prompt_hash`、`scorer_version` 与 git 修订；质量闸出 `verdict` + ±stderr；评测产物白名单 ≡ git 跟踪集合 |
 
 ## 架构
 
@@ -49,8 +51,10 @@
 ### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt -r requirements-dev-lock.txt
 ```
+
+> 请在独立虚拟环境中安装；不要用系统 Python 3.14。两份 lock 分别固定运行依赖与 pytest/ruff 开发依赖。
 
 ### 3. 配置
 
@@ -68,7 +72,7 @@ cp .env.example .env
 - `QDRANT_URL`：Qdrant 地址（默认 `http://127.0.0.1:6333`）
 - `FAST_MODEL` / `SMART_MODEL` / `STRATEGIC_MODEL`：三层模型（默认 qwen-turbo / qwen-plus / qwen-plus）
 - `PLANNER_MODEL` / `CRITIC_MODEL`（W4 分档）：规划与裁决各自独立模型；不设则回落 `STRATEGIC_MODEL`。演示强推理时：`PLANNER_MODEL=qwen-max`（规划只跑 1 次，成本增量 ≈ +¥0.007/run）；`CRITIC_MODEL=deepseek-r1` 注意裁决每轮 +10~30s 延迟——演示建议 `qwen-max` 够用。
-- **W7 主链路行为开关**：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED` 当前默认均为 `true`。它们是主链路开关，不是可忽略的实验残留；默认值/代码去留将在 W8 固定证据池、独立裁判、同预算重测后裁定，详见 `docs/w7-switch-disposition.md`。
+- **W7 主链路行为开关**：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED` 当前默认均为 `true`。它们是主链路开关，不是可忽略的实验残留；当前默认先保留；代码去留将在 W8 固定证据池、独立裁判、同预算重测后裁定，详见 `docs/w7-switch-disposition.md`。
 
 ### 3.2 工具：arXiv 学术检索 + 代码执行（W4）
 
@@ -109,12 +113,57 @@ docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
 python cli.py "2026 年 RAG 技术的最新进展"
 ```
 
-**Web UI 方式：**
+**Web UI 方式（W9 呈现层：FastAPI + React/Vite + SSE）：**
 ```bash
-python -m streamlit run web/app.py
+# 后端（SSE 端口 8000）
+uvicorn web.backend.main:app --host 127.0.0.1 --port 8000
+
+# 前端（另开终端，Vite dev server 5173）
+cd web/frontend && npm ci && npm run dev
 ```
 
-Web UI 支持：上传文档到 RAG 知识库、设置多跳深度、实时查看研究进度、输出带引用的报告。
+打开 http://localhost:5173 。生产模式下由 FastAPI 直接托管 `web/frontend/dist/`，只需启动后端。
+
+Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
+查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、
+**后端导出报告**（正文 + run_id / run_status / 降级条数等审计元数据 + 引用清单）。
+
+> 事件语义对齐 [AG-UI](https://docs.ag-ui.com/)；取消采用**协作式**而非抢占式 —— 取消请求立即生效，
+> 执行停止在下一个节点安全边界，取消后不再启动新的研究节点与 LLM 调用。详见 `docs/requirements/9-web-ui-rewrite.md`。
+>
+> ⚠️ W9 之前的 Streamlit 旧入口 `web/app.py` 已于 2026-09-23 删除；依赖与 lock 已同步清理，不再维护。
+
+#### 运行护栏（P1，2026-09-24）
+
+| 护栏 | 行为 | 默认值 / 开关 |
+|------|------|---------------|
+| 运行超时闸 | 单次 run 有墙钟时限，到点后在**节点边界**停止；`stop_reason=timeout`，**不记为故障** | 3600s，`DR_RUN_TIMEOUT_SECONDS` |
+| 单进程并发限制 | 同时活跃 run 数封顶，超出返回 429（`code=concurrency_limit`） | 1，`DR_MAX_CONCURRENT_RUNS` |
+| 强制收口宽限 | 协作式停止失效（节点内部挂死）时，传输层最多再等这么久就补 `RUN_ERROR(stop_forced)` 收口 | 60s，`DR_FORCED_STOP_GRACE_SECONDS` |
+| 状态查询 | `GET /api/research/{run_id}` 返回内存态画像（状态、已跑时长、剩余时间、事件数、stop_reason） | —— |
+| 结构化错误 | 所有 HTTP 错误与 `RUN_ERROR` 共用 `{code, message, component, node, detail, retryable, hint}` | —— |
+| 报告导出 | `GET /api/research/{run_id}/report?format=md\|json` | —— |
+
+⚠️ **超时与强制收口都是协作式的**：Python 线程无法被 kill，若某个节点内部（如一次 HTTP 调用）挂死，
+闸只能在下一个节点边界生效；硬截止只保证**传输层**收口、客户端不再干等，后台线程可能仍在收尾。
+这是语言级限制，不是实现偷懒。
+
+强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
+会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
+
+**浏览器 E2E（本机门禁）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，8 条用例（主流程 / 降级可见 / 导出 / 取消语义 /
+结构化错误 + 重试 / 窄屏无横向滚动）约 30s。
+
+```bash
+cd web/frontend
+npm ci
+npm run build                      # 后端托管 dist/，E2E 打的是 8000 端口
+DR_PYTHON=<项目 venv 的 python> npm run e2e
+# 换浏览器：E2E_CHANNEL=msedge npm run e2e（默认用本机 Chrome，不下载浏览器）
+```
+
+⚠️ 当前**未接进 CI**：GitHub-hosted runner 上需要装 Python 依赖 + Chromium，成本与稳定性未经实测，
+不假装它 green；要接进去需先验证 `npx playwright install --with-deps chromium` 在该 runner 上的耗时。
 
 ## 目录结构
 
@@ -143,7 +192,17 @@ DeepResearch/
 │       ├── retrieval_eval.py # 检索命中率
 │       ├── citation_eval.py  # 引用准确率
 │       └── report_eval.py    # 报告质量 LLM-as-judge
-├── web/app.py                # Streamlit Web UI
+├── web/                      # W9 呈现层（FastAPI + React/Vite + SSE，对齐 AG-UI）
+│   ├── backend/
+│   │   ├── main.py           # FastAPI 应用装配与 HTTP/SSE 端点
+│   │   ├── agui.py           # AG-UI 事件编码 + 心跳帧
+│   │   ├── runner.py         # 前台运行管理与协作式取消
+│   │   └── demo_graph.py     # DR_DEMO=1 离线演示图（零 LLM）
+│   ├── frontend/             # React + TypeScript + Vite + Tailwind
+│   │   └── src/lib/progress.ts  # 分层进度（不做假进度条）
+│   └── app.py                # ⚠️ 已废弃：W9 之前的 Streamlit 旧入口
+├── tools/
+│   └── check_frontend_boundary.py  # CI 边界守卫：前端目录不得 import research_engine
 ├── cli.py                    # CLI 入口
 ├── config.py                 # 配置
 └── requirements.txt
@@ -165,6 +224,78 @@ CitationEvaluator().evaluate(report, findings)
 # C: 报告质量
 ReportEvaluator().evaluate(topic, report)
 ```
+
+### 评测跑批与产物纪律（W8）
+
+正式评测会调用外部模型/API 并产生费用；在做版本比较前，应先冻结代码提交、配置和数据集，再运行固定规模的 baseline。评测产物默认写入 `results/`，该目录默认被 Git 忽略；只有被正式结论文档引用、并在 `.gitignore` 白名单中登记出处的产物才允许入库。
+
+跑完评测后先检查白名单纪律：
+
+```powershell
+python tools/check_results_whitelist.py
+```
+
+不要直接手动删除、移动或重命名 `results/` 中的历史产物。W7 回填和 W8 台账都可能依赖 `raw/*.raw.json` 作为零成本复算证据；需要清理或归档时，先查看 `docs/eval-artifact-ledger.md` 并完成人工 review。
+
+### W7 主链路开关（默认行为）
+
+W7 的五个开关属于主链路行为选择，不是独立插件；未设置环境变量时均默认为 `true`。正式跑批或版本比较时，应把它们的有效值随 provenance 一起记录：`CRITIC_GAP_ENABLED`、`VALIDATOR_FIXES_ENABLED`、`VALIDATOR_ASSERTIVE_FILTER_ENABLED`、`WRITER_SECTIONED_FEED_ENABLED`、`VALIDATOR_TRIM_ENABLED`。
+
+其中 `CRITIC_GAP_ENABLED=true` 可保留 coverage，但实测约增加 118% 的 steps；`VALIDATOR_FIXES_ENABLED` 与 `VALIDATOR_ASSERTIVE_FILTER_ENABLED` 默认保留已知缺陷修复；`WRITER_SECTIONED_FEED_ENABLED` 与 `VALIDATOR_TRIM_ENABLED` 暂维持开启，待 W8 重新测量后再裁定。不要在未记录开关值的情况下横向比较评测结果。
+
+## 能力与限制（W8 实测口径）
+
+> 这一节是**对外口径**：能说什么、不能怎么说，全部有实测依据。
+> 判定过程见 [`docs/eval-w8-after-baseline.md`](docs/eval-w8-after-baseline.md)，
+> 逐项验收证据见 [`docs/eval-w8-dod.md`](docs/eval-w8-dod.md)。
+
+### 能做到（A 类确定性断言，零噪声，不依赖统计功效）
+
+| 能力 | 实测证据 |
+| --- | --- |
+| **故障可归因率 0% → 100%** | 工具 / provider / RAG / 内部错误均有明确 `failure_reason`，枚举一处定义（16 条测试） |
+| **状态分层** | `run_status` / `invoke_status` / `metrics_status` 语义分离；历史产物 dual-read 且**未被回填**（26 条） |
+| **异常不伪装** | 失败的 run 不会伪装成成功或空结果；递归超限、异常退出均有契约（24 条） |
+| **成本守恒** | 成本源缺失时显式降级并标记，**不静默显示 ¥0**（21 条） |
+| **质量闸** | 每轮 run 落 `verdict` + `verdict_reasons` + ±stderr，阈值外置、只告警不阻断（20 条） |
+| **可复现元数据** | 配置、五开关生效值、`prompt_hash`、`scorer_version` 随每轮落盘；历史缺失字段如实为「未记录」（36 条） |
+| **产物治理** | 白名单集合 ≡ git 跟踪集合，逐条写明引用出处（13 条 + CI 步骤） |
+| **运行稳定性** | after 基线 3 轮：**60/60 题完成、零异常**、`git_dirty=false` 三轮全中 |
+
+上述 8 项即 W8 的验收口径。**它们与「平均质量是否变好」是两件事，必须分开陈述。**
+
+### 不能这么说（配对统计：四指标全部不可判定）
+
+20 题 × 3 轮同题配对对照（before 09-16 vs after 09-19，冻结代码 `f723c2d`，配置/题集/模型与 before 同构）：
+
+| 指标 | before | after | Δ | SE | MDE | 判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| coverage | 44.9pp | 39.8pp | −5.1pp | 3.81 | 10.66 | 不可判定 |
+| citation_accuracy | 75.2pp | 78.3pp | +3.1pp | 3.29 | 9.21 | 不可判定 |
+| retrieval_hit_rate | 55.2pp | 52.7pp | −2.5pp | 1.39 | 3.88 | 不可判定 |
+| steps | 9.4 | 8.2 | −1.2 | 0.48 | 1.36 | 不可判定（且按 D2 归因于 Arm 2 功能修复，不算质量证据） |
+
+- ❌ **禁止**：「W8 让覆盖率提升/下降 Xpp」「W8 让引用准确率提升 3.1pp」「W8 让系统少跑 1.2 步」。
+- ✅ **可以说**：「after 基线 coverage 39.8%（20 题 × 3 轮）」「四项均未达判定门槛，本实验不宣称平均质量提升或下降」。
+
+### 已知限制
+
+| 限制 | 说明 |
+| --- | --- |
+| **仪器噪声 > 效应** | coverage 的 run 内噪声 σ≈24pp，MDE(3v3)=10.66pp，而预期效应只有 4~10pp |
+| **before 基线不可重采** | 代码已改 ⇒ `R_b=3` 固定；单独加 after 轮次最多把 MDE 再降 14%（**D-18：故不续跑**） |
+| **引用裁判非独立** | `citation_judge_independent=false`：评测层直读主链路 validator 产物，不重跑独立复判 |
+| **检索是活的** | planner 每轮子问题不同 ⇒ 证据池本身会变；配对只消掉题目效应，消不掉检索漂移 |
+| **规模与语言** | 20 题中文数据集、单模型族（qwen-plus / turbo），结论不外推到其它语言或模型 |
+| **五开关未消融** | 主链路 5 开关默认全开，其单独贡献未经对照测量（见「W7 主链路开关」） |
+
+### 对外推荐表述（可直接引用）
+
+> W8 完成了故障状态分层、工具失败原因结构化、质量闸、成本守恒、可复现元数据和评测产物治理。
+> after 基线在 20 个问题上运行 3 轮，60/60 个题目实例完成且无异常。配对统计中 coverage、
+> citation accuracy、retrieval hit rate 和 steps 均未达到预设判定门槛，因此本实验不宣称 W8
+> 带来了平均质量提升或下降。W8 的主要收益是故障可归因、结果可审计和运行稳定性；after 侧轮次间
+> 波动出现下降迹象，但由于只有 3 轮，仅作为待验证观察。
 
 ## 设计要点
 
@@ -195,13 +326,14 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | 79 项全绿 | 离线可跑，CI 自动轨验证 |
-| 完成率 | 100%（20/20） | 20 条 dataset 全部产出可用报告 |
-| 引用准确率 | 72%（机器口径）→ 83~92%（人工抽检修正区间） | 机器口径低估，真实区间需人工两级抽检修正 |
-| 覆盖度 | 55.4% | 如实声明——"查得不够"是当前主要瓶颈（critic 早停 14/19 条） |
-| 单轮成本 | ~¥0.48（qwen-plus 规划价） | 真实 API 非确定性，单轮数字需 ≥3 次重跑取均值 |
+| 单元测试 | **441 项全绿** | 2026-09-24 本机 Python 3.13.14 完整复验（28 个测试文件，零 LLM、零 key）；CI 继续覆盖 3.11/3.12/3.13。其中 Web 层 49 条 = 流式 15 + HTTP 8 + **P1 运行护栏 26**（含 2 条强制收口交错回归）；另有 `frontend` job 跑 `tsc --noEmit` + `vite build`，**浏览器 E2E 8 条**当前为本机门禁（见下节） |
+| 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
+| 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
+| 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |
+| 单轮成本 | **¥0.79~0.92 / 48~51 分钟** | 20 题、并发 3、qwen-plus + qwen-turbo；真实 API 非确定性，需多轮取均值 |
 
-不吹指标。覆盖度 55% 就写 55%，引用准确率分机器/人工双口径——追问时有据可查。
+不吹指标。覆盖度 39.8% 就写 39.8%；before/after 的差值**不可判定**就写不可判定 —— 追问时有据可查
+（完整判定过程见 `docs/eval-w8-after-baseline.md`）。
 
 ### 4. 与主流项目差异
 

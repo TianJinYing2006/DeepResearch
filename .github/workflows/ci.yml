@@ -57,5 +57,36 @@ jobs:
       - name: Eval 产物白名单纪律（Arm 7）
         run: python tools/check_results_whitelist.py
 
+      # W9（D-20 硬边界 ①）：前端只做呈现，不得把研究判定逻辑搬进呈现层。
+      # 一旦 web/frontend 出现 `research_engine` 字面量即判违规。零 LLM、零网络。
+      - name: 前端边界守卫（不得 import research_engine）
+        run: python tools/check_frontend_boundary.py
+
       - name: Test (pytest)
         run: pytest tests/ -q
+
+  # W9（§7.8）：前端构建须在 CI 真实验证（npm ci + tsc 类型检查 + production build），
+  # 否则「本地 build 过、CI 没管」会让前端回归静默积累。不依赖 LLM / API key。
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+
+      - name: Install frontend deps (npm ci)
+        working-directory: web/frontend
+        run: npm ci
+
+      - name: Type check (tsc --noEmit)
+        working-directory: web/frontend
+        run: npx tsc --noEmit
+
+      - name: Build (vite production)
+        working-directory: web/frontend
+        run: npm run build

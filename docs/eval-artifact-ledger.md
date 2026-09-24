@@ -1,110 +1,110 @@
 # 评测产物台账（Arm 7 轨道 2 · 只读出账）
 
-> 生成时间：2026-09-18 13:13　生成器：`tools/w8_artifact_ledger.py`
+> 生成时间：2026-09-19 00:11　生成器：`tools/w8_artifact_ledger.py`
 > **本台账由只读扫描生成，未删除/移动/重命名任何产物。** 磁盘清理须在本台账 review 之后单独拍板 —— 原因是 `tools/w7_backfill_*.py` 直接读 `run_dir/raw/*.raw.json`，那是 W7 零成本可复算的唯一证据源。
 
-| 目录 / 文件 | 体积 | 最后修改 | 入库 | 类别 | 引用来源（手写文档 / 代码，可作入库证据） | 仅出现在自动表痕 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `run_20260911_202638` | 2.6 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_045912` | 2.5 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_024745` | 2.3 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_072332` | 2.3 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260912_233902` | 2.2 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260911_224011` | 2.2 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260911_194156` | 2.2 MB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/w7_rejudge.py` | — |
-| `run_20260911_212259` | 2.2 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_105637` | 2.2 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_164934` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260911_150715` | 2.1 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_055850` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_160737` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_202751` | 2.1 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_041629` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_062843` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_211614` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_185458` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_202318` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_154319` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_071031` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_002412` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_210646` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_220233` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_100400` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_012018` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_175208` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_173229` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_224409` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_194138` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_221911` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_194445` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_183310` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_003024` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260911_004201` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`tools/w8_artifact_ledger.py` | — |
-| `run_20260910_133606` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_121649` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_125628` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_225634` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260916_022440` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | — |
-| `run_20260906_184156` | 1.9 MB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/sampling-workbook.md`<br>`docs/requirements/7-technical-debt-and-content.md` | — |
-| `run_20260910_075007` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_v11_compare` | 1.9 MB | 2026-09-18 06:04 | ✅ | 未知 | `docs/eval-w7-attribution.md`<br>`docs/eval-w7-conclusion.md`<br>`docs/project-status.md` | — |
-| `run_20260910_233617` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260911_232515` | 1.9 MB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/w7_rejudge.py` | — |
-| `run_20260910_033127` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`tools/w8_artifact_ledger.py` | — |
-| `run_20260910_025125` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_010952` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_014747` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_054957` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_232719` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_141315` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_085259` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_181505` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_064837` | 1.8 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_040911` | 1.8 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_044716` | 1.8 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260916_011813` | 1.8 MB | 2026-09-18 06:04 | — | 未知 | `docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | — |
-| `_tmp_backup_not_committed` | 1.8 MB | 2026-09-18 06:04 | — | 临时 | — | ⚠️ 是 |
-| `run_20260910_114009` | 1.8 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_021042` | 1.8 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260913_033607` | 1.7 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260912_000027_DISCARDED` | 1.7 MB | 2026-09-18 06:05 | — | 已废弃 | `docs/eval-w7-conclusion.md` | — |
-| `run_20260910_214830` | 1.6 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260916_001005` | 1.6 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | — |
-| `run_20260911_220854` | 1.6 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_191547` | 1.5 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260911_001417` | 1.5 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_083020` | 1.4 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_162529` | 1.4 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_052555` | 1.3 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_022817` | 1.3 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_000620` | 1.1 MB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_171054` | 1.1 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`tests/test_arm5_quality_gate.py` | — |
-| `run_20260910_165016` | 1.1 MB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260907_001658` | 298.8 KB | 2026-09-18 06:05 | ✅ | 未知 | `docs/requirements/7-technical-debt-and-content.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md` | — |
-| `run_20260910_104559` | 270.4 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_173540` | 191.9 KB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/quality.py` | — |
-| `run_20260909_155504` | 182.4 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260909_160122` | 181.7 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `run_20260906_175423_DISCARDED` | 178.9 KB | 2026-09-18 06:04 | — | 已废弃 | — | ⚠️ 是 |
-| `curated` | 143.8 KB | 2026-09-18 06:04 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/7-technical-debt-and-content.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/w7_experiment.py` | — |
-| `history.json` | 44.6 KB | 2026-09-18 06:05 | ✅ | 未知 | `docs/requirements/5-eval-and-metrics.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/report_gen.py`<br>`tests/test_arm7_artifact_governance.py` | — |
-| `_recompute_check_DISCARDED.json` | 14.5 KB | 2026-09-18 06:05 | — | 已废弃 | `docs/eval-w7-conclusion.md` | — |
-| `w7_experiment_20260911_194151` | 13.1 KB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/report_gen.py` | — |
-| `w7_rejudge_20260912_160857_SUPERSEDED.json` | 12.9 KB | 2026-09-18 06:05 | — | 被取代 | `docs/eval-w7-conclusion.md` | — |
-| `w7_rejudge_20260912_164110_SUPERSEDED.json` | 12.8 KB | 2026-09-18 06:05 | — | 被取代 | — | ⚠️ 是 |
-| `w7_experiment_20260910_003022` | 9.2 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260910_175206` | 7.5 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260909_185441` | 4.7 KB | 2026-09-18 06:04 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260910_105632` | 4.0 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260910_154316` | 3.4 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `_smoke_rejudge_DISCARDED.json` | 2.3 KB | 2026-09-18 06:05 | — | 已废弃 | `docs/eval-w7-conclusion.md` | — |
-| `w7_experiment_20260909_160734` | 2.0 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260910_100357` | 1.1 KB | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260909_160119` | 992 B | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `w7_experiment_20260909_155500` | 988 B | 2026-09-18 06:05 | — | 未知 | — | ⚠️ 是 |
-| `history_bak_v10.json` | 977 B | 2026-09-18 06:05 | — | 备份快照 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`tools/w8_artifact_ledger.py` | — |
-| `run_20260910_002953` | 0 B | - | — | 未知 | — | ⚠️ 是 |
-| `run_20260910_174328` | 0 B | - | — | 未知 | — | ⚠️ 是 |
+| 目录 / 文件 | 体积 | 最后修改 | 入库 | 类别 | 手写引用（结论文档 / 代码） | 结构登记（`results/` 内，如 manifest 的 `runs[].run_dir`） | 仅出现在自动表痕 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `run_20260911_202638` | 2.6 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260913_045912` | 2.5 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260913_024745` | 2.3 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260913_072332` | 2.3 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260912_233902` | 2.2 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260911_224011` | 2.2 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260911_194156` | 2.2 MB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/w7_rejudge.py` | — | — |
+| `run_20260911_212259` | 2.2 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260910_105637` | 2.2 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_105632/manifest.json` | — |
+| `run_20260909_164934` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json` | — |
+| `run_20260911_150715` | 2.1 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json` | — |
+| `run_20260913_055850` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260909_160737` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json` | — |
+| `run_20260909_202751` | 2.1 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260913_041629` | 2.1 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260910_062843` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260909_211614` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260909_185458` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260910_202318` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260910_154319` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_154316/manifest.json` | — |
+| `run_20260910_071031` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260913_002412` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260910_210646` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260909_220233` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260910_100400` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_100357/manifest.json` | — |
+| `run_20260913_012018` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260910_175208` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260909_173229` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json` | — |
+| `run_20260909_224409` | 2.0 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260909_194138` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260910_221911` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260910_194445` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260910_183310` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260910_003024` | 2.0 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260911_004201` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | `research_engine/eval/results/history.json` | — |
+| `run_20260910_133606` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_105632/manifest.json` | — |
+| `run_20260910_121649` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_105632/manifest.json` | — |
+| `run_20260910_125628` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_105632/manifest.json` | — |
+| `run_20260910_225634` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260916_022440` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | `research_engine/eval/results/history.json` | — |
+| `run_20260906_184156` | 1.9 MB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/sampling-workbook.md`<br>`docs/requirements/7-technical-debt-and-content.md` | — | — |
+| `run_20260910_075007` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_v11_compare` | 1.9 MB | 2026-09-18 06:04 | ✅ | 未知 | `docs/eval-w7-attribution.md`<br>`docs/eval-w7-conclusion.md`<br>`docs/project-status.md` | — | — |
+| `run_20260910_233617` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260911_232515` | 1.9 MB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/w7_rejudge.py` | — | — |
+| `run_20260910_033127` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | `research_engine/eval/results/history.json` | — |
+| `run_20260910_025125` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_010952` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_014747` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_054957` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260909_232719` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260910_141315` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_105632/manifest.json` | — |
+| `run_20260910_085259` | 1.9 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260909_181505` | 1.9 MB | 2026-09-18 06:04 | — | 未知 | — | — | ⚠️ 是 |
+| `run_20260913_064837` | 1.8 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260910_040911` | 1.8 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_044716` | 1.8 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260916_011813` | 1.8 MB | 2026-09-18 06:04 | — | 未知 | `docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`tests/test_status_naming.py` | `research_engine/eval/results/history.json` | — |
+| `_tmp_backup_not_committed` | 1.8 MB | 2026-09-18 06:04 | — | 临时 | `tools/w8_artifact_ledger.py` | — | — |
+| `run_20260910_114009` | 1.8 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_105632/manifest.json` | — |
+| `run_20260913_021042` | 1.8 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260913_033607` | 1.7 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260912_000027_DISCARDED` | 1.7 MB | 2026-09-18 06:05 | — | 已废弃 | `docs/eval-w7-conclusion.md` | `research_engine/eval/results/curated/CODE_REVISION.json`<br>`research_engine/eval/results/curated/MANIFEST.md`<br>`research_engine/eval/results/w7_experiment_20260911_194151/CODE_REVISION.json` | — |
+| `run_20260910_214830` | 1.6 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260916_001005` | 1.6 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | `research_engine/eval/results/history.json` | — |
+| `run_20260911_220854` | 1.6 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260911_194151/manifest.json` | — |
+| `run_20260910_191547` | 1.5 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260911_001417` | 1.5 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_175206/manifest.json` | — |
+| `run_20260910_083020` | 1.4 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_162529` | 1.4 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_154316/manifest.json` | — |
+| `run_20260910_052555` | 1.3 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_022817` | 1.3 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_003022/manifest.json` | — |
+| `run_20260910_000620` | 1.1 MB | 2026-09-18 06:04 | — | 未知 | — | `research_engine/eval/results/w7_experiment_20260909_185441/manifest.json` | — |
+| `run_20260910_171054` | 1.1 MB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>⚠️ **（引用仅来自看板/需求文档 —— 需人工确认是否只是处置记录；不可据此删除）** | `research_engine/eval/results/history.json` | — |
+| `run_20260910_165016` | 1.1 MB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json`<br>`research_engine/eval/results/w7_experiment_20260910_154316/manifest.json` | — |
+| `run_20260907_001658` | 298.8 KB | 2026-09-18 06:05 | ✅ | 未知 | `docs/requirements/7-technical-debt-and-content.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md` | `research_engine/eval/results/history.json` | — |
+| `run_20260910_104559` | 270.4 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `run_20260910_173540` | 191.9 KB | 2026-09-18 06:04 | — | 未知 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/quality.py` | — | — |
+| `run_20260909_155504` | 182.4 KB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json` | — |
+| `run_20260909_160122` | 181.7 KB | 2026-09-18 06:05 | — | 未知 | — | `research_engine/eval/results/history.json` | — |
+| `run_20260906_175423_DISCARDED` | 178.9 KB | 2026-09-18 06:04 | — | 已废弃 | — | — | ⚠️ 是 |
+| `curated` | 143.8 KB | 2026-09-18 06:04 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/7-technical-debt-and-content.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/w7_experiment.py` | — | — |
+| `history.json` | 44.6 KB | 2026-09-18 06:05 | ✅ | 未知 | `docs/project-status.md`<br>`docs/requirements/5-eval-and-metrics.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/report_gen.py` | — | — |
+| `_recompute_check_DISCARDED.json` | 14.5 KB | 2026-09-18 06:05 | — | 已废弃 | `docs/eval-w7-conclusion.md` | `research_engine/eval/results/curated/MANIFEST.md` | — |
+| `w7_experiment_20260911_194151` | 13.1 KB | 2026-09-18 06:05 | ✅ | 未知 | `docs/eval-w7-conclusion.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`research_engine/eval/report_gen.py` | — | — |
+| `w7_rejudge_20260912_160857_SUPERSEDED.json` | 12.9 KB | 2026-09-18 06:05 | — | 被取代 | `docs/eval-w7-conclusion.md` | `research_engine/eval/results/curated/MANIFEST.md` | — |
+| `w7_rejudge_20260912_164110_SUPERSEDED.json` | 12.8 KB | 2026-09-18 06:05 | — | 被取代 | — | `research_engine/eval/results/curated/MANIFEST.md` | — |
+| `w7_experiment_20260910_003022` | 9.2 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260910_175206` | 7.5 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260909_185441` | 4.7 KB | 2026-09-18 06:04 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260910_105632` | 4.0 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260910_154316` | 3.4 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `_smoke_rejudge_DISCARDED.json` | 2.3 KB | 2026-09-18 06:05 | — | 已废弃 | `docs/eval-w7-conclusion.md` | `research_engine/eval/results/curated/MANIFEST.md` | — |
+| `w7_experiment_20260909_160734` | 2.0 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260910_100357` | 1.1 KB | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260909_160119` | 992 B | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `w7_experiment_20260909_155500` | 988 B | 2026-09-18 06:05 | — | 未知 | — | — | ⚠️ 是 |
+| `history_bak_v10.json` | 977 B | 2026-09-18 06:05 | — | 备份快照 | `docs/project-status.md`<br>`docs/requirements/8-fault-transparency-and-reproducibility.md`<br>`tools/w8_artifact_ledger.py` | — | — |
+| `run_20260910_002953` | 0 B | - | — | 未知 | — | — | ⚠️ 是 |
+| `run_20260910_174328` | 0 B | - | — | 未知 | — | — | ⚠️ 是 |
 
 ## 汇总
 
@@ -114,16 +114,26 @@
 | `results/` 总占用 | **143.5 MB** |
 | 其中已入库（受白名单约束） | 8.4 MB |
 | 其中未入库（本地仅作追溯） | **135.1 MB** |
-| 有【手写引用】的条目 | 20 个 / 20.6 MB |
-| └─ 其中引用**含**结论文档 / 代码 | 17 个 / 15.2 MB |
-| └─ 其中引用**仅来自**看板 / 需求文档（⚠️ **需人工确认**，不可据此删除） | 3 个 / 5.4 MB |
+| 有【证据】的条目（手写引用 **或** 结构登记） | 86 个 / 141.2 MB |
+| └─ 有【手写引用】的条目 | 21 个 / 22.4 MB |
+| &nbsp;&nbsp;&nbsp;&nbsp;└─ 其中引用**含**结论文档 / 代码 | 16 个 / 13.9 MB |
+| &nbsp;&nbsp;&nbsp;&nbsp;└─ 其中引用**仅来自**看板 / 需求文档（⚠️ **需人工确认**，不可据此删除） | 5 个 / 8.4 MB |
+| └─ 有【结构登记】的条目（第四档，登记在 `results/` 内部） | 76 个 / 131.1 MB |
+| &nbsp;&nbsp;&nbsp;&nbsp;└─ 其中**没有**任何手写引用（结构登记独立支撑） | 65 个 / 118.8 MB |
+| **无任何证据**（手写与结构登记都没有） | **14 个 / 2.3 MB** |
 
-> ⚠️ **引用分两档，别混为一谈**：`docs/eval-report.md` 由脚本自动写出、会把几乎所有 run 无差别地列进表格（实测 `docs/eval-report.md` 含 74 个 run id，而手写的 `docs/eval-w7-conclusion.md` 只提 4 个） ⇒ **只出现在自动表里 = 没有被人挑选过**，不能充当入库证据。表中「⚠️ 是」的正是这类。
+> ⚠️ **自动枚举不算证据**：`docs/eval-report.md` 由脚本自动写出、会把几乎所有 run 无差别地列进表格（实测 `docs/eval-report.md` 含 74 个 run id，而手写的 `docs/eval-w7-conclusion.md` 只提 4 个） ⇒ **只出现在自动表里 = 没有被人挑选过**，不能充当入库证据。表中「⚠️ 是」的正是这类。
+
+> 🧩 **第四档「结构登记」（2026-09-18 新增）**：登记写在 `results/` **内部**的机器可读文件里，典型是 `w7_experiment_*/manifest.json` 的 `runs[].run_dir` —— 它逐条记录了「这次实验实际跑出了哪些 run」，属**溯源/包含**关系，与「处置记录」无关，**与手写引用等效**。另有一类同样查不到的：`tools/measure_paired_rho.py --runs` 是 **argv 传参且从不落盘**，那些 run 名在仓库里天生无迹可循 ⇒ **不得因为「扫不到引用」就判它可删**。
 
 > 类别判定：`*_SUPERSEDED` = 被取代、`*_DISCARDED` = 已废弃、`_tmp_*` = 临时、`_bak_*` = 备份快照；其余为「未知」，需人工定性后再决定是否归档。
 
 > ⚠️ **注意「登记的反转」：写下来 ≠ 原本被引用**（2026-09-18 实测）。本表统计的是「**此刻**哪些文档提到了它」，而治理过程本身会往文档里写它的名字 —— `history_bak_v10.json` 原本零引用，正是因为被写入了`docs/project-status.md` 与 §5.7.1 的处置说明，**在第二次生成时变成「有手写引用」**（手写引用数 17 → 18）。⇒ 引用数**只增不减**是有偏的：review 时应以「引用是否来自**结论文档 / 代码**」为准，写进「处置记录」「台账」「变更日志」的一律不算。这是 **`git rm --cached` 与评审相反的方向**：前者担心误删证据，这里担心的是「描述过就被当成有证据」。
 
-⚠️ **下一刀（尚未执行，需单独拍板）**：「入库 = —」且「仅出现在自动表痕 = ⚠️ 是」的条目才是真正的归档候选；而且任何删除动作都必须先确认该 run 不在 `tools/w7_backfill_*.py` 的输入集合里 —— 那两个脚本直接读 `run_dir/raw/*.raw.json`，那是 W7 零成本可复算的唯一证据源。
+⚠️ **下一刀（尚未执行，需单独拍板）**：只有「手写引用 = —」**且**「结构登记 = —」**且**「仅出现在自动表痕 = ⚠️ 是」三条同时成立的条目才是归档候选；而且任何删除动作都必须先确认该 run 不在 `tools/w7_backfill_*.py` 的输入集合里 —— 那两个脚本直接读 `run_dir/raw/*.raw.json`，那是 W7 零成本可复算的唯一证据源。
+
+> ✅ **2026-09-18 主理人 review 已结案：维持现状，不删除任何产物。** 15 条待决条目已逐条定性，记录见 `docs/project-status.md` 的决策记录。结案理由：真正「可考虑清」的量级约 **2.0 MB**（2 个零字节空目录 + `_tmp_backup_not_committed` + `*_DISCARDED`），而 `results/` 总计 143.5 MB、D 盘可用 29 GB ⇒ **清理收益为零**，却要再承担一次 D5 那类「跨边界删除产物」的风险。另：10 个 `w7_experiment_*` 是 W7 实验记录**本体**（arm 定义 + notes），即使只有几 KB 也必须保留；`run_20260916_*` 三条 before 基线的 run 是对照臂，由 `history.json` 与 §10.4 验收记录双重支撑。
+
+> 🔧 **2026-09-18 判据修正（本表口径变化的原因）**：`SCAN_SKIP_DIRS` 原先把 `results` 整个跳过，理由是「产物自己会引用自己」—— 那只对**自指**成立。修正为「走进去扫、逐条排除自指」后，原先 58 个被判「无引用」的 run 恢复为「有结构登记」（合计 110.0 MB）。**修正前若按原口径清理，会销毁 W7 配对实验的证据基座**（ρ=0.551 / MDE=12.38pp 的逐题输入）。
 
 > 🚨 **「最后修改」列自 2026-09-18 起已失去取证价值**：一次**跨越 Arm 7 边界**的 `git checkout`（`git rm --cached` 把路径移出索引后，跨边界切换会让 git 认为这些路径属于旧版本）把**产物**连同未跟踪的 raw 一起从磁盘删除，`results/` 一度从 143.6 MB 掉到 31 MB。恢复动作（从回收站按 `$I` 元数据定向还原 + 物理备份回拷）把**全部**文件的 mtime 刷成了恢复时刻 —— 故本列现在只反映「最后一次触碰」，不再反映「产物何时产生」。**另有 5 个文件被 git 硬删除且从未进过对象库，永久丢失**（`run_20260910_033127/raw/q_014.raw.json`、`run_20260911_004201/eval/q_016|q_018|q_019|q_020.eval.json`）。事故详情见 `docs/requirements/8-fault-transparency-and-reproducibility.md` §5.7.2 与 `docs/project-status.md` 缺陷 D5。
