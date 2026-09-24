@@ -90,3 +90,53 @@ jobs:
       - name: Build (vite production)
         working-directory: web/frontend
         run: npm run build
+
+  # P1 浏览器 E2E（C 后续增量 #15）：本机门禁改为 CI 门禁。
+  # 成本与稳定性以实测为准（首轮记录见 docs/project-status.md）：
+  # 装 Python 依赖 + npm ci + vite build + playwright install --with-deps chromium + 10 条用例。
+  # 用官方 Chromium（E2E_CHANNEL=chromium），不依赖 runner 上预装的 Chrome。
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements-lock.txt
+            requirements-dev-lock.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-lock.txt -r requirements-dev-lock.txt
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+
+      - name: Install frontend deps (npm ci)
+        working-directory: web/frontend
+        run: npm ci
+
+      - name: Build frontend (FastAPI serves dist/)
+        working-directory: web/frontend
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        working-directory: web/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E (DR_DEMO=1)
+        working-directory: web/frontend
+        env:
+          E2E_CHANNEL: chromium
+          DR_PYTHON: python
+          OTEL_SDK_DISABLED: "true"
+        run: npm run e2e
