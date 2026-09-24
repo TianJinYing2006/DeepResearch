@@ -76,6 +76,20 @@ class StuckGraph:
                       stop_reason=STOP_COMPLETED)
 
 
+class LateCompletionGraph:
+    """忽略 `should_cancel`：节点跑过协作式时限后仍**正常完成**（完成与超时同时发生）。"""
+
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        state = ResearchState(topic=topic)
+        state.progress.append({"stage": "n0", "msg": "m"})
+        yield RunStep(index=0, node="n0", state=state, duration_ms=1)
+        time.sleep(0.3)
+        state.report = "# 报告"
+        state.report_display = "# 报告"
+        yield RunStep(index=1, node=None, state=state, terminal=True,
+                      stop_reason=STOP_COMPLETED)
+
+
 def _drain(run_id: str, mgr: RunManager, timeout: float = 5.0) -> list[dict]:
     q = mgr.queue(run_id)
     out: list[dict] = []
@@ -131,6 +145,20 @@ def test_run_started_carries_timeout_so_frontend_can_countdown():
     assert ev[0]["timeout_seconds"] == 123
 
 
+def test_completion_past_deadline_is_not_rewritten_as_timeout():
+    """完成与超时同时发生（完成先落终局）：不得改判 timeout、不得再补强制收口。"""
+    mgr = RunManager(graph_factory=LateCompletionGraph, run_timeout_seconds=0.05,
+                     forced_stop_grace_seconds=0.05, max_concurrent_runs=1)
+    rid = mgr.start("t")
+    ev = _drain(rid, mgr)  # 节点 0.3s 越过硬截止 0.1s，但完成先发生
+
+    fin = [e for e in ev if e["type"] == "RUN_FINISHED"]
+    assert fin and fin[-1]["stop_reason"] == STOP_COMPLETED
+    assert "RUN_ERROR" not in [e["type"] for e in ev]
+    assert mgr.force_stop_if_overdue(rid) is None, "已完成 ⇒ 收口必须放弃"
+    assert mgr.active_runs == 0
+
+
 def test_forced_stop_when_node_ignores_cooperative_checkpoint():
     """节点挂死 ⇒ 协作式闸失效 ⇒ 硬截止后由传输层补 RUN_ERROR(stop_forced) 收口。"""
     mgr = RunManager(graph_factory=StuckGraph, run_timeout_seconds=0.2,
@@ -163,6 +191,8 @@ def test_forced_stop_ignores_late_worker_frames():
     assert sum('"type": "RUN_ERROR"' in frame for frame in frames) == 1
     assert '"code": "stop_forced"' in frames[-1]
     assert '"type": "RUN_FINISHED"' not in ''.join(frames)
+    # 后台线程 finally 会二次 discard 并发位：集合语义下必须是幂等的（不得出现负数/复活）
+    assert mgr.active_runs == 0
 
 
 def test_stuck_run_still_releases_concurrency_slot_after_forced_stop():
@@ -172,6 +202,7 @@ def test_stuck_run_still_releases_concurrency_slot_after_forced_stop():
     time.sleep(0.5)
     mgr.force_stop_if_overdue(rid)
     assert mgr.active_runs == 0, "强制收口后必须释放并发位，否则进程永久不可用"
+    assert mgr.start("t2"), "释放后的并发位必须可复用"
 
 
 def test_forced_stop_before_late_terminal_write_cannot_expose_report(monkeypatch):
@@ -263,6 +294,31 @@ def test_slot_is_released_after_natural_finish():
     _drain(mgr.start("t"), mgr)
     assert mgr.active_runs == 0
     assert mgr.start("t2")  # 不再被拒
+
+
+def test_slot_is_released_after_cancel():
+    """取消路径也必须释放并发位（否则「取消后无法再发起」）。"""
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=20, delay=0.05),
+                     max_concurrent_runs=1)
+    rid = mgr.start("t")
+    time.sleep(0.1)
+    mgr.cancel(rid)
+    _drain(rid, mgr)
+    assert mgr.active_runs == 0
+    assert mgr.start("t2")
+
+
+def test_slot_is_released_after_runner_crash():
+    """工作线程崩溃也必须释放并发位（异常不得把槽带走）。"""
+    class Boom:
+        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+            raise RuntimeError("boom")
+
+    mgr = RunManager(graph_factory=Boom, max_concurrent_runs=1)
+    rid = mgr.start("t")
+    _drain(rid, mgr)
+    assert mgr.active_runs == 0
+    assert mgr.start("t2")
 
 
 def test_concurrency_limit_is_visible_over_http(monkeypatch):

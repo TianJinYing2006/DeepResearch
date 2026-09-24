@@ -132,6 +132,23 @@ def test_cancel_stops_before_all_nodes():
     assert 0 < len(steps) < 8, "取消后不应继续跑满所有节点"
 
 
+def test_cancel_during_node_finishes_current_node_then_stops():
+    """C3：取消时**当前同步节点允许自然结束**，之后不再启动新节点。"""
+    mgr = RunManager(graph_factory=lambda: FakeGraph(steps=4, delay=0.4))
+    rid = mgr.start("t")
+    time.sleep(0.1)  # 此刻 node0 正在执行（sleep 0.4 内）
+    t0 = time.perf_counter()
+    mgr.cancel(rid)
+    ev = _drain(rid, mgr)
+
+    steps = [e for e in ev if e["type"] == "STEP_FINISHED"]
+    assert len(steps) == 1, "在飞节点应自然结束，且不得启动 node1"
+    assert time.perf_counter() - t0 >= 0.25, "当前节点是自然结束，不是被抢占"
+    fin = [e for e in ev if e["type"] == "RUN_FINISHED"][-1]
+    assert fin["cancelled"] is True
+    assert fin["stop_reason"] == STOP_CANCELLED
+
+
 def test_cancel_marks_cancelled_and_no_run_error():
     """取消不是故障 ⇒ 不得产生 RUN_ERROR。"""
     mgr = RunManager(graph_factory=lambda: FakeGraph(steps=8, delay=0.1))
