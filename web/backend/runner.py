@@ -394,6 +394,18 @@ class RunManager:
             if st is not None:
                 st.update(fields)
 
+    def _elapsed_seconds(self, run_id: str) -> float:
+        """运行已跑时长（秒，一位小数）。未记录 `_finished_monotonic` 时按当前时刻计。"""
+        with self._lock:
+            st = self._status.get(run_id)
+            if st is None:
+                return 0.0
+            started = st["_started_monotonic"]
+            ended = st.get("_finished_monotonic")
+            finished = run_id in self._finished
+        now = ended if (finished and ended is not None) else time.monotonic()
+        return round(max(0.0, now - started), 1)
+
     def _worker(self, run_id: str, topic: str, instructions: str,
                 max_total_hops: int | None,
                 search_provider: str | None = None,
@@ -539,6 +551,7 @@ class RunManager:
             "reflection_log": list(step.state.reflection_log),
         }
         cost = _estimate_cost_cny(step.state.token_used)
+        elapsed = self._elapsed_seconds(run_id)
         self._emit_terminal_frame(
             run_id, RUN_FINISHED, {
                 # 取消与否由 stop_reason 表达，**不新增 run_status 第四态**；
@@ -549,6 +562,8 @@ class RunManager:
                 "token_used": step.state.token_used,
                 # 成本估算（元）。口径见 _estimate_cost_cny：按最贵 output 单价计的**上界**。
                 "cost_estimate_cny": cost,
+                # 运行级统计（#14）：总耗时由后端出，刷新回放后同样权威
+                "elapsed_seconds": elapsed,
                 "degradation_count": len(step.state.degradation_log),
                 "has_report": bool(report),
                 "result": result,
@@ -567,6 +582,7 @@ class RunManager:
                 "cancelled": cancelled,
                 "token_used": step.state.token_used,
                 "cost_estimate_cny": cost,
+                "elapsed_seconds": elapsed,
                 "degradation_count": len(step.state.degradation_log),
                 "depth": step.state.depth,
             },

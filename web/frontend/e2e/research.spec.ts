@@ -32,6 +32,12 @@ test.describe('研究主流程（桌面端）', () => {
     const report = page.locator('article.report-prose')
     await expect(report).toContainText('演示研究报告')
     await expect(page.getByText('研究完成')).toBeVisible()
+
+    // #14 运行摘要：总耗时 / 节点数 / 检索跳数 / 降级条目 / 报告字数 / 成本估算
+    const summary = page.locator('[data-testid="run-summary"]')
+    await expect(summary).toBeVisible()
+    await expect(summary).toContainText('报告字数')
+    await expect(summary).toContainText('成本估算')
   })
 
   test('刷新页面后恢复当前运行并继续到报告', async ({ page }) => {

@@ -579,6 +579,20 @@ export default function App() {
             </section>
           )}
 
+          {finished && (
+            <section className="surface-card p-4 sm:p-5" data-testid="run-summary">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Run summary</p>
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+                <SummaryItem label="总耗时" value={formatDuration((finished.elapsed_seconds ?? elapsedMs / 1000) * 1000)} />
+                <SummaryItem label="完成节点" value={String(steps.length)} />
+                <SummaryItem label="检索跳数" value={String(finished.result.depth)} />
+                <SummaryItem label="降级条目" value={String(finished.degradation_count)} />
+                <SummaryItem label="报告字数" value={formatNumber(finished.result.report.length)} />
+                <SummaryItem label="成本估算" value={`≈ ¥${formatCost(finished.cost_estimate_cny)}`} />
+              </div>
+            </section>
+          )}
+
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard label="已完成节点" value={String(steps.length)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
             <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="cyan" />
@@ -754,6 +768,15 @@ function MetricCard({ label, value, detail, accent }: { label: string; value: st
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">{value}</p>
       <p className="mt-1 truncate text-xs text-slate-500">{detail}</p>
+    </div>
+  )
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] text-slate-500">{label}</p>
+      <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-slate-200">{value}</p>
     </div>
   )
 }

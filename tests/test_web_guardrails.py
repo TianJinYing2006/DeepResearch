@@ -159,6 +159,15 @@ def test_run_started_carries_timeout_so_frontend_can_countdown():
     assert ev[0]["timeout_seconds"] == 123
 
 
+def test_run_finished_carries_elapsed_seconds():
+    """#14 运行级统计：终局事件带后端记录的耗时（刷新回放后同样权威）。"""
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=3, delay=0.05))
+    ev = _drain(mgr.start("t"), mgr)
+    fin = ev[-1]
+    assert fin["type"] == "RUN_FINISHED"
+    assert 0.1 <= fin["elapsed_seconds"] < 5
+
+
 def test_completion_past_deadline_is_not_rewritten_as_timeout():
     """完成与超时同时发生（完成先落终局）：不得改判 timeout、不得再补强制收口。"""
     mgr = RunManager(graph_factory=LateCompletionGraph, run_timeout_seconds=0.05,
@@ -518,6 +527,7 @@ def test_export_markdown_carries_audit_metadata_and_citations():
     assert "## 引用清单" in md
     assert "https://example.com/a" in md
     assert "run_status" in md
+    assert "耗时" in md  # #14：导出元数据带后端记录的耗时
 
 
 def test_export_payload_shape():
