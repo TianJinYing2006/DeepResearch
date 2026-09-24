@@ -106,6 +106,20 @@ def _drain(run_id: str, mgr: RunManager, timeout: float = 5.0) -> list[dict]:
     return out
 
 
+def _thread_alive(run_id: str) -> bool:
+    return any(t.name == f"research-{run_id}" for t in threading.enumerate())
+
+
+def _wait_thread_gone(run_id: str, timeout: float = 2.0) -> bool:
+    """等 `_worker` 线程真正退出（sentinel 投递后还有几行收尾代码）。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _thread_alive(run_id):
+            return True
+        time.sleep(0.01)
+    return False
+
+
 # --------------------------------------------------------------------------- P1-2 超时闸
 
 
@@ -193,6 +207,7 @@ def test_forced_stop_ignores_late_worker_frames():
     assert '"type": "RUN_FINISHED"' not in ''.join(frames)
     # 后台线程 finally 会二次 discard 并发位：集合语义下必须是幂等的（不得出现负数/复活）
     assert mgr.active_runs == 0
+    assert _wait_thread_gone(rid, timeout=3.0), "后台线程收尾后必须退出，不得残留"
 
 
 def test_stuck_run_still_releases_concurrency_slot_after_forced_stop():
@@ -319,6 +334,64 @@ def test_slot_is_released_after_runner_crash():
     _drain(rid, mgr)
     assert mgr.active_runs == 0
     assert mgr.start("t2")
+
+
+# --------------------------------------------------------------------------- P1 资源：线程释放
+
+
+def test_worker_thread_is_released_after_all_terminal_paths():
+    """完成 / 取消 / 崩溃三条终局路径都不得留下 `research-*` 工作线程。"""
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=2, delay=0.01))
+    rid = mgr.start("t")
+    _drain(rid, mgr)
+    assert _wait_thread_gone(rid), "正常完成必须释放线程"
+
+    mgr2 = RunManager(graph_factory=lambda: ReportGraph(steps=20, delay=0.05))
+    rid2 = mgr2.start("t")
+    time.sleep(0.1)
+    mgr2.cancel(rid2)
+    _drain(rid2, mgr2)
+    assert _wait_thread_gone(rid2), "取消路径必须释放线程"
+
+    class Boom:
+        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+            raise RuntimeError("boom")
+
+    mgr3 = RunManager(graph_factory=Boom)
+    rid3 = mgr3.start("t")
+    _drain(rid3, mgr3)
+    assert _wait_thread_gone(rid3), "崩溃路径必须释放线程"
+
+
+def test_run_completes_without_any_consumer():
+    """无人消费事件（≈客户端断开）时运行照常完成，帧留内存可回放。
+
+    ⚠️ 不用 TestClient「提前 break」模拟中途断连：Starlette TestClient 会把整段
+    响应缓冲完再交给调用方，断不开流中途；真正的中途断连由浏览器 E2E 覆盖。
+    """
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=3, delay=0.01))
+    rid = mgr.start("t")  # 不 drain、不读队列
+    deadline = time.monotonic() + 3
+    while not mgr.is_finished(rid) and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert mgr.is_finished(rid)
+    assert mgr.snapshot(rid)["status"] == "finished"
+    frames = mgr.replay(rid)
+    assert sum('"type": "RUN_FINISHED"' in frame for frame in frames) == 1
+
+
+def test_wait_for_frame_timeout_is_non_destructive():
+    """SSE 等待超时（心跳路径）不得影响运行：返回 (None, False) 且状态仍是 running。"""
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=20, delay=0.05))
+    rid = mgr.start("t")
+    frame, finished = mgr.wait_for_frame(rid, after=999, timeout=0.1)
+
+    assert frame is None
+    assert finished is False
+    assert mgr.snapshot(rid)["status"] == "running"
+    mgr.cancel(rid)
+    _drain(rid, mgr)
 
 
 def test_concurrency_limit_is_visible_over_http(monkeypatch):
