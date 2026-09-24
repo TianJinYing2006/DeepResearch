@@ -18,6 +18,11 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from config import config
+from research_engine.agents.planner import (
+    PLANNER_EVENT_DUPLICATE_ID_REWRITTEN,
+    PLANNER_EVENT_EMPTY_QUESTION_DROPPED,
+    PLANNER_EVENT_SUBQUESTIONS_TRUNCATED,
+)
 from research_engine.llm.client import LLMClient, build_messages
 
 # judge 档位 = smart（Q3），直建实例 role="judge" 独立进职责桶（Q2）；60s 治 LLM 层无超时（Q4）
@@ -109,6 +114,65 @@ def compute_insufficient(state: Dict[str, Any]) -> Dict[str, Any]:
         "marker_ratio": round(marked / len(sections), 4) if sections else 0.0,
         "placeholder_count": report.count(INSUFFICIENT_CITATION),
     }
+
+
+# ---------- 1c. Planner 治理事件：运行级聚合（W9 后续增量②）----------
+
+_PLANNER_BUCKET_KEYS = (
+    "events",
+    "truncation_count",
+    "returned",
+    "accepted",
+    "dropped",
+    "empty_question_dropped",
+    "duplicate_id_rewritten",
+)
+
+
+def _empty_planner_bucket() -> Dict[str, int]:
+    return {key: 0 for key in _PLANNER_BUCKET_KEYS}
+
+
+def _planner_int(value: Any) -> int:
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def compute_planner_governance(state: Dict[str, Any]) -> Dict[str, Any]:
+    """把 `planner_events` 聚合为运行级计数（plan / replan 分桶 + 总计）。
+
+    口径：`returned` / `accepted` / `dropped` 只在截断事件上累加；
+    `empty_question_dropped` 累加被过滤的**问题条数**（事件里 `count` 字段），
+    不是事件条数；`duplicate_id_rewritten` 按事件条数计。
+
+    ⚠️ 纯计数**答不了**「截断是否伤质量」——那要把本指标与 coverage 等按 run
+    join 后看相关性，属后续 eval 分析；这里只提供可 join 的结构化计数，
+    不参与判定、不进 `metrics_status`。历史 raw 无 `planner_events` 时如实全零。
+    """
+    events = state.get("planner_events") or []
+    by_phase: Dict[str, Dict[str, int]] = {}
+    totals = _empty_planner_bucket()
+
+    def _bump(bucket: Dict[str, int], key: str, amount: int = 1) -> None:
+        bucket[key] += amount
+        totals[key] += amount
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        phase = str(event.get("phase") or "unknown")
+        bucket = by_phase.setdefault(phase, _empty_planner_bucket())
+        name = str(event.get("event") or "")
+        _bump(bucket, "events")
+        if name == PLANNER_EVENT_SUBQUESTIONS_TRUNCATED:
+            _bump(bucket, "truncation_count")
+            _bump(bucket, "returned", _planner_int(event.get("returned")))
+            _bump(bucket, "accepted", _planner_int(event.get("accepted")))
+            _bump(bucket, "dropped", _planner_int(event.get("dropped")))
+        elif name == PLANNER_EVENT_EMPTY_QUESTION_DROPPED:
+            _bump(bucket, "empty_question_dropped", _planner_int(event.get("count")))
+        elif name == PLANNER_EVENT_DUPLICATE_ID_REWRITTEN:
+            _bump(bucket, "duplicate_id_rewritten")
+    return {"totals": totals, "by_phase": by_phase}
 
 
 # ---------- 2. 引用准确率（直读 state.citations）----------
@@ -440,5 +504,6 @@ def compute_all(
         "steps": compute_steps(state),
         "reflection": compute_reflection(state, coverage),
         "insufficient": compute_insufficient(state),
+        "planner_governance": compute_planner_governance(state),
         "raw_complete": state.get("status") == "done",
     }
