@@ -21,6 +21,7 @@ from research_engine.state import Citation, ResearchState
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_COMPLETED,
+    STOP_ERROR,
     STOP_TIMEOUT,
     RunStep,
 )
@@ -88,6 +89,18 @@ class LateCompletionGraph:
         state.report_display = "# 报告"
         yield RunStep(index=1, node=None, state=state, terminal=True,
                       stop_reason=STOP_COMPLETED)
+
+
+class ErrorGraph:
+    """终局走 STOP_ERROR（图内结构化异常路径），state.error 已按 W8 口径写入。"""
+
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        state = ResearchState(topic=topic)
+        state.progress.append({"stage": "n0", "msg": "m"})
+        yield RunStep(index=0, node="n0", state=state, duration_ms=1)
+        state.error = {"code": "recursion_limit", "message": "图递归超限", "node": "research"}
+        yield RunStep(index=1, node=None, state=state, terminal=True,
+                      stop_reason=STOP_ERROR)
 
 
 def _drain(run_id: str, mgr: RunManager, timeout: float = 5.0) -> list[dict]:
@@ -511,6 +524,24 @@ def test_runner_crash_payload_is_structured():
     assert "boom" in err["message"]
 
 
+def test_graph_error_terminal_is_structured_and_releases_slot():
+    """图内 STOP_ERROR（结构化异常路径）：错误帧带 code/归因/节点，且不产出报告、释放并发位。"""
+    mgr = RunManager(graph_factory=ErrorGraph, max_concurrent_runs=1)
+    rid = mgr.start("t")
+    ev = _drain(rid, mgr)
+
+    err = ev[-1]
+    assert err["type"] == "RUN_ERROR"
+    assert err["code"] == "recursion_limit"
+    assert err["component"] == "graph"
+    assert err["node"] == "research"
+    assert mgr.has_result(rid) is False
+    snap = mgr.snapshot(rid)
+    assert snap["status"] == "finished"
+    assert snap["stop_reason"] == STOP_ERROR
+    assert mgr.active_runs == 0
+
+
 # --------------------------------------------------------------------------- P1-6 报告导出
 
 
@@ -583,6 +614,22 @@ def test_report_endpoint_404_when_no_report(monkeypatch):
     r = client.get(f"/api/research/{rid}/report")
     assert r.status_code == 404
     assert r.json()["detail"]["code"] == "report_unavailable"
+
+
+def test_export_invalid_format_is_structured_422(monkeypatch):
+    """#11：FastAPI 参数校验错误也必须走结构化契约（而不是默认的 422 裸形状）。"""
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=1, delay=0.01))
+    monkeypatch.setattr(api, "manager", mgr)
+    client = TestClient(api.app)
+    rid = client.post("/api/research", json={"topic": "t"}).json()["run_id"]
+    _drain(rid, mgr)
+
+    r = client.get(f"/api/research/{rid}/report?format=xml")
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert detail["code"] == "invalid_request"
+    assert detail["retryable"] is False
+    assert "format" in detail["detail"]
 
 
 def test_export_never_touches_disk(monkeypatch, tmp_path):

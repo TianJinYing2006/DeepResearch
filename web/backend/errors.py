@@ -47,6 +47,10 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         400, False,
         "该搜索源未配置 API key：在 .env 中补上后**重启服务**再试（配置只在启动时读取）。",
         component="search"),
+    "invalid_request": ErrorSpec(
+        422, False,
+        "请求参数不合法（如导出 format 只接受 md|json）：按 detail 里的字段提示修正后重发。",
+        component="web"),
     # --- 资源不存在 / 不可用（HTTP 404 / 409 / 429） ----------------------
     "run_id_not_found": ErrorSpec(
         404, False,

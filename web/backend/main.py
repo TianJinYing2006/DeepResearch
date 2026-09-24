@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI, Header, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,10 +21,27 @@ from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 
 from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS
-from .errors import ApiError, http_error
+from .errors import ApiError, error_payload, http_error
 from .runner import RunManager
 
 app = FastAPI(title="DeepResearch", version="w9")
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(_request, exc: RequestValidationError) -> JSONResponse:
+    """#11：FastAPI 自带的 422 也要走**结构化错误**契约（前端只认键，不解析文本）。
+
+    否则「所有 HTTP 错误共用 {code,message,...}」这句话在参数校验一类错误上是假的。
+    """
+    detail = "; ".join(
+        f"{'.'.join(str(part) for part in err.get('loc', []))}: {err.get('msg', '')}"
+        for err in exc.errors()
+    )[:500]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": error_payload("invalid_request", "请求参数校验失败", detail=detail)},
+    )
+
 
 # 开发期：Vite dev server（5173）→ 后端（8000）。生产由 FastAPI 托管 dist/ 后即可去掉。
 app.add_middleware(
