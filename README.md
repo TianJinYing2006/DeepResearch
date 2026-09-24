@@ -164,7 +164,7 @@ Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数�
 强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
 会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
 
-**浏览器 E2E（本机门禁）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，10 条用例（主流程 / **刷新恢复** / **完成后续看** /
+**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，10 条用例（主流程 / **刷新恢复** / **完成后续看** /
 降级可见 / 导出 / 取消语义 / 结构化错误 + 重试 + **详情折叠** / 窄屏无横向滚动）约 41s。
 
 ```bash
@@ -175,8 +175,9 @@ DR_PYTHON=<项目 venv 的 python> npm run e2e
 # 换浏览器：E2E_CHANNEL=msedge npm run e2e（默认用本机 Chrome，不下载浏览器）
 ```
 
-⚠️ 当前**未接进 CI**：GitHub-hosted runner 上需要装 Python 依赖 + Chromium，成本与稳定性未经实测，
-不假装它 green；要接进去需先验证 `npx playwright install --with-deps chromium` 在该 runner 上的耗时。
+CI 里的 `e2e` job 用**官方 Chromium**（`E2E_CHANNEL=chromium` + `playwright install --with-deps chromium`），
+不依赖 runner 预装浏览器。**首轮实测**（run `36006923861`）：job 总耗时 **109s**（含 Python 依赖 + npm ci +
+build + Chromium 安装），用例 **10 passed / 45.0s** —— 成本远低于接入前的预估（原估 4~6 分钟）。
 
 ## 目录结构
 
