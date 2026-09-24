@@ -44,6 +44,8 @@ test.describe('错误呈现与重试', () => {
     // 只认**键**：错误码与建议必须结构化地呈现，而不是把整句 message 糊上去
     await expect(page.locator('[data-testid="error-code"]')).toHaveText('concurrency_limit')
     await expect(page.locator('[data-testid="error-hint"]')).toContainText('前台模型')
+    // 详情默认折叠（#12）：展开后再核对，避免长 detail 挤占错误卡
+    await page.locator('[data-testid="error-detail"] summary').click()
     await expect(card).toContainText('active=1; limit=1')
 
     // 重试：第二次请求放行 ⇒ 应真的跑起来（不是断点续跑，D-19 没有可续跑的中间态）

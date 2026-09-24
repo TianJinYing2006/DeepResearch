@@ -51,6 +51,20 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.getByText('研究完成')).toBeVisible()
   })
 
+  test('完成后刷新仍能回看最终报告', async ({ page }) => {
+    await page.fill('#topic', '完成后续看')
+    await page.click('button[type="submit"]')
+    await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText('研究完成')).toBeVisible()
+
+    await page.reload()
+
+    // 终局后保留 run_id（#12）⇒ 回放重建最终态，刷新不丢报告
+    await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByText('研究完成')).toBeVisible()
+    await expect(page.locator('article.report-prose')).toContainText('演示研究报告')
+  })
+
   test('降级事件在运行中实时可见', async ({ page }) => {
     await page.fill('#topic', '降级可见性')
     await page.click('button[type="submit"]')

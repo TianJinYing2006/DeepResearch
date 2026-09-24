@@ -533,9 +533,14 @@ export default function App() {
                   </div>
                   <p className="mt-1 text-rose-100/80">{error.message}</p>
                   {error.detail && (
-                    <p className="mt-1 break-all font-mono text-[11px] leading-5 text-rose-200/55">
-                      {error.detail}
-                    </p>
+                    <details className="mt-2" data-testid="error-detail">
+                      <summary className="cursor-pointer text-xs text-rose-200/60 hover:text-rose-100/80">
+                        错误详情
+                      </summary>
+                      <p className="mt-1 break-all font-mono text-[11px] leading-5 text-rose-200/55">
+                        {error.detail}
+                      </p>
+                    </details>
                   )}
                   {error.hint && (
                     <p className="mt-2 text-xs leading-5 text-rose-100/70" data-testid="error-hint">

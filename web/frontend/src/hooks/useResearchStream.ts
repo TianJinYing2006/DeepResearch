@@ -21,8 +21,11 @@ export type StreamStatus =
   | 'error'
 export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
-/** 当前活跃 run 的会话存储键（`sessionStorage`：只在本标签页存活，新标签页不串台）。 */
-const ACTIVE_RUN_KEY = 'dr.activeRunId'
+/** 本标签页最近一次 run 的会话存储键（`sessionStorage`：只在本标签页存活，新标签页不串台）。
+
+语义是「最近一次」而不是「活跃中」：**终局后保留** ⇒ 刷新页面仍可回看最终报告或错误卡；
+进程重启后快照 404 时清空；手动发起新研究会覆盖。 */
+const ACTIVE_RUN_KEY = 'dr.lastRunId'
 
 function readStoredRun(): string | null {
   try {
@@ -146,14 +149,12 @@ export function useResearchStream() {
                 : 'done',
           )
           setConnectionStatus('closed')
-          clearStoredRun()
           source.close()
         } else if (parsed.type === 'RUN_ERROR') {
           terminalRef.current = true
           setError(toStructuredError(parsed, 'run_error', '研究运行失败，可调整参数后重试'))
           setStatus('error')
           setConnectionStatus('closed')
-          clearStoredRun()
           source.close()
         }
       } catch (eventError) {
@@ -161,7 +162,6 @@ export function useResearchStream() {
         setError(toStructuredError(eventError, 'event_parse_failed', '事件解析失败，请刷新页面后重试'))
         setStatus('error')
         setConnectionStatus('closed')
-        clearStoredRun()
         source.close()
       }
     }
@@ -225,7 +225,8 @@ export function useResearchStream() {
 
   /** 刷新后恢复：读 sessionStorage 的 run_id → 快照确认存在 → 从 0 回放全部帧。
 
-  可恢复：进程存活期间产生的**全部**事件帧（后端 `_frames` 内存保留，事件 id = 帧下标）。
+  可恢复：进程存活期间产生的**全部**事件帧（后端 `_frames` 内存保留，事件 id = 帧下标），
+  **终局后同样保留** ⇒ 刷新仍能回看最终报告或错误卡。
   不可恢复：后端进程重启（D-19 内存态、不做持久化）⇒ 快照 404，清存储回 idle；
   关标签页后在新标签打开也恢复不了（sessionStorage 按标签页隔离，D-19 明确接受该代价）。 */
   const resume = useCallback(async (): Promise<{ runId: string; elapsedSeconds: number } | null> => {
