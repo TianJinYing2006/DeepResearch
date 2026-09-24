@@ -16,6 +16,8 @@ venv/
 # 测试/临时文件
 *.log
 .write_test
+# 本地简历、浏览器配置与一次性工作台产物（只隔离，不入库）
+local-artifacts/
 # W1 端到端冒烟脚本（临时，不入库；本地用 Docker+Qdrant 跑 RAG 真验证时使用）
 run_e2e_smoke.py
 # RAG 验证样例文档（临时，不入库）
@@ -72,3 +74,7 @@ node_modules/
 web/frontend/dist/
 web/frontend/.vite/
 web/frontend/tsconfig.tsbuildinfo
+# P1 浏览器 E2E 产物（Playwright）：失败截图 / trace / HTML 报告，只在本机留档
+web/frontend/test-results/
+web/frontend/playwright-report/
+web/frontend/.playwright/

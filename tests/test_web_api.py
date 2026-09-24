@@ -37,6 +37,10 @@ class TinyGraph:
 
 def _setup(steps=3, delay=0.02):
     api.manager._graph_factory = lambda: TinyGraph(steps=steps, delay=delay)
+    # P1-3：默认并发闸是 1（前台模型一次只跑一个）。HTTP 层的用例是**串行**的，
+    # 但上一个用例的工作线程可能还没退出 ⇒ 这里放开闸，避免用例之间互相挡。
+    # 闸本身的行为由 tests/test_web_guardrails.py 用独立 RunManager 单独覆盖。
+    api.manager.max_concurrent_runs = 8
     return TestClient(api.app)
 
 

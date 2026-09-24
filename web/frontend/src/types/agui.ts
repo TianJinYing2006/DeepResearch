@@ -15,6 +15,19 @@ export interface AguiEvent {
   [key: string]: unknown
 }
 
+/** 结构化错误详情（P1-5）：后端 `web.backend.errors.error_payload` 的载荷。
+ *
+ * 前端**只认键、不解析 message 文本** —— 这是能被端到端测试锁住的契约。 */
+export interface StructuredError {
+  code: string
+  message: string
+  component: string | null
+  node: string | null
+  detail: string | null
+  retryable: boolean
+  hint: string
+}
+
 export interface RunStartedEvent extends AguiEvent {
   type: 'RUN_STARTED'
   run_id: string
@@ -26,6 +39,8 @@ export interface RunStartedEvent extends AguiEvent {
   search_provider?: string
   /** 后端实际生效的学术检索（arXiv）开关 */
   enable_arxiv?: boolean
+  /** P1-2：本次运行的墙钟时限（秒），前端据此显示剩余时间 */
+  timeout_seconds?: number
 }
 
 /** 搜索源选项（来自 GET /api/options）。available=false 表示未配 key，选了会全降级。 */
@@ -41,6 +56,10 @@ export interface RunOptions {
   enable_arxiv_default: boolean
   max_total_hops_default: number
   max_subquestions_default: number
+  /** P1-2：后端生效的运行时限（秒） */
+  run_timeout_seconds?: number
+  /** P1-3：后端生效的单进程并发上限 */
+  max_concurrent_runs?: number
 }
 
 export interface StepFinishedEvent extends AguiEvent {
@@ -98,7 +117,8 @@ export type RunStatus = 'success' | 'degraded' | 'failed'
 export interface RunFinishedEvent extends AguiEvent {
   type: 'RUN_FINISHED'
   cancelled: boolean
-  stop_reason: 'completed' | 'cancelled'
+  /** `timeout` = P1-2 协作式超时闸触发的停止（既非完成也非用户取消） */
+  stop_reason: 'completed' | 'cancelled' | 'timeout'
   run_status: RunStatus
   token_used: number
   /** LLM 成本估算（元）。口径：无 input/output 拆分，按最贵 output 单价计的**上界**。 */
@@ -108,11 +128,8 @@ export interface RunFinishedEvent extends AguiEvent {
   result: ResearchResult
 }
 
-export interface RunErrorEvent extends AguiEvent {
+export interface RunErrorEvent extends StructuredError {
   type: 'RUN_ERROR'
-  code: string
-  message: string
-  node: string | null
 }
 
 export function isAguiEvent(value: unknown): value is AguiEvent {

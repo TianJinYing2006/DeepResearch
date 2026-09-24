@@ -6,18 +6,68 @@ import {
   type AguiEvent,
   type ResearchResult,
   type RunFinishedEvent,
+  type StructuredError,
 } from '../types/agui'
 
-export type StreamStatus = 'idle' | 'starting' | 'running' | 'stopping' | 'done' | 'cancelled' | 'error'
+export type StreamStatus =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'done'
+  /** P1-2：到时限被闸停 —— 既不是「完成」也不是「用户取消」，单独一态 */
+  | 'timeout'
+  | 'cancelled'
+  | 'error'
 export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
-async function responseError(response: Response, fallback: string): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: string }
-    return body.detail || `${fallback}（HTTP ${response.status}）`
-  } catch {
-    return `${fallback}（HTTP ${response.status}）`
+/** 把任意来源的错误归一成 `StructuredError`（P1-5）。
+
+ 后端已统一返回 `{code, message, component, node, detail, retryable, hint}`；
+ 但网络中断、JSON 解析失败这类**前端侧**错误没有后端载荷 ⇒ 在这里补齐同构字段，
+ 让错误卡片只需处理一种形状，不必到处判断「这次有没有 code」。 */
+function toStructuredError(value: unknown, code: string, hint: string): StructuredError {
+  const message = value instanceof Error ? value.message : typeof value === 'string' ? value : ''
+  if (value && typeof value === 'object' && 'code' in value) {
+    const parsed = value as Partial<StructuredError>
+    return {
+      code: parsed.code ?? code,
+      message: parsed.message ?? message,
+      component: parsed.component ?? null,
+      node: parsed.node ?? null,
+      detail: parsed.detail ?? null,
+      retryable: parsed.retryable ?? false,
+      hint: parsed.hint ?? hint,
+    }
   }
+  return {
+    code,
+    message: message || hint,
+    component: null,
+    node: null,
+    detail: null,
+    retryable: false,
+    hint,
+  }
+}
+
+async function httpError(response: Response, code: string, hint: string): Promise<StructuredError> {
+  let body: { detail?: unknown } | null = null
+  try {
+    body = (await response.json()) as { detail?: unknown }
+  } catch {
+    body = null
+  }
+  // FastAPI 的结构化 `detail` 是**对象**；历史版本 / 第三方中间件可能是字符串。
+  const detail = body?.detail
+  if (detail && typeof detail === 'object') {
+    return toStructuredError(detail, code, hint)
+  }
+  return toStructuredError(
+    typeof detail === 'string' ? new Error(detail) : new Error(`${hint}（HTTP ${response.status}）`),
+    code,
+    hint,
+  )
 }
 
 export function useResearchStream() {
@@ -25,7 +75,7 @@ export function useResearchStream() {
   const [events, setEvents] = useState<AguiEvent[]>([])
   const [status, setStatus] = useState<StreamStatus>('idle')
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<StructuredError | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
   const sourceRef = useRef<EventSource | null>(null)
   const terminalRef = useRef(false)
@@ -69,7 +119,7 @@ export function useResearchStream() {
           enable_arxiv: enableArxiv,
         }),
       })
-      if (!response.ok) throw new Error(await responseError(response, '启动研究失败'))
+      if (!response.ok) throw await httpError(response, 'start_failed', '启动研究失败')
       const { run_id: nextRunId } = (await response.json()) as { run_id: string }
 
       setRunId(nextRunId)
@@ -94,19 +144,25 @@ export function useResearchStream() {
             const finished = parsed as RunFinishedEvent
             terminalRef.current = true
             setResult(finished.result)
-            setStatus(finished.cancelled ? 'cancelled' : 'done')
+            setStatus(
+              finished.cancelled
+                ? 'cancelled'
+                : finished.stop_reason === 'timeout'
+                  ? 'timeout'
+                  : 'done',
+            )
             setConnectionStatus('closed')
             source.close()
           } else if (parsed.type === 'RUN_ERROR') {
             terminalRef.current = true
-            setError(String(parsed.message || '研究运行失败'))
+            setError(toStructuredError(parsed, 'run_error', '研究运行失败，可调整参数后重试'))
             setStatus('error')
             setConnectionStatus('closed')
             source.close()
           }
         } catch (eventError) {
           terminalRef.current = true
-          setError(eventError instanceof Error ? `事件解析失败：${eventError.message}` : '事件解析失败')
+          setError(toStructuredError(eventError, 'event_parse_failed', '事件解析失败，请刷新页面后重试'))
           setStatus('error')
           setConnectionStatus('closed')
           source.close()
@@ -124,7 +180,7 @@ export function useResearchStream() {
       closeSource()
       setStatus('error')
       setConnectionStatus('closed')
-      setError(startError instanceof Error ? startError.message : '启动研究失败')
+      setError(toStructuredError(startError, 'start_failed', '启动研究失败'))
     }
   }, [closeSource])
 
@@ -134,10 +190,11 @@ export function useResearchStream() {
     setStatus('stopping')
     try {
       const response = await fetch(`/api/research/${runId}/cancel`, { method: 'POST' })
-      if (!response.ok) throw new Error(await responseError(response, '取消请求失败'))
+      if (!response.ok) throw await httpError(response, 'cancel_failed', '取消请求失败')
     } catch (cancelError) {
       if (!terminalRef.current) setStatus('running')
-      setError(cancelError instanceof Error ? `${cancelError.message}，研究仍在继续` : '取消请求失败，研究仍在继续')
+      // 取消失败**不覆盖**运行状态：研究还在继续，用户仍可再点一次停止。
+      setError(toStructuredError(cancelError, 'cancel_failed', '取消请求失败，研究仍在继续'))
     }
   }, [runId])
 

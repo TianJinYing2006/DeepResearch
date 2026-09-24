@@ -96,12 +96,13 @@
     @apply text-[15px] leading-7 text-slate-300;
   }
 
+  /* P1-7 移动端：标题与代码块在窄屏上要能装下，否则会把整页撑出横向滚动条 */
   .report-prose h1 {
-    @apply mb-5 mt-2 text-3xl font-bold tracking-tight text-white;
+    @apply mb-5 mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl;
   }
 
   .report-prose h2 {
-    @apply mb-3 mt-9 border-b border-white/10 pb-2 text-xl font-semibold text-emerald-50;
+    @apply mb-3 mt-9 border-b border-white/10 pb-2 text-lg font-semibold text-emerald-50 sm:text-xl;
   }
 
   .report-prose h3 {
@@ -140,15 +141,22 @@
   }
 
   .report-prose pre {
-    @apply my-5 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-4;
+    @apply my-5 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-4 text-[13px] sm:text-sm;
   }
 
   .report-prose pre code {
     @apply bg-transparent p-0;
   }
 
+  /* 表格**不**在这里加 overflow-hidden：宽表在窄屏上会被裁掉且无法横向查看。
+     横向滚动交给 ReportView 的 table 组件包装层（P1-7 移动端适配）。 */
   .report-prose table {
-    @apply my-5 w-full border-collapse overflow-hidden text-left text-sm;
+    @apply my-5 w-full border-collapse text-left text-sm;
+  }
+
+  /* 长 URL / 无空格长串（中文报告常见）在窄屏上会顶破容器 ⇒ 允许任意处断行 */
+  .report-prose :where(p, li, h1, h2, h3, th, td, blockquote) {
+    overflow-wrap: anywhere;
   }
 
   .report-prose th {

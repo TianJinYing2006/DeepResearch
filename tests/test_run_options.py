@@ -34,6 +34,8 @@ class _OneStepGraph:
 @pytest.fixture()
 def client():
     api.manager._graph_factory = _OneStepGraph
+    # P1-3：并发闸默认 1，用例串行但上一个 run 的工作线程可能还没退出 ⇒ 放开闸
+    api.manager.max_concurrent_runs = 8
     return TestClient(api.app)
 
 
@@ -67,14 +69,15 @@ def test_options_marks_provider_available_with_key(client, monkeypatch):
 def test_start_rejects_unknown_provider(client):
     resp = client.post("/api/research", json={"topic": "t", "search_provider": "nope"})
     assert resp.status_code == 400
-    assert "未知搜索引擎" in resp.json()["detail"]
+    # P1-5：`detail` 是**结构化 dict**，断言错误码而不是匹配 message 文本
+    assert resp.json()["detail"]["code"] == "unknown_search_provider"
 
 
 def test_start_rejects_provider_without_key(client, monkeypatch):
     monkeypatch.setattr(config.search, "bocha_api_key", "")
     resp = client.post("/api/research", json={"topic": "t", "search_provider": "bocha"})
     assert resp.status_code == 400
-    assert "未配置 API key" in resp.json()["detail"]
+    assert resp.json()["detail"]["code"] == "missing_search_key"
 
 
 def test_start_accepts_valid_provider(client, monkeypatch):

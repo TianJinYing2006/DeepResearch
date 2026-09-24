@@ -51,8 +51,10 @@
 ### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt -r requirements-dev-lock.txt
 ```
+
+> 请在独立虚拟环境中安装；不要用系统 Python 3.14。两份 lock 分别固定运行依赖与 pytest/ruff 开发依赖。
 
 ### 3. 配置
 
@@ -117,18 +119,51 @@ python cli.py "2026 年 RAG 技术的最新进展"
 uvicorn web.backend.main:app --host 127.0.0.1 --port 8000
 
 # 前端（另开终端，Vite dev server 5173）
-cd web/frontend && npm install && npm run dev
+cd web/frontend && npm ci && npm run dev
 ```
 
 打开 http://localhost:5173 。生产模式下由 FastAPI 直接托管 `web/frontend/dist/`，只需启动后端。
 
-Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限）、实时查看阶段进度与降级事件、查看 token/cost、
-**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源。
+Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
+查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、
+**后端导出报告**（正文 + run_id / run_status / 降级条数等审计元数据 + 引用清单）。
 
 > 事件语义对齐 [AG-UI](https://docs.ag-ui.com/)；取消采用**协作式**而非抢占式 —— 取消请求立即生效，
 > 执行停止在下一个节点安全边界，取消后不再启动新的研究节点与 LLM 调用。详见 `docs/requirements/9-web-ui-rewrite.md`。
 >
-> ⚠️ `web/app.py` 是 W9 之前的 Streamlit 旧版入口，**已废弃**，保留仅为对照，不再维护。
+> ⚠️ W9 之前的 Streamlit 旧入口 `web/app.py` 已于 2026-09-23 删除；依赖与 lock 已同步清理，不再维护。
+
+#### 运行护栏（P1，2026-09-24）
+
+| 护栏 | 行为 | 默认值 / 开关 |
+|------|------|---------------|
+| 运行超时闸 | 单次 run 有墙钟时限，到点后在**节点边界**停止；`stop_reason=timeout`，**不记为故障** | 3600s，`DR_RUN_TIMEOUT_SECONDS` |
+| 单进程并发限制 | 同时活跃 run 数封顶，超出返回 429（`code=concurrency_limit`） | 1，`DR_MAX_CONCURRENT_RUNS` |
+| 强制收口宽限 | 协作式停止失效（节点内部挂死）时，传输层最多再等这么久就补 `RUN_ERROR(stop_forced)` 收口 | 60s，`DR_FORCED_STOP_GRACE_SECONDS` |
+| 状态查询 | `GET /api/research/{run_id}` 返回内存态画像（状态、已跑时长、剩余时间、事件数、stop_reason） | —— |
+| 结构化错误 | 所有 HTTP 错误与 `RUN_ERROR` 共用 `{code, message, component, node, detail, retryable, hint}` | —— |
+| 报告导出 | `GET /api/research/{run_id}/report?format=md\|json` | —— |
+
+⚠️ **超时与强制收口都是协作式的**：Python 线程无法被 kill，若某个节点内部（如一次 HTTP 调用）挂死，
+闸只能在下一个节点边界生效；硬截止只保证**传输层**收口、客户端不再干等，后台线程可能仍在收尾。
+这是语言级限制，不是实现偷懒。
+
+强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
+会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
+
+**浏览器 E2E（本机门禁）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，8 条用例（主流程 / 降级可见 / 导出 / 取消语义 /
+结构化错误 + 重试 / 窄屏无横向滚动）约 30s。
+
+```bash
+cd web/frontend
+npm ci
+npm run build                      # 后端托管 dist/，E2E 打的是 8000 端口
+DR_PYTHON=<项目 venv 的 python> npm run e2e
+# 换浏览器：E2E_CHANNEL=msedge npm run e2e（默认用本机 Chrome，不下载浏览器）
+```
+
+⚠️ 当前**未接进 CI**：GitHub-hosted runner 上需要装 Python 依赖 + Chromium，成本与稳定性未经实测，
+不假装它 green；要接进去需先验证 `npx playwright install --with-deps chromium` 在该 runner 上的耗时。
 
 ## 目录结构
 
@@ -291,7 +326,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **352 项全绿** | 离线可跑（零 LLM、零 key），CI 三档 3.11/3.12/3.13 全绿；其中 Web/SSE 专项 23 条（流式 15 + HTTP 8），另有 `frontend` job 跑 `tsc --noEmit` + `vite build` |
+| 单元测试 | **441 项全绿** | 2026-09-24 本机 Python 3.13.14 完整复验（28 个测试文件，零 LLM、零 key）；CI 继续覆盖 3.11/3.12/3.13。其中 Web 层 49 条 = 流式 15 + HTTP 8 + **P1 运行护栏 26**（含 2 条强制收口交错回归）；另有 `frontend` job 跑 `tsc --noEmit` + `vite build`，**浏览器 E2E 8 条**当前为本机门禁（见下节） |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |

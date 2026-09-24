@@ -24,8 +24,14 @@ STOP_RUNNING = "running"
 STOP_COMPLETED = "completed"
 STOP_CANCELLED = "cancelled"
 STOP_ERROR = "error"
+# P1-2（运行超时闸）：graph **自身不会产生**这个值 —— 超时由 web 运行器在
+# 节点边界判定（复用取消的协作式检查点），再由运行器把 STOP_CANCELLED 重标为
+# timeout。放进本模块只是为了**让终止原因的集合保持封闭且可枚举**，
+# 避免调用方各写各的字符串。🚨 它同样**不写** ResearchState.run_status
+# （与 cancelled 同口径：超时不是故障，不进 degradation_log）。
+STOP_TIMEOUT = "timeout"
 
-STOP_REASONS = (STOP_RUNNING, STOP_COMPLETED, STOP_CANCELLED, STOP_ERROR)
+STOP_REASONS = (STOP_RUNNING, STOP_COMPLETED, STOP_CANCELLED, STOP_ERROR, STOP_TIMEOUT)
 
 
 @dataclass(frozen=True)

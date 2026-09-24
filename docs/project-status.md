@@ -9,13 +9,14 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-22**（**W9 前端板块补齐 + §7.8 CI 与边界守卫已落地**：23 条 Web/SSE 测试全绿、ruff 全过、MD 表格 0 不一致、`DR_DEMO=1` 实跑完整流程）｜骨架落地于 **2026-09-20**（`iter_run()` + SSE/AG-UI + 取消 + FastAPI/React 最小骨架，**352 全绿**）｜承接：呈现层重构**已拍板 D-20**（FastAPI + React/Vite/TS + Tailwind + SSE，对齐 AG-UI 语义不引 CopilotKit；ADR-0001 追加 §1.1 修订——允许升级呈现层、不扩展产品边界）；after 基线 3 轮结案、**D-18 已拍板不续跑**、确定性 DoD 8/8、本地 dev/master 均指向 53ad3b1、代码冻结于 f723c2d |
-| 阶段 | W1~W7 已收官；**W8 已收尾**（Arm 1~7 + 命名三分 + 台账 review + after 基线 3 轮全部结案；确定性 DoD 8/8；剩余 = 对外材料）→ **W9 Web UI 重构：拍板完成 + 骨架已落地，待第 5 步（视觉 / 测试补充 / CI）** |
+| 更新 | **2026-09-24**（**P1 运行护栏与前端体验已交付**：超时闸 / 并发限制 / 状态查询 / 结构化错误 / 报告导出 / 浏览器 E2E；复核修复强制收口竞态（ADR-0008，+2 条交错回归）；测试 **441 全绿** + E2E **8/8**）｜2026-09-24（**P0 本地交付基线已复验**；W9 前端交付、测试与 CI 事实已同步）｜**2026-09-22**（**W9 前端板块补齐 + §7.8 CI 与边界守卫已落地**：23 条 Web/SSE 测试全绿、ruff 全过、MD 表格 0 不一致、`DR_DEMO=1` 实跑完整流程）｜骨架落地于 **2026-09-20**（`iter_run()` + SSE/AG-UI + 取消 + FastAPI/React 最小骨架，**352 全绿**）｜承接：呈现层重构**已拍板 D-20**（FastAPI + React/Vite/TS + Tailwind + SSE，对齐 AG-UI 语义不引 CopilotKit；ADR-0001 追加 §1.1 修订——允许升级呈现层、不扩展产品边界）；after 基线 3 轮结案、**D-18 已拍板不续跑**、确定性 DoD 8/8、本地 dev/master 均已对齐至 73b37a8、代码冻结于 f723c2d |
+| 阶段 | W1~W7 已收官；**W8 已收尾**（Arm 1~7 + 命名三分 + 台账 review + after 基线 3 轮全部结案；确定性 DoD 8/8；剩余 = 对外材料）→ **W9 Web UI 重构基础交付已完成**（FastAPI + SSE/AG-UI + 协作式取消 + React 基础交互 + 前端构建 CI + 边界守卫）。浏览器 E2E、任务持久化与生产部署属于后续增量，不再混写成“W9 待完成” |
 | 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），且**新增** `Eval 产物白名单纪律（Arm 7）` 步骤。**PR #7 这一轮**：dev push `35312917303` + PR 事件 `35312919557` + master 合并后 `35313178353` —— 全 success。⚠️ 该轮**第一跳 `35312654571` 三档同时红**（`test_before_baseline_runs_are_intact` 把「只在本机存在、未入库的 before 基线 run」当成了用例前提，CI 检出里没有 ⇒ 已改为「存在即校验、不存在则如实 skip」，见 `79845c6`）。其前一轮（`f2d5c3c`）为 `35310140078` / `35310228251` |
+| 最近本地验证 | **2026-09-24，基线 `73b37a8` + P1 工作区改动**：Python **3.13.14** 项目专属 venv 按两份 lock 安装，`pip check` 通过；ruff 全过；pytest **441/441 全绿**（含 P1 运行护栏 26 条，其中 2 条为强制收口交错回归）；评测白名单与前端边界守卫均通过；Playwright 浏览器 E2E **8/8**（桌面 + 移动两个视口，约 29s）。Node **24.15.0** 下 `npm ci` 安装 236 包（0 漏洞），`tsc --noEmit` 与 Vite production build 均通过 |
 | 最近交付 | **W8 after 基线结案 + 确定性 DoD 验收表 ⇒ `53ad3b1`**（新增 `docs/eval-w8-after-baseline.md`、`docs/eval-w8-dod.md`，`tools/paired_before_after.py` 转正，**D-18 拍板不续跑**）｜**PR #5 / #6 / #7 均已合入 master ⇒ `65aabee`**　[#5](https://github.com/TianJinYing2006/DeepResearch/pull/5) / [#6](https://github.com/TianJinYing2006/DeepResearch/pull/6) / [#7](https://github.com/TianJinYing2006/DeepResearch/pull/7)（PR #7 = W8 命名三分。**看板自身不单独开 PR**，随下一次合并并入） |
 | 最近基线 | **after 基线**（2026-09-19，20 题 × 3 runs，冻结 `f723c2d`，20/20 零异常）；对照 **before 基线**（2026-09-16，20 题 × 3 runs）。**四指标全部不可判定** ⇒ 结论见 `docs/eval-w8-after-baseline.md` |
-| 测试基线 | **352 全绿**（W8 收官 330 → W9 期新增；其中 **Web/SSE 专项 23 条已实测**：流式 15 `tests/test_web_streaming.py` + HTTP 8 `tests/test_web_api.py`，`pytest --co` 实证，零 LLM 零 key；`test_stop_reasons_are_closed_set` 参数化展开）。W9 期新增 `research_engine/streaming.py`、`web/backend/{main,agui,runner}.py`、`web/frontend/`（前端依赖 71 包、`vite build` 通过）、`tools/check_frontend_boundary.py`（边界守卫，接 CI） |
-| Python | **仅支持 3.11~3.13**（以 CI matrix 为准）。本机实测用 venv `.workbuddy/binaries/python/envs/default` 的 **3.13.14**（与 before / after 基线记录的 `python_version` 一致；系统 3.14.4 缺 langgraph，不要用）：**pytest 330 全绿 + ruff All checks passed 均在本机跑过**。<br>⚠️ 跑 pytest 必须加 `--basetemp=<干净的新目录>`，且每次换新目录（不加会被沙箱批量删除守卫卡在临时目录 GC 上；复用非空目录会报假 ERROR） |
+| 测试基线 | **441 全绿**（2026-09-24 本机按 `pytest --collect-only -q` 汇总：28 个测试文件 / 441 条测试；完整 `pytest tests/ -q` 通过）。其中 **Web 层 49 条**：流式 15 `tests/test_web_streaming.py` + HTTP 8 `tests/test_web_api.py` + **P1 运行护栏 26 `tests/test_web_guardrails.py`**；前端另由 `tsc --noEmit` + `vite build` 验证，浏览器 E2E **8 条**见下节 |
+| Python | **仅支持 3.11~3.13**（以 CI matrix 为准）。2026-09-24 本机复验使用项目专属 venv `C:\Users\Administrator\.workbuddy\binaries\python\envs\deepresearch`，解释器实测 **3.13.14**；按 `requirements-lock.txt` + `requirements-dev-lock.txt` 安装后 `pip check`、ruff、pytest **441/441** 均通过。<br>⚠️ 跑 pytest 必须加 `--basetemp=<干净的新目录>`，且每次换新目录（不加会被沙箱批量删除守卫卡在临时目录 GC 上；复用非空目录会报假 ERROR） |
 | 结论文档 | W7：`docs/eval-w7-conclusion.md`；W8 设计：`docs/requirements/8-fault-transparency-and-reproducibility.md`；**W8 after 基线结论**：`docs/eval-w8-after-baseline.md`；**W8 确定性 DoD 验收表**：`docs/eval-w8-dod.md` |
 
 ## 决策记录
@@ -68,6 +69,18 @@
 | W8 命名三分（Arm 1 遗留项） | ✅ **已交付并合入 master**（2026-09-18，PR #7 ⇒ `65aabee`） | 键名契约唯一真相源 `research_engine/eval/status_keys.py`（新增）：层② `invoke_status`（raw 顶层）/ 层③ `metrics_status`（eval 顶层）/ `LEGACY_STATUS` 只读。`run.py` **7 处落盘键**改名；读侧（`phase2` / `_summarize` / `report_gen` 异常附录 / `tools/measure_paired_rho.py`）全部 dual-read。**核心决策：历史产物一律不回填**（取证对象 + W7 零成本复算）⇒ 全量只读对账 **1,498 raw + 1,443 eval 全部读出、取值零越界**。新增 `tests/test_status_naming.py` **26 条**（含端到端落盘扫描 + 两份反向守卫 + AST 源码守卫）。**副作用登记**：发现 `history.json` 的 `status` 是恒为 `"PASS"` 的空转字段（见下方「未决 / 待拍板」） |
 | W8 after 基线 | ✅ **已结案**（2026-09-19，3/3 轮） | 四指标**全部不可判定**；外推显示跑满 9 轮 MDE 仅降 9~25%，仍判不动 ⇒ **D-18 拍板不续跑**。20/20 零异常 ×3、`git_dirty=false` ×3、¥2.5 / 2h29m。结论见 `docs/eval-w8-after-baseline.md` |
 | W8 确定性 DoD | ✅ **8/8 完成** | 故障可归因 / 状态分层 / 异常退出 / 成本守恒 / 质量闸 / 可复现元数据 / 产物治理 / 历史兼容 —— 逐项有测试与 CI 证据（**330 全绿**），见 `docs/eval-w8-dod.md`。⚠️ 与统计侧严格分开：**机制可验收 ≠ 均值质量提升成立** |
+| W9 Web UI 重构 | ✅ **基础交付完成**；后续产品化能力另立项 | FastAPI 后端 + SSE/AG-UI 事件流 + 协作式取消 + React/Vite/TS/Tailwind 基础交互；23 条 Web/SSE 测试、前端边界守卫、CI `npm ci`/类型检查/production build 已落地；2026-09-24 本地复验再次通过 |
+
+## P0 本地交付基线复验（2026-09-24）
+
+| 验证项 | 结果 |
+| --- | --- |
+| Python 环境 | 新建项目专属 venv `C:\Users\Administrator\.workbuddy\binaries\python\envs\deepresearch`；Python 3.13.14；按两份 lock 安装；`pip check` 通过 |
+| Python 质量门禁 | `ruff check .` 通过；`pytest tests/ -q --basetemp=<新目录>` **415/415 全绿**（27 个测试文件） |
+| 仓库治理门禁 | `tools/check_results_whitelist.py` 通过（8 条白名单 = 8 个跟踪顶层条目）；`tools/check_frontend_boundary.py` 通过 |
+| 前端依赖与构建 | Node 22.22.2；`npm ci` 安装 233 包、0 漏洞；`tsc --noEmit` 通过；Vite 6.4.3 production build 通过（283 modules） |
+| 工作区整理 | 18 组未跟踪的简历、浏览器配置和临时产物已**原样迁移**到忽略目录 `local-artifacts/`，未删除个人文件；仓库根不再暴露这些未跟踪项 |
+| 非阻断告警 | Starlette `TestClient` 对 `anyio.abc.BlockingPortal` 的弃用告警 1 条；首次测试进程退出时宿主 OTel exporter 到本地端口超时，最终复验显式设置 `OTEL_SDK_DISABLED=true` 后 stderr 为空，测试结果不受影响 |
 
 ## Arm 5 历史回填记录（2026-09-17 迁移，已完成）
 
@@ -79,8 +92,8 @@
 | 回归验收（真实 run） | `run_20260910_173540` ⇒ **suspicious** ✅；`run_20260910_171054` ⇒ **broken** ✅ |
 | D1 修复 | **2 个 run**：`run_20260916_022440`（token 0 → **1,017,784**）、`run_v11_compare`（0 → **683,649**）；均改为 `cost_yuan=None` + `cost_degraded=true` + `cost_basis=raw_token_sum` |
 | 幂等性 | 回填后再次 dry-run ⇒ **75 个全部 `unchanged`**，D1 标记清零 |
-| 迁移日志 | `_arm5_backfill_20260917_0111.log`（含迁移前 git 状态 / dry-run / apply / 复核全过程） |
-| 备份 | `_arm5_backup_20260917_0111/`（75 份迁移前 summary.json，**验收通过后应删除**） |
+| 迁移日志 | `local-artifacts/root-logs/_arm5_backfill_20260917_0111.log`（2026-09-24 随根目录日志隔离迁移；含迁移前 git 状态 / dry-run / apply / 复核全过程） |
+| 备份 | `_arm5_backup_20260917_0111/`（75 份迁移前 summary.json）—— ✅ **已清理**（2026-09-24 复核：本机已不存在） |
 | 测试 | ruff 全绿；pytest **269 全绿**（267 → +2 条回填回归：D1 修复 + 幂等 + 跳过无 eval 的 run） |
 
 ## 已知缺陷（登记待修）
@@ -114,9 +127,7 @@
 | 「目录结构」 | `web/app.py` → `web/backend/{main,agui,runner}.py` + `web/frontend/` + `tools/check_frontend_boundary.py` | 同上 |
 | 「eval 诚实数字 · 单元测试」 | 330 项 → **352 项**（含 Web/SSE 专项 23 条，另 `frontend` job 跑 `tsc --noEmit` + `vite build`） | W9 新增测试后未回写 |
 
-⚠️ **遗留（未动，需拍板）**：`requirements.txt:17` 仍有 `streamlit>=1.36.0`（`requirements-lock.txt:247` 锁 `streamlit==1.64.0`）。
-由于 `web/app.py` 已废弃、代码零引用，**该依赖可清**；但清 `requirements.txt` 必须同步重编译 `requirements-lock.txt`
-（Arm 3 依赖锁定三刀的纪律），属跨文件操作，本次未做。
+✅ **已处理（2026-09-23）**：`requirements.txt` 已移除 Streamlit，`requirements-lock.txt` 已按文件头命令重编译；旧入口 `web/app.py` 已删除。
 
 ## W8 收尾纪律：产物冻结（2026-09-19，D-18 拍板后生效）
 
@@ -143,6 +154,38 @@
 | replan 解析后为空 | ✅ 已完成：与 replan LLM 异常同样进入 `degradation_log`，`fallback_action=keep_previous_subquestions` |
 | 截断指标统计 | ⏳ 下一项：在独立事件通道之上补运行级聚合指标；不改变调度顺序 |
 | round-robin 调度 | ⛔ 当前不做；只有实测证明 FIFO 存在偏斜时才单独立项，避免改变 W8 查询顺序基线 |
+
+## P1 运行护栏与前端体验（2026-09-24 已交付）
+
+**范围前提**：全部落在 D-19/D-20 硬边界内 —— 仍是「前台跑 + 可取消」的单用户模型，
+**没有**引入任务持久化、任务队列、多租户、历史任务中心。
+
+| 项 | 落点 | 状态 / 关键口径 |
+| --- | --- | --- |
+| ① 前端浏览器 E2E | `web/frontend/{playwright.config.ts,e2e/}` + `npm run e2e` | ✅ **8/8 通过（约 31s）**：主流程 / 降级实时可见 / 后端导出 / 取消语义 / 结构化错误 429 + 重试 / 窄屏无横向滚动。<br>⚠️ **本机门禁，未接 CI**：GitHub-hosted runner 需装 Python 依赖 + Chromium，耗时与稳定性未实测 ⇒ 不假装 green |
+| ② 运行超时闸 | `runner.RunManager`（`_deadlines` + 节点边界谓词） | ✅ 默认 **3600s**（实测单轮 48~51 分钟 ⇒ 留 1.2 倍余量）；`stop_reason=timeout`，**不进 RUN_ERROR、不写 run_status**（与取消同口径，不污染故障归因） |
+| ③ 单进程并发限制 | `runner.start()` 抛 `ApiError(concurrency_limit)` → 429 | ✅ 默认 **1**（前台模型一次一个）；`DR_MAX_CONCURRENT_RUNS` 可调 |
+| ④ 任务状态查询 | `GET /api/research/{run_id}` | ✅ 内存态画像：状态 / 已跑时长 / 剩余时间 / 事件数 / 最后事件 / stop_reason / has_report |
+| ⑤ 结构化错误详情 | `web/backend/errors.py`（唯一真相源） | ✅ `{code, message, component, node, detail, retryable, hint}`；HTTP 与 SSE `RUN_ERROR` 共用。**`detail` 由字符串改为对象**（前端已同步兼容两种形状） |
+| ⑥ 报告导出 | `GET /api/research/{run_id}/report?format=md\|json` + `export.py` | ✅ md = 正文 + 审计元数据 + 引用清单；json = 结构化载荷。**不落盘**（有测试锁） |
+| ⑦ 前端体验 | `ReportView.tsx` / 错误卡 / 移动端 | ✅ 重试（**重发同样参数**，非断点续跑）；错误卡展示 code + hint + 归因组件；报告**分段渲染**（2 万字/段 + `useDeferredValue`）+ 宽表可横滚 + 窄屏零横向滚动（E2E 判定 `scrollWidth <= clientWidth`） |
+
+**三条踩过的坑（写在代码注释里了）**
+
+| 坑 | 表现 | 处置 |
+| --- | --- | --- |
+| 并发闸把用例**互相挡住** | 一条用例失败留下 running 的 run ⇒ 后续用例全被 429 拒掉，失败「传染」 | E2E 加 `settleRun()` 清理钩子；pytest 侧在非闸用例里显式放开 `max_concurrent_runs` |
+| `beforeEach` 里 `test.skip()` 仍会跑 `afterEach` | 页面从未导航 ⇒ 清理钩子访问已关闭的页面 ⇒ 挂到 120s 超时 | 改为**按 project 用 `testMatch` 分流**（流程/错误卡只跑 desktop，响应式两个视口都跑） |
+| 停止按钮 disabled 时盲点 | Playwright 等 action timeout（30s/次）⇒ 清理拖成分钟级 | 清理钩子里先判 `isEnabled()` 再点；任何异常一律吞掉（清理失败不得把通过的用例判红） |
+
+⚠️ **诚实限制**：超时与强制收口都是**协作式**的（Python 线程无法 kill）。节点内部挂死时，
+硬截止只保证传输层补 `RUN_ERROR(stop_forced)` 收口，后台线程可能仍在收尾，进程重启才彻底释放。
+
+**复核补丁（2026-09-24 同日，见 ADR-0008）**：复核时用确定性交错复现出两个窄窗口 TOCTOU ——
+① 强制收口后仍可能存入**迟到报告**并覆盖 `stop_reason`；② `RUN_FINISHED` 之后又补
+`RUN_ERROR(stop_forced)` 的**双终局**。处置：终局帧 / 结果 / 状态改为在**同一把 condition 锁**下原子完成
+（`_emit_terminal_frame`），`_finished` 置位前移到终局帧产生时；新增 2 条确定性交错回归
+（用 monkeypatch 把工作线程钉在临界区）。测试基线 **441**（护栏 26 条）。
 
 ## 未决 / 待拍板
 

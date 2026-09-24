@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ProgressBar } from './components/ProgressBar'
+import { ReportView } from './components/ReportView'
 import {
   type ConnectionStatus,
   type StreamStatus,
@@ -13,6 +12,7 @@ import type {
   DegradationEvent,
   RunFinishedEvent,
   RunOptions,
+  RunStartedEvent,
   StateDeltaEvent,
   StepFinishedEvent,
 } from './types/agui'
@@ -27,6 +27,15 @@ const NODE_LABELS: Record<string, string> = {
   render: '渲染结果',
 }
 
+interface LaunchParams {
+  topic: string
+  instructions: string
+  maxTotalHops: number
+  maxSubquestions: number
+  searchProvider?: string
+  enableArxiv?: boolean
+}
+
 export default function App() {
   const [topic, setTopic] = useState('')
   const [instructions, setInstructions] = useState('')
@@ -37,6 +46,10 @@ export default function App() {
   const [searchProvider, setSearchProvider] = useState('')
   const [enableArxiv, setEnableArxiv] = useState(true)
   const [options, setOptions] = useState<RunOptions | null>(null)
+  // P1-7 重试：记住**上一次实际发起**的参数（不是当前表单值）——
+  // 用户可能在运行期间改了滑块，重试必须重跑原来那次，否则「重试」名不副实。
+  const [lastRequest, setLastRequest] = useState<LaunchParams | null>(null)
+  const [exportState, setExportState] = useState<'idle' | 'exported' | 'failed'>('idle')
   // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
   // 原来是累加各节点 duration_ms ⇒ 只有节点完成才会跳变，等待 LLM 时看起来卡住。
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
@@ -124,6 +137,13 @@ export default function App() {
     ? running ? '运行结束后给出估算' : '本次未提供估算'
     : `≈ ¥${formatCost(finished.cost_estimate_cny)}（按 output 单价的上界）`
   const tokenUsed = finished?.token_used ?? lastStep?.token_used ?? 0
+  // P1-2：时限由后端下发（RUN_STARTED / /api/options），前端不自己拍默认值 ——
+  // 否则改了 DR_RUN_TIMEOUT_SECONDS 前端还显示旧值，等于又造一个假数字。
+  const timeoutSeconds = useMemo(() => {
+    const started = events.find((event) => event.type === 'RUN_STARTED') as RunStartedEvent | undefined
+    return started?.timeout_seconds ?? options?.run_timeout_seconds ?? null
+  }, [events, options])
+  const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - elapsedMs)
   const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
   const findingsCount = lastDelta?.findings_count ?? 0
   const verifiedCitations = result?.citations.filter((citation) => citation.verified).length ?? 0
@@ -132,14 +152,34 @@ export default function App() {
   const statusInfo = statusPresentation(status)
   const connectionInfo = connectionPresentation(connectionStatus)
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!topic.trim() || running) return
+  const launch = (params: LaunchParams) => {
     // 从发起时刻开始计时（不是等第一个节点完成）
     setRunStartedAt(Date.now())
     stoppedAtRef.current = null
-    void start(topic, instructions, maxTotalHops, maxSubquestions,
-      searchProvider || undefined, enableArxiv)
+    setLastRequest(params)
+    setExportState('idle')
+    void start(params.topic, params.instructions, params.maxTotalHops,
+      params.maxSubquestions, params.searchProvider, params.enableArxiv)
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!topic.trim() || running) return
+    launch({
+      topic,
+      instructions,
+      maxTotalHops,
+      maxSubquestions,
+      searchProvider: searchProvider || undefined,
+      enableArxiv,
+    })
+  }
+
+  // P1-7 重试：**重新发起一次同样参数的研究**，不是断点续跑 ——
+  // D-19 定的是前台模型、不做持久化，进程里没有可续跑的中间态。
+  const handleRetry = () => {
+    if (!lastRequest || running) return
+    launch(lastRequest)
   }
 
   const copyReport = async () => {
@@ -149,15 +189,28 @@ export default function App() {
     window.setTimeout(() => setCopyState('idle'), 1600)
   }
 
-  const downloadReport = () => {
-    if (!result?.report) return
-    const file = new Blob([result.report], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(file)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${safeFileName(topic || 'research-report')}.md`
-    anchor.click()
-    URL.revokeObjectURL(url)
+  // P1-6：改走后端导出 —— 前端 Blob 那份只有正文，脱离页面后无从自证来源；
+  // 后端版本带 run_id / run_status / 降级条数等审计元数据与引用清单。
+  const exportReport = async () => {
+    if (!runId) return
+    try {
+      const response = await fetch(`/api/research/${runId}/report?format=md`)
+      if (!response.ok) {
+        setExportState('failed')
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `deepresearch-${runId}.md`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setExportState('exported')
+      window.setTimeout(() => setExportState('idle'), 1600)
+    } catch {
+      setExportState('failed')
+    }
   }
 
   return (
@@ -185,7 +238,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
         <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
           <form className="surface-card p-5" onSubmit={handleSubmit}>
             <div className="mb-6 flex items-start justify-between gap-3">
@@ -392,7 +445,10 @@ export default function App() {
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}>
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}
+                      data-testid="status-badge"
+                    >
                       {statusInfo.label}
                     </span>
                     {runId && <span className="font-mono text-[11px] text-slate-600">RUN {runId}</span>}
@@ -413,14 +469,71 @@ export default function App() {
           </section>
 
           {error && (
-            <section className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-5 py-4 text-sm text-rose-100">
+            <section
+              className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-5 py-4 text-sm text-rose-100"
+              data-testid="error-card"
+            >
               <div className="flex gap-3">
                 <span aria-hidden="true">!</span>
-                <div>
-                  <p className="font-semibold">需要注意</p>
-                  <p className="mt-1 text-rose-100/70">{error}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">需要注意</p>
+                    {/* P1-5 结构化错误：把 code / 归因组件 / 节点摆到台面上，
+                        用户不用从 message 文本里猜「这是谁的锅」 */}
+                    <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/80" data-testid="error-code">
+                      {error.code}
+                    </span>
+                    {error.component && (
+                      <span className="rounded-md bg-black/25 px-2 py-0.5 text-[10px] text-rose-200/70">
+                        {error.component}
+                      </span>
+                    )}
+                    {error.node && (
+                      <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/70">
+                        节点 {error.node}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-rose-100/80">{error.message}</p>
+                  {error.detail && (
+                    <p className="mt-1 break-all font-mono text-[11px] leading-5 text-rose-200/55">
+                      {error.detail}
+                    </p>
+                  )}
+                  {error.hint && (
+                    <p className="mt-2 text-xs leading-5 text-rose-100/70" data-testid="error-hint">
+                      {error.hint}
+                    </p>
+                  )}
+                  {lastRequest && (
+                    <button
+                      className="secondary-button mt-3 !px-3 !py-2"
+                      type="button"
+                      onClick={handleRetry}
+                      disabled={running}
+                      data-testid="retry-button"
+                    >
+                      {running ? '运行中，暂不能重试' : '用同样参数重试'}
+                    </button>
+                  )}
                 </div>
               </div>
+            </section>
+          )}
+
+          {status === 'timeout' && (
+            <section
+              className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-4 text-sm text-amber-100"
+              data-testid="timeout-card"
+            >
+              <p className="font-semibold">研究已在时限处停止</p>
+              <p className="mt-1 text-xs leading-5 text-amber-100/75">
+                {timeoutSeconds === null
+                  ? '单次运行有墙钟时限，到点后在节点边界停止。'
+                  : `本次时限 ${formatDuration(timeoutSeconds * 1000)}（后端 DR_RUN_TIMEOUT_SECONDS）。`}
+                停止发生在节点边界，最坏多等一个节点；已完成的节点与统计全部保留。
+                超时既不算「完成」也不算「取消」，更不是故障 —— 不计入运行失败率。
+              </p>
             </section>
           )}
 
@@ -428,16 +541,28 @@ export default function App() {
             <MetricCard label="已完成节点" value={String(steps.length)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
             <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="cyan" />
             <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
-            <MetricCard label="运行时长" value={formatDuration(elapsedMs)} detail={running ? '实时计时中' : lastStep ? `深度 ${lastStep.depth}` : '自发起时刻起'} accent="amber" />
+            <MetricCard
+              label="运行时长"
+              value={formatDuration(elapsedMs)}
+              detail={
+                running && remainingMs !== null
+                  ? `剩余约 ${formatDuration(remainingMs)}`
+                  : lastStep
+                    ? `深度 ${lastStep.depth}`
+                    : '自发起时刻起'
+              }
+              accent="amber"
+            />
           </section>
 
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
             <div className="surface-card min-h-[360px] p-5 sm:p-6">
               <SectionHeading eyebrow="Live trace" title="研究活动" detail={`${events.length} 条事件`} />
+              {/* P1-7 移动端：窄屏留给活动流的高度更小，避免一屏全是时间线 */}
               {timeline.length === 0 ? (
                 <EmptyState icon="⌁" title="等待研究开始" text="事件会按最新优先排列，断线重连不会重新启动研究。" />
               ) : (
-                <div className="mt-5 max-h-[520px] space-y-1 overflow-y-auto pr-1">
+                <div className="mt-5 max-h-[360px] space-y-1 overflow-y-auto pr-1 sm:max-h-[520px]">
                   {timeline.map(({ event, index }) => (
                     <TimelineItem key={index} event={event} />
                   ))}
@@ -472,23 +597,28 @@ export default function App() {
                 <div className="flex flex-col justify-between gap-4 border-b border-white/[0.07] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Research report</p>
-                    <h2 className="mt-1 text-xl font-semibold text-white">研究报告</h2>
+                    <h2 className="mt-1 text-xl font-semibold text-white" data-testid="report-heading">研究报告</h2>
                     <p className="mt-1 text-xs text-slate-500">Markdown 安全渲染 · {result.report.length.toLocaleString('zh-CN')} 字符</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button className="secondary-button !px-3 !py-2" type="button" onClick={() => void copyReport()} disabled={!result.report}>
-                      {copyState === 'copied' ? '已复制' : '复制'}
+                      {copyState === 'copied' ? '已复制' : '复制正文'}
                     </button>
-                    <button className="secondary-button !px-3 !py-2" type="button" onClick={downloadReport} disabled={!result.report}>
-                      下载 .md
+                    {/* P1-6：走后端导出（正文 + 审计元数据 + 引用清单），不是前端 Blob 那份纯正文 */}
+                    <button
+                      className="secondary-button !px-3 !py-2"
+                      type="button"
+                      onClick={() => void exportReport()}
+                      disabled={!runId}
+                      data-testid="export-button"
+                    >
+                      {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
                     </button>
                   </div>
                 </div>
                 <div className="px-5 py-6 sm:px-8 sm:py-8">
                   {result.report ? (
-                    <article className="report-prose mx-auto max-w-4xl">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.report}</ReactMarkdown>
-                    </article>
+                    <ReportView report={result.report} />
                   ) : (
                     <EmptyState icon="◌" title="暂无完整报告" text="运行在报告生成前停止，已完成的事件与统计仍保留。" />
                   )}
@@ -513,7 +643,9 @@ export default function App() {
               </section>
 
               <section className="grid gap-6 lg:grid-cols-2">
-                <div className="surface-card p-5 sm:p-6">
+                {/* P1-7 移动端：`min-w-0` 必须有 —— grid 子项默认 `min-width:auto`，
+                    长 URL / 长单词会把列撑得比容器宽，整页出现横向滚动条。 */}
+                <div className="surface-card min-w-0 p-5 sm:p-6">
                   <SectionHeading eyebrow="Sources" title="访问来源" detail={`${result.visited_sources.length} 个`} />
                   <div className="mt-5 space-y-2">
                     {result.visited_sources.length ? result.visited_sources.map((source, index) => (
@@ -522,7 +654,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="surface-card p-5 sm:p-6">
+                <div className="surface-card min-w-0 p-5 sm:p-6">
                   <SectionHeading eyebrow="Reflection" title="决策轨迹" detail={`${result.reflection_log.length} 轮`} />
                   <div className="mt-5 space-y-3">
                     {result.reflection_log.length ? result.reflection_log.map((entry, index) => (
@@ -698,6 +830,7 @@ function statusPresentation(status: StreamStatus) {
     stopping: { label: '正在安全停止', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
     done: { label: '研究完成', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
     cancelled: { label: '已取消', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
+    timeout: { label: '已到时限停止', className: 'border-amber-300/25 bg-amber-300/[0.10] text-amber-200' },
     error: { label: '运行失败', className: 'border-rose-300/20 bg-rose-300/[0.08] text-rose-200' },
   }[status]
 }
@@ -764,10 +897,6 @@ function formatDuration(milliseconds: number): string {
   const minutes = Math.floor(seconds / 60)
   const remainder = seconds % 60
   return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
-}
-
-function safeFileName(value: string): string {
-  return value.trim().replace(/[\\/:*?"<>|]+/g, '-').slice(0, 60) || 'research-report'
 }
 
 function isKnowledgeBaseSource(source: string): boolean {
