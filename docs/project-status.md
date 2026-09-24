@@ -9,13 +9,13 @@
 
 | 项 | 值 |
 | --- | --- |
-| 更新 | **2026-09-24**（**P1 运行护栏与前端体验已交付并合入 master**：PR #8 ⇒ `aafcf22`；超时闸 / 并发限制 / 状态查询 / 结构化错误 / 报告导出 / 浏览器 E2E；复核修复强制收口竞态（ADR-0008，+2 条交错回归）；**W9 后续增量② planner 治理运行级聚合已交付**（eval 侧，+4 条）；测试 **445 全绿** + E2E **8/8**）｜2026-09-24（**P0 本地交付基线已复验**；W9 前端交付、测试与 CI 事实已同步）｜**2026-09-22**（**W9 前端板块补齐 + §7.8 CI 与边界守卫已落地**：23 条 Web/SSE 测试全绿、ruff 全过、MD 表格 0 不一致、`DR_DEMO=1` 实跑完整流程）｜骨架落地于 **2026-09-20**（`iter_run()` + SSE/AG-UI + 取消 + FastAPI/React 最小骨架，**352 全绿**）｜承接：呈现层重构**已拍板 D-20**（FastAPI + React/Vite/TS + Tailwind + SSE，对齐 AG-UI 语义不引 CopilotKit；ADR-0001 追加 §1.1 修订——允许升级呈现层、不扩展产品边界）；after 基线 3 轮结案、**D-18 已拍板不续跑**、确定性 DoD 8/8、代码冻结于 f723c2d |
+| 更新 | **2026-09-24**（**P1 运行护栏与前端体验已交付并合入 master**：PR #8 ⇒ `aafcf22`；超时闸 / 并发限制 / 状态查询 / 结构化错误 / 报告导出 / 浏览器 E2E；复核修复强制收口竞态（ADR-0008，+2 条交错回归）；**C 后续增量已开跑**：planner 治理运行级聚合（+4 条单测）+ **SSE 刷新恢复**（E2E +1）；测试 **445 全绿** + E2E **9/9**）｜2026-09-24（**P0 本地交付基线已复验**；W9 前端交付、测试与 CI 事实已同步）｜**2026-09-22**（**W9 前端板块补齐 + §7.8 CI 与边界守卫已落地**：23 条 Web/SSE 测试全绿、ruff 全过、MD 表格 0 不一致、`DR_DEMO=1` 实跑完整流程）｜骨架落地于 **2026-09-20**（`iter_run()` + SSE/AG-UI + 取消 + FastAPI/React 最小骨架，**352 全绿**）｜承接：呈现层重构**已拍板 D-20**（FastAPI + React/Vite/TS + Tailwind + SSE，对齐 AG-UI 语义不引 CopilotKit；ADR-0001 追加 §1.1 修订——允许升级呈现层、不扩展产品边界）；after 基线 3 轮结案、**D-18 已拍板不续跑**、确定性 DoD 8/8、代码冻结于 f723c2d |
 | 阶段 | W1~W7 已收官；**W8 已收尾**（Arm 1~7 + 命名三分 + 台账 review + after 基线 3 轮全部结案；确定性 DoD 8/8；剩余 = 对外材料）→ **W9 Web UI 重构基础交付已完成**（FastAPI + SSE/AG-UI + 协作式取消 + React 基础交互 + 前端构建 CI + 边界守卫）。浏览器 E2E、任务持久化与生产部署属于后续增量，不再混写成“W9 待完成” |
 | 最近 CI | **Py3.11/3.12/3.13 + ruff + pytest 三档全绿**（零 LLM、零 key），`frontend` job 同跑 `npm ci` / `tsc --noEmit` / `vite build`。**PR #8 这一轮（P1）**：dev push `35962115290` + PR 事件 `35962244144` + master 合并后 `35962331569` —— 全 success；后续 dev push：看板 `90efe96` = `35962503965`、setup-node v7 `be03ac1` = `35965038662`，同样 success。⚠️ 仅剩一条非阻断提示：`ubuntu-latest` 将于 2026-10-19 起迁移 Ubuntu 26（信息性，迁移日前复验） |
-| 最近本地验证 | **2026-09-24，基线 `73b37a8` + P1/后续增量工作区**：Python **3.13.14** 项目专属 venv 按两份 lock 安装，`pip check` 通过；ruff 全过；pytest **445/445 全绿**（含 P1 运行护栏 26 条与 planner 治理聚合 4 条）；评测白名单与前端边界守卫均通过；Playwright 浏览器 E2E **8/8**（桌面 + 移动两个视口，约 29s）。Node **24.15.0** 下 `npm ci` 安装 236 包（0 漏洞），`tsc --noEmit` 与 Vite production build 均通过 |
+| 最近本地验证 | **2026-09-24，基线 `73b37a8` + P1/后续增量工作区**：Python **3.13.14** 项目专属 venv 按两份 lock 安装，`pip check` 通过；ruff 全过；pytest **445/445 全绿**（含 P1 运行护栏 26 条与 planner 治理聚合 4 条）；评测白名单与前端边界守卫均通过；Playwright 浏览器 E2E **9/9**（桌面 + 移动两个视口，约 36s，含刷新恢复用例）。Node **24.15.0** 下 `npm ci` 安装 236 包（0 漏洞），`tsc --noEmit` 与 Vite production build 均通过 |
 | 最近交付 | **W8 after 基线结案 + 确定性 DoD 验收表 ⇒ `53ad3b1`**（新增 `docs/eval-w8-after-baseline.md`、`docs/eval-w8-dod.md`，`tools/paired_before_after.py` 转正，**D-18 拍板不续跑**）｜**PR #5 / #6 / #7 均已合入 master ⇒ `65aabee`**　[#5](https://github.com/TianJinYing2006/DeepResearch/pull/5) / [#6](https://github.com/TianJinYing2006/DeepResearch/pull/6) / [#7](https://github.com/TianJinYing2006/DeepResearch/pull/7)（PR #7 = W8 命名三分。**看板自身不单独开 PR**，随下一次合并并入）｜**PR #8 = P1 运行护栏 + 强制收口原子化，已合入 master ⇒ `aafcf22`**　[#8](https://github.com/TianJinYing2006/DeepResearch/pull/8)（dev 侧 `0a7d940`；合并后已核对 `tree(master)==tree(dev)==1855077`，内容零差异） |
 | 最近基线 | **after 基线**（2026-09-19，20 题 × 3 runs，冻结 `f723c2d`，20/20 零异常）；对照 **before 基线**（2026-09-16，20 题 × 3 runs）。**四指标全部不可判定** ⇒ 结论见 `docs/eval-w8-after-baseline.md` |
-| 测试基线 | **445 全绿**（2026-09-24 本机按 `pytest --collect-only -q` 汇总：28 个测试文件 / 445 条测试；完整 `pytest tests/ -q` 通过）。其中 **Web 层 49 条**：流式 15 `tests/test_web_streaming.py` + HTTP 8 `tests/test_web_api.py` + **P1 运行护栏 26 `tests/test_web_guardrails.py`**；eval 侧 25 条（`tests/test_eval_metrics.py`，含 planner 治理聚合 4 条）；前端另由 `tsc --noEmit` + `vite build` 验证，浏览器 E2E **8 条**见下节 |
+| 测试基线 | **445 全绿**（2026-09-24 本机按 `pytest --collect-only -q` 汇总：28 个测试文件 / 445 条测试；完整 `pytest tests/ -q` 通过）。其中 **Web 层 49 条**：流式 15 `tests/test_web_streaming.py` + HTTP 8 `tests/test_web_api.py` + **P1 运行护栏 26 `tests/test_web_guardrails.py`**；eval 侧 25 条（`tests/test_eval_metrics.py`，含 planner 治理聚合 4 条）；前端另由 `tsc --noEmit` + `vite build` 验证，浏览器 E2E **9 条**见下节 |
 | Python | **仅支持 3.11~3.13**（以 CI matrix 为准）。2026-09-24 本机复验使用项目专属 venv `C:\Users\Administrator\.workbuddy\binaries\python\envs\deepresearch`，解释器实测 **3.13.14**；按 `requirements-lock.txt` + `requirements-dev-lock.txt` 安装后 `pip check`、ruff、pytest **441/441** 均通过。<br>⚠️ 跑 pytest 必须加 `--basetemp=<干净的新目录>`，且每次换新目录（不加会被沙箱批量删除守卫卡在临时目录 GC 上；复用非空目录会报假 ERROR） |
 | 结论文档 | W7：`docs/eval-w7-conclusion.md`；W8 设计：`docs/requirements/8-fault-transparency-and-reproducibility.md`；**W8 after 基线结论**：`docs/eval-w8-after-baseline.md`；**W8 确定性 DoD 验收表**：`docs/eval-w8-dod.md` |
 
@@ -185,7 +185,17 @@
 ① 强制收口后仍可能存入**迟到报告**并覆盖 `stop_reason`；② `RUN_FINISHED` 之后又补
 `RUN_ERROR(stop_forced)` 的**双终局**。处置：终局帧 / 结果 / 状态改为在**同一把 condition 锁**下原子完成
 （`_emit_terminal_frame`），`_finished` 置位前移到终局帧产生时；新增 2 条确定性交错回归
-（用 monkeypatch 把工作线程钉在临界区）。测试基线 **441**（护栏 26 条）。
+（用 monkeypatch 把工作线程钉在临界区）。该修复后护栏 **26** 条（全量数字以「测试基线」行为准）。
+
+## C 后续增量：功能与工程质量（2026-09-24 起）
+
+**范围前提**：仍在 D-19/D-20 硬边界内（前台跑 + 可取消、呈现层不扩产品边界）；
+逐项落地、每项独立提交与 CI 证据。
+
+| 项 | 落点 | 状态 / 关键口径 |
+| --- | --- | --- |
+| #8 截断指标统计（W9 增量②） | `research_engine/eval/metrics.py` | ✅ 见上「W9 后续增量」表（`67cdbe2`） |
+| #9 SSE 断线重连 / 刷新恢复 | `web/frontend/src/hooks/useResearchStream.ts` + `App.tsx` + `e2e/research.spec.ts` | ✅ **已交付**：① 短暂断网 = 浏览器 `EventSource` 自动重连 + `Last-Event-ID` 续传（原有能力，本轮补文档口径）；② 刷新恢复 = `sessionStorage` 存 run_id + `GET /api/research/{id}` 快照 + **从 0 回放全部帧**重建界面（回放**零 LLM 调用**），时长按快照 `elapsed_seconds` 对齐；③ 终局/未知 run 自动清存储。**不可恢复**：后端进程重启（D-19 内存态）与跨标签页（sessionStorage 按标签隔离）。**不改后端协议**；E2E +1（**9/9**，35.9s） |
 
 ## 未决 / 待拍板
 

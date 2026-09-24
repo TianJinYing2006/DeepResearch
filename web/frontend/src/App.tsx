@@ -36,6 +36,28 @@ interface LaunchParams {
   enableArxiv?: boolean
 }
 
+/** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
+const LAST_REQUEST_KEY = 'dr.lastRequest'
+
+function readStoredLaunchParams(): LaunchParams | null {
+  try {
+    const raw = sessionStorage.getItem(LAST_REQUEST_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<LaunchParams>
+    return typeof parsed?.topic === 'string' ? (parsed as LaunchParams) : null
+  } catch {
+    return null
+  }
+}
+
+function storeLaunchParams(params: LaunchParams): void {
+  try {
+    sessionStorage.setItem(LAST_REQUEST_KEY, JSON.stringify(params))
+  } catch {
+    /* 隐私模式禁用 storage 时静默降级：只影响刷新后的「同参数重试」 */
+  }
+}
+
 export default function App() {
   const [topic, setTopic] = useState('')
   const [instructions, setInstructions] = useState('')
@@ -64,6 +86,7 @@ export default function App() {
     result,
     progress,
     start,
+    resume,
     cancel,
   } = useResearchStream()
 
@@ -98,6 +121,19 @@ export default function App() {
     providers.findIndex((provider) => provider.value === searchProvider),
     0,
   )
+
+  // #9 刷新恢复：会话里若有活跃 run，先问后端画像再**从 0 回放**已发生事件。
+  // 回放不产生新的研究/LLM 调用；后端进程重启后快照 404 ⇒ 自动回 idle。
+  useEffect(() => {
+    void (async () => {
+      const restored = await resume()
+      if (!restored) return
+      // 时长对齐后端画像，刷新不把计时清零
+      setRunStartedAt(Date.now() - restored.elapsedSeconds * 1000)
+      const storedParams = readStoredLaunchParams()
+      if (storedParams) setLastRequest(storedParams)
+    })()
+  }, [resume])
 
   const running = status === 'starting' || status === 'running' || status === 'stopping'
 
@@ -158,6 +194,7 @@ export default function App() {
     stoppedAtRef.current = null
     setLastRequest(params)
     setExportState('idle')
+    storeLaunchParams(params)
     void start(params.topic, params.instructions, params.maxTotalHops,
       params.maxSubquestions, params.searchProvider, params.enableArxiv)
   }

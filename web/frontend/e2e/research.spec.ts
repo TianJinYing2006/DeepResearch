@@ -34,6 +34,23 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.getByText('研究完成')).toBeVisible()
   })
 
+  test('刷新页面后恢复当前运行并继续到报告', async ({ page }) => {
+    await page.fill('#topic', '刷新恢复')
+    await page.click('button[type="submit"]')
+    await expect(page.getByText('研究进行中')).toBeVisible()
+    // 先让回放里有真实内容（至少一个节点完成）
+    await expect(page.getByText('规划问题').first()).toBeVisible({ timeout: 60_000 })
+
+    await page.reload()
+
+    // 恢复态：状态徽标与 run_id 都回来（run_id 从会话存储恢复）
+    await expect(page.locator('[data-testid="status-badge"]')).toBeVisible()
+    await expect(page.locator('text=/RUN [a-f0-9]{12}/')).toBeVisible({ timeout: 30_000 })
+    // 回放重建活动流并继续消费后续事件，最终走到报告
+    await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText('研究完成')).toBeVisible()
+  })
+
   test('降级事件在运行中实时可见', async ({ page }) => {
     await page.fill('#topic', '降级可见性')
     await page.click('button[type="submit"]')
