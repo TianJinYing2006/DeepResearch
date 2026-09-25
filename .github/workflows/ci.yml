@@ -87,6 +87,13 @@ jobs:
           docker compose -f docker-compose.staging.yml run --rm migrate | tee /tmp/migrate_2nd.log
           grep -q "applied=0" /tmp/migrate_2nd.log
 
+      # P2-A 结构门禁：迁移后的表 / 约束 / 级联行为必须与 DDL 一致（断言失败即 job 红）
+      - name: 迁移结构断言（0001）
+        run: |
+          docker compose -f docker-compose.staging.yml exec -T postgres \
+            psql -U deepresearch -d deepresearch -v ON_ERROR_STOP=1 -f - \
+            < migrations/checks/0001_schema_assert.sql
+
       - name: 构建 API 镜像
         run: docker build -f Dockerfile.api -t deepresearch-api:ci .
 
