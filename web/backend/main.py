@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 from pathlib import Path
 from typing import AsyncIterator, Optional
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, Query
 from fastapi.exceptions import RequestValidationError
@@ -43,10 +45,21 @@ async def request_validation_error(_request, exc: RequestValidationError) -> JSO
     )
 
 
-# 开发期：Vite dev server（5173）→ 后端（8000）。生产由 FastAPI 托管 dist/ 后即可去掉。
+# 开发期默认允许 Vite dev server（5173）；staging/生产必须用 DR_CORS_ORIGINS 显式覆盖
+# （P1：CORS 环境变量化，不允许把 localhost 默认带进生产）。
+DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def _cors_origins() -> list[str]:
+    raw = os.getenv("DR_CORS_ORIGINS", "")
+    if raw.strip():
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return list(DEFAULT_CORS_ORIGINS)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -130,6 +143,59 @@ def health() -> dict:
         "max_concurrent_runs": manager.max_concurrent_runs,
         "run_timeout_seconds": manager.run_timeout_seconds,
     }
+
+
+def _probe_target(url: str, default_port: int) -> Optional[tuple[str, int]]:
+    parsed = urlsplit(url)
+    if not parsed.hostname:
+        return None
+    return parsed.hostname, parsed.port or default_port
+
+
+def _tcp_reachable(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+@app.get("/api/health/live")
+def health_live() -> dict:
+    """liveness：进程活着即 200，不查依赖（依赖抖动不应触发编排层重启）。"""
+    return {"ok": True, "check": "live"}
+
+
+@app.get("/api/health/ready")
+def health_ready(response: Response) -> dict:
+    """readiness：只对**已配置**的依赖做 TCP 探针（P1 骨架，零新依赖）。
+
+    `not_configured` 不判失败 —— 过渡期（还没接 PG/Redis）不会把本地与 CI 全判红；
+    一旦设置了 `DR_DATABASE_URL` / `DR_REDIS_URL`，探不通即 503，由编排层摘流量。
+    P2 接入真实客户端后，把 TCP 探针升级为 `SELECT 1` / `PING`（探针语义不变）。
+    """
+    checks = {}
+    for name, env_key, default_port in (
+        ("postgres", "DR_DATABASE_URL", 5432),
+        ("redis", "DR_REDIS_URL", 6379),
+    ):
+        raw = os.getenv(env_key, "").strip()
+        if not raw:
+            checks[name] = {"status": "not_configured"}
+            continue
+        target = _probe_target(raw, default_port)
+        if target is None:
+            checks[name] = {"status": "invalid_url"}
+            continue
+        host, port = target
+        checks[name] = {
+            "status": "ok" if _tcp_reachable(host, port) else "unreachable",
+            "target": f"{host}:{port}",
+        }
+    failed = [item for item in checks.values() if item["status"] in {"unreachable", "invalid_url"}]
+    if failed:
+        response.status_code = 503
+    return {"ok": not failed, "status": "ready" if not failed else "not_ready", "checks": checks}
 
 
 @app.post("/api/research", response_model=StartResponse)

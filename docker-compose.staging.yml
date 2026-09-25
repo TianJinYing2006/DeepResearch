@@ -1,0 +1,101 @@
+# L3-A staging 骨架（P1）：PostgreSQL + Redis + 迁移 + API。
+# 设计口径见 docs/requirements/10-l3-production.md §5.1/§5.13 与 docs/operations/production-readiness.md §7。
+#
+# 起停：
+#   docker compose -f docker-compose.staging.yml up -d --build   # 自动等依赖健康 → 跑迁移 → 起 API
+#   docker compose -f docker-compose.staging.yml down            # 停服（加 -v 连数据卷一起删）
+# 探针：
+#   curl http://127.0.0.1:8000/api/health/ready
+#
+# 说明：
+# - Qdrant 不在本文件内：默认指向宿主机（host.docker.internal）；staging 部署时用 QDRANT_URL 指向真实实例。
+# - Worker 服务在 P3 增加；API 现在仍走请求进程内 RunManager（P2/P3 迁移到队列）。
+# - 境外服务按推荐基线 v2 默认关闭（LANGFUSE_ENABLED=false / ENABLE_ARXIV=false）。
+
+name: deepresearch-staging
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deepresearch
+      POSTGRES_PASSWORD: "${DR_POSTGRES_PASSWORD:-deepresearch-local}"
+      POSTGRES_DB: deepresearch
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepresearch -d deepresearch"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DR_POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:${DR_REDIS_PORT:-6379}:6379"
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
+    volumes:
+      - ./migrations:/migrations:ro
+      - ./tools/migrate.sh:/usr/local/bin/migrate.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/migrate.sh"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
+      DR_REDIS_URL: "redis://redis:6379/0"
+      DR_CORS_ORIGINS: "${DR_CORS_ORIGINS:-}"
+      QDRANT_URL: "${QDRANT_URL:-http://host.docker.internal:6333}"
+      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
+      DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+      SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
+      BOCHA_API_KEY: "${BOCHA_API_KEY:-}"
+      ENABLE_ARXIV: "${ENABLE_ARXIV:-false}"
+      LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${DR_API_BIND:-127.0.0.1}:${DR_API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  pg_data:
+  redis_data:
