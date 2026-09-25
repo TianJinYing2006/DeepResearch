@@ -160,6 +160,8 @@ D-20 硬边界②的「不做用户系统 / 任务队列 / 持久化 / 多租户
 
 `runs` 关键字段：`run_id` / `user_id` / `tenant_id` / `status` / `created_at` / `started_at` / `finished_at` / `cancel_requested_at` / `stop_reason` / `current_node` / `token_used` / `cost_estimate` / `idempotency_key`。
 
+**DDL 落点**：`migrations/0001_runs_and_events.sql`（P2-A：先建 `runs` + `run_events`，状态机 CHECK / 创建幂等唯一索引 / 租约与预算字段一次到位；`run_artifacts` / `run_checkpoints` 等表随后续迁移增加）。结构自检由 `migrations/checks/0001_schema_assert.sql` 承担，CI `infra` job 强制执行。
+
 ### 5.3 任务状态机
 
 ```text
@@ -456,4 +458,5 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-24 | P0 推荐基线 | §3.1 / §5.6 | 填入规模、并发、配额、预算、封闭内测、国内数据边界、保存期限与档位初始上限；主体/域名/云账号/合规结论仍待主理人确认。根据百炼官方接入说明，生产端点改为业务空间专属域名，避免沿用即将停止支持新特性的通用 DashScope 域名 | — |
 | 2026-09-24 | P0 推荐基线 v2 | §3.1 / §3.1.1 / §3.1.2 / §3.3 / §5.6 / §5.8 / §7.2 / §8.2 / §8.4 / §9 | 按主理人确认的四项外部事实收缩首发范围：个人主体、规模 L3-A 5 人/L3-B 10 人、并发 2/3、1 次/日、预算 ¥1,500/¥2,000、L3-C 暂缓；境外服务改为「默认关闭 + 恢复须评审」表述并补功能影响取舍；搜索登记为单点并补第二源前置 | — |
 | 2026-09-24 | P0 设计细化 | §5.9~§5.13 | 补 L3-A 可实施设计：状态迁移表（含 `budget_exceeded` 语义分离与终局优先规则）、幂等与租约/心跳/重试、取消/超时/预算持久化映射、API 面、审计与计量口径、前端页面清单、新增配置项清单 | — |
-| 2026-09-24 | P1 第一批 | §5.7 / §7.1 / 代码 | 部署底座本地骨架落地：`Dockerfile.api`（多阶段）/ `docker-compose.staging.yml`（PG+Redis+迁移+API）/ `tools/migrate.sh`（只前向+幂等，CI 锁二次执行 `applied=0`）/ 健康探针（live+ready）/ CORS 环境变量化（`DR_CORS_ORIGINS`）/ CI `infra` job；迁移策略明确为「只前向、回退走备份恢复」；测试 455→461；云上部署与外部事实仍未闭环 | — |
+| 2026-09-24 | P1 第一批 | §5.7 / §7.1 / 代码 | 部署底座本地骨架落地：`Dockerfile.api`（多阶段）/ `docker-compose.staging.yml`（PG+Redis+迁移+API）/ `tools/migrate.sh`（只前向+幂等，CI 锁二次执行 `applied=0`）/ 健康探针（live+ready）/ CORS 环境变量化（`DR_CORS_ORIGINS`）/ CI `infra` job；迁移策略明确为「只前向、回退走备份恢复」；测试 455→461；云上部署与外部事实仍未闭环 | [PR #10](https://github.com/TianJinYing2006/DeepResearch/pull/10) |
+| 2026-09-26 | P2-A 数据模型 | §5.2 / migrations | 任务持久化第一批 DDL：`runs`（9 态状态机 CHECK / 创建幂等部分唯一索引 / 租约·预算·超时字段）与 `run_events`（`(run_id,sequence)` 主键 + 级联删除）；新增结构自检 `migrations/checks/0001_schema_assert.sql` 并接入 CI `infra` job | [PR #11](https://github.com/TianJinYing2006/DeepResearch/pull/11) |

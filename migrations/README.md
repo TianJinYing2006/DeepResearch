@@ -1,7 +1,7 @@
 # 数据库迁移（L3）
 
-P1 只建立**执行机制**：业务表（`runs` / `run_events` / `users` 等）由 P2 的第一批迁移落库，
-本目录当前没有 `*.sql` 属于预期状态（执行器会正常退出并输出 `applied=0`）。
+- `0001_runs_and_events.sql`（P2-A）：任务持久化第一批 —— `runs`（9 态状态机 + 创建幂等 + 租约/预算/超时字段）与 `run_events`（单调 `sequence` + 级联删除）；
+- `checks/0001_schema_assert.sql`：结构自检（关键列 / 状态 CHECK / 幂等唯一索引 / 主键防重放 / 外键 / 级联），**不由执行器自动跑**，由 CI `infra` job 与本地验证显式执行。
 
 ## 规则
 
@@ -18,4 +18,5 @@ P1 只建立**执行机制**：业务表（`runs` / `run_events` / `users` 等�
 docker compose -f docker-compose.staging.yml run --rm migrate
 ```
 
-执行器实现见 `tools/migrate.sh`；CI 的 `infra` job 会验证「首次执行 + 二次幂等（applied=0）」。
+执行器实现见 `tools/migrate.sh`；CI 的 `infra` job 会验证「首次执行 + 二次幂等（applied=0）」，
+并用 `migrations/checks/*.sql` 断言关键结构与约束（psql `-v ON_ERROR_STOP=1`，断言失败即 job 红）。
