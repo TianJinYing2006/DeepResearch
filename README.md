@@ -124,6 +124,23 @@ cd web/frontend && npm ci && npm run dev
 
 打开 http://localhost:5173 。生产模式下由 FastAPI 直接托管 `web/frontend/dist/`，只需启动后端。
 
+**Docker 方式（staging 骨架，P1 部署底座）：**
+```bash
+# 一条命令：PostgreSQL + Redis + 迁移 + API（前端构建产物打进镜像，由 FastAPI 托管）
+docker compose -f docker-compose.staging.yml up -d --build
+curl http://127.0.0.1:8000/api/health/ready     # {"status":"ready","checks":{"postgres":"ok","redis":"ok"}}
+
+# 端口冲突时用环境变量覆盖（本机 5432/6379/8000 常被其他项目占用）
+# DR_POSTGRES_PORT=15432 DR_REDIS_PORT=16379 DR_API_PORT=18080 docker compose -f docker-compose.staging.yml up -d --build
+docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数据卷一起删
+```
+
+- 迁移**只前向**执行（`migrations/NNNN_slug.sql` + `schema_migrations` 记录），重复执行全部 `skip`（CI 锁幂等：第二次必须 `applied=0`）；
+- 探针：`/api/health/live`（进程活着）与 `/api/health/ready`（PG/Redis **未配置时不算失败**，配置了但探不通返回 503）；
+- CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
+- Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
+- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）；Worker 镜像与队列在 P3 增加。
+
 Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
 查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、
 **后端导出报告**（正文 + run_id / run_status / 降级条数等审计元数据 + 引用清单）、**刷新页面恢复当前运行**、
@@ -216,7 +233,11 @@ DeepResearch/
 │   │   └── src/lib/progress.ts  # 分层进度（不做假进度条）
 │   └── app.py                # ⚠️ 已废弃：W9 之前的 Streamlit 旧入口
 ├── tools/
-│   └── check_frontend_boundary.py  # CI 边界守卫：前端目录不得 import research_engine
+│   ├── check_frontend_boundary.py  # CI 边界守卫：前端目录不得 import research_engine
+│   └── migrate.sh            # 迁移执行器（只前向 + schema_migrations 记录，CI 锁幂等）
+├── migrations/               # 数据库迁移（NNNN_slug.sql；业务表从 P2 起）
+├── Dockerfile.api            # API 镜像（node 构建前端 + python 运行时，多阶段）
+├── docker-compose.staging.yml # staging 骨架：PostgreSQL + Redis + 迁移 + API
 ├── cli.py                    # CLI 入口
 ├── config.py                 # 配置
 └── requirements.txt
@@ -340,7 +361,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **455 项全绿** | 2026-09-24 本机 Python 3.13.14 完整复验（28 个测试文件，零 LLM、零 key）；CI 继续覆盖 3.11/3.12/3.13。其中 Web 层 59 条 = 流式 16 + HTTP 8 + **P1 运行护栏 35**（含强制收口交错回归、取消/超时时序、线程与断开语义、运行级统计、422 结构化）；eval 侧 25 条（含 planner 治理聚合 4 条）；另有 `frontend` job 跑 `tsc --noEmit` + `vite build`，**浏览器 E2E 10 条**已接 CI（见下节） |
+| 单元测试 | **461 项全绿** | 2026-09-24 本机 Python 3.13.14 完整复验（零 LLM、零 key）；CI 继续覆盖 3.11/3.12/3.13。其中 Web 层 65 条 = 流式 16 + HTTP 8 + **P1 运行护栏 35**（含强制收口交错回归、取消/超时时序、线程与断开语义、运行级统计、422 结构化）+ **P1 部署底座探针 6**（live/ready/CORS，`tests/test_web_health.py`）；eval 侧 25 条（含 planner 治理聚合 4 条）；另有 `frontend` job 跑 `tsc --noEmit` + `vite build`，**浏览器 E2E 10 条**已接 CI（见下节） |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |

@@ -1,0 +1,32 @@
+# P1（L3-A 部署底座）：API 镜像 =「前端构建 + Python 运行时」多阶段。
+#
+# - node 阶段只产出 web/frontend/dist（FastAPI 会托管它）；
+# - python 阶段按 requirements-lock.txt 安装（与 CI/本机同一份 lock）；
+# - 配置一律走环境变量，镜像内不含任何密钥（.dockerignore 已排除 .env）。
+#
+# 构建（本地 / staging 通用）：
+#   docker build -f Dockerfile.api -t deepresearch-api .
+# 运行：见 docker-compose.staging.yml；Worker 镜像在 P3 单独增加。
+
+FROM node:22-alpine AS frontend
+WORKDIR /build
+COPY web/frontend/package.json web/frontend/package-lock.json ./
+RUN npm ci
+COPY web/frontend/ ./
+RUN npm run build
+
+FROM python:3.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+COPY requirements-lock.txt ./
+RUN pip install --no-cache-dir -r requirements-lock.txt
+COPY config.py cli.py ./
+COPY research_engine/ ./research_engine/
+COPY web/ ./web/
+COPY --from=frontend /build/dist ./web/frontend/dist
+RUN useradd --create-home --uid 10001 app
+USER app
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "web.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -8,3 +8,6 @@ research_engine/eval/results/curated/** -text
 research_engine/eval/results/run_20260911_194156/** -text
 research_engine/eval/results/run_20260911_232515/** -text
 research_engine/eval/results/w7_experiment_20260911_194151/** -text
+
+# Shell 脚本在容器内以 LF 执行（CRLF 会让 /bin/sh 报 bad interpreter）
+*.sh text eol=lf

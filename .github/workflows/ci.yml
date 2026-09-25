@@ -65,6 +65,35 @@ jobs:
       - name: Test (pytest)
         run: pytest tests/ -q
 
+  # P1（L3-A 部署底座）：compose 校验 + 迁移幂等 + API 镜像构建。
+  # 全程零外部账号：PostgreSQL / Redis 由 compose 在 runner 上启动，不调用 LLM / 不读 .env。
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compose 配置校验
+        run: docker compose -f docker-compose.staging.yml config --quiet
+
+      - name: 启动 PostgreSQL / Redis（等待健康检查）
+        run: docker compose -f docker-compose.staging.yml up -d --wait --wait-timeout 120 postgres redis
+
+      - name: 执行迁移（首次）
+        run: docker compose -f docker-compose.staging.yml run --rm migrate
+
+      # 幂等门禁：第二次执行必须全部 skip（applied=0），否则说明迁移记录机制失效
+      - name: 迁移幂等（第二次应 applied=0）
+        run: |
+          docker compose -f docker-compose.staging.yml run --rm migrate | tee /tmp/migrate_2nd.log
+          grep -q "applied=0" /tmp/migrate_2nd.log
+
+      - name: 构建 API 镜像
+        run: docker build -f Dockerfile.api -t deepresearch-api:ci .
+
+      - name: 清理（含数据卷）
+        if: always()
+        run: docker compose -f docker-compose.staging.yml down -v
+
   # W9（§7.8）：前端构建须在 CI 真实验证（npm ci + tsc 类型检查 + production build），
   # 否则「本地 build 过、CI 没管」会让前端回归静默积累。不依赖 LLM / API key。
   frontend:
