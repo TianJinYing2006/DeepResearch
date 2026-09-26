@@ -73,6 +73,21 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         503, True,
         "任务持久化不可用（PostgreSQL 未配置或连接失败）：检查 DR_DATABASE_URL 与数据库状态。",
         component="web"),
+    # --- 账号与会话（P4-A） ----------------------------------------------
+    "unauthenticated": ErrorSpec(
+        401, False, "请先登录（httpOnly Session Cookie 已失效或未携带）。",
+        component="auth"),
+    "invalid_credentials": ErrorSpec(
+        401, False, "邮箱或密码不正确（不区分用户不存在 / 密码错 / 已封禁）。",
+        component="auth"),
+    "email_taken": ErrorSpec(
+        409, False, "该邮箱已注册：直接登录，或更换邮箱。", component="auth"),
+    "invite_invalid": ErrorSpec(
+        400, False, "邀请码无效、已使用或已过期：向管理员索取新邀请码。", component="auth"),
+    "csrf_failed": ErrorSpec(
+        403, False,
+        "CSRF 校验失败：写操作需携带与 dr_csrf Cookie 一致的 X-CSRF-Token。",
+        component="auth"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

@@ -91,6 +91,11 @@ services:
       # P3：staging 默认「队列模式」（API 只创建 QUEUED 任务，Worker 执行）
       DR_EXECUTION_MODE: "${DR_EXECUTION_MODE:-queue}"
       DR_CORS_ORIGINS: "${DR_CORS_ORIGINS:-}"
+      # P4-A：staging 默认开启鉴权与邀请制（本地开发不设，行为与 P3 一致）
+      DR_AUTH_REQUIRED: "${DR_AUTH_REQUIRED:-true}"
+      DR_INVITE_ONLY: "${DR_INVITE_ONLY:-true}"
+      DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-false}"
+      DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

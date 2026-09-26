@@ -45,13 +45,22 @@ BEGIN
 END $$;
 
 -- 3) 创建幂等：同 (user_id, idempotency_key) 第二次必须被部分唯一索引拒绝
+--    （0003 起 runs.user_id 有外键 ⇒ 先按需建一个测试用户；未迁移到 0003 时该表不存在，跳过）
+DO $$
+BEGIN
+    IF to_regclass('public.users') IS NOT NULL THEN
+        INSERT INTO users (user_id, email, password_hash)
+        VALUES ('__assert_fk_user__', '__assert_fk@example.com', 'x')
+        ON CONFLICT DO NOTHING;
+    END IF;
+END $$;
 INSERT INTO runs (run_id, topic, user_id, idempotency_key)
-VALUES ('__assert_idem_a__', 't', 'u1', 'k1');
+VALUES ('__assert_idem_a__', 't', '__assert_fk_user__', 'k1');
 DO $$
 BEGIN
     BEGIN
         INSERT INTO runs (run_id, topic, user_id, idempotency_key)
-        VALUES ('__assert_idem_b__', 't', 'u1', 'k1');
+        VALUES ('__assert_idem_b__', 't', '__assert_fk_user__', 'k1');
         RAISE EXCEPTION 'schema assert: duplicate idempotency_key accepted';
     EXCEPTION WHEN unique_violation THEN
         NULL;
@@ -60,7 +69,8 @@ END $$;
 
 -- 4) 幂等键为 NULL 的行不受唯一索引约束（可并存）
 INSERT INTO runs (run_id, topic, user_id, idempotency_key)
-VALUES ('__assert_idem_c__', 't', 'u1', NULL), ('__assert_idem_d__', 't', 'u1', NULL);
+VALUES ('__assert_idem_c__', 't', '__assert_fk_user__', NULL),
+       ('__assert_idem_d__', 't', '__assert_fk_user__', NULL);
 
 -- 5) 事件主键 (run_id, sequence) 防重放
 INSERT INTO run_events (run_id, sequence, event_type, payload)

@@ -142,7 +142,8 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 - 容器冒烟（2026-09-26）：api + worker + PG + Redis 全栈，真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s）；
 - CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
 - Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
-- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）。
+- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）；
+- **账号（P4-A）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（httpOnly Session + CSRF 双提交）；邀请码与账号用 CLI 管理：`python -m web.backend.admin create-invite` / `create-user` / `ban-user`；本地默认全关（行为与 P3 一致）。
 
 Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
 查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、

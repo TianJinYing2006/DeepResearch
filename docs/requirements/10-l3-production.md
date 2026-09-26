@@ -342,7 +342,9 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | `DR_REDIS_URL` | 必填（密钥服务） | 队列 / 租约 / 实时加速 |
 | `DR_SESSION_SECRET` | 必填（密钥服务） | Session 签名 |
 | `DR_SESSION_TTL_SECONDS` | 604800 | 会话有效期（7 天） |
-| `DR_INVITE_ONLY` | `true` | 关闭自由注册 |
+| `DR_AUTH_REQUIRED` | `false`（本地）/ `true`（staging） | 运行类接口是否必须登录（P4-A） |
+| `DR_COOKIE_SECURE` | `false`（本地 http）/ `true`（HTTPS） | Session / CSRF Cookie 的 Secure 标记（P4-A） |
+| `DR_INVITE_ONLY` | `true` | 关闭自由注册（P4-A：注册需一次性邀请码） |
 | `DR_MAX_USER_CONCURRENT` | 1 | 单用户并发 |
 | `DR_DAILY_RUNS_PER_USER` | 1 | 单用户每日运行数 |
 | `DR_GLOBAL_DAILY_RUNS` | 5（L3-A）/ 10（L3-B） | 全局每日运行数 |
@@ -376,10 +378,10 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 - [x] 页面关闭后任务继续执行，刷新可恢复查看
 - [x] SSE 断开后可按 `Last-Event-ID` / `sequence` 恢复，不重跑研究（P2-C：进程重启后从 `run_events` 回放）
 - [x] 任务失败不丢状态（FAILED / TIMED_OUT / CANCELLED / LOST 均落库；LOST 由启动清理产生）
-- [ ] 用户不能访问他人任务（查询 / 取消 / 导出三路负向测试）—— P4 鉴权后
-- [ ] Worker 挂掉后任务不会永久卡住（P2-C 仅启动时标记 `LOST`；租约接管在 P3）
-- [ ] 成本超限自动停止（用户级 + 全局闸）—— P4
-- [ ] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期 —— P4
+- [x] 用户不能访问他人任务（查询 / 取消 / 导出 / SSE 订阅四路负向测试；P4-A：非本人一律 404，不泄露存在性）
+- [x] Worker 挂掉后任务不会永久卡住（P3-A 租约 + P3-B 超时清扫接管：可重试→重排、重试耗尽→`LOST`）
+- [ ] 成本超限自动停止（单 run 预算闸已在 P3-B；用户级 / 全局闸 —— P4-B）
+- [x] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期（P4-A；密码重置与限流留 P4-B）
 - [ ] staging 环境一键起停（本地 compose 已具备；云上 staging 待部署）；迁移**只前向**执行且二次幂等（回退走备份恢复，见上线准入 §7.3）
 
 ### 7.2 L3-B（邀请制内测版）
@@ -468,3 +470,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-26 | P2-C 持久化接线 | §5.4 / §5.9 / §5.10 / §7.1 / §9 / 代码 | RunManager 写透（创建幂等 / 帧号对齐事件 / 终局状态 + 产物 / 取消落库 / 失败降级留痕）；`main.py` 读侧回落（快照 / `/api/runs` 历史 / 导出 / SSE 回放 / 取消）；启动把残留非终局任务标记 `LOST`；readiness 的 PG 探针升级为真实 `SELECT 1`；新增 `persistence_unavailable` 错误码；测试 487 收集（473 通过 + 14 跳过，跳过的为真实 PG 用例） | [PR #13](https://github.com/TianJinYing2006/DeepResearch/pull/13) |
 | 2026-09-26 | P3-A Worker/队列 | §5.4 / §5.7 / §9 / 代码 | `web/backend/queue.py`（Redis LPUSH/BRPOP；redis-py 8 阻塞读超时兜底成「空队列」）+ `web/backend/worker.py`（原子认领 QUEUED→RUNNING+租约 / 心跳续租 / 节点边界取消与超时 / 终局落库 / 崩溃兜底 FAILED）+ 共享终局落库抽到 `persistence.py`（RunManager 与 Worker 同一状态映射）+ API 队列模式（`DR_EXECUTION_MODE=queue`；幂等命中先于并发闸）+ SSE 从任务库实时尾随 + compose `worker` 服务（同镜像不同入口；**不单列 `Dockerfile.worker`**）+ `redis>=8,<9`（lock 外科式 +1 行）；真实 PG+Redis 集成测试接 CI `infra`；容器冒烟：真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s） | [PR #14](https://github.com/TianJinYing2006/DeepResearch/pull/14) |
 | 2026-09-26 | P3-B 清扫/重试/预算 | §5.7 / §5.9.3 / §5.9.4 / §9 / 代码 | `RunStore.sweep_stale_runs`（`FOR UPDATE SKIP LOCKED` 原子接管：取消意图→CANCELLED；`attempt<max`→QUEUED+`attempt+1` 清租约；耗尽→LOST）+ Worker 周期清扫并重新入队 + 单 run 预算闸（节点边界；新增 `update_usage` 只回写计量、**不再覆盖 CANCEL_REQUESTED**——实测踩坑）+ 环境变量 `DR_WORKER_SWEEP_SECONDS` / `DR_WORKER_MAX_ATTEMPTS`；真实 PG+Redis 集成新增租约接管端到端 | [PR #15](https://github.com/TianJinYing2006/DeepResearch/pull/15) |
+| 2026-09-26 | P4-A 账号与会话 | §3.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 迁移 `0003_users_sessions_invites.sql`（users/sessions/invites + `runs.user_id` 外键）+ Argon2id 密码哈希、会话/邀请码只存 SHA-256 摘要 + 邀请制注册（一次性、事务内校验）/登录/登出/会话 + httpOnly Session Cookie 与 CSRF 双提交 + 运行类接口归属校验（非本人 404）+ 管理员 CLI（`python -m web.backend.admin`）+ 鉴权默认关闭（`DR_AUTH_REQUIRED`，本地/E2E 零变化）；测试 522 收集（新增 auth 单测 6 + API 7 + 仓储契约 1） | — |

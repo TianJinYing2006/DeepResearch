@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import socket
 import time
 import uuid
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import AsyncIterator, Optional
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Header, Query
+from fastapi import FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -27,6 +28,18 @@ from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 
 from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, sse_frame
+from .auth import (
+    CSRF_COOKIE,
+    CSRF_HEADER,
+    MIN_PASSWORD_LENGTH,
+    SESSION_COOKIE,
+    hash_password,
+    is_valid_email,
+    new_token,
+    normalize_email,
+    token_hash,
+    verify_password,
+)
 from .errors import ApiError, error_payload, http_error
 from .queue import RunQueue
 from .runner import RunManager
@@ -81,12 +94,25 @@ def _make_store() -> Optional[RunStore]:
     return RunStore(dsn) if dsn else None
 
 
+def _env_flag(name: str, default: str = "false") -> bool:
+    return (os.getenv(name) or default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+# P4-A：鉴权与邀请制。默认全关（本地开发 / E2E 零变化）；staging/生产由环境变量打开。
+AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
+INVITE_ONLY = _env_flag("DR_INVITE_ONLY", "true")
+COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
+SESSION_TTL_SECONDS = int(os.getenv("DR_SESSION_TTL_SECONDS", "604800"))
+
+
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
 store = None if DEMO_MODE else _make_store()
 if store is not None:
     try:
         # 单实例内存态执行的既有事实：进程重启后，库里非终局的任务已无人执行 ⇒ 标记 LOST。
         store.mark_stale_as_lost()
+        # 顺手清理过期会话（读取侧已按 expires_at 校验，此处只是存储卫生）。
+        store.purge_expired_sessions()
     except Exception:  # noqa: BLE001 —— 库不可用时由 readiness 与请求侧结构化错误表达
         pass
 
@@ -326,7 +352,77 @@ def _run_brief(row: dict) -> dict:
     }
 
 
-def _start_queued(req: StartRequest) -> str:
+# ------------------------------------------------------------------ 鉴权（P4-A）
+
+
+def _session_user(request: Request) -> Optional[dict]:
+    if store is None:
+        return None
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    return _store_call(store.get_session_user, token_hash(token))
+
+
+def _require_user(request: Request) -> Optional[str]:
+    """返回当前 user_id；未启用鉴权时返回 None（匿名模式，行为与 P3 一致）。"""
+    if not AUTH_REQUIRED:
+        return None
+    user = _session_user(request)
+    if user is None:
+        raise http_error("unauthenticated", "请先登录")
+    return user["user_id"]
+
+
+def _check_csrf(request: Request) -> None:
+    """双提交 Cookie 校验（仅在启用鉴权后生效；登录/注册除外）。"""
+    if not AUTH_REQUIRED:
+        return
+    cookie = request.cookies.get(CSRF_COOKIE)
+    header = request.headers.get(CSRF_HEADER)
+    if not cookie or not header or not secrets.compare_digest(cookie, header):
+        raise http_error("csrf_failed", "CSRF 校验失败：缺少或错误的 X-CSRF-Token")
+
+
+def _run_owner(run_id: str) -> tuple[bool, Optional[str]]:
+    """(是否存在, 所有者 user_id)：内存优先，回落任务库。"""
+    if manager.exists(run_id):
+        return True, manager.owner(run_id)
+    if store is not None:
+        row = _store_call(store.get_run, run_id)
+        if row is not None:
+            return True, row.get("user_id")
+    return False, None
+
+
+def _authorize_run(request: Request, run_id: str) -> Optional[str]:
+    """存在性 + 归属校验。鉴权开启时，非本人一律 404（不泄露存在性）。"""
+    exists, owner = _run_owner(run_id)
+    if not exists:
+        raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    if AUTH_REQUIRED:
+        user_id = _require_user(request)
+        if owner != user_id:
+            raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    return owner
+
+
+def _public_user(user: dict) -> dict:
+    return {"user_id": user["user_id"], "email": user["email"]}
+
+
+def _set_session_cookies(response: Response, user_id: str) -> None:
+    """建会话 + 写 Cookie：session 为 httpOnly，CSRF 为可读双提交 Cookie。"""
+    token = new_token()
+    _store_call(store.create_session, token_hash(token), user_id,
+                datetime.now(UTC) + timedelta(seconds=SESSION_TTL_SECONDS))
+    response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_SECONDS, httponly=True,
+                        samesite="lax", secure=COOKIE_SECURE, path="/")
+    response.set_cookie(CSRF_COOKIE, new_token(), max_age=SESSION_TTL_SECONDS, httponly=False,
+                        samesite="lax", secure=COOKIE_SECURE, path="/")
+
+
+def _start_queued(req: StartRequest, user_id: Optional[str]) -> str:
     """队列模式（P3）：创建 `QUEUED` 任务并投递 Redis 队列；重复幂等键返回既有 run_id。
 
     幂等命中先于并发检查 —— 重复提交是同一个逻辑请求，不应被并发闸拒绝。
@@ -334,7 +430,7 @@ def _start_queued(req: StartRequest) -> str:
     if store is None or queue is None:
         raise ApiError("persistence_unavailable", "队列模式需要任务库与 Redis 均已配置")
     if req.idempotency_key is not None:
-        existing = _store_call(store.get_run_by_idempotency, None, req.idempotency_key)
+        existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
         if existing is not None:
             return existing["run_id"]
     active = _store_call(store.count_active)
@@ -356,6 +452,7 @@ def _start_queued(req: StartRequest) -> str:
                 "enable_arxiv": req.enable_arxiv,
                 "max_subquestions": req.max_subquestions,
             },
+            user_id=user_id,
             idempotency_key=req.idempotency_key,
             status="QUEUED",
             timeout_at=datetime.now(UTC) + timedelta(seconds=manager.run_timeout_seconds),
@@ -382,8 +479,84 @@ def _start_queued(req: StartRequest) -> str:
     return row["run_id"]
 
 
+class RegisterRequest(BaseModel):
+    email: str = Field(..., max_length=254)
+    password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=200)
+    invite_code: Optional[str] = Field(None, max_length=128, description="邀请制下必填")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., max_length=254)
+    password: str = Field(..., max_length=200)
+
+
+@app.post("/api/auth/register")
+def auth_register(req: RegisterRequest, response: Response) -> dict:
+    """邀请制注册（`DR_INVITE_ONLY=true` 时邀请码必填）；成功后自动登录。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    email = normalize_email(req.email)
+    if not is_valid_email(email):
+        raise http_error("invalid_request", "邮箱格式不合法")
+    user_id = uuid.uuid4().hex[:12]
+    try:
+        if INVITE_ONLY:
+            if not req.invite_code:
+                raise ValueError("invite_invalid")
+            user = store.register_with_invite(
+                user_id, email, hash_password(req.password), token_hash(req.invite_code.strip()))
+        else:
+            user = store.create_user(user_id, email, hash_password(req.password))
+    except ValueError as exc:
+        raise http_error("invite_invalid", "邀请码无效、已使用或已过期") from exc
+    except Exception as exc:  # noqa: BLE001
+        if getattr(exc, "sqlstate", None) == "23505":
+            raise http_error("email_taken", "该邮箱已注册") from exc
+        raise http_error(
+            "persistence_unavailable",
+            f"注册失败：{type(exc).__name__}: {exc}"[:200],
+        ) from exc
+    _store_call(store.touch_last_login, user["user_id"])
+    _set_session_cookies(response, user["user_id"])
+    return {"user": _public_user(user)}
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest, response: Response) -> dict:
+    """邮箱 + 密码登录；失败统一 401（不区分「用户不存在 / 密码错 / 已封禁」）。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    user = _store_call(store.get_user_by_email, normalize_email(req.email))
+    if (user is None or user["status"] != "active"
+            or not verify_password(user["password_hash"], req.password)):
+        raise http_error("invalid_credentials", "邮箱或密码不正确")
+    _store_call(store.touch_last_login, user["user_id"])
+    _set_session_cookies(response, user["user_id"])
+    return {"user": _public_user(user)}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response) -> dict:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token and store is not None:
+        _store_call(store.revoke_session, token_hash(token))
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/auth/session")
+def auth_session(request: Request) -> dict:
+    user = _session_user(request)
+    if user is None:
+        raise http_error("unauthenticated", "未登录")
+    return {"user": _public_user(user)}
+
+
 @app.post("/api/research", response_model=StartResponse)
-def start(req: StartRequest) -> StartResponse:
+def start(req: StartRequest, request: Request) -> StartResponse:
+    user_id = _require_user(request)
+    _check_csrf(request)
     if not req.topic.strip():
         raise http_error("empty_topic", "topic 不能为空")
     # 搜索引擎必须**启动前**校验：未知源 / 未配 key 若放行，整场研究每跳都降级为零
@@ -405,24 +578,26 @@ def start(req: StartRequest) -> StartResponse:
             )
     try:
         if EXECUTION_MODE == "queue":
-            run_id = _start_queued(req)
+            run_id = _start_queued(req, user_id)
         else:
             run_id = manager.start(
                 req.topic, req.instructions, req.max_total_hops,
                 req.search_provider, req.enable_arxiv, req.max_subquestions,
-                req.idempotency_key)
+                req.idempotency_key, user_id=user_id)
     except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)
 
 
 @app.get("/api/research/{run_id}")
-def run_status(run_id: str) -> dict:
+def run_status(run_id: str, request: Request) -> dict:
     """运行画像（P1-4）：内存优先；不在内存时回落任务库（P2-C，进程重启后仍可查）。
 
     与 SSE 互补：SSE 是**增量**流，断了就靠 `Last-Event-ID` 续；本接口是**快照**，
     供页面刷新 / 新标签页直接问一句「还活着吗、跑到哪了」，不必重开一条流。
+    P4-A：鉴权开启时只允许查看自己的 run（非本人 404，不泄露存在性）。
     """
+    _authorize_run(request, run_id)
     snap = manager.snapshot(run_id)
     if snap is None and store is not None:
         snap = _snapshot_from_store(run_id)
@@ -433,27 +608,35 @@ def run_status(run_id: str) -> dict:
 
 @app.get("/api/runs")
 def list_runs(
+    request: Request,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: Optional[str] = Query(None, description="按状态过滤（逗号分隔，如 RUNNING,FAILED）"),
 ) -> dict:
-    """历史任务列表（P2-C）：读任务库；未配置库时结构化 503。"""
+    """历史任务列表（P2-C）：读任务库；未配置库时结构化 503。
+
+    P4-A：鉴权开启时只返回当前用户的 run。
+    """
     if store is None:
         raise http_error(
             "persistence_unavailable",
             "未配置任务库（DR_DATABASE_URL），无法列出历史任务",
         )
     statuses = [item.strip() for item in status.split(",") if item.strip()] if status else None
-    rows = _store_call(store.list_runs, limit=limit, offset=offset, statuses=statuses)
+    rows = _store_call(store.list_runs, user_id=_require_user(request),
+                       limit=limit, offset=offset, statuses=statuses)
     return {"runs": [_run_brief(row) for row in rows], "limit": limit, "offset": offset}
 
 
 @app.post("/api/research/{run_id}/cancel")
-def cancel(run_id: str) -> dict:
+def cancel(run_id: str, request: Request) -> dict:
     """立即返回（契约 C1：前端点取消后不必等后端确认就显示「正在停止」）。
 
     内存中没有该 run 时回落任务库（P2-C）：只落取消请求，执行者已不在 ⇒ 无实际执行可停。
+    P4-A：鉴权开启时只允许取消自己的 run。
     """
+    _authorize_run(request, run_id)
+    _check_csrf(request)
     if not manager.cancel(run_id):
         if store is None or _store_call(store.get_run, run_id) is None:
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
@@ -481,13 +664,16 @@ def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:
 
 
 @app.get("/api/research/{run_id}/report")
-def export_report(run_id: str, fmt: str = Query("md", alias="format", pattern="^(md|json)$")) -> Response:
+def export_report(run_id: str, request: Request,
+                  fmt: str = Query("md", alias="format", pattern="^(md|json)$")) -> Response:
     """报告导出（P1-6）：`format=md` 下载 Markdown，`format=json` 取结构化载荷。
 
     为什么走后端而不沿用前端 Blob：前端那份只有 `result.report` 正文，
     导出的文件脱离页面后无从自证来源；后端版本带 run_id / run_status /
     降级条数等审计元数据与引用清单。P2-C：内存未命中时回落任务库产物。
+    P4-A：鉴权开启时只允许导出自己的 run。
     """
+    _authorize_run(request, run_id)
     if not manager.exists(run_id):
         if store is None:
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
@@ -515,14 +701,16 @@ def export_report(run_id: str, fmt: str = Query("md", alias="format", pattern="^
 @app.get("/api/research/{run_id}/stream")
 async def stream(
     run_id: str,
+    request: Request,
     last_event_id: Optional[int] = Query(None),
     last_event_id_header: Optional[int] = Header(None, alias="Last-Event-ID"),
 ) -> StreamingResponse:
     """SSE 事件流（AG-UI 语义）。
 
-    内存未命中但任务库有该 run（P2-C，进程重启后）⇒ 按存储事件回放一遍后收口，
-    不做实时尾随（旧进程已不存在，任务在启动时已被标记 LOST/终局）。
+    内存未命中但任务库有该 run（P2-C，进程重启后）⇒ 从任务库回放并实时尾随。
+    P4-A：鉴权开启时只允许订阅自己的 run。
     """
+    _authorize_run(request, run_id)
     resume_after = last_event_id_header if last_event_id_header is not None else last_event_id
     if not manager.exists(run_id):
         if store is None:

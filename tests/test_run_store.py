@@ -11,13 +11,14 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 import pytest
 
 from research_engine.state import ResearchState
 from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
+from web.backend.auth import token_hash
 from web.backend.runner import RunManager
 from web.backend.store import RunStore
 
@@ -33,6 +34,14 @@ OTHER_USER = "test-store-other"
 def store() -> RunStore:
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE user_id LIKE 'test-store-%'")
+        cur.execute("DELETE FROM invites WHERE created_by = 'test-store'")
+        cur.execute("DELETE FROM users WHERE email LIKE '%@test-store.local'")
+        # 0003 起 runs.user_id 有外键 ⇒ 预置本文件使用的两个固定用户
+        cur.execute(
+            "INSERT INTO users (user_id, email, password_hash) VALUES "
+            "('test-store-user', 'test-store-user@test-store.local', 'x'), "
+            "('test-store-other', 'test-store-other@test-store.local', 'x')"
+        )
     return RunStore(DSN)
 
 
@@ -333,3 +342,53 @@ def test_manager_write_through_end_to_end(store: RunStore):
         # manager 建的行 user_id 为 NULL，不在 fixture 的 test-store- 前缀清理范围内，单独删。
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+def test_users_sessions_invites_contract(store: RunStore):
+    """P4-A 账号契约（真实 PG）：邮箱唯一（大小写不敏感）/ 邀请码一次性 / 会话有效期与封禁。"""
+    suffix = uuid.uuid4().hex[:8]
+    user = store.create_user(f"u{suffix}a", f"U{suffix}@test-store.local", "hash")
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        store.create_user(f"u{suffix}b", f"u{suffix}@TEST-STORE.local", "hash")
+
+    # 邀请码一次性 + 邮箱重复时邀请码不被消耗
+    store.create_invite(token_hash("code-1"), created_by="test-store",
+                        expires_at=datetime.now(timezone.utc) + timedelta(days=1))
+    invitee = store.register_with_invite(f"u{suffix}c", f"c{suffix}@test-store.local", "hash",
+                                         token_hash("code-1"))
+    with pytest.raises(ValueError):
+        store.register_with_invite(f"u{suffix}d", f"d{suffix}@test-store.local", "hash",
+                                   token_hash("code-1"))
+    store.create_invite(token_hash("code-2"), created_by="test-store")
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        store.register_with_invite(f"u{suffix}e", f"c{suffix}@test-store.local", "hash",
+                                   token_hash("code-2"))
+    store.register_with_invite(f"u{suffix}f", f"f{suffix}@test-store.local", "hash",
+                               token_hash("code-2"))
+
+    # 过期邀请码
+    store.create_invite(token_hash("code-3"), created_by="test-store",
+                        expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+    with pytest.raises(ValueError):
+        store.register_with_invite(f"u{suffix}g", f"g{suffix}@test-store.local", "hash",
+                                   token_hash("code-3"))
+
+    # 会话有效期 / 封禁即时生效
+    store.create_session(token_hash("tok-1"), user["user_id"],
+                         datetime.now(timezone.utc) + timedelta(seconds=60))
+    assert store.get_session_user(token_hash("tok-1"))["user_id"] == user["user_id"]
+    store.set_user_status(user["user_id"], "banned")
+    assert store.get_session_user(token_hash("tok-1")) is None
+    store.set_user_status(invitee["user_id"], "active")
+
+    store.create_session(token_hash("tok-2"), invitee["user_id"],
+                         datetime.now(timezone.utc) - timedelta(seconds=1))
+    assert store.get_session_user(token_hash("tok-2")) is None
+    assert store.purge_expired_sessions() >= 1
+    assert store.revoke_session(token_hash("tok-2")) is False
+
+    # 撤销邀请码后不可再注册
+    store.create_invite(token_hash("code-4"), created_by="test-store")
+    assert store.revoke_invite(token_hash("code-4")) is True
+    with pytest.raises(ValueError):
+        store.register_with_invite(f"u{suffix}h", f"h{suffix}@test-store.local", "hash",
+                                   token_hash("code-4"))
