@@ -237,6 +237,44 @@ def test_mark_stale_as_lost(store: RunStore):
     assert store.get_run(done_id)["status"] == "SUCCEEDED"
 
 
+def _queued_and_claimed(store: RunStore, worker_id: str = "dead-worker",
+                        lease_seconds: int = 0) -> str:
+    run_id, _, _ = _create(store)
+    assert store.update_status(run_id, "QUEUED", allowed_from=("CREATED",)) is True
+    assert store.claim_run(run_id, worker_id, lease_seconds) is not None
+    return run_id
+
+
+def test_sweep_stale_runs_requeue_then_lost(store: RunStore):
+    run_id = _queued_and_claimed(store)
+
+    assert store.sweep_stale_runs(max_attempts=2) == [
+        {"run_id": run_id, "action": "requeued", "attempt": 2}]
+    row = store.get_run(run_id)
+    assert row["status"] == "QUEUED"
+    assert row["worker_id"] is None and row["lease_expires_at"] is None
+
+    assert store.claim_run(run_id, "dead-worker-2", 0) is not None
+    assert store.sweep_stale_runs(max_attempts=2) == [{"run_id": run_id, "action": "lost"}]
+    row = store.get_run(run_id)
+    assert row["status"] == "LOST" and row["stop_reason"] == "lost"
+
+
+def test_sweep_stale_runs_respects_cancel_intent(store: RunStore):
+    run_id = _queued_and_claimed(store)
+    assert store.request_cancel(run_id) == "CANCEL_REQUESTED"
+
+    assert store.sweep_stale_runs() == [{"run_id": run_id, "action": "cancelled"}]
+    row = store.get_run(run_id)
+    assert row["status"] == "CANCELLED" and row["stop_reason"] == "user_cancelled"
+
+
+def test_sweep_stale_runs_ignores_fresh_lease(store: RunStore):
+    run_id = _queued_and_claimed(store, worker_id="alive-worker", lease_seconds=600)
+    assert store.sweep_stale_runs() == []
+    assert store.get_run(run_id)["status"] == "RUNNING"
+
+
 class _TinyGraph:
     """RunManager 端到端用的最小假 graph（零 LLM）。"""
 

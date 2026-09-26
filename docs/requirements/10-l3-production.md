@@ -207,7 +207,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | P0 | 立项与边界确认：ADR-0009 + 本需求 + 上线准入清单 + §3.1 拍板 | 2~5 个工作日 | 全部 |
 | P1 | 容器化与部署底座：`Dockerfile.api` / `Dockerfile.worker` / staging compose / 迁移工具（只前向 + `schema_migrations` 幂等；回退走备份恢复）/ 健康检查（readiness+liveness）/ 配置分层 / CORS 环境变量化 / 反向代理（含 SSE 专项配置）。**第一批已落地**：`Dockerfile.api`（多阶段）/ compose（PG+Redis+迁移+API）/ 迁移执行器 / 两个探针 / CORS 环境变量化 / CI `infra` job；待：`Dockerfile.worker`（P3）、反向代理与云上 staging（P8/外部事实） | 3~5 个工作日 | L3-A |
 | P2 | 持久化任务模型：`runs` / `run_events` / `run_artifacts` / `run_checkpoints` 建表与状态机、创建幂等键、查询与历史接口、取消请求持久化 | 5~8 个工作日 | L3-A |
-| P3 | Worker 与队列：API 写 QUEUED 任务 → Redis 队列 → Worker 领取执行 → 持续写事件与状态 → 终局落库；心跳 / 租约 / 超时 / 幂等 / 重试 / 崩溃标记 / 成本闸 / 配额检查。**P3-A 已落地**：Redis 队列 + 独立 Worker（与 API 同镜像、不同入口）/ 原子认领（QUEUED→RUNNING+租约）/ 心跳续租 / 节点边界取消与超时 / 终局落库（与 RunManager 共用 `persistence`）/ SSE 实时尾随 / compose `worker` 服务；**待 P3-B**：租约超时清扫与接管、自动重试、预算闸、双层并发/配额 | 7~12 个工作日 | L3-A |
+| P3 | Worker 与队列：API 写 QUEUED 任务 → Redis 队列 → Worker 领取执行 → 持续写事件与状态 → 终局落库；心跳 / 租约 / 超时 / 幂等 / 重试 / 崩溃标记 / 成本闸 / 配额检查。**P3-A 已落地**：Redis 队列 + 独立 Worker（与 API 同镜像、不同入口）/ 原子认领（QUEUED→RUNNING+租约）/ 心跳续租 / 节点边界取消与超时 / 终局落库 / SSE 实时尾随 / compose `worker` 服务。**P3-B 已落地**：租约超时清扫与接管（取消意图→CANCELLED；可重试→QUEUED attempt+1 并重新入队；耗尽→LOST）、单 run 预算闸（节点边界，`budget_used_cny` 回写）。**待 P4**：用户级/全局成本闸与双层并发配额 | 7~12 个工作日 | L3-A |
 | P4 | 账号、配额与隔离：注册/登录/登出/会话/重置/封禁/邀请码；用户级并发、每日次数、token/cost 预算；管理员查看；查询强制 user_id | 5~8 个工作日 | L3-A |
 | P5 | RAG 多租户隔离：单 collection + payload `tenant_id`/`user_id`/`visibility`；检索强制 filter；默认仅 private | 3~6 个工作日 | L3-A |
 | P6 | 前端产品化：登录/邀请页、新建任务、任务列表/详情、取消、历史报告与导出、配额显示、断线重连、筛选 | 5~10 个工作日 | L3-A/B |
@@ -263,8 +263,8 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 心跳周期 | 30s 或每节点完成时（先到为准） | 节点耗时实测最大约 31s（需求 9 §5.4.1） |
 | 租约 TTL | 120s | 心跳 4 倍余量，避免慢节点被误判死亡 |
 | 扫描周期 | 30s | 只做状态纠正，不执行研究 |
-| 自动重试 | 最多 1 次 | 重试 = **从头执行**（不承诺断点续跑） |
-| 重试后仍失败 | `LOST` | 用户可手动重试（新 run，`retry_of` 指向原 run） |
+| 自动重试 | 最多 1 次（`DR_WORKER_MAX_ATTEMPTS=2`） | 重试 = **从头执行**（不承诺断点续跑）；同 run 内 `attempt+1` 后重新入队（P3-B 已落地） |
+| 重试后仍失败 | `LOST` | 用户可手动重试（新 run，`retry_of` 指向原 run）；清扫具备取消意图时直接 `CANCELLED`（不重跑） |
 | 并发槽释放 | 任一终局即释放 | 沿用 P1「活跃 run」语义，不等线程收尾 |
 
 - 崩溃恢复只保证**任务状态正确**与**可查询/可重试**，不保证在飞节点已产生的结果不丢。
@@ -276,7 +276,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 |------|-----------|-------|-------------------|
 | 取消 | `cancel_requested_at` | API 接收即写 | 迁移现 `threading.Event`（`runner.py:116`）；节点边界停止、零新 LLM 调用 |
 | 超时 | `timeout_at` / `hard_deadline_at` | 创建时计算 | 迁移现 `_deadlines` / `_hard_deadlines`（`runner.py:126-127`）；`stop_reason=timeout` |
-| 预算 | `budget_limit_cny` / `budget_used_cny` | 每次调用记账；节点边界检查 | `stop_reason=budget_exceeded`；不写 `run_status`、不污染故障归因 |
+| 预算 | `budget_limit_cny` / `budget_used_cny` | 节点边界检查；`budget_used_cny` 每步回写（P3-B） | `stop_reason=budget_exceeded`；不写 `run_status`、不污染故障归因 |
 | 终局 | `finished_at` + `stop_reason` | 原子写入 | 沿用 ADR-0008 纪律：终局帧 / 结果 / 状态一次事务完成 |
 
 **优先级规则**：同一时刻多因竞争，以**先落终局者**为准，后来者不得改判；
@@ -467,3 +467,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-26 | P2-B 仓储层 | §5.2 / §9 / 代码 | 新增 `psycopg[binary]`（lock 外科式加锁，零版本漂移）+ `web/backend/store.py`（RunStore：创建幂等 / 乐观状态迁移 / 取消语义 / 事件单调 sequence / 产物 upsert）+ `migrations/0002_run_artifacts.sql` + `tests/test_run_store.py`（10 条，真实 PG）；CI `infra` job 增加 checks 循环与仓储测试 | [PR #12](https://github.com/TianJinYing2006/DeepResearch/pull/12) |
 | 2026-09-26 | P2-C 持久化接线 | §5.4 / §5.9 / §5.10 / §7.1 / §9 / 代码 | RunManager 写透（创建幂等 / 帧号对齐事件 / 终局状态 + 产物 / 取消落库 / 失败降级留痕）；`main.py` 读侧回落（快照 / `/api/runs` 历史 / 导出 / SSE 回放 / 取消）；启动把残留非终局任务标记 `LOST`；readiness 的 PG 探针升级为真实 `SELECT 1`；新增 `persistence_unavailable` 错误码；测试 487 收集（473 通过 + 14 跳过，跳过的为真实 PG 用例） | [PR #13](https://github.com/TianJinYing2006/DeepResearch/pull/13) |
 | 2026-09-26 | P3-A Worker/队列 | §5.4 / §5.7 / §9 / 代码 | `web/backend/queue.py`（Redis LPUSH/BRPOP；redis-py 8 阻塞读超时兜底成「空队列」）+ `web/backend/worker.py`（原子认领 QUEUED→RUNNING+租约 / 心跳续租 / 节点边界取消与超时 / 终局落库 / 崩溃兜底 FAILED）+ 共享终局落库抽到 `persistence.py`（RunManager 与 Worker 同一状态映射）+ API 队列模式（`DR_EXECUTION_MODE=queue`；幂等命中先于并发闸）+ SSE 从任务库实时尾随 + compose `worker` 服务（同镜像不同入口；**不单列 `Dockerfile.worker`**）+ `redis>=8,<9`（lock 外科式 +1 行）；真实 PG+Redis 集成测试接 CI `infra`；容器冒烟：真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s） | [PR #14](https://github.com/TianJinYing2006/DeepResearch/pull/14) |
+| 2026-09-26 | P3-B 清扫/重试/预算 | §5.7 / §5.9.3 / §5.9.4 / §9 / 代码 | `RunStore.sweep_stale_runs`（`FOR UPDATE SKIP LOCKED` 原子接管：取消意图→CANCELLED；`attempt<max`→QUEUED+`attempt+1` 清租约；耗尽→LOST）+ Worker 周期清扫并重新入队 + 单 run 预算闸（节点边界；新增 `update_usage` 只回写计量、**不再覆盖 CANCEL_REQUESTED**——实测踩坑）+ 环境变量 `DR_WORKER_SWEEP_SECONDS` / `DR_WORKER_MAX_ATTEMPTS`；真实 PG+Redis 集成新增租约接管端到端 | — |

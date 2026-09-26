@@ -138,6 +138,7 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 - 迁移**只前向**执行（`migrations/NNNN_slug.sql` + `schema_migrations` 记录），重复执行全部 `skip`（CI 锁幂等：第二次必须 `applied=0`）；
 - 探针：`/api/health/live`（进程活着）与 `/api/health/ready`（PG/Redis **未配置时不算失败**，配置了但探不通返回 503）；
 - **执行模式**：compose 默认 `DR_EXECUTION_MODE=queue` —— API 只创建 `QUEUED` 任务并投递 Redis，独立 `worker` 服务领取执行（同镜像不同入口，`python -m web.backend.worker`）；本地开发默认 `inprocess`（请求进程内执行，行为与 P1/P2 一致）；
+- **租约与重试**（P3-B）：Worker 每 30s 清扫过期租约 —— 用户已取消的收口为 `CANCELLED`，其余按 `attempt+1` 重新入队（默认重试 1 次），耗尽记 `LOST`；单 run 预算闸在节点边界检查，超限停止（`stop_reason=budget_exceeded`）；
 - 容器冒烟（2026-09-26）：api + worker + PG + Redis 全栈，真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s）；
 - CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
 - Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；

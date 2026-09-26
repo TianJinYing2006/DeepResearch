@@ -172,6 +172,20 @@ class RunStore:
             cur.execute(sql, values)
             return cur.fetchone() is not None
 
+    def update_usage(self, run_id: str, *, token_used: int, cost_estimate_cny: float,
+                     budget_used_cny: float) -> None:
+        """更新计量列（token / 成本估算 / 已用预算），**不改状态**。
+
+        为什么单独一条：Worker 每完成一个节点会回写计量，如果顺手把 status 写成 RUNNING，
+        会把执行期间落下的 CANCEL_REQUESTED 覆盖掉（P3-B 修）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET token_used = %s, cost_estimate_cny = %s, budget_used_cny = %s "
+                "WHERE run_id = %s",
+                (token_used, cost_estimate_cny, budget_used_cny, run_id),
+            )
+
     def request_cancel(self, run_id: str) -> Optional[str]:
         """幂等取消请求，返回 run 的当前状态；run 不存在返回 `None`。
 
@@ -330,6 +344,52 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchone()["n"]
+
+    def sweep_stale_runs(self, max_attempts: int = 2) -> list[dict[str, Any]]:
+        """租约超时清扫（P3-B）：接管停滞的 RUNNING / CANCEL_REQUESTED 任务。
+
+        规则（需求 10 §5.9.3）：
+        - 有取消意图（`cancel_requested_at` 非空）→ `CANCELLED`（尊重用户，不重跑）；
+        - `attempt < max_attempts` → 回 `QUEUED`（`attempt+1`，清空 worker/租约），调用方负责重新入队；
+        - 重试耗尽 → `LOST`。
+
+        原子性：`SELECT ... FOR UPDATE SKIP LOCKED` + 同一事务更新 ⇒ 多 Worker 并发清扫只接管一次。
+        返回处理明细（供 Worker 重新入队与日志）。
+        """
+        results: list[dict[str, Any]] = []
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT run_id, attempt, cancel_requested_at FROM runs "
+                "WHERE status IN ('RUNNING','CANCEL_REQUESTED') "
+                "AND lease_expires_at IS NOT NULL AND lease_expires_at < now() "
+                "FOR UPDATE SKIP LOCKED"
+            )
+            for row in cur.fetchall():
+                run_id = row["run_id"]
+                if row["cancel_requested_at"] is not None:
+                    cur.execute(
+                        "UPDATE runs SET status = 'CANCELLED', stop_reason = 'user_cancelled', "
+                        "finished_at = now() WHERE run_id = %s",
+                        (run_id,),
+                    )
+                    results.append({"run_id": run_id, "action": "cancelled"})
+                elif row["attempt"] < max_attempts:
+                    cur.execute(
+                        "UPDATE runs SET status = 'QUEUED', attempt = attempt + 1, "
+                        "worker_id = NULL, worker_status = NULL, lease_expires_at = NULL, "
+                        "queued_at = now() WHERE run_id = %s",
+                        (run_id,),
+                    )
+                    results.append({"run_id": run_id, "action": "requeued",
+                                    "attempt": row["attempt"] + 1})
+                else:
+                    cur.execute(
+                        "UPDATE runs SET status = 'LOST', stop_reason = 'lost', "
+                        "finished_at = now() WHERE run_id = %s",
+                        (run_id,),
+                    )
+                    results.append({"run_id": run_id, "action": "lost"})
+        return results
 
     def mark_stale_as_lost(self, reason: str = "lost") -> int:
         """把非终局任务标记为 `LOST`（单实例内存态执行的既有事实：进程重启即失联）。

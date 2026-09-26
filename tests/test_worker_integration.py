@@ -120,3 +120,33 @@ def test_queue_empty_dequeue_returns_none(queue: RunQueue):
     started = time.monotonic()
     assert queue.dequeue(timeout=1) is None
     assert time.monotonic() - started < 5
+
+
+def test_stale_lease_is_swept_and_retried(store: RunStore, queue: RunQueue):
+    """P3-B：Worker 崩溃（租约过期）→ 清扫接管 → 重新入队 → 第二 attempt 成功。"""
+    run_id = f"stale{uuid.uuid4().hex[:6]}"
+    store.create_run(run_id, "租约接管", {"instructions": ""}, status="QUEUED")
+    try:
+        assert store.claim_run(run_id, "dead-worker", 0) is not None  # 租约立即过期
+        worker = Worker(
+            store, queue,
+            graph_factory=lambda: TinyGraph(steps=2, delay=0.01, report="# 重试成功"),
+            worker_id="retry-worker", lease_seconds=60, heartbeat_seconds=5, poll_seconds=1,
+        )
+        assert worker.sweep_and_requeue() == [
+            {"run_id": run_id, "action": "requeued", "attempt": 2}]
+        claimed = queue.dequeue(timeout=2)
+        assert claimed == run_id
+        assert worker.run_once(claimed) is True
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if store.get_run(run_id)["status"] == "SUCCEEDED":
+                break
+            time.sleep(0.05)
+        row = store.get_run(run_id)
+        assert row["status"] == "SUCCEEDED"
+        assert row["attempt"] == 2
+        assert store.get_artifact(run_id, "report_md") == "# 重试成功"
+    finally:
+        _cleanup(run_id)
