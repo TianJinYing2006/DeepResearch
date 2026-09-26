@@ -17,6 +17,9 @@ jieba>=0.42.1
 fastapi>=0.141,<0.142
 uvicorn>=0.52,<0.53
 
+# 任务持久化（L3 P2-B：RunStore 访问 PostgreSQL；[binary] 免编译，各平台均有 wheel）
+psycopg[binary]>=3.2,<4
+
 # 工具
 python-dotenv>=1.0.0
 pydantic>=2.7.0
