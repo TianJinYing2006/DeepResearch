@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ReportView } from './ReportView'
 
 type SessionUser = { user_id: string; email: string }
@@ -55,6 +56,17 @@ const STATUS_LABELS: Record<string, string> = {
   CREATED: '已创建',
 }
 
+const HISTORY_PAGE_SIZE = 10
+
+/** P6-B：邀请链接 `?invite=CODE`（可复制给被邀请人，打开即进入注册并预填）。 */
+function inviteFromLocation(): string {
+  try {
+    return new URLSearchParams(window.location.search).get('invite')?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
 type Props = {
   authRequired: boolean
   activeRunId: string | null
@@ -80,11 +92,17 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [previewError, setPreviewError] = useState('')
   const [uploadState, setUploadState] = useState('')
   const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const inviteFromUrl = useRef(inviteFromLocation()).current
+  const [mode, setMode] = useState<'login' | 'register'>(inviteFromUrl ? 'register' : 'login')
+  const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  const [inviteCode, setInviteCode] = useState(inviteFromUrl)
   const [authError, setAuthError] = useState('')
+  const [historyStatus, setHistoryStatus] = useState('')
+  const [historyOffset, setHistoryOffset] = useState(0)
+  const [historyHasMore, setHistoryHasMore] = useState(false)
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
 
   const loadSession = useCallback(async () => {
     try {
@@ -147,6 +165,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       setUser(body.user)
       setPassword('')
       setInviteCode('')
+      setInviteOpen(false)
       void refreshSideData()
     } catch {
       setAuthError('网络错误，请重试')
@@ -163,23 +182,36 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setHistoryOpen(false)
   }
 
-  async function toggleHistory() {
-    const next = !historyOpen
-    setHistoryOpen(next)
-    if (!next) return
-    setHistoryError('')
-    setHistory(null)
+  async function loadHistory(reset: boolean, statusOverride?: string) {
+    const status = statusOverride !== undefined ? statusOverride : historyStatus
+    const nextOffset = reset ? 0 : historyOffset
+    const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE), offset: String(nextOffset) })
+    if (status) params.set('status', status)
+    setHistoryLoadingMore(!reset)
     try {
-      const response = await fetch('/api/runs')
+      const response = await fetch(`/api/runs?${params.toString()}`)
       if (!response.ok) {
         setHistoryError(await readError(response))
         return
       }
       const body = (await response.json()) as { runs: RunBrief[] }
-      setHistory(body.runs)
+      setHistoryError('')
+      setHistory((previous) => (reset ? body.runs : [...(previous ?? []), ...body.runs]))
+      setHistoryOffset(nextOffset + body.runs.length)
+      setHistoryHasMore(body.runs.length === HISTORY_PAGE_SIZE)
     } catch {
       setHistoryError('网络错误，请重试')
+    } finally {
+      setHistoryLoadingMore(false)
     }
+  }
+
+  async function toggleHistory() {
+    const next = !historyOpen
+    setHistoryOpen(next)
+    if (!next) return
+    setHistory(null)
+    await loadHistory(true)
   }
 
   async function openReport(runId: string) {
@@ -230,7 +262,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     : ''
 
   if (authRequired && checked && !user) {
-    return (
+    // 用 Portal 挂到 body：header 的 backdrop-filter 会把 position:fixed 约束在 header 内
+    return createPortal(
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
         data-testid="auth-gate"
@@ -268,12 +301,13 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             {mode === 'login' ? '有邀请码？去注册' : '已有账号？去登录'}
           </button>
         </form>
-      </div>
+      </div>,
+      document.body,
     )
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 text-xs" data-testid="account-panel">
+    <div className="flex flex-wrap items-center justify-start gap-2 text-xs sm:justify-end" data-testid="account-panel">
       {quotaLine && (
         <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-emerald-100/70"
               data-testid="quota-chip">
@@ -309,6 +343,29 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
 
       {historyOpen && (
         <div className="surface-card-muted mt-2 w-full p-3" data-testid="history-panel">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100/50">历史任务</span>
+            <label className="flex items-center gap-1 text-[11px] text-emerald-100/70">
+              状态
+              <select
+                className="rounded border border-white/10 bg-black/30 px-2 py-1 text-[11px]"
+                data-testid="history-status-filter"
+                value={historyStatus}
+                onChange={(event) => {
+                  setHistoryStatus(event.target.value)
+                  setHistory(null)
+                  void loadHistory(true, event.target.value)
+                }}
+              >
+                <option value="">全部</option>
+                <option value="SUCCEEDED">已完成</option>
+                <option value="FAILED">失败</option>
+                <option value="CANCELLED">已取消</option>
+                <option value="TIMED_OUT">已超时</option>
+                <option value="RUNNING">运行中</option>
+              </select>
+            </label>
+          </div>
           {historyError && <p className="text-amber-200/80" data-testid="history-error">{historyError}</p>}
           {!historyError && history === null && <p className="text-emerald-100/60">加载中…</p>}
           {!historyError && history && history.length === 0 && <p className="text-emerald-100/60">暂无历史任务</p>}
@@ -316,11 +373,11 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             <ul className="space-y-2">
               {history.map((item) => (
                 <li key={item.run_id} className="flex flex-wrap items-center justify-between gap-2 text-emerald-50/90">
-                  <span className="truncate">
+                  <span className="min-w-0 flex-1 truncate">
                     <code className="mr-2 text-[11px] text-emerald-200/70">{item.run_id}</code>
                     {item.topic}
                   </span>
-                  <span className="flex items-center gap-2 text-[11px] text-emerald-100/60">
+                  <span className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-100/60">
                     {STATUS_LABELS[item.status] ?? item.status}
                     {item.created_at && <span>{item.created_at.replace('T', ' ').slice(0, 16)}</span>}
                     {item.has_report && (
@@ -332,10 +389,47 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               ))}
             </ul>
           )}
+          {!historyError && historyHasMore && (
+            <button type="button" className="mt-3 text-[11px] text-emerald-200/70 underline hover:text-emerald-100"
+                    data-testid="history-load-more" disabled={historyLoadingMore}
+                    onClick={() => void loadHistory(false)}>
+              {historyLoadingMore ? '加载中…' : '加载更多'}
+            </button>
+          )}
         </div>
       )}
 
-      {(preview || previewError) && (
+      {inviteOpen && !authRequired && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+             data-testid="invite-register">
+          <form onSubmit={(event) => void submitAuth(event)} className="surface-card w-full max-w-md p-6">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-semibold text-emerald-50">邀请制注册</h2>
+              <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
+                      data-testid="invite-close"
+                      onClick={() => setInviteOpen(false)}>关闭</button>
+            </div>
+            <p className="mt-1 text-xs text-emerald-100/60">邀请码已从链接预填；注册成功后自动登录。</p>
+            <label className="field-label mt-5" htmlFor="invite-email">邮箱</label>
+            <input id="invite-email" className="field-control" type="email" autoComplete="email"
+                   value={email} onChange={(event) => setEmail(event.target.value)} required />
+            <label className="field-label mt-4" htmlFor="invite-password">密码（至少 10 位）</label>
+            <input id="invite-password" className="field-control" type="password"
+                   autoComplete="new-password" value={password} minLength={10}
+                   onChange={(event) => setPassword(event.target.value)} required />
+            <label className="field-label mt-4" htmlFor="invite-code">邀请码</label>
+            <input id="invite-code" className="field-control" data-testid="invite-code-input"
+                   value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
+            {authError && <p className="mt-4 text-sm text-rose-300" data-testid="auth-error">{authError}</p>}
+            <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
+              {busy ? '提交中…' : '注册并登录'}
+            </button>
+          </form>
+        </div>,
+        document.body,
+      )}
+
+      {(preview || previewError) && createPortal(
         <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
              data-testid="history-preview">
           <div className="surface-card my-6 w-full max-w-3xl p-6">
@@ -351,7 +445,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
