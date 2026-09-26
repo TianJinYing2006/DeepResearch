@@ -94,6 +94,15 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         component="web"),
     "rate_limited": ErrorSpec(
         429, True, "请求过于频繁（登录 / 提交限流）：稍后再试。", component="web"),
+    # --- RAG 知识库（P6-A） ----------------------------------------------
+    "rag_unavailable": ErrorSpec(
+        503, True,
+        "知识库不可用：确认 QDRANT_URL 可达、embedding key 已配置后重试。",
+        component="rag"),
+    "rag_ingest_failed": ErrorSpec(
+        503, True,
+        "文档摄取失败（解析 / embedding / 向量库）：按 message 排查后可重试同一文件。",
+        component="rag"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

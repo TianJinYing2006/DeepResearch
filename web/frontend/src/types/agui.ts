@@ -60,6 +60,10 @@ export interface RunOptions {
   run_timeout_seconds?: number
   /** P1-3：后端生效的单进程并发上限 */
   max_concurrent_runs?: number
+  /** P4-A / P6-A：是否开启鉴权（前端据此决定是否展示登录门） */
+  auth_required?: boolean
+  /** P4-A：注册是否需要邀请码 */
+  invite_only?: boolean
 }
 
 export interface StepFinishedEvent extends AguiEvent {
