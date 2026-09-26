@@ -179,6 +179,8 @@ qdrant-client==1.19.1
     # via -r requirements.txt
 rank-bm25==0.2.2
     # via -r requirements.txt
+redis==8.1.0
+    # via -r requirements.txt
 requests==2.34.2
     # via
     #   -r requirements.txt

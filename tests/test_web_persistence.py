@@ -14,154 +14,13 @@ import json
 import time
 from datetime import UTC, datetime, timedelta
 
+from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
-from research_engine.state import ResearchState
-from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
 from web.backend import main as api
 from web.backend.runner import RunManager
 
 SEEDED_RUN = "seededrun12"
-
-
-class TinyGraph:
-    """最小假 graph：可配节点数 / 延迟 / 报告正文（本文件与 test_web_api 各自独立）。"""
-
-    def __init__(self, steps: int = 3, delay: float = 0.01, report: str = ""):
-        self.steps = steps
-        self.delay = delay
-        self.report = report
-
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
-        state = ResearchState(topic=topic)
-        for i in range(self.steps):
-            time.sleep(self.delay)
-            state.progress.append({"stage": f"n{i}", "msg": "m"})
-            yield RunStep(index=i, node=f"n{i}", state=state, duration_ms=1)
-            if should_cancel is not None and should_cancel():
-                yield RunStep(index=i + 1, node=None, state=state,
-                              terminal=True, stop_reason=STOP_CANCELLED)
-                return
-        state.report = self.report
-        state.report_display = self.report
-        yield RunStep(index=self.steps, node=None, state=state,
-                      terminal=True, stop_reason=STOP_COMPLETED)
-
-
-class FakeStore:
-    """内存版 RunStore：语义与 web/backend/store.py 对齐，供接线测试使用。"""
-
-    def __init__(self) -> None:
-        self.runs: dict[str, dict] = {}
-        self.events: dict[str, list[dict]] = {}
-        self.artifacts: dict[str, dict[str, str]] = {}
-        self.fail_events = False
-
-    def ping(self) -> None:
-        return None
-
-    def create_run(self, run_id, topic, request=None, *, user_id=None, tenant_id=None,
-                   idempotency_key=None, status="CREATED", timeout_at=None,
-                   budget_limit_cny=None):
-        if idempotency_key is not None:
-            for row in self.runs.values():
-                if row["user_id"] == user_id and row["idempotency_key"] == idempotency_key:
-                    return row, False
-        now = datetime.now(UTC)
-        row = {
-            "run_id": run_id, "user_id": user_id, "tenant_id": tenant_id, "status": status,
-            "research_status": None, "stop_reason": None, "current_node": None,
-            "topic": topic, "request": request or {}, "token_used": 0,
-            "cost_estimate_cny": 0.0, "budget_limit_cny": budget_limit_cny,
-            "budget_used_cny": 0.0, "attempt": 1, "retry_of": None,
-            "idempotency_key": idempotency_key, "worker_id": None, "worker_status": None,
-            "lease_expires_at": None, "timeout_at": timeout_at, "hard_deadline_at": None,
-            "cancel_requested_at": None, "created_at": now, "queued_at": None,
-            "started_at": None, "finished_at": None,
-        }
-        self.runs[run_id] = row
-        self.events[run_id] = []
-        return row, True
-
-    def update_status(self, run_id, new_status, *, allowed_from, **fields):
-        row = self.runs.get(run_id)
-        if row is None or row["status"] not in tuple(allowed_from):
-            return False
-        row["status"] = new_status
-        row.update(fields)
-        return True
-
-    def get_run(self, run_id):
-        return self.runs.get(run_id)
-
-    def get_run_by_idempotency(self, user_id, idempotency_key):
-        for row in self.runs.values():
-            if row["user_id"] == user_id and row["idempotency_key"] == idempotency_key:
-                return row
-        return None
-
-    def list_runs(self, *, user_id=None, statuses=None, limit=20, offset=0):
-        rows = [r for r in self.runs.values()
-                if (user_id is None or r["user_id"] == user_id)
-                and (not statuses or r["status"] in statuses)]
-        rows.sort(key=lambda r: (r["created_at"], r["run_id"]), reverse=True)
-        out = []
-        for row in rows[offset:offset + limit]:
-            item = dict(row)
-            item["has_report"] = "report_md" in self.artifacts.get(row["run_id"], {})
-            out.append(item)
-        return out
-
-    def request_cancel(self, run_id):
-        row = self.runs.get(run_id)
-        if row is None:
-            return None
-        now = datetime.now(UTC)
-        if row["status"] in ("CREATED", "QUEUED"):
-            row.update(status="CANCELLED", stop_reason="user_cancelled",
-                       cancel_requested_at=now, finished_at=now)
-            return "CANCELLED"
-        if row["status"] == "RUNNING":
-            row.update(status="CANCEL_REQUESTED", cancel_requested_at=now)
-            return "CANCEL_REQUESTED"
-        return row["status"]
-
-    def append_event(self, run_id, event_type, payload=None, *, sequence=None):
-        if self.fail_events:
-            raise RuntimeError("db down")
-        if run_id not in self.runs:
-            raise LookupError(f"run not found: {run_id}")
-        seq = len(self.events[run_id]) if sequence is None else sequence
-        if any(item["sequence"] == seq for item in self.events[run_id]):
-            return seq
-        self.events[run_id].append({"run_id": run_id, "sequence": seq,
-                                    "event_type": event_type, "payload": payload or {}})
-        self.events[run_id].sort(key=lambda item: item["sequence"])
-        return seq
-
-    def get_events(self, run_id, after=None):
-        return [item for item in self.events.get(run_id, [])
-                if after is None or item["sequence"] > after]
-
-    def count_events(self, run_id):
-        return len(self.events.get(run_id, []))
-
-    def put_artifact(self, run_id, kind, body):
-        self.artifacts.setdefault(run_id, {})[kind] = body
-
-    def get_artifact(self, run_id, kind):
-        return self.artifacts.get(run_id, {}).get(kind)
-
-    def has_artifact(self, run_id, kind):
-        return kind in self.artifacts.get(run_id, {})
-
-    def mark_stale_as_lost(self, reason="lost"):
-        count = 0
-        for row in self.runs.values():
-            if row["status"] in ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED"):
-                row.update(status="LOST", stop_reason=reason, finished_at=datetime.now(UTC))
-                count += 1
-        return count
 
 
 def _manager(store, *, steps=3, delay=0.01, report="") -> RunManager:
@@ -212,8 +71,10 @@ def _seed_run(store: FakeStore, *, status: str = "SUCCEEDED", report: str = "# �
                               timeout_at=started + timedelta(seconds=3600))
     store.update_status(SEEDED_RUN, "RUNNING", allowed_from=("CREATED",), started_at=started)
     store.append_event(SEEDED_RUN, "RUN_STARTED", {"topic": "历史主题"}, sequence=0)
+    store.append_event(SEEDED_RUN, "DEGRADATION",
+                       {"component": "search", "reason": "provider_error"}, sequence=1)
     store.append_event(SEEDED_RUN, "RUN_FINISHED",
-                       {"stop_reason": "completed", "has_report": True}, sequence=1)
+                       {"stop_reason": "completed", "has_report": True}, sequence=2)
     if status == "SUCCEEDED":
         store.update_status(SEEDED_RUN, "SUCCEEDED", allowed_from=("RUNNING",),
                             stop_reason="completed", research_status="success",
@@ -303,7 +164,9 @@ def test_snapshot_falls_back_to_store(monkeypatch):
     assert body["status"] == "finished"
     assert body["has_report"] is True
     assert body["stop_reason"] == "completed"
-    assert body["event_count"] == 2
+    assert body["event_count"] == 3
+    assert body["degradation_count"] == 1
+    assert body["last_event_type"] == "RUN_FINISHED"
     assert body["elapsed_seconds"] >= 0
 
 
@@ -352,13 +215,13 @@ def test_stream_replays_from_store(monkeypatch):
         assert response.headers["content-type"].startswith("text/event-stream")
         types = [json.loads(line[6:])["type"]
                  for line in response.iter_lines() if line.startswith("data: ")]
-    assert types == ["RUN_STARTED", "RUN_FINISHED"]
+    assert types == ["RUN_STARTED", "DEGRADATION", "RUN_FINISHED"]
 
     with client.stream("GET", f"/api/research/{SEEDED_RUN}/stream",
                        headers={"Last-Event-ID": "0"}) as response:
         resumed = [json.loads(line[6:])["type"]
                    for line in response.iter_lines() if line.startswith("data: ")]
-    assert resumed == ["RUN_FINISHED"]
+    assert resumed == ["DEGRADATION", "RUN_FINISHED"]
 
 
 def test_cancel_falls_back_to_store(monkeypatch):
@@ -391,6 +254,15 @@ def test_start_returns_503_when_store_down(monkeypatch):
     store = DownStore()
     monkeypatch.setattr(api, "store", store)
     monkeypatch.setattr(api, "manager", _manager(store))
+    response = TestClient(api.app).post("/api/research", json={"topic": "t"})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "persistence_unavailable"
+
+
+def test_queue_mode_returns_503_without_store(monkeypatch):
+    monkeypatch.setattr(api, "EXECUTION_MODE", "queue")
+    monkeypatch.setattr(api, "store", None)
+    monkeypatch.setattr(api, "queue", None)
     response = TestClient(api.app).post("/api/research", json={"topic": "t"})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "persistence_unavailable"

@@ -205,6 +205,9 @@ def test_append_event_explicit_sequence_and_idempotency(store: RunStore):
     assert store.append_event(run_id, "B", {"n": 2}, sequence=0) == 0
     assert [item["sequence"] for item in store.get_events(run_id)] == [0, 5]
     assert store.count_events(run_id) == 2
+    assert store.count_events(run_id, "A") == 1
+    assert store.count_events(run_id, "DEGRADATION") == 0
+    assert store.last_event_type(run_id) == "A"
     with pytest.raises(LookupError):
         store.append_event("no-such-run", "X", {}, sequence=0)
 

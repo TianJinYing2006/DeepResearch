@@ -14,6 +14,21 @@
 
 name: deepresearch-staging
 
+# api 与 worker 共用的应用环境（YAML 锚点；worker 同样需要 provider / 任务库 / Redis 配置）
+x-app-environment: &app-environment
+  DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
+  DR_REDIS_URL: "redis://redis:6379/0"
+  QDRANT_URL: "${QDRANT_URL:-http://host.docker.internal:6333}"
+  DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
+  DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+  SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
+  BOCHA_API_KEY: "${BOCHA_API_KEY:-}"
+  ENABLE_ARXIV: "${ENABLE_ARXIV:-false}"
+  LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
+  LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+  LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+  LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -72,19 +87,10 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
-      DR_REDIS_URL: "redis://redis:6379/0"
+      <<: *app-environment
+      # P3：staging 默认「队列模式」（API 只创建 QUEUED 任务，Worker 执行）
+      DR_EXECUTION_MODE: "${DR_EXECUTION_MODE:-queue}"
       DR_CORS_ORIGINS: "${DR_CORS_ORIGINS:-}"
-      QDRANT_URL: "${QDRANT_URL:-http://host.docker.internal:6333}"
-      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
-      DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
-      SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
-      BOCHA_API_KEY: "${BOCHA_API_KEY:-}"
-      ENABLE_ARXIV: "${ENABLE_ARXIV:-false}"
-      LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
-      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
-      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
-      LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -95,6 +101,24 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # P3-A：独立 Worker（与 API 同镜像、不同入口；不单独维护 Dockerfile.worker）。
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    command: ["python", "-m", "web.backend.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment: *app-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   pg_data:
