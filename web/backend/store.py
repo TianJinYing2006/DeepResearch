@@ -363,6 +363,28 @@ class RunStore:
             )
             return float(cur.fetchone()["total"])
 
+    def status_counts_since(self, since: datetime) -> dict[str, int]:
+        """自 `since` 起创建的任务按状态计数（P8-A 指标端点用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, count(*) AS n FROM runs WHERE created_at >= %s GROUP BY status",
+                (since,),
+            )
+            return {row["status"]: row["n"] for row in cur.fetchall()}
+
+    def count_stale_leases(self) -> int:
+        """租约已过期但仍处于 RUNNING/CANCEL_REQUESTED 的任务数（P8-A 告警用）。
+
+        >0 说明可能已有 Worker 崩溃且尚未被清扫周期接管。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM runs "
+                "WHERE status IN ('RUNNING','CANCEL_REQUESTED') "
+                "AND lease_expires_at IS NOT NULL AND lease_expires_at < now()"
+            )
+            return cur.fetchone()["n"]
+
     def sweep_stale_runs(self, max_attempts: int = 2) -> list[dict[str, Any]]:
         """租约超时清扫（P3-B）：接管停滞的 RUNNING / CANCEL_REQUESTED 任务。
 

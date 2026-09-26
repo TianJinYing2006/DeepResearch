@@ -31,6 +31,10 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture()
 def store() -> RunStore:
+    # 防线：清掉上游套件（test_run_store）可能遗留的 test-store-* 任务，
+    # 否则活跃/过期租约行会污染并发闸与 sweep 断言（实测踩坑）。
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE user_id LIKE 'test-store-%'")
     return RunStore(DSN)
 
 

@@ -120,6 +120,26 @@ jobs:
           OTEL_SDK_DISABLED: "true"
         run: pytest tests/test_run_store.py tests/test_worker_integration.py -q
 
+      # P8-A 恢复演练：真实脚本「备份（校验可读）→ 清库 → 恢复」；用种子数据与结构断言双向验证。
+      # 没有恢复演练就不算有备份（上线清单 §3.8）。
+      - name: 备份与恢复演练（P8-A，真实脚本）
+        run: |
+          set -e
+          DC="docker compose -f docker-compose.staging.yml"
+          DSN="postgresql://deepresearch:deepresearch-local@postgres:5432/deepresearch"
+          $DC exec -T postgres psql -U deepresearch -d deepresearch -v ON_ERROR_STOP=1 \
+            -c "INSERT INTO users (user_id, email, password_hash) VALUES ('drill-user', 'drill@example.com', 'x') ON CONFLICT DO NOTHING" > /dev/null
+          before=$($DC exec -T postgres psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM users WHERE user_id = 'drill-user'")
+          $DC exec -T -e DATABASE_URL="$DSN" -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/backup.sh
+          $DC exec -T -e DATABASE_URL="$DSN" -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/restore.sh
+          after=$($DC exec -T postgres psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM users WHERE user_id = 'drill-user'")
+          test "$before" = "1"
+          test "$after" = "1"
+          for f in migrations/checks/*.sql; do
+            $DC exec -T postgres psql -U deepresearch -d deepresearch -v ON_ERROR_STOP=1 -f - < "$f" > /dev/null
+          done
+          echo "restore drill ok"
+
       - name: 构建 API 镜像
         run: docker build -f Dockerfile.api -t deepresearch-api:ci .
 

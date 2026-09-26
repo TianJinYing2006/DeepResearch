@@ -212,7 +212,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | P5 | RAG 多租户隔离：单 collection + payload `tenant_id`/`user_id`/`visibility`；检索强制 filter；默认仅 `private`。**P5-A 已落地**：摄入打标（`visibility` 必写、owner/tenant 非空才写）+ 检索作用域（contextvar，`rag/scope.py` 单一判定）+ 向量服务端过滤下推与 Python 后置兜底 + BM25 按作用域缓存 + 执行器（RunManager / Worker）逐 run 设置作用域；**待 P6**：HTTP 上传面（携带当前用户）| 3~6 个工作日 | L3-A |
 | P6 | 前端产品化：登录/邀请页、新建任务、任务列表/详情、取消、历史报告与导出、配额显示、断线重连、筛选。**P6 已完成**：P6-A 账号壳（登录门/注册/退出）+ 账号条（配额 chip / 历史任务 / 知识库上传 / 清单）+ 历史报告预览 + CSRF 接线 + 上传限制；P6-B 邀请链接（`?invite=CODE` 打开即注册并预填）+ 历史状态筛选与分页 + 移动端账号条/历史面板无横向滚动（E2E 覆盖）。任务详情复用现有页面 | 5~10 个工作日 | L3-A/B |
 | P7 | 内容安全、隐私与运营：输入预检、输出审核、Prompt Injection 防护、文件限制、审核记录、申诉与人工复核、封禁；隐私政策/用户协议/注销/删除/日志脱敏。**P7-A 已落地**：规则词表输入预检（命中即拒 + `moderation_records`）+ 输出标记（`flagged`，不自动拦截）+ 申诉接口 + 注销（删账号/会话、清 RAG 向量、任务匿名保留）+ 长度上限 + 隐私政策/用户协议草案 + CLI `moderation-list`/`delete-user`。**待 P7-B**：接入有资质审核服务、输出自动拦截与模型输出标识、Prompt Injection 深度防护、期限到期清理 | 5~10 个工作日 | L3-B |
-| P8 | 监控、备份与正式部署：指标与告警、备份策略、恢复演练、压测、灰度与回滚 | 5~8 个工作日 | L3-B/C |
+| P8 | 监控、备份与正式部署：指标与告警、备份策略、恢复演练、压测、灰度与回滚。**P8-A 已落地**：`GET /api/metrics`（HTTP 分类/延迟、SSE 计量、任务状态分布与成功率、队列积压、过期租约、月度成本）+ `GET /api/ops/alerts`（四类阈值判定，触达渠道留部署方）+ `tools/backup.sh`/`restore.sh`（校验可读 + 保留 N 份）并接入 CI **真实恢复演练**（备份→清库→恢复→种子数据与结构断言）。**待 P8-B**：Prometheus/中心化指标、告警触达（IM/邮件）、压测、灰度与回滚流程、云上 staging | 5~8 个工作日 | L3-B/C |
 
 ### 5.8 两条路线（时间预算）
 
@@ -356,6 +356,10 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | `DR_SUBMIT_RATE_PER_MINUTE` | 10 | 提交任务限流（P4-B） |
 | `DR_RAG_MAX_FILE_MB` | 10 | 知识库单文件上传上限（P6-A，类型白名单见 API 实现） |
 | `DR_MODERATION_BLOCKLIST` | 空（默认不误伤） | 内容预检词表（逗号分隔；P7-A。**规则预检非审核服务**，正式开放前须接入有资质服务） |
+| `DR_ALERT_5XX_RATE_PCT` | 2.0 | 5xx 比例告警阈值（P8-A） |
+| `DR_ALERT_QUEUE_DEPTH` | 20 | 队列积压告警阈值（P8-A） |
+| `DR_ALERT_STALE_RUNS` | 1 | 过期租约任务数告警阈值（P8-A） |
+| `DR_ALERT_MONTHLY_PCT` | 80.0 | 月度预算消耗告警阈值（P8-A） |
 | `DR_OVERSEAS_PROVIDERS` | `off` | Tavily / Langfuse Cloud / arXiv / Semantic Scholar 总开关（默认关闭） |
 | `DR_RUN_TIMEOUT_SECONDS` | 3600 | 沿用现配置（`runner.py:54`） |
 | `DR_MAX_CONCURRENT_RUNS` | 2（L3-A）/ 3（L3-B） | 沿用现配置（`runner.py:59`） |
@@ -481,3 +485,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-26 | P6-A 前端产品化 | §5.10 / §5.13 / 代码 | `AccountPanel`（鉴权开启时全屏登录门：登录/注册+邀请码；账号条：配额 chip、历史任务、上传入口、知识库清单、退出）+ 历史报告预览（后端导出，复用 `ReportView`）+ 前端 CSRF 双提交头（研究创建 / 取消）+ `POST /api/rag/ingest`（类型白名单 + `DR_RAG_MAX_FILE_MB` 上限 + 执行器线程摄取 + 按用户打标）与 `GET /api/rag/docs`（按作用域列出）+ `/api/options` 下发 `auth_required`/`invite_only`；依赖 `python-multipart`（lock 外科式 +1 行）；E2E 10→13（历史降级 / 账号条 / 上传类型拒绝） | [PR #19](https://github.com/TianJinYing2006/DeepResearch/pull/19) |
 | 2026-09-26 | P6-B 前端收口 | §5.7 / 代码 | 邀请链接 `?invite=CODE`（注册弹窗预填邀请码；与登录门共用提交逻辑）+ 历史任务**状态筛选 + 分页（加载更多）**（`GET /api/runs` 的 limit/offset/status 全量用上）+ 移动端账号条/历史面板零横向滚动；修复两处实测坑：① Portal 化弹窗（header 的 `backdrop-filter` 会把 `position:fixed` 约束在 header 内）；② 筛选切换的 stale closure（显式传 status）；E2E 13→17 | [PR #20](https://github.com/TianJinYing2006/DeepResearch/pull/20) |
 | 2026-09-26 | P7-A 内容安全与隐私 | §5.7 / §5.13 / 代码 | 迁移 `0004_moderation.sql`（`moderation_records` + `runs.moderation_status`）+ `web/backend/moderation.py`（词表预检/输出标记）+ 输入预检拒绝（400 `content_blocked`）+ 输出 flagged 记录（runner/worker 共用）+ 申诉接口 + 注销接口（验密/CSRF/RAG 清理三态回报）+ 长度上限（1000/2000）+ 隐私政策与用户协议草案（`docs/legal/`，`GET /api/legal/*`）+ 前端（注销按钮、flagged 徽标、政策弹窗、maxLength 对齐）+ CLI `moderation-list`/`delete-user`；测试 559 收集（533 通过 + 26 跳过）、E2E 18/18；实测坑：注销后 run 的 user_id 置空导致测试清理漏网并污染 `count_active`（已修并在注释登记） | [PR #21](https://github.com/TianJinYing2006/DeepResearch/pull/21) |
+| 2026-09-26 | P8-A 可观测与恢复演练 | §5.7 / §5.13 / 代码 / CI | `web/backend/metrics.py`（进程内 HTTP 分类/延迟/SSE 计量）+ `GET /api/metrics`（含任务状态分布、成功率/失败率/超时率、队列积压、过期租约、月度成本）+ `GET /api/ops/alerts`（5xx/积压/过期租约/预算四类阈值，触达留 P8-B）+ `store.status_counts_since`/`count_stale_leases` + `tools/backup.sh`（pg_dump + `pg_restore -l` 可读校验 + 保留 N 份）与 `tools/restore.sh` + CI `infra` job **真实恢复演练**（种子数据 before/after 相等 + 恢复后结构断言）；测试 566 收集（539 通过 + 27 跳过） | [PR #22](https://github.com/TianJinYing2006/DeepResearch/pull/22) |
