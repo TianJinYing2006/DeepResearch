@@ -169,6 +169,15 @@ class FakeStore:
         return sum(1 for row in self.runs.values()
                    if row["status"] in ACTIVE and (user_id is None or row["user_id"] == user_id))
 
+    def count_user_runs_since(self, user_id, since):
+        return sum(1 for row in self.runs.values()
+                   if row["user_id"] == user_id and row["created_at"] >= since)
+
+    def month_cost_cny(self):
+        month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return sum(float(row.get("cost_estimate_cny") or 0.0)
+                   for row in self.runs.values() if row["created_at"] >= month_start)
+
     def sweep_stale_runs(self, max_attempts: int = 2):
         """租约超时清扫：与 RunStore.sweep_stale_runs 同语义。"""
         now = datetime.now(UTC)
@@ -333,6 +342,19 @@ class FakeStore:
 
     def revoke_session(self, session_hash):
         return self.sessions.pop(session_hash, None) is not None
+
+    def revoke_user_sessions(self, user_id):
+        keys = [key for key, value in self.sessions.items() if value["user_id"] == user_id]
+        for key in keys:
+            del self.sessions[key]
+        return len(keys)
+
+    def update_password(self, user_id, password_hash):
+        row = self.users.get(user_id)
+        if row is None:
+            return False
+        row["password_hash"] = password_hash
+        return True
 
     def purge_expired_sessions(self):
         now = datetime.now(UTC)

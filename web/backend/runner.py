@@ -143,7 +143,8 @@ class RunManager:
               enable_arxiv: bool | None = None,
               max_subquestions: int | None = None,
               idempotency_key: str | None = None,
-              user_id: str | None = None) -> str:
+              user_id: str | None = None,
+              budget_limit_cny: float | None = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
         配置了仓储（P2-C）时：
@@ -182,6 +183,7 @@ class RunManager:
                         user_id=user_id,
                         idempotency_key=idempotency_key,
                         timeout_at=datetime.now(UTC) + timedelta(seconds=self.run_timeout_seconds),
+                        budget_limit_cny=budget_limit_cny,
                     )
                 except Exception as exc:  # noqa: BLE001 —— 持久化是硬前提，失败即明确报错
                     raise ApiError(

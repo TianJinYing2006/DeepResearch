@@ -88,6 +88,12 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         403, False,
         "CSRF 校验失败：写操作需携带与 dr_csrf Cookie 一致的 X-CSRF-Token。",
         component="auth"),
+    "quota_exceeded": ErrorSpec(
+        429, True,
+        "已超出配额（每日运行次数 / 单用户并发 / 月度预算）：等预算周期或已有任务结束后再试。",
+        component="web"),
+    "rate_limited": ErrorSpec(
+        429, True, "请求过于频繁（登录 / 提交限流）：稍后再试。", component="web"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

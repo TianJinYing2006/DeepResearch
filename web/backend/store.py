@@ -345,6 +345,24 @@ class RunStore:
             cur.execute(sql, params)
             return cur.fetchone()["n"]
 
+    def count_user_runs_since(self, user_id: str, since: datetime) -> int:
+        """某用户自 `since` 起创建的 run 数（每日运行次数配额用；`since` 由调用方按 UTC 日界给出）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM runs WHERE user_id = %s AND created_at >= %s",
+                (user_id, since),
+            )
+            return cur.fetchone()["n"]
+
+    def month_cost_cny(self) -> float:
+        """本自然月（UTC）全部运行的成本估算合计（全局月度预算闸用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(SUM(cost_estimate_cny), 0) AS total FROM runs "
+                "WHERE created_at >= date_trunc('month', now())"
+            )
+            return float(cur.fetchone()["total"])
+
     def sweep_stale_runs(self, max_attempts: int = 2) -> list[dict[str, Any]]:
         """租约超时清扫（P3-B）：接管停滞的 RUNNING / CANCEL_REQUESTED 任务。
 
@@ -549,6 +567,24 @@ class RunStore:
             cur.execute(
                 "DELETE FROM sessions WHERE token_hash = %s RETURNING token_hash",
                 (session_hash,),
+            )
+            return cur.fetchone() is not None
+
+    def revoke_user_sessions(self, user_id: str) -> int:
+        """吊销某用户的**全部**会话（改密 / 管理员重置后使用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sessions WHERE user_id = %s RETURNING token_hash",
+                (user_id,),
+            )
+            return len(cur.fetchall())
+
+    def update_password(self, user_id: str, password_hash: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET password_hash = %s, updated_at = now() "
+                "WHERE user_id = %s RETURNING user_id",
+                (password_hash, user_id),
             )
             return cur.fetchone() is not None
 
