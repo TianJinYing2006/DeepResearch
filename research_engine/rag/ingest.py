@@ -94,37 +94,46 @@ class DocumentIngester:
         return vectors
 
     # ---- 摄取入口 ----
-    def ingest_file(self, path: str, doc_id: str) -> int:
-        """摄取单个文档，返回写入的块数。"""
+    def ingest_file(self, path: str, doc_id: str, *, user_id: str | None = None,
+                    tenant_id: str | None = None, visibility: str = "private") -> int:
+        """摄取单个文档，返回写入的块数。
+
+        P5 多租户隔离：`visibility` 必写（默认 private）；`user_id` / `tenant_id`
+        仅在非空时写入 payload —— 无主块（历史 / 本地匿名摄入）保持「无字段」形态，
+        由 `rag.scope.payload_matches` 统一判定可见性。
+        """
         text = self.parse_file(path)
         chunks = self.chunk_text(text)
         if not chunks:
             return 0
         vectors = self.embed(chunks)
-        points = [
-            PointStruct(
-                id=_stable_id(doc_id, i),
-                vector=vectors[i],
-                payload={
-                    "doc_id": doc_id,
-                    "chunk_index": i,
-                    "text": chunks[i],
-                    "source": os.path.basename(path),
-                },
-            )
-            for i in range(len(chunks))
-        ]
+        points = []
+        for i in range(len(chunks)):
+            payload = {
+                "doc_id": doc_id,
+                "chunk_index": i,
+                "text": chunks[i],
+                "source": os.path.basename(path),
+                "visibility": visibility,
+            }
+            if user_id:
+                payload["user_id"] = user_id
+            if tenant_id:
+                payload["tenant_id"] = tenant_id
+            points.append(PointStruct(id=_stable_id(doc_id, i), vector=vectors[i], payload=payload))
         self.store.upsert(points)
         return len(points)
 
-    def ingest_directory(self, dir_path: str) -> dict:
+    def ingest_directory(self, dir_path: str, *, user_id: str | None = None,
+                         tenant_id: str | None = None, visibility: str = "private") -> dict:
         """摄取目录下所有支持的文档，返回 {文件: 块数}。"""
         result = {}
         for fname in os.listdir(dir_path):
             fpath = os.path.join(dir_path, fname)
             if os.path.isfile(fpath):
                 try:
-                    count = self.ingest_file(fpath, doc_id=fname)
+                    count = self.ingest_file(fpath, doc_id=fname, user_id=user_id,
+                                             tenant_id=tenant_id, visibility=visibility)
                     result[fname] = count
                 except Exception as e:  # noqa: BLE001
                     result[fname] = f"error: {e}"

@@ -9,10 +9,11 @@ import time
 from typing import List, Optional
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
 from config import config
 from research_engine.failure_reasons import FailureReason
+from research_engine.rag.scope import RagScope, payload_matches
 
 
 class VectorStore:
@@ -96,18 +97,31 @@ class VectorStore:
         if client and points:
             client.upsert(collection_name=self.collection, points=points)
 
-    def search(self, vector: List[float], top_k: int = 5) -> List[dict]:
-        """向量检索，返回 [{id, score, payload}]。Qdrant 不可用时返回空。"""
+    def search(self, vector: List[float], top_k: int = 5,
+               scope: Optional[RagScope] = None) -> List[dict]:
+        """向量检索，返回 [{id, score, payload}]。Qdrant 不可用时返回空。
+
+        P5 多租户隔离：`scope` 非空即强制按作用域过滤 —— owner 作用域同时下推
+        Qdrant 服务端 `must` 过滤（减少跨租户数据触碰），再做 Python 后置过滤
+        （`scope.payload_matches` 是语义唯一来源，不依赖 Qdrant 的空值语义）。
+        """
         client = self._get_client()
         if client is None:
             return []
+        query_filter = None
+        if scope is not None and scope.is_owner_scope:
+            query_filter = Filter(must=[
+                FieldCondition(key="user_id", match=MatchValue(value=scope.user_id)),
+                FieldCondition(key="visibility", match=MatchValue(value="private")),
+            ])
         resp = client.query_points(
             collection_name=self.collection,
             query=vector,
             limit=top_k,
             with_payload=True,
+            query_filter=query_filter,
         )
-        return [
+        hits = [
             {
                 "id": p.id,
                 "score": p.score,
@@ -115,9 +129,16 @@ class VectorStore:
             }
             for p in resp.points
         ]
+        if scope is not None:
+            hits = [h for h in hits if payload_matches(h["payload"], scope)]
+        return hits
 
-    def scroll_all(self, limit: int = 10000) -> List[dict]:
-        """滚动获取全部点（用于 BM25）。Qdrant 不可用时返回空。"""
+    def scroll_all(self, limit: int = 10000, *,
+                   scope: Optional[RagScope] = None) -> List[dict]:
+        """滚动获取全部点（用于 BM25）。Qdrant 不可用时返回空。
+
+        P5：`scope` 非空时在返回前按作用域过滤（BM25 需要全量语料，故不下推服务端过滤）。
+        """
         client = self._get_client()
         if client is None:
             return []
@@ -126,7 +147,10 @@ class VectorStore:
             limit=limit,
             with_payload=True,
         )
-        return [p.payload or {} for p in points]
+        payloads = [p.payload or {} for p in points]
+        if scope is not None:
+            payloads = [p for p in payloads if payload_matches(p, scope)]
+        return payloads
 
     def delete_collection(self):
         """删除集合（用于重建）。"""
