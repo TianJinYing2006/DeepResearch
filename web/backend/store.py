@@ -592,3 +592,46 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM sessions WHERE expires_at <= now() RETURNING token_hash")
             return len(cur.fetchall())
+
+    # ---- 内容安全（P7-A）----
+
+    def record_moderation(self, kind: str, *, user_id: Optional[str] = None,
+                          run_id: Optional[str] = None,
+                          detail: Optional[dict[str, Any]] = None) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO moderation_records (user_id, run_id, kind, detail) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                (user_id, run_id, kind, Jsonb(detail or {})),
+            )
+            return cur.fetchone()["id"]
+
+    def list_moderation(self, *, kind: Optional[str] = None,
+                        limit: int = 50) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM moderation_records"
+        params: list[Any] = []
+        if kind is not None:
+            sql += " WHERE kind = %s"
+            params.append(kind)
+        sql += " ORDER BY id DESC LIMIT %s"
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+    def set_moderation_status(self, run_id: str, status: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET moderation_status = %s WHERE run_id = %s RETURNING run_id",
+                (status, run_id),
+            )
+            return cur.fetchone() is not None
+
+    def delete_user(self, user_id: str) -> bool:
+        """删除用户（P7-A 注销）：会话级联删除、runs/记录脱钩（SET NULL）、邀请 used_by 置空。
+
+        任务与审核记录**保留但匿名**（审计需要）；RAG 向量由调用方另行清理。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM users WHERE user_id = %s RETURNING user_id", (user_id,))
+            return cur.fetchone() is not None

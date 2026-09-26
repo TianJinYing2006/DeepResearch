@@ -85,6 +85,7 @@ class FakeStore:
         self.users: dict[str, dict] = {}
         self.sessions: dict[str, dict] = {}
         self.invites: dict[str, dict] = {}
+        self.moderation: list[dict] = []
         self.fail_events = False
 
     def ping(self) -> None:
@@ -108,7 +109,7 @@ class FakeStore:
             "lease_expires_at": None, "timeout_at": timeout_at, "hard_deadline_at": None,
             "cancel_requested_at": None, "created_at": now,
             "queued_at": now if status == "QUEUED" else None,
-            "started_at": None, "finished_at": None,
+            "started_at": None, "finished_at": None, "moderation_status": None,
         }
         self.runs[run_id] = row
         self.events[run_id] = []
@@ -354,6 +355,44 @@ class FakeStore:
         if row is None:
             return False
         row["password_hash"] = password_hash
+        return True
+
+    # ---- 内容安全（P7-A）----
+
+    def record_moderation(self, kind, *, user_id=None, run_id=None, detail=None):
+        self.moderation.append({
+            "id": len(self.moderation) + 1, "user_id": user_id, "run_id": run_id,
+            "kind": kind, "detail": detail or {}, "created_at": datetime.now(UTC),
+        })
+        return len(self.moderation)
+
+    def list_moderation(self, *, kind=None, limit=50):
+        rows = [row for row in self.moderation if kind is None or row["kind"] == kind]
+        return list(reversed(rows))[:limit]
+
+    def set_moderation_status(self, run_id, status):
+        row = self.runs.get(run_id)
+        if row is None:
+            return False
+        row["moderation_status"] = status
+        return True
+
+    def delete_user(self, user_id):
+        """镜像真实外键行为：删用户、级联会话、runs/邀请/记录脱钩。"""
+        if user_id not in self.users:
+            return False
+        del self.users[user_id]
+        self.sessions = {key: value for key, value in self.sessions.items()
+                         if value["user_id"] != user_id}
+        for row in self.runs.values():
+            if row["user_id"] == user_id:
+                row["user_id"] = None
+        for invite in self.invites.values():
+            if invite.get("used_by") == user_id:
+                invite["used_by"] = None
+        for record in self.moderation:
+            if record["user_id"] == user_id:
+                record["user_id"] = None
         return True
 
     def purge_expired_sessions(self):

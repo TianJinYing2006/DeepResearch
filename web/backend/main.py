@@ -42,6 +42,12 @@ from .auth import (
     verify_password,
 )
 from .errors import ApiError, error_payload, http_error
+from .moderation import (
+    MAX_APPEAL_LENGTH,
+    MAX_INSTRUCTIONS_LENGTH,
+    MAX_TOPIC_LENGTH,
+    scan,
+)
 from .queue import RunQueue
 from .ratelimit import FixedWindowLimiter
 from .runner import RunManager
@@ -125,6 +131,9 @@ SUBMIT_LIMITER = FixedWindowLimiter(int(_env_number("DR_SUBMIT_RATE_PER_MINUTE",
 RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
 RAG_ALLOWED_EXT = {".pdf", ".docx", ".md", ".markdown", ".txt", ".text"}
 
+# P7-A：合规文本（隐私政策 / 用户协议）以仓库文档为唯一来源
+LEGAL_DIR = Path(__file__).resolve().parents[2] / "docs" / "legal"
+
 
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
 store = None if DEMO_MODE else _make_store()
@@ -165,8 +174,8 @@ else:
 
 
 class StartRequest(BaseModel):
-    topic: str = Field(..., description="研究主题")
-    instructions: str = Field("", description="附加要求")
+    topic: str = Field(..., max_length=MAX_TOPIC_LENGTH, description="研究主题")
+    instructions: str = Field("", max_length=MAX_INSTRUCTIONS_LENGTH, description="附加要求")
     max_total_hops: Optional[int] = Field(None, ge=1, le=50, description="全局检索跳数上限")
     max_subquestions: Optional[int] = Field(None, ge=1, le=8, description="Planner 子问题数上限")
     search_provider: Optional[str] = Field(None, description="搜索引擎：bocha | tavily（不传则用配置默认值）")
@@ -358,6 +367,7 @@ def _snapshot_from_store(run_id: str) -> Optional[dict]:
         "elapsed_seconds": round(elapsed, 1),
         "remaining_seconds": round(max(0.0, timeout_seconds - elapsed), 1),
         "worker_status": row.get("worker_status"),
+        "moderation_status": row.get("moderation_status"),
     }
 
 
@@ -373,6 +383,7 @@ def _run_brief(row: dict) -> dict:
         "token_used": row.get("token_used") or 0,
         "cost_estimate_cny": float(row.get("cost_estimate_cny") or 0.0),
         "has_report": bool(row.get("has_report")),
+        "moderation_status": row.get("moderation_status"),
     }
 
 
@@ -647,6 +658,46 @@ def auth_change_password(req: ChangePasswordRequest, request: Request, response:
     return {"ok": True}
 
 
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(..., max_length=200)
+
+
+@app.delete("/api/auth/account")
+def auth_delete_account(req: DeleteAccountRequest, request: Request, response: Response) -> dict:
+    """注销账号（P7-A）：验密 + CSRF；删除用户与会话，RAG 向量尽力清理并**如实回报**。
+
+    任务与审核记录按外键 SET NULL **保留但匿名**（审计需要）；若 Qdrant 不可用，
+    账号仍删除但返回 `rag_cleanup=skipped:*`，由运营侧登记后续清理。
+    """
+    if store is None:
+        raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    user = _session_user(request)
+    if user is None:
+        raise http_error("unauthenticated", "请先登录")
+    _check_csrf(request)
+    if not verify_password(user["password_hash"], req.password):
+        raise http_error("invalid_credentials", "密码不正确")
+    user_id = user["user_id"]
+
+    rag_cleanup = "done"
+    try:
+        from research_engine.rag.store import VectorStore
+
+        vector_store = VectorStore()
+        reason = vector_store.unavailable_reason
+        if reason:
+            rag_cleanup = f"skipped: {reason}"
+        else:
+            vector_store.delete_by_user(user_id)
+    except Exception as exc:  # noqa: BLE001 —— 注销不能被知识库拖死，但必须如实回报
+        rag_cleanup = f"failed: {type(exc).__name__}"
+
+    _store_call(store.delete_user, user_id)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+    return {"ok": True, "rag_cleanup": rag_cleanup}
+
+
 @app.post("/api/research", response_model=StartResponse)
 def start(req: StartRequest, request: Request) -> StartResponse:
     user_id = _require_user(request)
@@ -661,6 +712,16 @@ def start(req: StartRequest, request: Request) -> StartResponse:
     _enforce_quotas(user_id)
     if not req.topic.strip():
         raise http_error("empty_topic", "topic 不能为空")
+    # P7-A：输入侧预检（规则词表；命中即拒绝并留审核记录，不进入队列/执行）
+    blocked_terms = scan(f"{req.topic}\n{req.instructions}")
+    if blocked_terms:
+        if store is not None:
+            _store_call(store.record_moderation, "input_blocked", user_id=user_id,
+                        detail={"matches": blocked_terms[:10]})
+        raise http_error(
+            "content_blocked", "输入包含不允许的内容",
+            detail=f"matches={blocked_terms[:5]}",
+        )
     # 搜索引擎必须**启动前**校验：未知源 / 未配 key 若放行，整场研究每跳都降级为零
     # 结果，跑完才在报告里发现白跑（博查额度耗尽就是这个情形的极端版）。
     if req.search_provider is not None:
@@ -752,6 +813,40 @@ def quota(request: Request) -> dict:
         "monthly_cost_cny": round(monthly_used, 4),
         "monthly_budget_cny": MONTHLY_BUDGET_CNY or None,
     }
+
+
+# ------------------------------------------------------------------ 内容安全与合规文本（P7-A）
+
+
+class AppealRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=MAX_APPEAL_LENGTH)
+    run_id: Optional[str] = Field(None, max_length=32)
+
+
+@app.post("/api/moderation/appeal")
+def moderation_appeal(req: AppealRequest, request: Request) -> dict:
+    """申诉入口（P7-A）：只落审核记录供人工复核；不做自动处置。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "申诉需要任务库（DR_DATABASE_URL）")
+    user_id = _require_user(request)
+    _check_csrf(request)
+    _store_call(
+        store.record_moderation, "appeal", user_id=user_id, run_id=req.run_id,
+        detail={"message": req.message[:MAX_APPEAL_LENGTH]},
+    )
+    return {"ok": True}
+
+
+@app.get("/api/legal/{doc}")
+def legal_document(doc: str) -> dict:
+    """隐私政策 / 用户协议（P7-A）：以仓库 `docs/legal/` 为唯一来源。"""
+    files = {"privacy": "privacy-policy.md", "terms": "terms-of-service.md"}
+    if doc not in files:
+        raise http_error("invalid_request", "未知文档", detail=f"known={sorted(files)}")
+    path = LEGAL_DIR / files[doc]
+    if not path.is_file():
+        raise http_error("invalid_request", "文档尚未准备（请联系管理员）")
+    return {"doc": doc, "markdown": path.read_text(encoding="utf-8")}
 
 
 # ------------------------------------------------------------------ RAG 知识库（P6-A）

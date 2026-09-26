@@ -48,6 +48,7 @@ from .agui import (
 )
 from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
+from .moderation import flag_report
 from .persistence import persist_forced, persist_terminal
 from .store import RunStore
 
@@ -495,6 +496,8 @@ class RunManager:
                 topic = (self._status.get(run_id) or {}).get("topic", "")
             persist_terminal(store, run_id, seq, event_type, payload,
                              result=result, report=report, meta=meta, topic=topic)
+            # P7-A：输出侧内容标记（命中词表 ⇒ flagged + 审核记录；不删除正文）
+            flag_report(store, run_id, self.owner(run_id), report)
         except Exception as exc:  # noqa: BLE001
             self._set_persistence_error(run_id, exc)
 

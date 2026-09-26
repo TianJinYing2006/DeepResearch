@@ -54,6 +54,7 @@ test.describe('账号与知识库入口（桌面端）', () => {
               stop_reason: 'completed',
               created_at: '2026-09-26T10:00:00',
               has_report: i === 0,
+              moderation_status: i === 0 ? 'flagged' : null,
             }))
       await route.fulfill({ json: { runs, limit: 10, offset } })
     })
@@ -63,6 +64,7 @@ test.describe('账号与知识库入口（桌面端）', () => {
 
     await page.getByTestId('history-toggle').click()
     await expect(page.getByTestId('history-panel').getByText('任务 0')).toBeVisible()
+    await expect(page.getByTestId('history-panel').getByTestId('flagged-badge')).toBeVisible()
     await page.getByTestId('history-load-more').click()
     await expect(page.getByTestId('history-panel').getByText('任务 10')).toBeVisible()
 
@@ -76,5 +78,18 @@ test.describe('账号与知识库入口（桌面端）', () => {
     await expect(page.getByTestId('history-preview')).toContainText('历史报告正文')
     await page.getByRole('button', { name: '关闭' }).click()
     await expect(page.getByTestId('history-preview')).toHaveCount(0)
+  })
+
+  test('邀请注册弹窗可打开隐私政策与用户协议', async ({ page }) => {
+    await page.goto('/?invite=invite-abc')
+    await page.getByTestId('invite-register').getByRole('button', { name: '隐私政策' }).click()
+    await expect(page.getByTestId('legal-modal')).toContainText('隐私政策')
+    await expect(page.getByTestId('legal-modal')).toContainText('数据存在哪里')
+    await page.getByTestId('legal-close').click()
+    await expect(page.getByTestId('legal-modal')).toHaveCount(0)
+
+    await page.getByTestId('invite-register').getByRole('button', { name: '用户协议' }).click()
+    await expect(page.getByTestId('legal-modal')).toContainText('使用规范')
+    await page.getByTestId('legal-close').click()
   })
 })
