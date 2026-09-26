@@ -51,6 +51,12 @@ class BoomGraph:
         yield  # pragma: no cover —— 生成器语法占位
 
 
+class FakeUniqueViolation(Exception):
+    """模拟 psycopg 唯一约束冲突（API 通过 sqlstate 识别 email_taken）。"""
+
+    sqlstate = "23505"
+
+
 class FakeQueue:
     def __init__(self) -> None:
         self.items: list[str] = []
@@ -76,6 +82,9 @@ class FakeStore:
         self.runs: dict[str, dict] = {}
         self.events: dict[str, list[dict]] = {}
         self.artifacts: dict[str, dict[str, str]] = {}
+        self.users: dict[str, dict] = {}
+        self.sessions: dict[str, dict] = {}
+        self.invites: dict[str, dict] = {}
         self.fail_events = False
 
     def ping(self) -> None:
@@ -246,6 +255,91 @@ class FakeStore:
                 row.update(status="LOST", stop_reason=reason, finished_at=datetime.now(UTC))
                 count += 1
         return count
+
+    # ---- 账号 / 会话 / 邀请（P4-A）----
+
+    def create_user(self, user_id, email, password_hash):
+        if any(user["email"].lower() == email.lower() for user in self.users.values()):
+            raise FakeUniqueViolation("duplicate email")
+        row = {
+            "user_id": user_id, "email": email, "password_hash": password_hash,
+            "status": "active", "created_at": datetime.now(UTC), "last_login_at": None,
+        }
+        self.users[user_id] = row
+        return row
+
+    def get_user(self, user_id):
+        return self.users.get(user_id)
+
+    def get_user_by_email(self, email):
+        for row in self.users.values():
+            if row["email"].lower() == email.lower():
+                return row
+        return None
+
+    def touch_last_login(self, user_id):
+        row = self.users.get(user_id)
+        if row is not None:
+            row["last_login_at"] = datetime.now(UTC)
+
+    def set_user_status(self, user_id, status):
+        row = self.users.get(user_id)
+        if row is None:
+            return False
+        row["status"] = status
+        return True
+
+    def register_with_invite(self, user_id, email, password_hash, invite_hash):
+        invite = self.invites.get(invite_hash)
+        now = datetime.now(UTC)
+        if (invite is None or invite["used_at"] is not None or invite["revoked_at"] is not None
+                or (invite["expires_at"] is not None and invite["expires_at"] < now)):
+            raise ValueError("invite_invalid")
+        user = self.create_user(user_id, email, password_hash)
+        invite["used_by"] = user_id
+        invite["used_at"] = now
+        return user
+
+    def create_invite(self, code_hash, *, created_by=None, expires_at=None):
+        self.invites[code_hash] = {
+            "code_hash": code_hash, "created_by": created_by, "created_at": datetime.now(UTC),
+            "expires_at": expires_at, "used_by": None, "used_at": None, "revoked_at": None,
+        }
+
+    def revoke_invite(self, code_hash):
+        invite = self.invites.get(code_hash)
+        if invite is None or invite["used_at"] is not None or invite["revoked_at"] is not None:
+            return False
+        invite["revoked_at"] = datetime.now(UTC)
+        return True
+
+    def list_invites(self, limit=50):
+        return list(self.invites.values())[:limit]
+
+    def create_session(self, session_hash, user_id, expires_at):
+        self.sessions[session_hash] = {
+            "token_hash": session_hash, "user_id": user_id,
+            "created_at": datetime.now(UTC), "expires_at": expires_at,
+        }
+
+    def get_session_user(self, session_hash):
+        session = self.sessions.get(session_hash)
+        if session is None or session["expires_at"] < datetime.now(UTC):
+            return None
+        user = self.users.get(session["user_id"])
+        if user is None or user["status"] != "active":
+            return None
+        return user
+
+    def revoke_session(self, session_hash):
+        return self.sessions.pop(session_hash, None) is not None
+
+    def purge_expired_sessions(self):
+        now = datetime.now(UTC)
+        expired = [key for key, value in self.sessions.items() if value["expires_at"] <= now]
+        for key in expired:
+            del self.sessions[key]
+        return len(expired)
 
 
 def wait_terminal(store, run_id, timeout: float = 5.0) -> dict:

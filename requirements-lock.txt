@@ -11,6 +11,12 @@ anyio==4.15.1
     #   langsmith
     #   openai
     #   starlette
+argon2-cffi==25.1.0
+    # via -r requirements.txt
+argon2-cffi-bindings==26.1.0
+    # via argon2-cffi
+async-timeout==5.0.1 ; python_full_version < '3.11.3'
+    # via redis
 backoff==2.2.1
     # via langfuse
 beautifulsoup4==4.15.0
@@ -20,6 +26,8 @@ certifi==2026.7.22
     #   httpcore
     #   httpx
     #   requests
+cffi==2.1.1
+    # via argon2-cffi-bindings
 charset-normalizer==3.5.1
     # via requests
 click==8.5.0
@@ -153,6 +161,8 @@ psycopg==3.3.6
     # via -r requirements.txt
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via psycopg
+pycparser==3.0 ; implementation_name != 'PyPy'
+    # via cffi
 pydantic==2.13.5
     # via
     #   -r requirements.txt

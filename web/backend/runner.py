@@ -133,6 +133,8 @@ class RunManager:
         self._timed_out: set[str] = set()
         self._forced: set[str] = set()
         self._active: set[str] = set()
+        #: run_id → 所有者 user_id（P4-A 越权隔离；None = 匿名/未启用鉴权）
+        self._owners: Dict[str, Optional[str]] = {}
 
     # ------------------------------------------------------------------ 生命周期
 
@@ -140,7 +142,8 @@ class RunManager:
               search_provider: str | None = None,
               enable_arxiv: bool | None = None,
               max_subquestions: int | None = None,
-              idempotency_key: str | None = None) -> str:
+              idempotency_key: str | None = None,
+              user_id: str | None = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
         配置了仓储（P2-C）时：
@@ -155,7 +158,7 @@ class RunManager:
         now = time.monotonic()
         if self._store is not None and idempotency_key is not None:
             # 幂等命中先于并发检查：重复提交是同一个逻辑请求，不应被并发闸拒绝。
-            existing = self._persist_call(run_id, "get_run_by_idempotency", None, idempotency_key)
+            existing = self._persist_call(run_id, "get_run_by_idempotency", user_id, idempotency_key)
             if existing is not None:
                 return existing["run_id"]
         with self._lock:
@@ -176,6 +179,7 @@ class RunManager:
                             "enable_arxiv": enable_arxiv,
                             "max_subquestions": max_subquestions,
                         },
+                        user_id=user_id,
                         idempotency_key=idempotency_key,
                         timeout_at=datetime.now(UTC) + timedelta(seconds=self.run_timeout_seconds),
                     )
@@ -191,6 +195,7 @@ class RunManager:
             self._queues[run_id] = queue.Queue()
             self._cancel[run_id] = threading.Event()
             self._active.add(run_id)
+            self._owners[run_id] = user_id
             self._deadlines[run_id] = now + self.run_timeout_seconds
             self._hard_deadlines[run_id] = (
                 now + self.run_timeout_seconds + self.forced_stop_grace_seconds)
@@ -256,6 +261,11 @@ class RunManager:
 
     def exists(self, run_id: str) -> bool:
         return run_id in self._frames
+
+    def owner(self, run_id: str) -> Optional[str]:
+        """run 的所有者 user_id（内存态）。调用方应先用 `exists()` 区分「不存在」。"""
+        with self._lock:
+            return self._owners.get(run_id)
 
     def is_finished(self, run_id: str) -> bool:
         return run_id in self._finished

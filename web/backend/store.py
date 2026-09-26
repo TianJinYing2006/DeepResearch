@@ -434,3 +434,125 @@ class RunStore:
                 (run_id, kind),
             )
             return cur.fetchone() is not None
+
+    # ---- 账号 / 会话 / 邀请（P4-A）----
+
+    def create_user(self, user_id: str, email: str, password_hash: str) -> dict[str, Any]:
+        """建用户（邮箱重复会抛 `UniqueViolation`，由 API 转 `email_taken`）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (user_id, email, password_hash) VALUES (%s, %s, %s) RETURNING *",
+                (user_id, email, password_hash),
+            )
+            return cur.fetchone()
+
+    def get_user(self, user_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+            return cur.fetchone()
+
+    def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE lower(email) = lower(%s)", (email,))
+            return cur.fetchone()
+
+    def touch_last_login(self, user_id: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET last_login_at = now(), updated_at = now() WHERE user_id = %s",
+                (user_id,),
+            )
+
+    def set_user_status(self, user_id: str, status: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET status = %s, updated_at = now() WHERE user_id = %s RETURNING user_id",
+                (status, user_id),
+            )
+            return cur.fetchone() is not None
+
+    def register_with_invite(self, user_id: str, email: str, password_hash: str,
+                             invite_hash: str) -> dict[str, Any]:
+        """单事务注册：校验邀请码（`FOR UPDATE`，一次性/未撤销/未过期）→ 建用户 → 标记已用。
+
+        邀请码无效时抛 `ValueError("invite_invalid")`；邮箱重复时抛 `UniqueViolation`
+        并由事务回滚（邀请码不被消耗）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT expires_at, used_at, revoked_at FROM invites "
+                "WHERE code_hash = %s FOR UPDATE",
+                (invite_hash,),
+            )
+            invite = cur.fetchone()
+            if invite is None or invite["used_at"] is not None or invite["revoked_at"] is not None:
+                raise ValueError("invite_invalid")
+            if invite["expires_at"] is not None and invite["expires_at"] < _now():
+                raise ValueError("invite_invalid")
+            cur.execute(
+                "INSERT INTO users (user_id, email, password_hash) VALUES (%s, %s, %s) RETURNING *",
+                (user_id, email, password_hash),
+            )
+            user = cur.fetchone()
+            cur.execute(
+                "UPDATE invites SET used_by = %s, used_at = now() WHERE code_hash = %s",
+                (user_id, invite_hash),
+            )
+            return user
+
+    def create_invite(self, code_hash: str, *, created_by: Optional[str] = None,
+                      expires_at: Optional[datetime] = None) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO invites (code_hash, created_by, expires_at) VALUES (%s, %s, %s)",
+                (code_hash, created_by, expires_at),
+            )
+
+    def revoke_invite(self, code_hash: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE invites SET revoked_at = now() "
+                "WHERE code_hash = %s AND used_at IS NULL AND revoked_at IS NULL "
+                "RETURNING code_hash",
+                (code_hash,),
+            )
+            return cur.fetchone() is not None
+
+    def list_invites(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT code_hash, created_by, created_at, expires_at, used_by, used_at, revoked_at "
+                "FROM invites ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+    def create_session(self, session_hash: str, user_id: str, expires_at: datetime) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
+                (session_hash, user_id, expires_at),
+            )
+
+    def get_session_user(self, session_hash: str) -> Optional[dict[str, Any]]:
+        """按令牌摘要取**有效**会话对应的用户（过期 / 封禁即视为无效）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT u.* FROM sessions s JOIN users u ON u.user_id = s.user_id "
+                "WHERE s.token_hash = %s AND s.expires_at > now() AND u.status = 'active'",
+                (session_hash,),
+            )
+            return cur.fetchone()
+
+    def revoke_session(self, session_hash: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sessions WHERE token_hash = %s RETURNING token_hash",
+                (session_hash,),
+            )
+            return cur.fetchone() is not None
+
+    def purge_expired_sessions(self) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM sessions WHERE expires_at <= now() RETURNING token_hash")
+            return len(cur.fetchall())
