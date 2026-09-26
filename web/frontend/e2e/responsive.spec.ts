@@ -41,4 +41,24 @@ test.describe('移动端布局', () => {
     expect(linkBox).not.toBeNull()
     expect(linkBox!.width).toBeLessThanOrEqual(viewport!.width)
   })
+
+  // P6-B：账号条与历史面板（含筛选/分页行）在窄屏同样不得撑破布局
+  test('窄屏下账号条与历史面板不产生横向滚动', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByTestId('account-panel')).toBeVisible()
+
+    const noOverflow = async (label: string) => {
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }))
+      expect(overflow.scrollWidth, `${label} 出现横向滚动`).toBeLessThanOrEqual(overflow.clientWidth + 1)
+    }
+
+    await noOverflow('账号条')
+
+    await page.getByTestId('history-toggle').click()
+    await expect(page.getByTestId('history-panel')).toBeVisible()
+    await noOverflow('历史面板')
+  })
 })
