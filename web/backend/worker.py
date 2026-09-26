@@ -26,6 +26,7 @@ from typing import Any, Callable, Optional
 
 from config import config
 from research_engine.graph import DeepResearchGraph, create_graph
+from research_engine.rag.scope import set_scope
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
@@ -197,6 +198,8 @@ class Worker:
         })
 
         seen_progress = 0
+        # P5：检索作用域 = 本 run 的所有者（Worker 串行执行，每次开跑前覆盖）
+        set_scope(user_id=row.get("user_id"))
         budget_limit = row.get("budget_limit_cny")
         last_state = None
         budget_exceeded = False

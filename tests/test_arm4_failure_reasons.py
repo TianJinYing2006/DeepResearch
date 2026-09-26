@@ -29,14 +29,14 @@ class _FakeStore:
         self._unavailable = unavailable
         self._err = err
 
-    def search(self, vector, top_k=5):
+    def search(self, vector, top_k=5, scope=None):
         if self._unavailable:
             return []  # 复刻真实行为：不可用时静默返回空
         if self._err:
             raise RuntimeError(self._err)
         return self._hits
 
-    def scroll_all(self, limit=10000):
+    def scroll_all(self, limit=10000, scope=None):
         return self._payloads
 
     @property
@@ -56,15 +56,13 @@ def _make_retriever(monkeypatch, store, texts=(), sources=(), embed_ok=True, api
     r = HybridRetriever.__new__(HybridRetriever)
     r.store = store
     r._client = None
-    r._all_texts = list(texts)
-    r._all_sources = list(sources)
-    r._bm25 = None
-    if r._all_texts:
-        from rank_bm25 import BM25Okapi
+    from rank_bm25 import BM25Okapi
 
-        from research_engine.rag.tokenizer import tokenize
+    from research_engine.rag.tokenizer import tokenize
 
-        r._bm25 = BM25Okapi([tokenize(t) for t in r._all_texts])
+    bm25 = BM25Okapi([tokenize(t) for t in texts]) if texts else None
+    # P5：BM25 语料改为「按检索作用域缓存」；匿名作用域键 = (None, None)
+    r._cache = {(None, None): (list(texts), list(sources), bm25)}
     # 与真实环境解耦：不依赖 .env 里有没有 DASHSCOPE_API_KEY
     monkeypatch.setattr(R, "config", SimpleNamespace(
         llm=SimpleNamespace(api_key=api_key),

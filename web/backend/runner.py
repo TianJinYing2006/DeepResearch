@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from research_engine.graph import DeepResearchGraph, create_graph
+from research_engine.rag.scope import set_scope
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
@@ -565,6 +566,8 @@ class RunManager:
                     return True
                 return deadline is not None and time.monotonic() >= deadline
 
+            # P5：把本 run 的所有者写进 RAG 检索作用域（本线程只服务本 run，无需复位）
+            set_scope(user_id=self.owner(run_id))
             seen_progress = 0
             for step in graph.iter_run(topic, instructions, thread_id=run_id,
                                        should_cancel=should_stop):
