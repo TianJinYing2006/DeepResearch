@@ -458,3 +458,8 @@ def test_status_counts_and_stale_leases(store: RunStore):
     counts = store.status_counts_since(since)
     assert counts.get("RUNNING", 0) == 2
     assert store.count_stale_leases() == 1  # 只有 stale_id 过期
+
+    # 显式清理：本测试留下两条 RUNNING（一条过期）会污染后续集成测试的
+    # count_active 与 sweep 断言（与 P7-A 注销测试同类坑，D 盘实测教训）。
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE run_id IN (%s, %s)", (stale_id, fresh_id))
