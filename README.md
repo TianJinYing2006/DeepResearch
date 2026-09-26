@@ -144,6 +144,7 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 - Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
 - 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）；
 - **账号（P4-A）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（httpOnly Session + CSRF 双提交）；邀请码与账号用 CLI 管理：`python -m web.backend.admin create-invite` / `create-user` / `ban-user`；本地默认全关（行为与 P3 一致）。
+- **配额与限流（P4-B）**：单用户 `DR_DAILY_RUNS_PER_USER=1` 次/日、并发 `DR_MAX_USER_CONCURRENT=1`；单次预算 `DR_RUN_BUDGET_CNY=¥1.50`、全局月度 `DR_MONTHLY_BUDGET_CNY=¥1,500`（100% 熔断新任务，查询/导出不受影响）；`GET /api/quota` 查余量；登录/注册/提交限流（进程内，多实例部署前需迁 Redis）。
 
 Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
 查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、

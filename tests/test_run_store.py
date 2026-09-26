@@ -392,3 +392,26 @@ def test_users_sessions_invites_contract(store: RunStore):
     with pytest.raises(ValueError):
         store.register_with_invite(f"u{suffix}h", f"h{suffix}@test-store.local", "hash",
                                    token_hash("code-4"))
+
+
+def test_user_quota_and_password_helpers(store: RunStore):
+    """P4-B 仓储支撑：每日计数 / 月度成本 / 改密与全量吊销会话。"""
+    uid = TEST_USER
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+    before = store.count_user_runs_since(uid, since)
+    run_id, _, _ = _create(store, user_id=uid)
+    assert store.count_user_runs_since(uid, since) == before + 1
+    assert store.count_user_runs_since(OTHER_USER, since) == 0
+
+    assert store.update_status(run_id, "SUCCEEDED", allowed_from=("CREATED",),
+                               cost_estimate_cny=0.25) is True
+    assert store.month_cost_cny() >= 0.25
+
+    assert store.update_password(uid, "new-hash") is True
+    assert store.get_user(uid)["password_hash"] == "new-hash"
+
+    store.create_session(token_hash("q-tok"), uid,
+                         datetime.now(timezone.utc) + timedelta(minutes=5))
+    assert store.get_session_user(token_hash("q-tok")) is not None
+    assert store.revoke_user_sessions(uid) >= 1
+    assert store.get_session_user(token_hash("q-tok")) is None

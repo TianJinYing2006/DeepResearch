@@ -5,6 +5,7 @@
     python -m web.backend.admin create-user --email a@b.c [--password ...]
     python -m web.backend.admin create-invite [--expires-days 7] [--created-by cli]
     python -m web.backend.admin list-invites
+    python -m web.backend.admin reset-password --email a@b.c
     python -m web.backend.admin revoke-invite --code <邀请码>
     python -m web.backend.admin ban-user --email a@b.c
     python -m web.backend.admin unban-user --email a@b.c
@@ -46,6 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list-invites", help="列出邀请码摘要与状态")
 
+    reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
+    reset.add_argument("--email", required=True)
+
     revoke = sub.add_parser("revoke-invite", help="撤销未使用的邀请码")
     revoke.add_argument("--code", required=True)
 
@@ -84,6 +88,18 @@ def main(argv: list[str] | None = None) -> int:
             state = "used" if row["used_at"] else ("revoked" if row["revoked_at"] else "unused")
             expires = row["expires_at"].isoformat() if row["expires_at"] else "never"
             print(f"{row['code_hash'][:12]}...  {state}  expires={expires}")
+        return 0
+
+    if args.command == "reset-password":
+        user = store.get_user_by_email(normalize_email(args.email))
+        if user is None:
+            print("user not found", file=sys.stderr)
+            return 1
+        password = secrets.token_urlsafe(12)
+        store.update_password(user["user_id"], hash_password(password))
+        revoked = store.revoke_user_sessions(user["user_id"])
+        print(f"已重置 {user['email']}；吊销 {revoked} 个会话")
+        print(f"临时密码（仅本次打印）：{password}")
         return 0
 
     if args.command == "revoke-invite":

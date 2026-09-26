@@ -42,6 +42,7 @@ from .auth import (
 )
 from .errors import ApiError, error_payload, http_error
 from .queue import RunQueue
+from .ratelimit import FixedWindowLimiter
 from .runner import RunManager
 from .store import ACTIVE_STATUSES, RunStore
 
@@ -98,11 +99,26 @@ def _env_flag(name: str, default: str = "false") -> bool:
     return (os.getenv(name) or default).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_number(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 # P4-A：鉴权与邀请制。默认全关（本地开发 / E2E 零变化）；staging/生产由环境变量打开。
 AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
 INVITE_ONLY = _env_flag("DR_INVITE_ONLY", "true")
 COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
 SESSION_TTL_SECONDS = int(os.getenv("DR_SESSION_TTL_SECONDS", "604800"))
+
+# P4-B：配额与限流（推荐基线 v2 默认值；0 = 关闭对应闸）。
+MAX_USER_CONCURRENT = max(1, int(_env_number("DR_MAX_USER_CONCURRENT", 1)))
+DAILY_RUNS_PER_USER = int(_env_number("DR_DAILY_RUNS_PER_USER", 1))
+RUN_BUDGET_CNY = _env_number("DR_RUN_BUDGET_CNY", 1.50)
+MONTHLY_BUDGET_CNY = _env_number("DR_MONTHLY_BUDGET_CNY", 1500.0)
+LOGIN_LIMITER = FixedWindowLimiter(int(_env_number("DR_LOGIN_RATE_PER_MINUTE", 10)))
+SUBMIT_LIMITER = FixedWindowLimiter(int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)))
 
 
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
@@ -422,6 +438,46 @@ def _set_session_cookies(response: Response, user_id: str) -> None:
                         samesite="lax", secure=COOKIE_SECURE, path="/")
 
 
+# ------------------------------------------------------------------ 配额与限流（P4-B）
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _day_start_utc() -> datetime:
+    return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _enforce_quotas(user_id: Optional[str]) -> None:
+    """配额闸：全局月度预算 → 单用户并发 → 单用户每日次数（任一超限即 429）。"""
+    if store is None:
+        return
+    if MONTHLY_BUDGET_CNY > 0:
+        spent = _store_call(store.month_cost_cny)
+        if spent >= MONTHLY_BUDGET_CNY:
+            raise http_error(
+                "quota_exceeded",
+                "本月全局预算已用尽，已暂停新建任务（查询 / 导出不受影响）",
+                detail=f"spent={spent:.4f}; limit={MONTHLY_BUDGET_CNY}",
+            )
+    if user_id is None:
+        return
+    active = _store_call(store.count_active, user_id)
+    if active >= MAX_USER_CONCURRENT:
+        raise http_error(
+            "quota_exceeded", "你有正在运行的任务（单用户并发上限）",
+            detail=f"active={active}; limit={MAX_USER_CONCURRENT}",
+        )
+    if DAILY_RUNS_PER_USER > 0:
+        used = _store_call(store.count_user_runs_since, user_id, _day_start_utc())
+        if used >= DAILY_RUNS_PER_USER:
+            raise http_error(
+                "quota_exceeded", "今日运行次数已达上限",
+                detail=f"used={used}; limit={DAILY_RUNS_PER_USER}",
+            )
+
+
 def _start_queued(req: StartRequest, user_id: Optional[str]) -> str:
     """队列模式（P3）：创建 `QUEUED` 任务并投递 Redis 队列；重复幂等键返回既有 run_id。
 
@@ -456,6 +512,7 @@ def _start_queued(req: StartRequest, user_id: Optional[str]) -> str:
             idempotency_key=req.idempotency_key,
             status="QUEUED",
             timeout_at=datetime.now(UTC) + timedelta(seconds=manager.run_timeout_seconds),
+            budget_limit_cny=RUN_BUDGET_CNY or None,
         )
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
@@ -490,9 +547,16 @@ class LoginRequest(BaseModel):
     password: str = Field(..., max_length=200)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., max_length=200)
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=200)
+
+
 @app.post("/api/auth/register")
-def auth_register(req: RegisterRequest, response: Response) -> dict:
+def auth_register(req: RegisterRequest, request: Request, response: Response) -> dict:
     """邀请制注册（`DR_INVITE_ONLY=true` 时邀请码必填）；成功后自动登录。"""
+    if not LOGIN_LIMITER.allow(f"register:{_client_key(request)}"):
+        raise http_error("rate_limited", "注册请求过于频繁，稍后再试")
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
     email = normalize_email(req.email)
@@ -522,8 +586,10 @@ def auth_register(req: RegisterRequest, response: Response) -> dict:
 
 
 @app.post("/api/auth/login")
-def auth_login(req: LoginRequest, response: Response) -> dict:
+def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
     """邮箱 + 密码登录；失败统一 401（不区分「用户不存在 / 密码错 / 已封禁」）。"""
+    if not LOGIN_LIMITER.allow(f"login:{_client_key(request)}"):
+        raise http_error("rate_limited", "登录请求过于频繁，稍后再试")
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
     user = _store_call(store.get_user_by_email, normalize_email(req.email))
@@ -553,10 +619,38 @@ def auth_session(request: Request) -> dict:
     return {"user": _public_user(user)}
 
 
+@app.post("/api/auth/password")
+def auth_change_password(req: ChangePasswordRequest, request: Request, response: Response) -> dict:
+    """登录态改密：校验当前密码 → 更新 Argon2id → **吊销全部会话** → 当前设备重新签发。
+
+    其它设备的会话一并失效（改密的预期安全行为）。
+    """
+    if store is None:
+        raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    user = _session_user(request)
+    if user is None:
+        raise http_error("unauthenticated", "请先登录")
+    _check_csrf(request)
+    if not verify_password(user["password_hash"], req.current_password):
+        raise http_error("invalid_credentials", "当前密码不正确")
+    _store_call(store.update_password, user["user_id"], hash_password(req.new_password))
+    _store_call(store.revoke_user_sessions, user["user_id"])
+    _set_session_cookies(response, user["user_id"])
+    return {"ok": True}
+
+
 @app.post("/api/research", response_model=StartResponse)
 def start(req: StartRequest, request: Request) -> StartResponse:
     user_id = _require_user(request)
     _check_csrf(request)
+    if not SUBMIT_LIMITER.allow(f"submit:{user_id or _client_key(request)}"):
+        raise http_error("rate_limited", "提交过于频繁，稍后再试")
+    # 幂等命中先于配额闸：重复提交是同一个逻辑请求，不应被日限额/预算拒绝。
+    if store is not None and req.idempotency_key is not None:
+        existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
+        if existing is not None:
+            return StartResponse(run_id=existing["run_id"])
+    _enforce_quotas(user_id)
     if not req.topic.strip():
         raise http_error("empty_topic", "topic 不能为空")
     # 搜索引擎必须**启动前**校验：未知源 / 未配 key 若放行，整场研究每跳都降级为零
@@ -583,7 +677,8 @@ def start(req: StartRequest, request: Request) -> StartResponse:
             run_id = manager.start(
                 req.topic, req.instructions, req.max_total_hops,
                 req.search_provider, req.enable_arxiv, req.max_subquestions,
-                req.idempotency_key, user_id=user_id)
+                req.idempotency_key, user_id=user_id,
+                budget_limit_cny=RUN_BUDGET_CNY or None)
     except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)
@@ -626,6 +721,29 @@ def list_runs(
     rows = _store_call(store.list_runs, user_id=_require_user(request),
                        limit=limit, offset=offset, statuses=statuses)
     return {"runs": [_run_brief(row) for row in rows], "limit": limit, "offset": offset}
+
+
+@app.get("/api/quota")
+def quota(request: Request) -> dict:
+    """配额与预算快照（P4-B / §5.10）：当日次数、并发占用、单次与月度预算。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "未配置任务库（DR_DATABASE_URL）")
+    user_id = _require_user(request)
+    monthly_used = _store_call(store.month_cost_cny)
+    daily_used = (
+        _store_call(store.count_user_runs_since, user_id, _day_start_utc())
+        if user_id else None
+    )
+    return {
+        "user_id": user_id,
+        "daily_runs_used": daily_used,
+        "daily_runs_limit": DAILY_RUNS_PER_USER or None,
+        "user_active_runs": _store_call(store.count_active, user_id) if user_id else None,
+        "user_concurrent_limit": MAX_USER_CONCURRENT,
+        "run_budget_cny": RUN_BUDGET_CNY or None,
+        "monthly_cost_cny": round(monthly_used, 4),
+        "monthly_budget_cny": MONTHLY_BUDGET_CNY or None,
+    }
 
 
 @app.post("/api/research/{run_id}/cancel")

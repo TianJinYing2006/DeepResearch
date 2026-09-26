@@ -351,6 +351,8 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | `DR_RUN_BUDGET_CNY` | 1.50 | 单次硬预算 |
 | `DR_RUN_BUDGET_WARN_CNY` | 1.00 | 单次预警 |
 | `DR_MONTHLY_BUDGET_CNY` | 1500（L3-A）/ 2000（L3-B） | 月度熔断 |
+| `DR_LOGIN_RATE_PER_MINUTE` | 10 | 登录 / 注册限流（进程内固定窗口；多实例需迁 Redis，P4-B） |
+| `DR_SUBMIT_RATE_PER_MINUTE` | 10 | 提交任务限流（P4-B） |
 | `DR_OVERSEAS_PROVIDERS` | `off` | Tavily / Langfuse Cloud / arXiv / Semantic Scholar 总开关（默认关闭） |
 | `DR_RUN_TIMEOUT_SECONDS` | 3600 | 沿用现配置（`runner.py:54`） |
 | `DR_MAX_CONCURRENT_RUNS` | 2（L3-A）/ 3（L3-B） | 沿用现配置（`runner.py:59`） |
@@ -380,7 +382,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 - [x] 任务失败不丢状态（FAILED / TIMED_OUT / CANCELLED / LOST 均落库；LOST 由启动清理产生）
 - [x] 用户不能访问他人任务（查询 / 取消 / 导出 / SSE 订阅四路负向测试；P4-A：非本人一律 404，不泄露存在性）
 - [x] Worker 挂掉后任务不会永久卡住（P3-A 租约 + P3-B 超时清扫接管：可重试→重排、重试耗尽→`LOST`）
-- [ ] 成本超限自动停止（单 run 预算闸已在 P3-B；用户级 / 全局闸 —— P4-B）
+- [x] 成本超限自动停止（单 run 预算闸 P3-B；用户级每日/并发 + 全局月度闸 P4-B；查询与导出不受影响）
 - [x] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期（P4-A；密码重置与限流留 P4-B）
 - [ ] staging 环境一键起停（本地 compose 已具备；云上 staging 待部署）；迁移**只前向**执行且二次幂等（回退走备份恢复，见上线准入 §7.3）
 
@@ -471,3 +473,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-26 | P3-A Worker/队列 | §5.4 / §5.7 / §9 / 代码 | `web/backend/queue.py`（Redis LPUSH/BRPOP；redis-py 8 阻塞读超时兜底成「空队列」）+ `web/backend/worker.py`（原子认领 QUEUED→RUNNING+租约 / 心跳续租 / 节点边界取消与超时 / 终局落库 / 崩溃兜底 FAILED）+ 共享终局落库抽到 `persistence.py`（RunManager 与 Worker 同一状态映射）+ API 队列模式（`DR_EXECUTION_MODE=queue`；幂等命中先于并发闸）+ SSE 从任务库实时尾随 + compose `worker` 服务（同镜像不同入口；**不单列 `Dockerfile.worker`**）+ `redis>=8,<9`（lock 外科式 +1 行）；真实 PG+Redis 集成测试接 CI `infra`；容器冒烟：真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s） | [PR #14](https://github.com/TianJinYing2006/DeepResearch/pull/14) |
 | 2026-09-26 | P3-B 清扫/重试/预算 | §5.7 / §5.9.3 / §5.9.4 / §9 / 代码 | `RunStore.sweep_stale_runs`（`FOR UPDATE SKIP LOCKED` 原子接管：取消意图→CANCELLED；`attempt<max`→QUEUED+`attempt+1` 清租约；耗尽→LOST）+ Worker 周期清扫并重新入队 + 单 run 预算闸（节点边界；新增 `update_usage` 只回写计量、**不再覆盖 CANCEL_REQUESTED**——实测踩坑）+ 环境变量 `DR_WORKER_SWEEP_SECONDS` / `DR_WORKER_MAX_ATTEMPTS`；真实 PG+Redis 集成新增租约接管端到端 | [PR #15](https://github.com/TianJinYing2006/DeepResearch/pull/15) |
 | 2026-09-26 | P4-A 账号与会话 | §3.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 迁移 `0003_users_sessions_invites.sql`（users/sessions/invites + `runs.user_id` 外键）+ Argon2id 密码哈希、会话/邀请码只存 SHA-256 摘要 + 邀请制注册（一次性、事务内校验）/登录/登出/会话 + httpOnly Session Cookie 与 CSRF 双提交 + 运行类接口归属校验（非本人 404）+ 管理员 CLI（`python -m web.backend.admin`）+ 鉴权默认关闭（`DR_AUTH_REQUIRED`，本地/E2E 零变化）；测试 518 收集（496 通过 + 22 跳过；新增 auth 单测 6 + 鉴权 API 7 + 仓储契约 1） | [PR #16](https://github.com/TianJinYing2006/DeepResearch/pull/16) |
+| 2026-09-26 | P4-B 配额/限流/改密 | §3.1.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 配额闸三件套（全局月度预算 `month_cost_cny` → 100% 熔断；单用户并发 `count_active(user_id)`；单用户每日 `count_user_runs_since`），幂等命中先于配额闸；创建任务时写入单次预算 `budget_limit_cny`（默认 ¥1.50）由 Worker/进程内执行器在节点边界执行；`GET /api/quota` 快照；进程内固定窗口限流（登录/注册/提交，`DR_*_RATE_PER_MINUTE`，多实例需迁 Redis 已登记）；登录态改密（校验旧密码 → 吊销全部会话 → 当前设备重签）与管理 CLI `reset-password`；新增错误码 `quota_exceeded` / `rate_limited`；测试 530 收集（507 通过 + 23 跳过） | [PR #17](https://github.com/TianJinYing2006/DeepResearch/pull/17) |

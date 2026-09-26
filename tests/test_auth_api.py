@@ -143,3 +143,37 @@ def test_register_without_invite_when_not_invite_only(monkeypatch, client: TestC
     response = client.post("/api/auth/register",
                            json={"email": "free@example.com", "password": PASSWORD})
     assert response.status_code == 200
+
+
+def test_change_password_revokes_other_sessions(client: TestClient):
+    assert _register(client, "a@example.com").status_code == 200
+    other = TestClient(api.app)
+    assert other.post("/api/auth/login",
+                      json={"email": "a@example.com", "password": PASSWORD}).status_code == 200
+
+    changed = client.post("/api/auth/password",
+                          json={"current_password": PASSWORD, "new_password": "new-password-999"},
+                          headers=_csrf(client))
+    assert changed.status_code == 200
+    assert other.get("/api/auth/session").status_code == 401   # 其它设备被吊销
+    assert client.get("/api/auth/session").status_code == 200  # 当前设备保持登录
+
+    fresh = TestClient(api.app)
+    assert fresh.post("/api/auth/login", json={
+        "email": "a@example.com", "password": PASSWORD}).status_code == 401
+    assert fresh.post("/api/auth/login", json={
+        "email": "a@example.com", "password": "new-password-999"}).status_code == 200
+
+
+def test_change_password_requires_login_and_current_password(client: TestClient):
+    anon = TestClient(api.app)
+    assert anon.post("/api/auth/password", json={
+        "current_password": "whatever", "new_password": "new-password-999"}).status_code == 401
+
+    assert _register(client, "a@example.com").status_code == 200
+    wrong = client.post("/api/auth/password",
+                        json={"current_password": "wrong-password",
+                              "new_password": "new-password-999"},
+                        headers=_csrf(client))
+    assert wrong.status_code == 401
+    assert wrong.json()["detail"]["code"] == "invalid_credentials"
