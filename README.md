@@ -137,9 +137,11 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 
 - 迁移**只前向**执行（`migrations/NNNN_slug.sql` + `schema_migrations` 记录），重复执行全部 `skip`（CI 锁幂等：第二次必须 `applied=0`）；
 - 探针：`/api/health/live`（进程活着）与 `/api/health/ready`（PG/Redis **未配置时不算失败**，配置了但探不通返回 503）；
+- **执行模式**：compose 默认 `DR_EXECUTION_MODE=queue` —— API 只创建 `QUEUED` 任务并投递 Redis，独立 `worker` 服务领取执行（同镜像不同入口，`python -m web.backend.worker`）；本地开发默认 `inprocess`（请求进程内执行，行为与 P1/P2 一致）；
+- 容器冒烟（2026-09-26）：api + worker + PG + Redis 全栈，真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s）；
 - CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
 - Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
-- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）；Worker 镜像与队列在 P3 增加。
+- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）。
 
 Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
 查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、
@@ -150,7 +152,7 @@ Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数�
 > 刷新页面凭 `sessionStorage` 里的 run_id + `GET /api/research/{id}` 状态快照 + **从 0 回放全部帧**恢复
 > （回放已发生事件，**不产生新的 LLM 调用**）。**终局后保留**最近一次 run 的 id ⇒ 刷新仍能回看最终报告或错误卡；
 > **可补发** = 进程存活期间产生的全部事件帧（内存保留，事件 id = 帧下标）；配置任务库（`DR_DATABASE_URL`）后，
-> **进程重启也能补发** —— `GET /stream` 从 `run_events` 按同一序号回放后收口，历史报告可从产物表导出。
+> **进程重启也能续上** —— `GET /stream` 从 `run_events` 按同一序号回放，**并继续尾随新事件直到终局**（P3：每秒轮询任务库）。
 > **仍不可补发** = 跨标签页恢复（`sessionStorage` 按标签页隔离）；未配置任务库时行为与 D-19 相同（重启即失）。
 >
 > **资源边界（诚实口径）**：单次 run 的事件帧、结果与报告**常驻内存**，随 run 数线性增长；

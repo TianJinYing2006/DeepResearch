@@ -175,7 +175,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 
 ### 5.4 事件与 SSE 恢复
 
-事件表按 `sequence` 单调递增；SSE 连接 = **PostgreSQL 补发缺失事件 + Redis 实时事件加速**，统一按 `sequence` 输出，`Last-Event-ID` 可续传。Redis 不作为唯一事实来源（理由见 ADR-0009）。**P2-C 已落地进程内版本**：内存帧与 `run_events.sequence` 逐帧对齐（显式序号幂等写入），进程重启后 `GET /stream` 从库回放、`GET /report` 从 `run_artifacts` 导出；Redis 加速层留到 P3。
+事件表按 `sequence` 单调递增；SSE 连接 = **PostgreSQL 补发缺失事件 + Redis 实时事件加速**，统一按 `sequence` 输出，`Last-Event-ID` 可续传。Redis 不作为唯一事实来源（理由见 ADR-0009）。**P2-C 已落地进程内版本**：内存帧与 `run_events.sequence` 逐帧对齐（显式序号幂等写入），进程重启后 `GET /stream` 从库回放、`GET /report` 从 `run_artifacts` 导出；**P3-A 起回放升级为实时尾随**（每秒轮询任务库直到终局，Worker 模式同样适用），Redis 订阅加速留到后续按需引入。
 
 ### 5.5 任务目标分两层
 
@@ -207,7 +207,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | P0 | 立项与边界确认：ADR-0009 + 本需求 + 上线准入清单 + §3.1 拍板 | 2~5 个工作日 | 全部 |
 | P1 | 容器化与部署底座：`Dockerfile.api` / `Dockerfile.worker` / staging compose / 迁移工具（只前向 + `schema_migrations` 幂等；回退走备份恢复）/ 健康检查（readiness+liveness）/ 配置分层 / CORS 环境变量化 / 反向代理（含 SSE 专项配置）。**第一批已落地**：`Dockerfile.api`（多阶段）/ compose（PG+Redis+迁移+API）/ 迁移执行器 / 两个探针 / CORS 环境变量化 / CI `infra` job；待：`Dockerfile.worker`（P3）、反向代理与云上 staging（P8/外部事实） | 3~5 个工作日 | L3-A |
 | P2 | 持久化任务模型：`runs` / `run_events` / `run_artifacts` / `run_checkpoints` 建表与状态机、创建幂等键、查询与历史接口、取消请求持久化 | 5~8 个工作日 | L3-A |
-| P3 | Worker 与队列：API 写 QUEUED 任务 → Redis 队列 → Worker 领取执行 → 持续写事件与状态 → 终局落库；心跳 / 租约 / 超时 / 幂等 / 重试 / 崩溃标记 / 成本闸 / 配额检查 | 7~12 个工作日 | L3-A |
+| P3 | Worker 与队列：API 写 QUEUED 任务 → Redis 队列 → Worker 领取执行 → 持续写事件与状态 → 终局落库；心跳 / 租约 / 超时 / 幂等 / 重试 / 崩溃标记 / 成本闸 / 配额检查。**P3-A 已落地**：Redis 队列 + 独立 Worker（与 API 同镜像、不同入口）/ 原子认领（QUEUED→RUNNING+租约）/ 心跳续租 / 节点边界取消与超时 / 终局落库（与 RunManager 共用 `persistence`）/ SSE 实时尾随 / compose `worker` 服务；**待 P3-B**：租约超时清扫与接管、自动重试、预算闸、双层并发/配额 | 7~12 个工作日 | L3-A |
 | P4 | 账号、配额与隔离：注册/登录/登出/会话/重置/封禁/邀请码；用户级并发、每日次数、token/cost 预算；管理员查看；查询强制 user_id | 5~8 个工作日 | L3-A |
 | P5 | RAG 多租户隔离：单 collection + payload `tenant_id`/`user_id`/`visibility`；检索强制 filter；默认仅 private | 3~6 个工作日 | L3-A |
 | P6 | 前端产品化：登录/邀请页、新建任务、任务列表/详情、取消、历史报告与导出、配额显示、断线重连、筛选 | 5~10 个工作日 | L3-A/B |
@@ -466,3 +466,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-26 | P2-A 数据模型 | §5.2 / migrations | 任务持久化第一批 DDL：`runs`（9 态状态机 CHECK / 创建幂等部分唯一索引 / 租约·预算·超时字段）与 `run_events`（`(run_id,sequence)` 主键 + 级联删除）；新增结构自检 `migrations/checks/0001_schema_assert.sql` 并接入 CI `infra` job | [PR #11](https://github.com/TianJinYing2006/DeepResearch/pull/11) |
 | 2026-09-26 | P2-B 仓储层 | §5.2 / §9 / 代码 | 新增 `psycopg[binary]`（lock 外科式加锁，零版本漂移）+ `web/backend/store.py`（RunStore：创建幂等 / 乐观状态迁移 / 取消语义 / 事件单调 sequence / 产物 upsert）+ `migrations/0002_run_artifacts.sql` + `tests/test_run_store.py`（10 条，真实 PG）；CI `infra` job 增加 checks 循环与仓储测试 | [PR #12](https://github.com/TianJinYing2006/DeepResearch/pull/12) |
 | 2026-09-26 | P2-C 持久化接线 | §5.4 / §5.9 / §5.10 / §7.1 / §9 / 代码 | RunManager 写透（创建幂等 / 帧号对齐事件 / 终局状态 + 产物 / 取消落库 / 失败降级留痕）；`main.py` 读侧回落（快照 / `/api/runs` 历史 / 导出 / SSE 回放 / 取消）；启动把残留非终局任务标记 `LOST`；readiness 的 PG 探针升级为真实 `SELECT 1`；新增 `persistence_unavailable` 错误码；测试 487 收集（473 通过 + 14 跳过，跳过的为真实 PG 用例） | [PR #13](https://github.com/TianJinYing2006/DeepResearch/pull/13) |
+| 2026-09-26 | P3-A Worker/队列 | §5.4 / §5.7 / §9 / 代码 | `web/backend/queue.py`（Redis LPUSH/BRPOP；redis-py 8 阻塞读超时兜底成「空队列」）+ `web/backend/worker.py`（原子认领 QUEUED→RUNNING+租约 / 心跳续租 / 节点边界取消与超时 / 终局落库 / 崩溃兜底 FAILED）+ 共享终局落库抽到 `persistence.py`（RunManager 与 Worker 同一状态映射）+ API 队列模式（`DR_EXECUTION_MODE=queue`；幂等命中先于并发闸）+ SSE 从任务库实时尾随 + compose `worker` 服务（同镜像不同入口；**不单列 `Dockerfile.worker`**）+ `redis>=8,<9`（lock 外科式 +1 行）；真实 PG+Redis 集成测试接 CI `infra`；容器冒烟：真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s） | [PR #14](https://github.com/TianJinYing2006/DeepResearch/pull/14) |

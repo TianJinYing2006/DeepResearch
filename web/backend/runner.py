@@ -20,7 +20,6 @@ P1 增补（仍严格落在 D-19「前台跑 + 可取消」模型内，**不引�
 """
 from __future__ import annotations
 
-import json
 import os
 import queue
 import threading
@@ -48,6 +47,7 @@ from .agui import (
 )
 from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
+from .persistence import persist_forced, persist_terminal
 from .store import RunStore
 
 # --- P1-2 / P1-3 默认值 --------------------------------------------------------
@@ -153,6 +153,11 @@ class RunManager:
         """
         run_id = uuid.uuid4().hex[:12]
         now = time.monotonic()
+        if self._store is not None and idempotency_key is not None:
+            # 幂等命中先于并发检查：重复提交是同一个逻辑请求，不应被并发闸拒绝。
+            existing = self._persist_call(run_id, "get_run_by_idempotency", None, idempotency_key)
+            if existing is not None:
+                return existing["run_id"]
         with self._lock:
             if len(self._active) >= self.max_concurrent_runs:
                 raise ApiError(
@@ -463,7 +468,7 @@ class RunManager:
                           result: Optional[Dict[str, Any]] = None,
                           report: Optional[str] = None,
                           meta: Optional[Dict[str, Any]] = None) -> None:
-        """终局落库：事件（显式帧号对齐）+ 状态 + 产物。整体失败只留痕。
+        """终局落库（P3 起实现抽到 `persistence.persist_terminal`；失败只留痕）。
 
         ⚠️ 时序：本方法在**内存终局之后**执行（不在 condition 锁内做 DB I/O，避免
         持久化抖动拖住传输层）。因此同一进程内，内存已 `finished` 与库中已终局之间
@@ -473,38 +478,10 @@ class RunManager:
         if store is None:
             return
         try:
-            store.append_event(run_id, event_type, payload, sequence=seq)
-            if event_type == RUN_ERROR:
-                new_status, stop_reason = "FAILED", "error"
-            else:
-                stop_reason = str(payload.get("stop_reason") or "completed")
-                if stop_reason == "cancelled":
-                    # 传输层值是 cancelled；库里按 §5.9.1 记 user_cancelled（区分停止原因）。
-                    stop_reason = "user_cancelled"
-                new_status = {
-                    "completed": "SUCCEEDED",
-                    "cancelled": "CANCELLED",
-                    "user_cancelled": "CANCELLED",
-                    "timeout": "TIMED_OUT",
-                    "budget_exceeded": "CANCELLED",
-                }.get(stop_reason, "SUCCEEDED")
-            fields: Dict[str, Any] = {"stop_reason": stop_reason, "finished_at": datetime.now(UTC)}
-            if meta:
-                fields["research_status"] = meta.get("run_status")
-                fields["token_used"] = meta.get("token_used")
-                fields["cost_estimate_cny"] = meta.get("cost_estimate_cny")
-            store.update_status(
-                run_id, new_status,
-                allowed_from=("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED"),
-                **{key: value for key, value in fields.items() if value is not None},
-            )
-            if report:
-                store.put_artifact(run_id, "report_md", report)
-            if result is not None and meta is not None:
-                with self._lock:
-                    topic = (self._status.get(run_id) or {}).get("topic", "")
-                export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result)
-                store.put_artifact(run_id, "export_json", json.dumps(export, ensure_ascii=False))
+            with self._lock:
+                topic = (self._status.get(run_id) or {}).get("topic", "")
+            persist_terminal(store, run_id, seq, event_type, payload,
+                             result=result, report=report, meta=meta, topic=topic)
         except Exception as exc:  # noqa: BLE001
             self._set_persistence_error(run_id, exc)
 
@@ -514,14 +491,7 @@ class RunManager:
         if store is None:
             return
         try:
-            store.append_event(run_id, RUN_ERROR, payload, sequence=seq)
-            store.update_status(
-                run_id,
-                "CANCELLED" if reason == "cancel" else "TIMED_OUT",
-                allowed_from=("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED"),
-                stop_reason="user_cancelled" if reason == "cancel" else "timeout",
-                finished_at=datetime.now(UTC),
-            )
+            persist_forced(store, run_id, seq, payload, reason)
         except Exception as exc:  # noqa: BLE001
             self._set_persistence_error(run_id, exc)
 

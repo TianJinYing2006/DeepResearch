@@ -20,9 +20,10 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-#: 终局状态（不得再迁移）与活跃状态（占用并发位）
+from .persistence import ACTIVE_STATUSES
+
+#: 终局状态（不得再迁移）；活跃状态见 `persistence.ACTIVE_STATUSES`（单一来源，此处再导出）
 TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
-ACTIVE_STATUSES = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
 
 #: `update_status` 允许写的列白名单（防注入与误写主键/记账列）
 _UPDATABLE_FIELDS = frozenset({
@@ -83,12 +84,13 @@ class RunStore:
                 cur.execute(
                     """
                     INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
-                                      idempotency_key, timeout_at, budget_limit_cny)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                      idempotency_key, timeout_at, budget_limit_cny, queued_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
                     """,
                     (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
-                     idempotency_key, timeout_at, budget_limit_cny),
+                     idempotency_key, timeout_at, budget_limit_cny,
+                     _now() if status == "QUEUED" else None),
                 )
                 row = cur.fetchone()
             return row, True
@@ -265,12 +267,69 @@ class RunStore:
             cur.execute(sql, params)
             return cur.fetchall()
 
-    def count_events(self, run_id: str) -> int:
+    def count_events(self, run_id: str, event_type: Optional[str] = None) -> int:
+        sql = "SELECT count(*) AS n FROM run_events WHERE run_id = %s"
+        params: list[Any] = [run_id]
+        if event_type is not None:
+            sql += " AND event_type = %s"
+            params.append(event_type)
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT count(*) AS n FROM run_events WHERE run_id = %s", (run_id,))
+            cur.execute(sql, params)
             return cur.fetchone()["n"]
 
+    def last_event_type(self, run_id: str) -> Optional[str]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT event_type FROM run_events WHERE run_id = %s "
+                "ORDER BY sequence DESC LIMIT 1",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            return row["event_type"] if row else None
+
     # ---- 启动恢复 / 运维 ----
+
+    def claim_run(self, run_id: str, worker_id: str, lease_seconds: int) -> Optional[dict[str, Any]]:
+        """原子领取 QUEUED 任务（→ RUNNING + 写租约）；已被领走或非 QUEUED 返回 `None`。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE runs
+                   SET status = 'RUNNING',
+                       worker_id = %s,
+                       worker_status = 'alive',
+                       started_at = COALESCE(started_at, now()),
+                       queued_at = COALESCE(queued_at, created_at),
+                       lease_expires_at = now() + make_interval(secs => %s)
+                 WHERE run_id = %s AND status = 'QUEUED'
+                RETURNING *
+                """,
+                (worker_id, lease_seconds, run_id),
+            )
+            return cur.fetchone()
+
+    def renew_lease(self, run_id: str, worker_id: str, lease_seconds: int) -> bool:
+        """续租（Worker 心跳）；任务已终局或已换主时返回 False。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET lease_expires_at = now() + make_interval(secs => %s), "
+                "worker_status = 'alive' "
+                "WHERE run_id = %s AND worker_id = %s "
+                "AND status IN ('RUNNING','CANCEL_REQUESTED') RETURNING run_id",
+                (lease_seconds, run_id, worker_id),
+            )
+            return cur.fetchone() is not None
+
+    def count_active(self, user_id: Optional[str] = None) -> int:
+        """活跃任务数（并发闸与配额用）。"""
+        sql = "SELECT count(*) AS n FROM runs WHERE status = ANY(%s)"
+        params: list[Any] = [list(ACTIVE_STATUSES)]
+        if user_id is not None:
+            sql += " AND user_id = %s"
+            params.append(user_id)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()["n"]
 
     def mark_stale_as_lost(self, reason: str = "lost") -> int:
         """把非终局任务标记为 `LOST`（单实例内存态执行的既有事实：进程重启即失联）。

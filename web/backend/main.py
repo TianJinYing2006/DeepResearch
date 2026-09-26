@@ -9,7 +9,9 @@ import asyncio
 import json
 import os
 import socket
-from datetime import UTC, datetime
+import time
+import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import AsyncIterator, Optional
 from urllib.parse import urlsplit
@@ -26,6 +28,7 @@ from research_engine.search.base import KNOWN_PROVIDERS
 
 from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, sse_frame
 from .errors import ApiError, error_payload, http_error
+from .queue import RunQueue
 from .runner import RunManager
 from .store import ACTIVE_STATUSES, RunStore
 
@@ -86,6 +89,21 @@ if store is not None:
         store.mark_stale_as_lost()
     except Exception:  # noqa: BLE001 —— 库不可用时由 readiness 与请求侧结构化错误表达
         pass
+
+# P3：执行模式。`inprocess` = 请求进程内线程执行（P1/P2 行为，默认，本地开发）；
+# `queue` = 创建 QUEUED 任务入 Redis 队列，由独立 Worker 执行（staging/生产）。
+# 队列模式要求同时配置任务库与 Redis —— 配错直接启动失败，不做静默回退。
+_EXECUTION_MODE = (os.getenv("DR_EXECUTION_MODE") or "inprocess").strip().lower()
+if _EXECUTION_MODE not in {"inprocess", "queue"}:
+    raise RuntimeError(f"DR_EXECUTION_MODE 仅支持 inprocess|queue，收到：{_EXECUTION_MODE!r}")
+EXECUTION_MODE = "inprocess" if DEMO_MODE else _EXECUTION_MODE
+
+queue: Optional[RunQueue] = None
+if EXECUTION_MODE == "queue":
+    _redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
+    if store is None or not _redis_url:
+        raise RuntimeError("DR_EXECUTION_MODE=queue 需要同时配置 DR_DATABASE_URL 与 DR_REDIS_URL")
+    queue = RunQueue(_redis_url)
 
 if DEMO_MODE:
     from .demo_graph import DemoGraph
@@ -154,6 +172,15 @@ def options() -> dict:
     }
 
 
+def _queue_depth() -> Optional[int]:
+    if queue is None:
+        return None
+    try:
+        return queue.depth()
+    except Exception:  # noqa: BLE001 —— 健康接口不因队列抖动而失败
+        return None
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
@@ -161,6 +188,8 @@ def health() -> dict:
         "version": "w9",
         "demo_mode": DEMO_MODE,
         "persistence": store is not None,
+        "execution_mode": EXECUTION_MODE,
+        "queue_depth": _queue_depth(),
         "active_runs": manager.active_runs,
         "max_concurrent_runs": manager.max_concurrent_runs,
         "run_timeout_seconds": manager.run_timeout_seconds,
@@ -270,14 +299,14 @@ def _snapshot_from_store(run_id: str) -> Optional[dict]:
         "run_status": row.get("research_status"),
         "token_used": row.get("token_used") or 0,
         "cost_estimate_cny": float(row.get("cost_estimate_cny") or 0.0),
-        "degradation_count": 0,
+        "degradation_count": _store_call(store.count_events, run_id, "DEGRADATION"),
         "depth": 0,
         "findings_count": 0,
         "event_count": _store_call(store.count_events, run_id),
-        "last_event_type": None,
+        "last_event_type": _store_call(store.last_event_type, run_id),
         "has_report": _store_call(store.has_artifact, run_id, "report_md"),
         "elapsed_seconds": round(elapsed, 1),
-        "remaining_seconds": round(max(0.0, timeout_seconds - elapsed), 1) if active else 0.0,
+        "remaining_seconds": round(max(0.0, timeout_seconds - elapsed), 1),
         "worker_status": row.get("worker_status"),
     }
 
@@ -295,6 +324,62 @@ def _run_brief(row: dict) -> dict:
         "cost_estimate_cny": float(row.get("cost_estimate_cny") or 0.0),
         "has_report": bool(row.get("has_report")),
     }
+
+
+def _start_queued(req: StartRequest) -> str:
+    """队列模式（P3）：创建 `QUEUED` 任务并投递 Redis 队列；重复幂等键返回既有 run_id。
+
+    幂等命中先于并发检查 —— 重复提交是同一个逻辑请求，不应被并发闸拒绝。
+    """
+    if store is None or queue is None:
+        raise ApiError("persistence_unavailable", "队列模式需要任务库与 Redis 均已配置")
+    if req.idempotency_key is not None:
+        existing = _store_call(store.get_run_by_idempotency, None, req.idempotency_key)
+        if existing is not None:
+            return existing["run_id"]
+    active = _store_call(store.count_active)
+    limit = manager.max_concurrent_runs
+    if active >= limit:
+        raise ApiError(
+            "concurrency_limit",
+            f"已有 {active} 个研究在运行，上限 {limit}",
+            detail=f"active={active}; limit={limit}",
+        )
+    run_id = uuid.uuid4().hex[:12]
+    try:
+        row, created = store.create_run(
+            run_id, req.topic,
+            {
+                "instructions": req.instructions,
+                "max_total_hops": req.max_total_hops,
+                "search_provider": req.search_provider,
+                "enable_arxiv": req.enable_arxiv,
+                "max_subquestions": req.max_subquestions,
+            },
+            idempotency_key=req.idempotency_key,
+            status="QUEUED",
+            timeout_at=datetime.now(UTC) + timedelta(seconds=manager.run_timeout_seconds),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(
+            "persistence_unavailable",
+            f"任务创建失败：{type(exc).__name__}: {exc}"[:300],
+        ) from exc
+    if not created:
+        return row["run_id"]
+    try:
+        queue.enqueue(row["run_id"])
+    except Exception as exc:  # noqa: BLE001 —— 入队失败必须落终局，不留永久 QUEUED
+        try:
+            store.update_status(row["run_id"], "FAILED", allowed_from=("QUEUED",),
+                                stop_reason="error", finished_at=datetime.now(UTC))
+        except Exception:  # noqa: BLE001
+            pass
+        raise ApiError(
+            "persistence_unavailable",
+            f"任务入队失败：{type(exc).__name__}",
+        ) from exc
+    return row["run_id"]
 
 
 @app.post("/api/research", response_model=StartResponse)
@@ -319,11 +404,14 @@ def start(req: StartRequest) -> StartResponse:
                 component="search",
             )
     try:
-        run_id = manager.start(
-            req.topic, req.instructions, req.max_total_hops,
-            req.search_provider, req.enable_arxiv, req.max_subquestions,
-            req.idempotency_key)
-    except ApiError as exc:  # 并发上限（P1-3）/ 持久化不可用（P2-C）等运行器侧拒绝
+        if EXECUTION_MODE == "queue":
+            run_id = _start_queued(req)
+        else:
+            run_id = manager.start(
+                req.topic, req.instructions, req.max_total_hops,
+                req.search_provider, req.enable_arxiv, req.max_subquestions,
+                req.idempotency_key)
+    except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)
 
@@ -463,18 +551,37 @@ async def stream(
 
 
 async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator[str]:
-    """任务库回放：按 `sequence` 原样重发历史帧（帧号 = 存储序号，与内存态一致）。"""
+    """任务库实时尾随（P2-C 一次回放 → P3 轮询尾随）。
+
+    先按 `sequence` 补发历史，再每秒轮询新增事件，直到 run 终局；期间每 15s 发心跳注释帧。
+    L3-A 规模下轮询足够简单可靠，暂不引入 Redis 订阅（queue 只做任务分发）。
+    """
     cursor = last_event_id if last_event_id is not None else -1
-    try:
-        events = store.get_events(run_id, after=cursor)
-    except Exception:  # noqa: BLE001 —— 响应已开始，无法再转 503；直接收口
-        return
-    for event in events:
-        yield sse_frame(
-            event_id=event["sequence"],
-            event_type=event["event_type"],
-            payload=event["payload"] or {},
-        )
+    last_beat = time.monotonic()
+    while True:
+        try:
+            events = store.get_events(run_id, after=cursor)
+            row = store.get_run(run_id)
+        except Exception:  # noqa: BLE001 —— 响应已开始，无法再转 503；直接收口
+            return
+        if row is None:
+            return
+        for event in events:
+            cursor = event["sequence"]
+            yield sse_frame(
+                event_id=cursor,
+                event_type=event["event_type"],
+                payload=event["payload"] or {},
+            )
+        if row["status"] not in ACTIVE_STATUSES:
+            return
+        if events:
+            continue  # 有新增就立即追平，不额外等一秒
+        now = time.monotonic()
+        if now - last_beat >= HEARTBEAT_SECONDS:
+            last_beat = now
+            yield HEARTBEAT_FRAME
+        await asyncio.sleep(1.0)
 
 
 async def _event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator[str]:
