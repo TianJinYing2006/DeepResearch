@@ -179,6 +179,20 @@ class FakeStore:
         return sum(float(row.get("cost_estimate_cny") or 0.0)
                    for row in self.runs.values() if row["created_at"] >= month_start)
 
+    def status_counts_since(self, since):
+        counts: dict[str, int] = {}
+        for row in self.runs.values():
+            if row["created_at"] >= since:
+                counts[row["status"]] = counts.get(row["status"], 0) + 1
+        return counts
+
+    def count_stale_leases(self):
+        now = datetime.now(UTC)
+        return sum(1 for row in self.runs.values()
+                   if row["status"] in ("RUNNING", "CANCEL_REQUESTED")
+                   and row["lease_expires_at"] is not None
+                   and row["lease_expires_at"] < now)
+
     def sweep_stale_runs(self, max_attempts: int = 2):
         """租约超时清扫：与 RunStore.sweep_stale_runs 同语义。"""
         now = datetime.now(UTC)

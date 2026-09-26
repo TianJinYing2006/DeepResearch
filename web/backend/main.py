@@ -42,6 +42,7 @@ from .auth import (
     verify_password,
 )
 from .errors import ApiError, error_payload, http_error
+from .metrics import METRICS
 from .moderation import (
     MAX_APPEAL_LENGTH,
     MAX_INSTRUCTIONS_LENGTH,
@@ -91,6 +92,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def _metrics_middleware(request: Request, call_next):
+    """P8-A：HTTP 状态分类计数 + 全局延迟累计（进程内，重启清零）。"""
+    started = time.perf_counter()
+    response = await call_next(request)
+    METRICS.inc(f"http_{response.status_code // 100}xx")
+    METRICS.observe_latency_ms((time.perf_counter() - started) * 1000)
+    return response
+
 # DR_DEMO=1 ⇒ 用假 graph 跑演示（不调 LLM、不烧钱），用于查看 UI 效果。
 # 演示与真实运行**共用**后端全部 SSE 管线，故事件序列 / 降级推送 / 取消行为都是真的。
 DEMO_MODE = os.getenv("DR_DEMO") == "1"
@@ -130,6 +141,12 @@ SUBMIT_LIMITER = FixedWindowLimiter(int(_env_number("DR_SUBMIT_RATE_PER_MINUTE",
 # P6-A：RAG 上传限制（文件类型白名单 + 单文件大小上限）
 RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
 RAG_ALLOWED_EXT = {".pdf", ".docx", ".md", ".markdown", ".txt", ".text"}
+
+# P8-A：告警判定阈值（触达渠道由部署方接 IM/邮件；此处只做“可判定”）
+ALERT_5XX_RATE_PCT = _env_number("DR_ALERT_5XX_RATE_PCT", 2.0)
+ALERT_QUEUE_DEPTH = int(_env_number("DR_ALERT_QUEUE_DEPTH", 20))
+ALERT_STALE_RUNS = int(_env_number("DR_ALERT_STALE_RUNS", 1))
+ALERT_MONTHLY_PCT = _env_number("DR_ALERT_MONTHLY_PCT", 80.0)
 
 # P7-A：合规文本（隐私政策 / 用户协议）以仓库文档为唯一来源
 LEGAL_DIR = Path(__file__).resolve().parents[2] / "docs" / "legal"
@@ -815,6 +832,75 @@ def quota(request: Request) -> dict:
     }
 
 
+# ------------------------------------------------------------------ 可观测与告警（P8-A）
+
+
+def _runs_metrics_24h() -> dict:
+    if store is None:
+        return {}
+    counts = _store_call(store.status_counts_since, datetime.now(UTC) - timedelta(hours=24))
+    total = sum(counts.values())
+    return {
+        "window_hours": 24,
+        "by_status": counts,
+        "total": total,
+        "success_rate": round(counts.get("SUCCEEDED", 0) / total, 4) if total else None,
+        "failure_rate": round(counts.get("FAILED", 0) / total, 4) if total else None,
+        "timeout_rate": round(counts.get("TIMED_OUT", 0) / total, 4) if total else None,
+        "lost": counts.get("LOST", 0),
+    }
+
+
+@app.get("/api/metrics")
+def metrics_endpoint() -> dict:
+    """运行指标（P8-A）：进程内计数 + 任务库实时聚合；**不含任何用户内容 / PII**。
+
+    ⚠️ 生产部署时应由反向代理限制来源（或经统一网关鉴权）；多实例下进程内计数
+    只代表单实例（见上线清单 §3.6）。
+    """
+    snapshot = METRICS.snapshot()
+    snapshot.update({
+        "persistence": store is not None,
+        "execution_mode": EXECUTION_MODE,
+        "active_runs": manager.active_runs,
+        "queue_depth": _queue_depth(),
+        "runs_24h": _runs_metrics_24h(),
+        "stale_leases": _store_call(store.count_stale_leases) if store is not None else None,
+        "month_cost_cny": round(_store_call(store.month_cost_cny), 4) if store is not None else None,
+        "month_budget_cny": MONTHLY_BUDGET_CNY or None,
+    })
+    return snapshot
+
+
+@app.get("/api/ops/alerts")
+def ops_alerts() -> dict:
+    """告警判定（P8-A）：按阈值评估当前指标；**触达**由部署方接 IM/邮件（P8-B）。"""
+    http = METRICS.snapshot()["http"]
+    total_http = http["2xx"] + http["4xx"] + http["5xx"]
+    rate_5xx = (http["5xx"] / total_http * 100) if total_http else 0.0
+    queue_depth = _queue_depth()
+    stale = _store_call(store.count_stale_leases) if store is not None else 0
+    monthly = _store_call(store.month_cost_cny) if store is not None else 0.0
+    monthly_pct = (monthly / MONTHLY_BUDGET_CNY * 100) if MONTHLY_BUDGET_CNY else 0.0
+
+    alerts: list[dict] = []
+
+    def _check(code: str, severity: str, value: float, threshold: float, message: str) -> None:
+        if value >= threshold:
+            alerts.append({
+                "code": code, "severity": severity,
+                "value": round(value, 4), "threshold": threshold, "message": message,
+            })
+
+    _check("http_5xx_rate", "high", rate_5xx, ALERT_5XX_RATE_PCT, "5xx 比例超过阈值")
+    if queue_depth is not None:
+        _check("queue_depth", "medium", queue_depth, ALERT_QUEUE_DEPTH, "队列积压超过阈值")
+    _check("stale_leases", "high", stale, ALERT_STALE_RUNS, "存在租约过期未被接管的任务")
+    if MONTHLY_BUDGET_CNY:
+        _check("monthly_budget", "high", monthly_pct, ALERT_MONTHLY_PCT, "月度预算消耗达到阈值")
+    return {"ok": True, "alert_count": len(alerts), "alerts": alerts}
+
+
 # ------------------------------------------------------------------ 内容安全与合规文本（P7-A）
 
 
@@ -1037,60 +1123,68 @@ async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncI
     先按 `sequence` 补发历史，再每秒轮询新增事件，直到 run 终局；期间每 15s 发心跳注释帧。
     L3-A 规模下轮询足够简单可靠，暂不引入 Redis 订阅（queue 只做任务分发）。
     """
-    cursor = last_event_id if last_event_id is not None else -1
-    last_beat = time.monotonic()
-    while True:
-        try:
-            events = store.get_events(run_id, after=cursor)
-            row = store.get_run(run_id)
-        except Exception:  # noqa: BLE001 —— 响应已开始，无法再转 503；直接收口
-            return
-        if row is None:
-            return
-        for event in events:
-            cursor = event["sequence"]
-            yield sse_frame(
-                event_id=cursor,
-                event_type=event["event_type"],
-                payload=event["payload"] or {},
-            )
-        if row["status"] not in ACTIVE_STATUSES:
-            return
-        if events:
-            continue  # 有新增就立即追平，不额外等一秒
-        now = time.monotonic()
-        if now - last_beat >= HEARTBEAT_SECONDS:
-            last_beat = now
-            yield HEARTBEAT_FRAME
-        await asyncio.sleep(1.0)
+    METRICS.sse_open()
+    try:
+        cursor = last_event_id if last_event_id is not None else -1
+        last_beat = time.monotonic()
+        while True:
+            try:
+                events = store.get_events(run_id, after=cursor)
+                row = store.get_run(run_id)
+            except Exception:  # noqa: BLE001 —— 响应已开始，无法再转 503；直接收口
+                return
+            if row is None:
+                return
+            for event in events:
+                cursor = event["sequence"]
+                yield sse_frame(
+                    event_id=cursor,
+                    event_type=event["event_type"],
+                    payload=event["payload"] or {},
+                )
+            if row["status"] not in ACTIVE_STATUSES:
+                return
+            if events:
+                continue  # 有新增就立即追平，不额外等一秒
+            now = time.monotonic()
+            if now - last_beat >= HEARTBEAT_SECONDS:
+                last_beat = now
+                yield HEARTBEAT_FRAME
+            await asyncio.sleep(1.0)
+    finally:
+        METRICS.sse_close()
 
 
 async def _event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator[str]:
-    cursor = last_event_id if last_event_id is not None else -1
-    loop = asyncio.get_running_loop()
-    while True:
-        frame, finished = await loop.run_in_executor(
-            None,
-            manager.wait_for_frame,
-            run_id,
-            cursor,
-            HEARTBEAT_SECONDS,
-        )
-        if frame is not None:
-            cursor += 1
-            yield frame
-            continue
-        if finished:
-            break
-        # P1-2：协作式停止（取消 / 超时）依赖节点边界检查点。若节点内部挂死，
-        # 边界永远不到 ⇒ 这里按**硬截止**补一帧 RUN_ERROR(stop_forced) 收口，
-        # 让客户端停止干等。后台线程可能仍在跑（Python 无法 kill 线程），
-        # 这条限制写在 runner.force_stop_if_overdue 的 docstring 里。
-        forced = manager.force_stop_if_overdue(run_id)
-        if forced is not None:
-            yield forced
-            break
-        yield HEARTBEAT_FRAME
+    METRICS.sse_open()
+    try:
+        cursor = last_event_id if last_event_id is not None else -1
+        loop = asyncio.get_running_loop()
+        while True:
+            frame, finished = await loop.run_in_executor(
+                None,
+                manager.wait_for_frame,
+                run_id,
+                cursor,
+                HEARTBEAT_SECONDS,
+            )
+            if frame is not None:
+                cursor += 1
+                yield frame
+                continue
+            if finished:
+                break
+            # P1-2：协作式停止（取消 / 超时）依赖节点边界检查点。若节点内部挂死，
+            # 边界永远不到 ⇒ 这里按**硬截止**补一帧 RUN_ERROR(stop_forced) 收口，
+            # 让客户端停止干等。后台线程可能仍在跑（Python 无法 kill 线程），
+            # 这条限制写在 runner.force_stop_if_overdue 的 docstring 里。
+            forced = manager.force_stop_if_overdue(run_id)
+            if forced is not None:
+                yield forced
+                break
+            yield HEARTBEAT_FRAME
+    finally:
+        METRICS.sse_close()
 
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"

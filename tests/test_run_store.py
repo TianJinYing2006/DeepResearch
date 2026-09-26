@@ -441,3 +441,20 @@ def test_moderation_contract_and_user_deletion(store: RunStore):
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
         cur.execute("DELETE FROM moderation_records WHERE id = %s", (record_id,))
+
+
+def test_status_counts_and_stale_leases(store: RunStore):
+    """P8-A 指标支撑：状态分布计数与过期租约计数。"""
+    uid = TEST_USER
+    stale_id, _, _ = _create(store, user_id=uid)
+    assert store.update_status(stale_id, "QUEUED", allowed_from=("CREATED",)) is True
+    assert store.claim_run(stale_id, "dead-worker", 0) is not None  # 租约立即过期
+
+    fresh_id, _, _ = _create(store, user_id=uid)
+    assert store.update_status(fresh_id, "QUEUED", allowed_from=("CREATED",)) is True
+    assert store.claim_run(fresh_id, "alive-worker", 600) is not None
+
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+    counts = store.status_counts_since(since)
+    assert counts.get("RUNNING", 0) == 2
+    assert store.count_stale_leases() == 1  # 只有 stale_id 过期
