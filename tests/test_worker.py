@@ -110,3 +110,72 @@ def test_worker_renews_lease_during_run():
 
     assert len(renewals) >= 1
     assert store.get_run(run_id)["worker_status"] == "alive"
+
+
+# ---------------------------------------------------------------- P3-B：清扫 / 预算
+
+
+def _worker_with_queue(store: FakeStore, graph) -> tuple[Worker, FakeQueue]:
+    queue = FakeQueue()
+    worker = Worker(store, queue, graph_factory=lambda: graph,
+                    worker_id="test-worker", lease_seconds=60,
+                    heartbeat_seconds=5, poll_seconds=0)
+    return worker, queue
+
+
+def test_worker_sweeps_and_requeues_stale_lease():
+    store = FakeStore()
+    run_id = _queued(store)
+    assert store.claim_run(run_id, "dead-worker", lease_seconds=-1) is not None
+    worker, queue = _worker_with_queue(store, TinyGraph())
+
+    assert worker.sweep_and_requeue() == [
+        {"run_id": run_id, "action": "requeued", "attempt": 2}]
+    row = store.get_run(run_id)
+    assert row["status"] == "QUEUED"
+    assert row["worker_id"] is None and row["lease_expires_at"] is None
+    assert queue.items == [run_id]  # 可重试的任务已重新入队
+
+
+def test_worker_sweep_marks_lost_after_attempts_exhausted():
+    store = FakeStore()
+    run_id = _queued(store)
+    assert store.claim_run(run_id, "dead-worker", lease_seconds=-1) is not None
+    store.runs[run_id]["attempt"] = 2  # 已用尽重试次数
+    worker, queue = _worker_with_queue(store, TinyGraph())
+
+    assert worker.sweep_and_requeue() == [{"run_id": run_id, "action": "lost"}]
+    row = wait_terminal(store, run_id)
+    assert row["status"] == "LOST"
+    assert row["stop_reason"] == "lost"
+    assert queue.items == []  # 不再重试、不入队
+
+
+def test_worker_sweep_respects_cancel_intent():
+    store = FakeStore()
+    run_id = _queued(store)
+    assert store.claim_run(run_id, "dead-worker", lease_seconds=-1) is not None
+    store.request_cancel(run_id)  # RUNNING → CANCEL_REQUESTED 后 Worker 崩溃
+    worker, queue = _worker_with_queue(store, TinyGraph())
+
+    assert worker.sweep_and_requeue() == [{"run_id": run_id, "action": "cancelled"}]
+    row = store.get_run(run_id)
+    assert row["status"] == "CANCELLED" and row["stop_reason"] == "user_cancelled"
+    assert queue.items == []  # 用户取消意图优先于自动重试
+
+
+def test_worker_budget_gate_stops_run_at_node_boundary():
+    store = FakeStore()
+    run_id = "run-" + uuid.uuid4().hex[:10]
+    store.create_run(run_id, "预算", {}, status="QUEUED",
+                     timeout_at=datetime.now(UTC) + timedelta(seconds=3600),
+                     budget_limit_cny=0.001)
+    # 单步 1000 token ⇒ 估算成本 ≥ ¥0.01（最贵 output 档 0.012/1k）⇒ 第一步后即超预算
+    worker = _worker(store, TinyGraph(steps=10, delay=0.01, report="# 部分", token_per_step=1000))
+    assert worker.run_once(run_id) is True
+
+    row = wait_terminal(store, run_id)
+    assert row["status"] == "CANCELLED"
+    assert row["stop_reason"] == "budget_exceeded"
+    assert row["budget_used_cny"] > 0
+    assert event_types(store, run_id).count("STEP_FINISHED") < 10

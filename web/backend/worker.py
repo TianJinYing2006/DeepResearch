@@ -50,6 +50,8 @@ from .store import RunStore
 DEFAULT_LEASE_SECONDS = 120
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_POLL_SECONDS = 5.0
+DEFAULT_SWEEP_SECONDS = 30
+DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_RUN_TIMEOUT_SECONDS = 3600
 
 
@@ -68,6 +70,8 @@ class Worker:
         lease_seconds: Optional[int] = None,
         heartbeat_seconds: Optional[int] = None,
         poll_seconds: float = DEFAULT_POLL_SECONDS,
+        sweep_seconds: Optional[int] = None,
+        max_attempts: Optional[int] = None,
     ):
         self._store = store
         self._queue = queue
@@ -82,6 +86,14 @@ class Worker:
             else _env_int("DR_WORKER_HEARTBEAT_SECONDS", DEFAULT_HEARTBEAT_SECONDS)
         )
         self.poll_seconds = poll_seconds
+        self.sweep_seconds = (
+            sweep_seconds if sweep_seconds is not None
+            else _env_int("DR_WORKER_SWEEP_SECONDS", DEFAULT_SWEEP_SECONDS)
+        )
+        self.max_attempts = (
+            max_attempts if max_attempts is not None
+            else _env_int("DR_WORKER_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS)
+        )
         self._stop = threading.Event()
 
     # ------------------------------------------------------------------ 主循环
@@ -90,7 +102,16 @@ class Worker:
         self._stop.set()
 
     def run_forever(self) -> None:
+        next_sweep = 0.0  # 启动即清扫一次：接管上次进程崩溃留下的过期租约
         while not self._stop.is_set():
+            if time.monotonic() >= next_sweep:
+                try:
+                    swept = self.sweep_and_requeue()
+                    if swept:
+                        _log(f"sweep: {swept}")
+                except Exception as exc:  # noqa: BLE001 —— 清扫失败不拖垮消费循环
+                    _log(f"sweep failed: {type(exc).__name__}: {exc}")
+                next_sweep = time.monotonic() + self.sweep_seconds
             try:
                 run_id = self._queue.dequeue(self.poll_seconds)
             except Exception as exc:  # noqa: BLE001 —— Redis 抖动不应打死 Worker
@@ -103,6 +124,17 @@ class Worker:
                 self.run_once(run_id)
             except Exception as exc:  # noqa: BLE001 —— 单个任务失败不得拖垮 Worker
                 _log(f"run_once({run_id}) failed: {type(exc).__name__}: {exc}")
+
+    def sweep_and_requeue(self) -> list[dict[str, Any]]:
+        """租约超时清扫（P3-B）：接管停滞任务，并把可重试的重新入队。"""
+        results = self._store.sweep_stale_runs(self.max_attempts)
+        for item in results:
+            if item["action"] == "requeued":
+                try:
+                    self._queue.enqueue(item["run_id"])
+                except Exception as exc:  # noqa: BLE001 —— 入队失败留给下轮清扫
+                    _log(f"requeue {item['run_id']} failed: {type(exc).__name__}: {exc}")
+        return results
 
     def run_once(self, run_id: str) -> bool:
         """认领并执行一个任务；认领失败（已被领走 / 非 QUEUED）返回 False。"""
@@ -165,6 +197,9 @@ class Worker:
         })
 
         seen_progress = 0
+        budget_limit = row.get("budget_limit_cny")
+        last_state = None
+        budget_exceeded = False
         for step in graph.iter_run(
             topic, request.get("instructions", ""), thread_id=run_id, should_cancel=should_stop
         ):
@@ -202,6 +237,24 @@ class Worker:
                     "fallback_action": degradation.fallback_action,
                 })
 
+            # 预算闸（P3-B）：单 run 预算在**节点边界**检查（与取消/超时同一检查点）。
+            # 计量回写用 update_usage（不动状态，避免把 CANCEL_REQUESTED 覆盖回 RUNNING）。
+            last_state = step.state
+            cost = _estimate_cost_cny(step.state.token_used)
+            self._store.update_usage(
+                run_id,
+                token_used=step.state.token_used,
+                cost_estimate_cny=cost,
+                budget_used_cny=cost,
+            )
+            if budget_limit is not None and cost >= float(budget_limit):
+                budget_exceeded = True
+                break
+
+        if budget_exceeded and last_state is not None:
+            # 与取消/超时同口径：预算停止不写 research_status；stop_reason=budget_exceeded。
+            self._persist_result(run_id, row, last_state, "budget_exceeded", cancelled=False)
+
     def _finish(self, run_id: str, row: dict[str, Any], step: RunStep, timed_out: bool) -> None:
         topic = row["topic"]
         if step.stop_reason == STOP_ERROR:
@@ -217,38 +270,45 @@ class Worker:
 
         stop_reason = STOP_TIMEOUT if timed_out else step.stop_reason
         cancelled = step.stop_reason == STOP_CANCELLED and not timed_out
-        report = step.state.report_display or step.state.report
+        self._persist_result(run_id, row, step.state, stop_reason, cancelled=cancelled)
+
+    def _persist_result(self, run_id: str, row: dict[str, Any], state, stop_reason: str, *,
+                        cancelled: bool) -> None:
+        """把一次执行的结果写成终局（正常完成 / 取消 / 超时 / 预算停止共用）。"""
+        topic = row["topic"]
+        report = state.report_display or state.report
         result = {
             "report": report,
-            "citations": [citation.model_dump(mode="json") for citation in step.state.citations],
-            "validator_stats": step.state.validator_stats,
-            "depth": step.state.depth,
-            "visited_sources": list(step.state.visited_sources),
-            "reflection_log": list(step.state.reflection_log),
+            "citations": [citation.model_dump(mode="json") for citation in state.citations],
+            "validator_stats": state.validator_stats,
+            "depth": state.depth,
+            "visited_sources": list(state.visited_sources),
+            "reflection_log": list(state.reflection_log),
         }
-        cost = _estimate_cost_cny(step.state.token_used)
+        cost = _estimate_cost_cny(state.token_used)
         started = row.get("started_at") or row["created_at"]
         elapsed = round(max(0.0, (datetime.now(UTC) - started).total_seconds()), 1)
         payload = {
             "cancelled": cancelled,
             "stop_reason": stop_reason,
-            "run_status": step.state.run_status,
-            "token_used": step.state.token_used,
+            "run_status": state.run_status,
+            "token_used": state.token_used,
             "cost_estimate_cny": cost,
             "elapsed_seconds": elapsed,
-            "degradation_count": len(step.state.degradation_log),
+            "degradation_count": len(state.degradation_log),
             "has_report": bool(report),
             "result": result,
         }
         meta = {
-            "run_status": step.state.run_status,
+            "run_status": state.run_status,
             "stop_reason": stop_reason,
             "cancelled": cancelled,
-            "token_used": step.state.token_used,
+            "token_used": state.token_used,
             "cost_estimate_cny": cost,
+            "budget_used_cny": cost,
             "elapsed_seconds": elapsed,
-            "degradation_count": len(step.state.degradation_log),
-            "depth": step.state.depth,
+            "degradation_count": len(state.degradation_log),
+            "depth": state.depth,
         }
         persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
                          result=result, report=report, meta=meta, topic=topic)

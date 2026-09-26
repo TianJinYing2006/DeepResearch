@@ -59,6 +59,7 @@ def persist_terminal(
         fields["research_status"] = meta.get("run_status")
         fields["token_used"] = meta.get("token_used")
         fields["cost_estimate_cny"] = meta.get("cost_estimate_cny")
+        fields["budget_used_cny"] = meta.get("budget_used_cny")
     store.update_status(
         run_id, new_status,
         allowed_from=ACTIVE_STATUSES,

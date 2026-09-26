@@ -17,17 +17,20 @@ TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
 
 
 class TinyGraph:
-    """最小假 graph：可配节点数 / 延迟 / 报告正文（零 LLM）。"""
+    """最小假 graph：可配节点数 / 延迟 / 报告正文 / 每步 token（零 LLM）。"""
 
-    def __init__(self, steps: int = 3, delay: float = 0.01, report: str = ""):
+    def __init__(self, steps: int = 3, delay: float = 0.01, report: str = "",
+                 token_per_step: int = 0):
         self.steps = steps
         self.delay = delay
         self.report = report
+        self.token_per_step = token_per_step
 
     def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
         state = ResearchState(topic=topic)
         for i in range(self.steps):
             time.sleep(self.delay)
+            state.token_used += self.token_per_step
             state.progress.append({"stage": f"n{i}", "msg": "m"})
             yield RunStep(index=i, node=f"n{i}", state=state, duration_ms=1)
             if should_cancel is not None and should_cancel():
@@ -156,6 +159,37 @@ class FakeStore:
     def count_active(self, user_id=None):
         return sum(1 for row in self.runs.values()
                    if row["status"] in ACTIVE and (user_id is None or row["user_id"] == user_id))
+
+    def sweep_stale_runs(self, max_attempts: int = 2):
+        """租约超时清扫：与 RunStore.sweep_stale_runs 同语义。"""
+        now = datetime.now(UTC)
+        results = []
+        for row in self.runs.values():
+            if row["status"] not in ("RUNNING", "CANCEL_REQUESTED"):
+                continue
+            lease = row["lease_expires_at"]
+            if lease is None or lease >= now:
+                continue
+            if row["cancel_requested_at"] is not None:
+                row.update(status="CANCELLED", stop_reason="user_cancelled", finished_at=now)
+                results.append({"run_id": row["run_id"], "action": "cancelled"})
+            elif row["attempt"] < max_attempts:
+                attempt = row["attempt"] + 1
+                row.update(status="QUEUED", attempt=attempt, worker_id=None,
+                           worker_status=None, lease_expires_at=None, queued_at=now)
+                results.append({"run_id": row["run_id"], "action": "requeued",
+                                "attempt": attempt})
+            else:
+                row.update(status="LOST", stop_reason="lost", finished_at=now)
+                results.append({"run_id": row["run_id"], "action": "lost"})
+        return results
+
+    def update_usage(self, run_id, *, token_used, cost_estimate_cny, budget_used_cny):
+        row = self.runs.get(run_id)
+        if row is not None:
+            row["token_used"] = token_used
+            row["cost_estimate_cny"] = cost_estimate_cny
+            row["budget_used_cny"] = budget_used_cny
 
     def request_cancel(self, run_id):
         row = self.runs.get(run_id)

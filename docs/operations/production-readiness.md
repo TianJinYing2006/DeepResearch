@@ -66,13 +66,14 @@
 
 - [x] API 队列模式只创建 QUEUED 任务并推入队列（`DR_EXECUTION_MODE=queue`）；本地开发保留 `inprocess` 模式
 - [x] Worker 心跳（30s）与任务租约（120s）持续续期
-- [ ] 租约超时后的接管 / 自动重试 / 标记 `LOST` —— P3-B
 - [x] 任务幂等键：同一 `idempotency_key` 重复提交不产生第二个 run（且不受并发闸拒绝）
 - [x] 超时：沿用协作式节点边界检查 + 传输层硬截止口径（`runner.py:285`），Worker 侧按 `timeout_at` 在节点边界停止并落 `TIMED_OUT`
 - [x] 取消：`CANCEL_REQUESTED` 落库，Worker 在节点边界停止且不产生新 LLM 调用（迁移现契约 C1~C7）
-- [ ] 崩溃接管：Worker 进程崩溃后由租约清扫接管（图内异常 → `FAILED` 已由 P3-A 覆盖）—— P3-B
+- [x] 租约超时清扫与接管：取消意图 → `CANCELLED`（不重跑）；可重试 → `QUEUED`（`attempt+1`）并重新入队；重试耗尽 → `LOST`（`FOR UPDATE SKIP LOCKED` 原子接管，Worker 每 30s 清扫）
+- [x] 崩溃接管：Worker 进程崩溃后由租约清扫接管；图内异常 → `FAILED`（P3-A 已覆盖）
 - [ ] 并发限制：队列模式已用任务库计数做全局闸；单用户并发层随 P4 配额一起做
-- [ ] 成本闸与配额检查在 Worker 侧同样生效（防止绕过 API）—— P4
+- [x] 单 run 预算闸在 Worker 节点边界生效（`budget_limit_cny` → `budget_used_cny` 每步回写；超限 `stop_reason=budget_exceeded`）
+- [ ] 用户级 / 全局成本闸 —— P4
 - [ ] 不同步做断点续跑（首发只承诺「任务不丢」，见需求 10 §5.5）
 
 ### 3.4 身份与权限
@@ -273,3 +274,4 @@ location /api/ {
 | 2026-09-24 | P1 第一批骨架落地同步：§3.1 迁移项与 §7.4 回滚项改为「只前向 + 幂等；回退走备份恢复」口径；本地 compose 实跑（迁移两次 `applied=0`、ready=ok）与探针证据见 `docs/project-status.md` |
 | 2026-09-26 | P2-C 持久化接线同步：§3.2 建表清单已覆盖 `runs` / `run_events` / `run_artifacts`（迁移 0001/0002）；readiness 的 PostgreSQL 探针升级为真实 `SELECT 1`；重启后查询 / 导出 / SSE 回放已可用（云上 staging 仍待部署） |
 | 2026-09-26 | P3-A Worker/队列同步：§3.1 容器项与 §3.3 任务运行项勾选（队列模式 API / Worker 租约心跳 / 幂等 / 超时 / 取消）；租约清扫与重试、单用户并发、成本闸明确留待 P3-B / P4 |
+| 2026-09-26 | P3-B 清扫/重试/预算同步：§3.3 勾选「租约超时清扫与接管」「崩溃接管」「单 run 预算闸」；用户级/全局成本闸与单用户并发仍留 P4 |
