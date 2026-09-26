@@ -1,7 +1,8 @@
 # 数据库迁移（L3）
 
 - `0001_runs_and_events.sql`（P2-A）：任务持久化第一批 —— `runs`（9 态状态机 + 创建幂等 + 租约/预算/超时字段）与 `run_events`（单调 `sequence` + 级联删除）；
-- `checks/0001_schema_assert.sql`：结构自检（关键列 / 状态 CHECK / 幂等唯一索引 / 主键防重放 / 外键 / 级联），**不由执行器自动跑**，由 CI `infra` job 与本地验证显式执行。
+- `0002_run_artifacts.sql`（P2-B）：终局产物表（报告正文 / 导出载荷，一 run 一 kind 一行，覆盖更新）；
+- `checks/*.sql`：结构自检（关键列 / 约束 / 级联 / upsert），**不由执行器自动跑**，由 CI `infra` job 与本地验证显式执行。
 
 ## 规则
 

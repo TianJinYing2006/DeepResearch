@@ -1,0 +1,266 @@
+"""L3 任务持久化仓储层（P2-B）。
+
+只负责 `runs` / `run_events` / `run_artifacts` 三张表的读写，不做业务编排：
+
+- 状态机合法性由 SQL CHECK + `update_status(allowed_from=...)` 乐观迁移双重把关；
+- 创建幂等由部分唯一索引 `(user_id, idempotency_key)` 兜底（并发安全）；
+- 事件序号在数据库内分配（`MAX(sequence)+1`，主键 `(run_id, sequence)` 防重放）。
+
+口径见 `docs/requirements/10-l3-production.md` §5.9 与 `migrations/0001_runs_and_events.sql`。
+
+连接策略：每次调用开一个短连接（psycopg 3 的 `connect()` 上下文负责提交/回滚）。
+L3-A 规模（≤5 用户、2 并发）足够；连接池留到 P3 与 Worker 一起定。
+"""
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any, Iterable, Optional
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+
+#: 终局状态（不得再迁移）与活跃状态（占用并发位）
+TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
+ACTIVE_STATUSES = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
+
+#: `update_status` 允许写的列白名单（防注入与误写主键/记账列）
+_UPDATABLE_FIELDS = frozenset({
+    "research_status", "stop_reason", "current_node", "token_used", "cost_estimate_cny",
+    "budget_used_cny", "attempt", "retry_of", "worker_id", "worker_status",
+    "lease_expires_at", "queued_at", "started_at", "finished_at", "cancel_requested_at",
+    "timeout_at", "hard_deadline_at",
+})
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+class RunStore:
+    """runs / run_events / run_artifacts 的最小仓储实现（同步）。"""
+
+    def __init__(self, dsn: str, *, connect_timeout: int = 3):
+        self._dsn = dsn
+        self._connect_timeout = connect_timeout
+
+    def _connect(self) -> psycopg.Connection:
+        return psycopg.connect(
+            self._dsn, row_factory=dict_row, connect_timeout=self._connect_timeout
+        )
+
+    def ping(self) -> None:
+        """连接可用性探针（readiness 升级用；失败直接抛异常）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+
+    # ---- runs ----
+
+    def create_run(
+        self,
+        run_id: str,
+        topic: str,
+        request: Optional[dict[str, Any]] = None,
+        *,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        status: str = "CREATED",
+        timeout_at: Optional[datetime] = None,
+        budget_limit_cny: Optional[float] = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """插入新 run；带幂等键且已存在时返回既有行（`created=False`）。
+
+        并发竞态由部分唯一索引兜底：`UniqueViolation` 时回查既有行。
+        """
+        if idempotency_key is not None:
+            existing = self.get_run_by_idempotency(user_id, idempotency_key)
+            if existing is not None:
+                return existing, False
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
+                                      idempotency_key, timeout_at, budget_limit_cny)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING *
+                    """,
+                    (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
+                     idempotency_key, timeout_at, budget_limit_cny),
+                )
+                row = cur.fetchone()
+            return row, True
+        except psycopg.errors.UniqueViolation:
+            if idempotency_key is None:
+                raise
+            existing = self.get_run_by_idempotency(user_id, idempotency_key)
+            if existing is None:
+                raise
+            return existing, False
+
+    def get_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM runs WHERE run_id = %s", (run_id,))
+            return cur.fetchone()
+
+    def get_run_by_idempotency(
+        self, user_id: Optional[str], idempotency_key: str
+    ) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM runs WHERE user_id IS NOT DISTINCT FROM %s AND idempotency_key = %s",
+                (user_id, idempotency_key),
+            )
+            return cur.fetchone()
+
+    def list_runs(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        statuses: Optional[Iterable[str]] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id = %s")
+            params.append(user_id)
+        if statuses:
+            clauses.append("status = ANY(%s)")
+            params.append(list(statuses))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([limit, offset])
+        sql = f"SELECT * FROM runs {where} ORDER BY created_at DESC, run_id DESC LIMIT %s OFFSET %s"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+    def update_status(
+        self,
+        run_id: str,
+        new_status: str,
+        *,
+        allowed_from: Iterable[str],
+        **fields: Any,
+    ) -> bool:
+        """乐观状态迁移：仅当当前状态在 `allowed_from` 内才生效。
+
+        返回是否发生迁移（`False` = 状态已被别处改变或已终局）。
+        """
+        unknown = set(fields) - _UPDATABLE_FIELDS
+        if unknown:
+            raise ValueError(f"unknown fields: {sorted(unknown)}")
+        assignments = ["status = %s"]
+        values: list[Any] = [new_status]
+        for key in sorted(fields):
+            assignments.append(f"{key} = %s")
+            values.append(fields[key])
+        values.extend([run_id, list(allowed_from)])
+        sql = (
+            f"UPDATE runs SET {', '.join(assignments)} "
+            "WHERE run_id = %s AND status = ANY(%s) RETURNING run_id"
+        )
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, values)
+            return cur.fetchone() is not None
+
+    def request_cancel(self, run_id: str) -> Optional[str]:
+        """幂等取消请求，返回 run 的当前状态；run 不存在返回 `None`。
+
+        - `CREATED` / `QUEUED` → `CANCELLED`（还没跑，直接终局）
+        - `RUNNING` → `CANCEL_REQUESTED`（执行者负责在节点边界收口，不在库里直接杀）
+        - 其余状态原样返回（含重复取消）
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT status FROM runs WHERE run_id = %s FOR UPDATE", (run_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            status = row["status"]
+            now = _now()
+            if status in ("CREATED", "QUEUED"):
+                cur.execute(
+                    "UPDATE runs SET status = 'CANCELLED', stop_reason = 'user_cancelled', "
+                    "cancel_requested_at = %s, finished_at = %s WHERE run_id = %s",
+                    (now, now, run_id),
+                )
+                return "CANCELLED"
+            if status == "RUNNING":
+                cur.execute(
+                    "UPDATE runs SET status = 'CANCEL_REQUESTED', cancel_requested_at = %s "
+                    "WHERE run_id = %s AND status = 'RUNNING'",
+                    (now, run_id),
+                )
+                return "CANCEL_REQUESTED"
+            return status
+
+    # ---- run_events ----
+
+    def append_event(
+        self, run_id: str, event_type: str, payload: Optional[dict[str, Any]] = None
+    ) -> int:
+        """追加事件并返回 `sequence`；run 不存在时抛 `LookupError`。
+
+        同一 run 的正确前提是单写者（P3 Worker）；主键冲突时的重试仅作防御。
+        """
+        for _ in range(3):
+            try:
+                with self._connect() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO run_events (run_id, sequence, event_type, payload)
+                        SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                        FROM run_events WHERE run_id = %s
+                        RETURNING sequence
+                        """,
+                        (run_id, event_type, Jsonb(payload or {}), run_id),
+                    )
+                    row = cur.fetchone()
+                if row is None:
+                    raise LookupError(f"run not found: {run_id}")
+                return row["sequence"]
+            except psycopg.errors.ForeignKeyViolation as exc:
+                # 聚合子查询对不存在的 run 也会返回一行（MAX 为 NULL ⇒ 0），
+                # 于是插入撞上外键 —— 语义上就是「run 不存在」，转换为 LookupError。
+                raise LookupError(f"run not found: {run_id}") from exc
+            except psycopg.errors.UniqueViolation:
+                continue
+        raise RuntimeError(f"append_event: sequence conflict persisted for run {run_id}")
+
+    def get_events(self, run_id: str, after: Optional[int] = None) -> list[dict[str, Any]]:
+        """按 `sequence` 升序读取事件；`after` 用于 SSE 续传（只取更大序号）。"""
+        sql = "SELECT * FROM run_events WHERE run_id = %s"
+        params: list[Any] = [run_id]
+        if after is not None:
+            sql += " AND sequence > %s"
+            params.append(after)
+        sql += " ORDER BY sequence"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+    # ---- run_artifacts ----
+
+    def put_artifact(self, run_id: str, kind: str, body: str) -> None:
+        """写入/覆盖终局产物（`report_md` / `export_json` 等）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO run_artifacts (run_id, kind, body) VALUES (%s, %s, %s)
+                ON CONFLICT (run_id, kind)
+                DO UPDATE SET body = EXCLUDED.body, updated_at = now()
+                """,
+                (run_id, kind, body),
+            )
+
+    def get_artifact(self, run_id: str, kind: str) -> Optional[str]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT body FROM run_artifacts WHERE run_id = %s AND kind = %s",
+                (run_id, kind),
+            )
+            row = cur.fetchone()
+            return row["body"] if row else None
