@@ -26,6 +26,9 @@ redis>=8,<9
 # 账号与会话（L3 P4：Argon2id 密码哈希）
 argon2-cffi>=25,<26
 
+# 文件上传（L3 P6-A：FastAPI multipart 表单解析）
+python-multipart>=0.0.20,<0.1
+
 # 工具
 python-dotenv>=1.0.0
 pydantic>=2.7.0

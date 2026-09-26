@@ -9,6 +9,15 @@ import {
   type StructuredError,
 } from '../types/agui'
 
+/**
+ * P6-A：登录态下的写操作需要 CSRF 双提交头（与后端 dr_csrf Cookie 一致）。
+ * 未登录 / 未开启鉴权时 Cookie 不存在，返回空对象，行为与 P4 之前完全一致。
+ */
+function csrfHeaders(): Record<string, string> {
+  const match = document.cookie.match(/(?:^|;\s*)dr_csrf=([^;]+)/)
+  return match ? { 'X-CSRF-Token': decodeURIComponent(match[1]) } : {}
+}
+
 export type StreamStatus =
   | 'idle'
   | 'starting'
@@ -197,7 +206,7 @@ export function useResearchStream() {
     try {
       const response = await fetch('/api/research', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
         body: JSON.stringify({
           topic: topic.trim(),
           instructions: instructions.trim(),
@@ -262,7 +271,10 @@ export function useResearchStream() {
     setError(null)
     setStatus('stopping')
     try {
-      const response = await fetch(`/api/research/${runId}/cancel`, { method: 'POST' })
+      const response = await fetch(`/api/research/${runId}/cancel`, {
+        method: 'POST',
+        headers: csrfHeaders(),
+      })
       if (!response.ok) throw await httpError(response, 'cancel_failed', '取消请求失败')
     } catch (cancelError) {
       if (!terminalRef.current) setStatus('running')

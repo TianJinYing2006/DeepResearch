@@ -210,7 +210,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | P3 | Worker 与队列：API 写 QUEUED 任务 → Redis 队列 → Worker 领取执行 → 持续写事件与状态 → 终局落库；心跳 / 租约 / 超时 / 幂等 / 重试 / 崩溃标记 / 成本闸 / 配额检查。**P3-A 已落地**：Redis 队列 + 独立 Worker（与 API 同镜像、不同入口）/ 原子认领（QUEUED→RUNNING+租约）/ 心跳续租 / 节点边界取消与超时 / 终局落库 / SSE 实时尾随 / compose `worker` 服务。**P3-B 已落地**：租约超时清扫与接管（取消意图→CANCELLED；可重试→QUEUED attempt+1 并重新入队；耗尽→LOST）、单 run 预算闸（节点边界，`budget_used_cny` 回写）。**待 P4**：用户级/全局成本闸与双层并发配额 | 7~12 个工作日 | L3-A |
 | P4 | 账号、配额与隔离：注册/登录/登出/会话/重置/封禁/邀请码；用户级并发、每日次数、token/cost 预算；管理员查看；查询强制 user_id | 5~8 个工作日 | L3-A |
 | P5 | RAG 多租户隔离：单 collection + payload `tenant_id`/`user_id`/`visibility`；检索强制 filter；默认仅 `private`。**P5-A 已落地**：摄入打标（`visibility` 必写、owner/tenant 非空才写）+ 检索作用域（contextvar，`rag/scope.py` 单一判定）+ 向量服务端过滤下推与 Python 后置兜底 + BM25 按作用域缓存 + 执行器（RunManager / Worker）逐 run 设置作用域；**待 P6**：HTTP 上传面（携带当前用户）| 3~6 个工作日 | L3-A |
-| P6 | 前端产品化：登录/邀请页、新建任务、任务列表/详情、取消、历史报告与导出、配额显示、断线重连、筛选 | 5~10 个工作日 | L3-A/B |
+| P6 | 前端产品化：登录/邀请页、新建任务、任务列表/详情、取消、历史报告与导出、配额显示、断线重连、筛选。**P6-A 已落地**：账号壳（登录门/注册/退出，鉴权开启时全屏登录）+ 账号条（配额 chip / 历史任务 / 知识库上传 / 知识库清单）+ 历史报告预览 + CSRF 头接线 + 上传限制（类型白名单 + `DR_RAG_MAX_FILE_MB`）；任务详情复用现有页面。**待 P6-B**：邀请页独立路由、任务状态筛选与分页、移动端细化 | 5~10 个工作日 | L3-A/B |
 | P7 | 内容安全、隐私与运营：输入预检、输出审核、Prompt Injection 防护、文件限制、审核记录、申诉与人工复核、封禁；隐私政策/用户协议/注销/删除/日志脱敏 | 5~10 个工作日 | L3-B |
 | P8 | 监控、备份与正式部署：指标与告警、备份策略、恢复演练、压测、灰度与回滚 | 5~8 个工作日 | L3-B/C |
 
@@ -300,6 +300,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 任务 | `GET /api/runs/{id}/events` | 从 `sequence` 回放（替代内存 `Last-Event-ID`） |
 | 任务 | `GET /api/runs/{id}/stream` | SSE（PG 补发 + Redis 加速） |
 | 报告 | `GET /api/runs/{id}/report` | 迁移现导出（`format=md/json`），补鉴权 |
+| 知识库 | `POST /api/rag/ingest`、`GET /api/rag/docs` | **P6-A 已落地**：类型白名单 + 大小上限；按当前用户打标 / 按作用域列出（不泄露他人文档） |
 | 配额 | `GET /api/quota` | 当日次数、并发占用、月度预算余量 |
 | 管理 | `POST /api/admin/invites`、`GET /api/admin/runs`、`POST /api/admin/users/{id}/ban` | 最小管理面；全部写审计 |
 
@@ -353,6 +354,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | `DR_MONTHLY_BUDGET_CNY` | 1500（L3-A）/ 2000（L3-B） | 月度熔断 |
 | `DR_LOGIN_RATE_PER_MINUTE` | 10 | 登录 / 注册限流（进程内固定窗口；多实例需迁 Redis，P4-B） |
 | `DR_SUBMIT_RATE_PER_MINUTE` | 10 | 提交任务限流（P4-B） |
+| `DR_RAG_MAX_FILE_MB` | 10 | 知识库单文件上传上限（P6-A，类型白名单见 API 实现） |
 | `DR_OVERSEAS_PROVIDERS` | `off` | Tavily / Langfuse Cloud / arXiv / Semantic Scholar 总开关（默认关闭） |
 | `DR_RUN_TIMEOUT_SECONDS` | 3600 | 沿用现配置（`runner.py:54`） |
 | `DR_MAX_CONCURRENT_RUNS` | 2（L3-A）/ 3（L3-B） | 沿用现配置（`runner.py:59`） |
@@ -475,3 +477,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-26 | P4-A 账号与会话 | §3.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 迁移 `0003_users_sessions_invites.sql`（users/sessions/invites + `runs.user_id` 外键）+ Argon2id 密码哈希、会话/邀请码只存 SHA-256 摘要 + 邀请制注册（一次性、事务内校验）/登录/登出/会话 + httpOnly Session Cookie 与 CSRF 双提交 + 运行类接口归属校验（非本人 404）+ 管理员 CLI（`python -m web.backend.admin`）+ 鉴权默认关闭（`DR_AUTH_REQUIRED`，本地/E2E 零变化）；测试 518 收集（496 通过 + 22 跳过；新增 auth 单测 6 + 鉴权 API 7 + 仓储契约 1） | [PR #16](https://github.com/TianJinYing2006/DeepResearch/pull/16) |
 | 2026-09-26 | P4-B 配额/限流/改密 | §3.1.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 配额闸三件套（全局月度预算 `month_cost_cny` → 100% 熔断；单用户并发 `count_active(user_id)`；单用户每日 `count_user_runs_since`），幂等命中先于配额闸；创建任务时写入单次预算 `budget_limit_cny`（默认 ¥1.50）由 Worker/进程内执行器在节点边界执行；`GET /api/quota` 快照；进程内固定窗口限流（登录/注册/提交，`DR_*_RATE_PER_MINUTE`，多实例需迁 Redis 已登记）；登录态改密（校验旧密码 → 吊销全部会话 → 当前设备重签）与管理 CLI `reset-password`；新增错误码 `quota_exceeded` / `rate_limited`；测试 530 收集（507 通过 + 23 跳过） | [PR #17](https://github.com/TianJinYing2006/DeepResearch/pull/17) |
 | 2026-09-26 | P5-A RAG 隔离 | §5.7 / 代码 | `research_engine/rag/scope.py`（`RagScope` + `payload_matches` 单一判定 + contextvar；owner 只见本人 private，匿名只见无主块，历史数据向后兼容；shared/public 不开放）+ 摄入 payload 打标（`visibility` 必写，owner/tenant 非空才写）+ `VectorStore.search` owner 作用域下推 Qdrant `must` 过滤并做后置兜底、`scroll_all` 后置过滤 + `HybridRetriever` 按作用域缓存 BM25 语料 + RunManager/Worker 逐 run `set_scope`；测试 540 收集（517 通过 + 23 跳过；新增 10 条隔离用例，Arm4 锁定用例同步适配新缓存结构） | [PR #18](https://github.com/TianJinYing2006/DeepResearch/pull/18) |
+| 2026-09-26 | P6-A 前端产品化 | §5.10 / §5.13 / 代码 | `AccountPanel`（鉴权开启时全屏登录门：登录/注册+邀请码；账号条：配额 chip、历史任务、上传入口、知识库清单、退出）+ 历史报告预览（后端导出，复用 `ReportView`）+ 前端 CSRF 双提交头（研究创建 / 取消）+ `POST /api/rag/ingest`（类型白名单 + `DR_RAG_MAX_FILE_MB` 上限 + 执行器线程摄取 + 按用户打标）与 `GET /api/rag/docs`（按作用域列出）+ `/api/options` 下发 `auth_required`/`invite_only`；依赖 `python-multipart`（lock 外科式 +1 行）；E2E 10→13（历史降级 / 账号条 / 上传类型拒绝） | [PR #19](https://github.com/TianJinYing2006/DeepResearch/pull/19) |

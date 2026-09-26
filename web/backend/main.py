@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import socket
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import AsyncIterator, Optional
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Header, Query, Request
+from fastapi import FastAPI, File, Header, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -120,6 +121,10 @@ MONTHLY_BUDGET_CNY = _env_number("DR_MONTHLY_BUDGET_CNY", 1500.0)
 LOGIN_LIMITER = FixedWindowLimiter(int(_env_number("DR_LOGIN_RATE_PER_MINUTE", 10)))
 SUBMIT_LIMITER = FixedWindowLimiter(int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)))
 
+# P6-A：RAG 上传限制（文件类型白名单 + 单文件大小上限）
+RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
+RAG_ALLOWED_EXT = {".pdf", ".docx", ".md", ".markdown", ".txt", ".text"}
+
 
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
 store = None if DEMO_MODE else _make_store()
@@ -211,6 +216,9 @@ def options() -> dict:
         # 与「已有研究在运行」提示，而不是靠猜。
         "run_timeout_seconds": manager.run_timeout_seconds,
         "max_concurrent_runs": manager.max_concurrent_runs,
+        # P4-A / P6-A：前端据此决定是否展示登录页（未开启鉴权时保持匿名可用）
+        "auth_required": AUTH_REQUIRED,
+        "invite_only": INVITE_ONLY,
     }
 
 
@@ -744,6 +752,78 @@ def quota(request: Request) -> dict:
         "monthly_cost_cny": round(monthly_used, 4),
         "monthly_budget_cny": MONTHLY_BUDGET_CNY or None,
     }
+
+
+# ------------------------------------------------------------------ RAG 知识库（P6-A）
+
+@app.post("/api/rag/ingest")
+async def rag_ingest(request: Request, file: UploadFile = File(...)) -> dict:
+    """上传并摄取文档（P6-A）：白名单类型 + 大小上限；**按当前用户打标**（P5 作用域）。
+
+    摄取是 CPU/IO 混合任务（解析 + embedding），放执行器线程跑，避免阻塞事件循环。
+    """
+    user_id = _require_user(request)
+    _check_csrf(request)
+    filename = os.path.basename(file.filename or "")
+    extension = os.path.splitext(filename)[1].lower()
+    if not filename or extension not in RAG_ALLOWED_EXT:
+        raise http_error(
+            "invalid_request", "不支持的文件类型",
+            detail=f"allowed={sorted(RAG_ALLOWED_EXT)}",
+        )
+    content = await file.read()
+    if len(content) > RAG_MAX_UPLOAD_MB * 1024 * 1024:
+        raise http_error(
+            "invalid_request",
+            f"文件超过 {RAG_MAX_UPLOAD_MB:g}MB 上限",
+            detail=f"size={len(content)}; max_mb={RAG_MAX_UPLOAD_MB:g}",
+        )
+    if not content:
+        raise http_error("invalid_request", "文件为空")
+
+    from research_engine.rag.ingest import DocumentIngester
+
+    def _run_ingest() -> int:
+        ingester = DocumentIngester()
+        with tempfile.TemporaryDirectory(prefix="dr-rag-") as tmp_dir:
+            path = os.path.join(tmp_dir, filename)
+            with open(path, "wb") as handle:
+                handle.write(content)
+            return ingester.ingest_file(path, doc_id=f"{user_id or 'local'}:{filename}",
+                                        user_id=user_id)
+
+    try:
+        chunks = await asyncio.get_running_loop().run_in_executor(None, _run_ingest)
+    except Exception as exc:  # noqa: BLE001 —— embedding / 解析 / Qdrant 故障统一结构化
+        raise http_error(
+            "rag_ingest_failed",
+            f"文档摄取失败：{type(exc).__name__}: {exc}"[:200],
+        ) from exc
+    if not chunks:
+        raise http_error("rag_ingest_failed", "文档未解析出任何内容")
+    return {"doc_id": f"{user_id or 'local'}:{filename}", "source": filename, "chunks": chunks}
+
+
+@app.get("/api/rag/docs")
+def rag_docs(request: Request) -> dict:
+    """当前作用域可见的知识库文档清单（P6-A；按 P5 作用域过滤，不泄露他人文档）。"""
+    user_id = _require_user(request)
+    from research_engine.rag.scope import RagScope
+    from research_engine.rag.store import VectorStore
+
+    vector_store = VectorStore()
+    reason = vector_store.unavailable_reason
+    if reason:
+        raise http_error(
+            "rag_unavailable",
+            "知识库当前不可用（Qdrant 未配置或连不上）",
+            detail=vector_store.last_error or reason,
+        )
+    counts: dict[str, int] = {}
+    for payload in vector_store.scroll_all(scope=RagScope(user_id=user_id)):
+        source = payload.get("source") or payload.get("doc_id") or "(未命名)"
+        counts[source] = counts.get(source, 0) + 1
+    return {"docs": [{"source": name, "chunks": count} for name, count in sorted(counts.items())]}
 
 
 @app.post("/api/research/{run_id}/cancel")

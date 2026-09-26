@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { ProgressBar } from './components/ProgressBar'
 import { ReportView } from './components/ReportView'
+import AccountPanel from './components/AccountPanel'
 import {
   type ConnectionStatus,
   type StreamStatus,
@@ -68,6 +69,8 @@ export default function App() {
   const [searchProvider, setSearchProvider] = useState('')
   const [enableArxiv, setEnableArxiv] = useState(true)
   const [options, setOptions] = useState<RunOptions | null>(null)
+  // P6-A：是否开启鉴权（登录门开关；未开启时保持匿名可用）
+  const [authRequired, setAuthRequired] = useState(false)
   // P1-7 重试：记住**上一次实际发起**的参数（不是当前表单值）——
   // 用户可能在运行期间改了滑块，重试必须重跑原来那次，否则「重试」名不副实。
   const [lastRequest, setLastRequest] = useState<LaunchParams | null>(null)
@@ -99,6 +102,7 @@ export default function App() {
       .then((data: RunOptions | null) => {
         if (cancelled || !data) return
         setOptions(data)
+        setAuthRequired(Boolean(data.auth_required))
         const usable = data.search_providers.filter((provider) => provider.available)
         const preferred = usable.find((provider) => provider.value === data.default_provider) ?? usable[0]
         setSearchProvider((current) => current || preferred?.value || '')
@@ -272,6 +276,9 @@ export default function App() {
               AG-UI 事件语义
             </span>
           </div>
+        </div>
+        <div className="mx-auto max-w-[1600px] px-4 pb-3 sm:px-6 lg:px-8">
+          <AccountPanel authRequired={authRequired} activeRunId={runId ?? null} running={running} />
         </div>
       </header>
 
