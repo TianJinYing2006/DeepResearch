@@ -9,12 +9,16 @@
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
 import psycopg
 import pytest
 
+from research_engine.state import ResearchState
+from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
+from web.backend.runner import RunManager
 from web.backend.store import RunStore
 
 DSN = os.getenv("DR_TEST_DATABASE_URL", "").strip()
@@ -189,3 +193,102 @@ def test_list_runs_filter_and_pagination(store: RunStore):
     queued = store.list_runs(user_id=TEST_USER, statuses=("QUEUED",))
     assert queued == []
     assert len(store.list_runs(user_id=OTHER_USER)) == 1
+
+
+# ---------------------------------------------------------------- P2-C 增补
+
+
+def test_append_event_explicit_sequence_and_idempotency(store: RunStore):
+    run_id, _, _ = _create(store)
+    assert store.append_event(run_id, "A", {"n": 1}, sequence=5) == 5
+    assert store.append_event(run_id, "A", {"n": 1}, sequence=5) == 5  # 重复写入幂等
+    assert store.append_event(run_id, "B", {"n": 2}, sequence=0) == 0
+    assert [item["sequence"] for item in store.get_events(run_id)] == [0, 5]
+    assert store.count_events(run_id) == 2
+    with pytest.raises(LookupError):
+        store.append_event("no-such-run", "X", {}, sequence=0)
+
+
+def test_has_artifact_and_list_has_report(store: RunStore):
+    run_id, _, _ = _create(store)
+    assert store.has_artifact(run_id, "report_md") is False
+    store.put_artifact(run_id, "report_md", "# r")
+    assert store.has_artifact(run_id, "report_md") is True
+
+    rows = store.list_runs(user_id=TEST_USER)
+    assert rows and rows[0]["run_id"] == run_id
+    assert rows[0]["has_report"] is True
+
+
+def test_mark_stale_as_lost(store: RunStore):
+    created_id, _, _ = _create(store)
+    running_id, _, _ = _create(store)
+    assert store.update_status(running_id, "RUNNING", allowed_from=("CREATED",)) is True
+    done_id, _, _ = _create(store)
+    assert store.update_status(done_id, "SUCCEEDED", allowed_from=("CREATED",)) is True
+
+    assert store.mark_stale_as_lost() == 2
+    assert store.get_run(created_id)["status"] == "LOST"
+    assert store.get_run(running_id)["stop_reason"] == "lost"
+    assert store.get_run(running_id)["finished_at"] is not None
+    assert store.get_run(done_id)["status"] == "SUCCEEDED"
+
+
+class _TinyGraph:
+    """RunManager 端到端用的最小假 graph（零 LLM）。"""
+
+    def __init__(self, steps: int = 3, delay: float = 0.01, report: str = "# 端到端报告"):
+        self.steps = steps
+        self.delay = delay
+        self.report = report
+
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        state = ResearchState(topic=topic)
+        for i in range(self.steps):
+            time.sleep(self.delay)
+            state.progress.append({"stage": f"n{i}", "msg": "m"})
+            yield RunStep(index=i, node=f"n{i}", state=state, duration_ms=1)
+            if should_cancel is not None and should_cancel():
+                yield RunStep(index=i + 1, node=None, state=state,
+                              terminal=True, stop_reason=STOP_CANCELLED)
+                return
+        state.report = self.report
+        state.report_display = self.report
+        yield RunStep(index=self.steps, node=None, state=state,
+                      terminal=True, stop_reason=STOP_COMPLETED)
+
+
+def test_manager_write_through_end_to_end(store: RunStore):
+    manager = RunManager(graph_factory=lambda: _TinyGraph(), store=store, max_concurrent_runs=8)
+    run_id = manager.start("端到端", idempotency_key="e2e-key")
+    assert manager.start("端到端", idempotency_key="e2e-key") == run_id  # 幂等：不重复执行
+
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        snap = manager.snapshot(run_id)
+        if snap is not None and snap["status"] == "finished":
+            break
+        time.sleep(0.02)
+    else:
+        raise AssertionError("manager E2E did not finish in time")
+
+    try:
+        # 落库在内存终局之后完成（锁外 I/O）⇒ 等库内终局再断言
+        row = None
+        while time.monotonic() < deadline:
+            row = store.get_run(run_id)
+            if row is not None and row["status"] != "RUNNING":
+                break
+            time.sleep(0.02)
+        assert row is not None and row["status"] == "SUCCEEDED"
+        assert row["research_status"] == "success"
+        events = store.get_events(run_id)
+        assert [item["sequence"] for item in events] == list(range(len(events)))
+        assert events[0]["event_type"] == "RUN_STARTED"
+        assert events[-1]["event_type"] == "RUN_FINISHED"
+        assert store.get_artifact(run_id, "report_md") == "# 端到端报告"
+        assert store.has_artifact(run_id, "export_json") is True
+    finally:
+        # manager 建的行 user_id 为 NULL，不在 fixture 的 test-store- 前缀清理范围内，单独删。
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
