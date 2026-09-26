@@ -175,7 +175,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 
 ### 5.4 事件与 SSE 恢复
 
-事件表按 `sequence` 单调递增；SSE 连接 = **PostgreSQL 补发缺失事件 + Redis 实时事件加速**，统一按 `sequence` 输出，`Last-Event-ID` 可续传。Redis 不作为唯一事实来源（理由见 ADR-0009）。
+事件表按 `sequence` 单调递增；SSE 连接 = **PostgreSQL 补发缺失事件 + Redis 实时事件加速**，统一按 `sequence` 输出，`Last-Event-ID` 可续传。Redis 不作为唯一事实来源（理由见 ADR-0009）。**P2-C 已落地进程内版本**：内存帧与 `run_events.sequence` 逐帧对齐（显式序号幂等写入），进程重启后 `GET /stream` 从库回放、`GET /report` 从 `run_artifacts` 导出；Redis 加速层留到 P3。
 
 ### 5.5 任务目标分两层
 
@@ -285,6 +285,8 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 ### 5.10 L3-A API 面（设计意图，最终随 P4/P6 定稿）
 
 > 现有 4 条路由（start / stream / cancel / report）继续作为传输层复用；L3 新增认证、历史与配额面。
+> **P2-C 已落地**：`POST /api/research` 幂等键、`GET /api/runs`、内存未命中时的快照 / 导出 / SSE 回放 / 取消回落；
+> 认证、邀请与管理面随 P4 定稿。
 > 路径以最终实现为准，但**所有写操作必须带鉴权与 CSRF，所有读操作必须强制 `user_id` 过滤**。
 
 | 分组 | 端点（建议） | 说明 |
@@ -370,14 +372,14 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 
 ### 7.1 L3-A（内部可用版）
 
-- [ ] API 重启后任务可查询（状态 + 报告不丢）
-- [ ] 页面关闭后任务继续执行，刷新可恢复查看
-- [ ] SSE 断开后可按 `Last-Event-ID` / `sequence` 恢复，不重跑研究
-- [ ] 任务失败不丢状态（FAILED / TIMED_OUT / LOST 均落库）
-- [ ] 用户不能访问他人任务（查询 / 取消 / 导出三路负向测试）
-- [ ] Worker 挂掉后任务不会永久卡住（租约超时 → 可重试或 LOST）
-- [ ] 成本超限自动停止（用户级 + 全局闸）
-- [ ] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期
+- [x] API 重启后任务可查询（状态 + 报告不丢；P2-C：内存未命中回落任务库）
+- [x] 页面关闭后任务继续执行，刷新可恢复查看
+- [x] SSE 断开后可按 `Last-Event-ID` / `sequence` 恢复，不重跑研究（P2-C：进程重启后从 `run_events` 回放）
+- [x] 任务失败不丢状态（FAILED / TIMED_OUT / CANCELLED / LOST 均落库；LOST 由启动清理产生）
+- [ ] 用户不能访问他人任务（查询 / 取消 / 导出三路负向测试）—— P4 鉴权后
+- [ ] Worker 挂掉后任务不会永久卡住（P2-C 仅启动时标记 `LOST`；租约接管在 P3）
+- [ ] 成本超限自动停止（用户级 + 全局闸）—— P4
+- [ ] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期 —— P4
 - [ ] staging 环境一键起停（本地 compose 已具备；云上 staging 待部署）；迁移**只前向**执行且二次幂等（回退走备份恢复，见上线准入 §7.3）
 
 ### 7.2 L3-B（邀请制内测版）
@@ -445,7 +447,8 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 |------|------|------------|
 | 既有回归 | 455 条 pytest + ruff + 前端 `tsc`/build + 浏览器 E2E 10 条 | 保持全绿（CI 门禁不变） |
 | 新增单测（P2/P3） | 状态机迁移、事件 sequence、幂等键、租约与超时、重试不重复扣费、worker 崩溃标记 | `pytest tests/` 新增文件 |
-| 仓储层（P2-B，已交付） | RunStore 契约：创建幂等 / 乐观状态迁移 / 取消语义（CREATED→CANCELLED、RUNNING→CANCEL_REQUESTED）/ 事件单调与重放 / 产物 upsert 与级联删除 | `DR_TEST_DATABASE_URL` 下跑 `tests/test_run_store.py`（**10 条**），CI `infra` job 强制执行 |
+| 仓储层（P2-B，已交付） | RunStore 契约：创建幂等 / 乐观状态迁移 / 取消语义（CREATED→CANCELLED、RUNNING→CANCEL_REQUESTED）/ 事件单调与重放 / 产物 upsert 与级联删除 | `DR_TEST_DATABASE_URL` 下跑 `tests/test_run_store.py`（**14 条**，含 RunManager 真实 PG 端到端），CI `infra` job 强制执行 |
+| 持久化接线（P2-C，已交付） | 写透（创建 / 事件 / 终局 / 产物：帧号显式对齐）、幂等创建、取消落库、持久化失败降级（`persistence_error` 留痕不打断研究）；HTTP 读侧回落（快照 / 历史 / 导出 / SSE 回放 / 取消） | `tests/test_web_persistence.py`（**12 条**，FakeStore 零 PG）随主测试矩阵跑；真实 PG 端到端在 `infra` job |
 | 新增单测（P4/P5） | 鉴权、越权负向、CSRF、限流、租户 filter 命中/未命中 | 同上 |
 | 集成 | staging 全链路冒烟（提交 → worker → SSE → 报告 → 导出） | 每阶段手工 + CI staging 可选 |
 | 压测 | 峰值 3 并发 run（L3-B 规模：10 人、1 次/人/日）、SSE 连接数、队列等待时间 | L3-B 前完成 |
@@ -462,3 +465,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-24 | P1 第一批 | §5.7 / §7.1 / 代码 | 部署底座本地骨架落地：`Dockerfile.api`（多阶段）/ `docker-compose.staging.yml`（PG+Redis+迁移+API）/ `tools/migrate.sh`（只前向+幂等，CI 锁二次执行 `applied=0`）/ 健康探针（live+ready）/ CORS 环境变量化（`DR_CORS_ORIGINS`）/ CI `infra` job；迁移策略明确为「只前向、回退走备份恢复」；测试 455→461；云上部署与外部事实仍未闭环 | [PR #10](https://github.com/TianJinYing2006/DeepResearch/pull/10) |
 | 2026-09-26 | P2-A 数据模型 | §5.2 / migrations | 任务持久化第一批 DDL：`runs`（9 态状态机 CHECK / 创建幂等部分唯一索引 / 租约·预算·超时字段）与 `run_events`（`(run_id,sequence)` 主键 + 级联删除）；新增结构自检 `migrations/checks/0001_schema_assert.sql` 并接入 CI `infra` job | [PR #11](https://github.com/TianJinYing2006/DeepResearch/pull/11) |
 | 2026-09-26 | P2-B 仓储层 | §5.2 / §9 / 代码 | 新增 `psycopg[binary]`（lock 外科式加锁，零版本漂移）+ `web/backend/store.py`（RunStore：创建幂等 / 乐观状态迁移 / 取消语义 / 事件单调 sequence / 产物 upsert）+ `migrations/0002_run_artifacts.sql` + `tests/test_run_store.py`（10 条，真实 PG）；CI `infra` job 增加 checks 循环与仓储测试 | [PR #12](https://github.com/TianJinYing2006/DeepResearch/pull/12) |
+| 2026-09-26 | P2-C 持久化接线 | §5.4 / §5.9 / §5.10 / §7.1 / §9 / 代码 | RunManager 写透（创建幂等 / 帧号对齐事件 / 终局状态 + 产物 / 取消落库 / 失败降级留痕）；`main.py` 读侧回落（快照 / `/api/runs` 历史 / 导出 / SSE 回放 / 取消）；启动把残留非终局任务标记 `LOST`；readiness 的 PG 探针升级为真实 `SELECT 1`；新增 `persistence_unavailable` 错误码；测试 487 收集（473 通过 + 14 跳过，跳过的为真实 PG 用例） | [PR #13](https://github.com/TianJinYing2006/DeepResearch/pull/13) |

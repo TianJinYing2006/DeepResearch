@@ -54,8 +54,8 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
     # --- 资源不存在 / 不可用（HTTP 404 / 409 / 429） ----------------------
     "run_id_not_found": ErrorSpec(
         404, False,
-        "run_id 只存在于**当前进程内存**（D-19 明确不做任务持久化）；"
-        "服务重启后不可恢复，请重新发起一次研究。",
+        "run_id 既不在当前进程内存中，也不在任务库中：确认 id 是否拼错，或重新发起一次研究。"
+        "（任务库只保存已落库的运行；服务重启后内存中未落库的运行不可恢复。）",
         component="web"),
     "report_not_ready": ErrorSpec(
         409, True, "研究尚未结束，报告还没生成。等 RUN_FINISHED 后再导出。",
@@ -68,6 +68,10 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         429, True,
         "已有研究在运行：前台模型下一次只跑一个（D-19）。等它结束或点「停止」后再启动；"
         "确需并发请调大 DR_MAX_CONCURRENT_RUNS。",
+        component="web"),
+    "persistence_unavailable": ErrorSpec(
+        503, True,
+        "任务持久化不可用（PostgreSQL 未配置或连接失败）：检查 DR_DATABASE_URL 与数据库状态。",
         component="web"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(

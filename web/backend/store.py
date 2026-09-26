@@ -126,14 +126,17 @@ class RunStore:
         clauses: list[str] = []
         params: list[Any] = []
         if user_id is not None:
-            clauses.append("user_id = %s")
+            clauses.append("r.user_id = %s")
             params.append(user_id)
         if statuses:
-            clauses.append("status = ANY(%s)")
+            clauses.append("r.status = ANY(%s)")
             params.append(list(statuses))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.extend([limit, offset])
-        sql = f"SELECT * FROM runs {where} ORDER BY created_at DESC, run_id DESC LIMIT %s OFFSET %s"
+        sql = (
+            "SELECT r.*, EXISTS (SELECT 1 FROM run_artifacts a WHERE a.run_id = r.run_id) AS has_report "
+            f"FROM runs r {where} ORDER BY r.created_at DESC, r.run_id DESC LIMIT %s OFFSET %s"
+        )
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchall()
@@ -200,12 +203,32 @@ class RunStore:
     # ---- run_events ----
 
     def append_event(
-        self, run_id: str, event_type: str, payload: Optional[dict[str, Any]] = None
+        self, run_id: str, event_type: str, payload: Optional[dict[str, Any]] = None,
+        *, sequence: Optional[int] = None,
     ) -> int:
         """追加事件并返回 `sequence`；run 不存在时抛 `LookupError`。
 
-        同一 run 的正确前提是单写者（P3 Worker）；主键冲突时的重试仅作防御。
+        - 不传 `sequence`：由数据库分配（`MAX(sequence)+1`，单写者场景）；
+        - 传 `sequence`（P2-C 接线用）：与内存态帧号**逐帧对齐**，重复写入按幂等处理
+          （`ON CONFLICT DO NOTHING`）—— 传输层强制收口与工作线程可能并发持久化，
+          显式序号避免「库内顺序 ≠ 内存顺序」。
         """
+        if sequence is not None:
+            try:
+                with self._connect() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO run_events (run_id, sequence, event_type, payload)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (run_id, sequence) DO NOTHING
+                        RETURNING sequence
+                        """,
+                        (run_id, sequence, event_type, Jsonb(payload or {})),
+                    )
+                    cur.fetchone()
+                return sequence
+            except psycopg.errors.ForeignKeyViolation as exc:
+                raise LookupError(f"run not found: {run_id}") from exc
         for _ in range(3):
             try:
                 with self._connect() as conn, conn.cursor() as cur:
@@ -242,6 +265,26 @@ class RunStore:
             cur.execute(sql, params)
             return cur.fetchall()
 
+    def count_events(self, run_id: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM run_events WHERE run_id = %s", (run_id,))
+            return cur.fetchone()["n"]
+
+    # ---- 启动恢复 / 运维 ----
+
+    def mark_stale_as_lost(self, reason: str = "lost") -> int:
+        """把非终局任务标记为 `LOST`（单实例内存态执行的既有事实：进程重启即失联）。
+
+        返回被标记的行数；供 API 启动时调用（P3 引入租约后由 Worker 接管）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET status = 'LOST', stop_reason = %s, finished_at = now() "
+                "WHERE status = ANY(%s) RETURNING run_id",
+                (reason, list(ACTIVE_STATUSES)),
+            )
+            return len(cur.fetchall())
+
     # ---- run_artifacts ----
 
     def put_artifact(self, run_id: str, kind: str, body: str) -> None:
@@ -264,3 +307,11 @@ class RunStore:
             )
             row = cur.fetchone()
             return row["body"] if row else None
+
+    def has_artifact(self, run_id: str, kind: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM run_artifacts WHERE run_id = %s AND kind = %s",
+                (run_id, kind),
+            )
+            return cur.fetchone() is not None
