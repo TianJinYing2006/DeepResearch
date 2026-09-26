@@ -47,6 +47,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list-invites", help="列出邀请码摘要与状态")
 
+    moderation = sub.add_parser("moderation-list", help="列出内容审核 / 申诉记录（P7-A）")
+    moderation.add_argument("--kind", default="", help="过滤：input_blocked / output_flagged / appeal / admin_action")
+    moderation.add_argument("--limit", type=int, default=50)
+
+    delete_user = sub.add_parser("delete-user", help="管理员删除用户（P7-A 注销；RAG 向量需另行清理）")
+    delete_user.add_argument("--email", required=True)
+
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
 
@@ -100,6 +107,22 @@ def main(argv: list[str] | None = None) -> int:
         revoked = store.revoke_user_sessions(user["user_id"])
         print(f"已重置 {user['email']}；吊销 {revoked} 个会话")
         print(f"临时密码（仅本次打印）：{password}")
+        return 0
+
+    if args.command == "moderation-list":
+        rows = store.list_moderation(kind=args.kind or None, limit=args.limit)
+        for row in rows:
+            print(f"#{row['id']}  {row['kind']:<15} user={row['user_id'] or '-'} run={row['run_id'] or '-'} "
+                  f"at={row['created_at']:%Y-%m-%d %H:%M}  detail={row['detail']}")
+        return 0
+
+    if args.command == "delete-user":
+        user = store.get_user_by_email(normalize_email(args.email))
+        if user is None:
+            print("user not found", file=sys.stderr)
+            return 1
+        store.delete_user(user["user_id"])
+        print(f"deleted {args.email}（任务与审核记录保留但匿名；RAG 向量请另行按 user_id 清理）")
         return 0
 
     if args.command == "revoke-invite":

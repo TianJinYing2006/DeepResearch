@@ -21,6 +21,7 @@ type RunBrief = {
   stop_reason: string | null
   created_at: string | null
   has_report: boolean
+  moderation_status?: string | null
 }
 
 type RagDoc = { source: string; chunks: number }
@@ -103,6 +104,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [historyOffset, setHistoryOffset] = useState(0)
   const [historyHasMore, setHistoryHasMore] = useState(false)
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
+  const [legal, setLegal] = useState<{ doc: string; markdown: string } | null>(null)
+  const [legalError, setLegalError] = useState('')
 
   const loadSession = useCallback(async () => {
     try {
@@ -225,8 +228,46 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setPreview({ runId, markdown: await response.text() })
   }
 
-  async function uploadFile(file: File) {
-    setUploadState('上传中…')
+  async function openLegal(doc: 'privacy' | 'terms') {
+    setLegalError('')
+    setLegal({ doc, markdown: '' })
+    try {
+      const response = await fetch(`/api/legal/${doc}`)
+      if (!response.ok) {
+        setLegalError(await readError(response))
+        return
+      }
+      const body = (await response.json()) as { markdown: string }
+      setLegal({ doc, markdown: body.markdown })
+    } catch {
+      setLegalError('网络错误，请重试')
+    }
+  }
+
+  async function deleteAccount() {
+    const password = window.prompt('注销将删除账号与会话、并尽力清理知识库向量（历史任务匿名保留）。请输入密码确认：')
+    if (!password) return
+    try {
+      const response = await fetch('/api/auth/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: JSON.stringify({ password }),
+      })
+      if (!response.ok) {
+        setUploadState(await readError(response))
+        return
+      }
+      const body = (await response.json()) as { rag_cleanup: string }
+      setUser(null)
+      setQuota(null)
+      setHistory(null)
+      setUploadState(`账号已注销（知识库清理：${body.rag_cleanup}）`)
+    } catch {
+      setUploadState('网络错误，请重试')
+    }
+  }
+
+  async function uploadFile(file: File) {    setUploadState('上传中…')
     try {
       const form = new FormData()
       form.append('file', file)
@@ -260,6 +301,32 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         .filter(Boolean)
         .join(' · ')
     : ''
+
+  const legalModal = legal
+    ? createPortal(
+        <div className="fixed inset-0 z-[60] flex justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
+             data-testid="legal-modal">
+          <div className="surface-card my-6 w-full max-w-3xl p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-emerald-50">
+                {legal.doc === 'privacy' ? '隐私政策' : '用户协议'}
+              </h3>
+              <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
+                      data-testid="legal-close"
+                      onClick={() => { setLegal(null); setLegalError('') }}>关闭</button>
+            </div>
+            {legalError && <p className="mt-3 text-sm text-rose-300">{legalError}</p>}
+            {!legalError && !legal.markdown && <p className="mt-3 text-sm text-emerald-100/60">加载中…</p>}
+            {!legalError && legal.markdown && (
+              <div className="mt-4">
+                <ReportView report={legal.markdown} />
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )
+    : null
 
   if (authRequired && checked && !user) {
     // 用 Portal 挂到 body：header 的 backdrop-filter 会把 position:fixed 约束在 header 内
@@ -300,6 +367,15 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                   onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setAuthError('') }}>
             {mode === 'login' ? '有邀请码？去注册' : '已有账号？去登录'}
           </button>
+          <p className="mt-3 text-center text-[11px] text-emerald-100/50">
+            注册即表示同意
+            <button type="button" className="mx-1 underline hover:text-emerald-100"
+                    onClick={() => void openLegal('terms')}>用户协议</button>
+            与
+            <button type="button" className="mx-1 underline hover:text-emerald-100"
+                    onClick={() => void openLegal('privacy')}>隐私政策</button>
+          </p>
+          {legalModal}
         </form>
       </div>,
       document.body,
@@ -336,6 +412,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           <span className="text-emerald-100/70" data-testid="account-email">{user.email}</span>
           <button type="button" className="text-emerald-100/60 hover:text-emerald-100"
                   onClick={() => void logout()} data-testid="logout-button">退出</button>
+          <button type="button" className="text-rose-300/70 hover:text-rose-200"
+                  onClick={() => void deleteAccount()} data-testid="delete-account">注销</button>
         </>
       ) : (
         <span className="text-emerald-100/50">未登录（本地模式）</span>
@@ -379,6 +457,10 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                   </span>
                   <span className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-100/60">
                     {STATUS_LABELS[item.status] ?? item.status}
+                    {item.moderation_status === 'flagged' && (
+                      <span className="rounded border border-amber-300/40 px-1 text-amber-200"
+                            data-testid="flagged-badge">已标记</span>
+                    )}
                     {item.created_at && <span>{item.created_at.replace('T', ' ').slice(0, 16)}</span>}
                     {item.has_report && (
                       <button type="button" className="underline hover:text-emerald-100"
@@ -424,10 +506,19 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
               {busy ? '提交中…' : '注册并登录'}
             </button>
+            <p className="mt-3 text-center text-[11px] text-emerald-100/50">
+              注册即表示同意
+              <button type="button" className="mx-1 underline hover:text-emerald-100"
+                      onClick={() => void openLegal('terms')}>用户协议</button>
+              与
+              <button type="button" className="mx-1 underline hover:text-emerald-100"
+                      onClick={() => void openLegal('privacy')}>隐私政策</button>
+            </p>
           </form>
         </div>,
         document.body,
       )}
+      {legalModal}
 
       {(preview || previewError) && createPortal(
         <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"

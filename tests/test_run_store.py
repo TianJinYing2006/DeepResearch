@@ -415,3 +415,29 @@ def test_user_quota_and_password_helpers(store: RunStore):
     assert store.get_session_user(token_hash("q-tok")) is not None
     assert store.revoke_user_sessions(uid) >= 1
     assert store.get_session_user(token_hash("q-tok")) is None
+
+
+def test_moderation_contract_and_user_deletion(store: RunStore):
+    """P7-A：审核记录只追加；注销删用户并脱钩（记录/任务匿名保留、会话级联删除）。"""
+    uid = TEST_USER
+    run_id, _, _ = _create(store, user_id=uid)
+    record_id = store.record_moderation("output_flagged", user_id=uid, run_id=run_id,
+                                        detail={"matches": ["x"]})
+    assert record_id >= 1
+    assert store.set_moderation_status(run_id, "flagged") is True
+    assert store.get_run(run_id)["moderation_status"] == "flagged"
+
+    store.create_session(token_hash("mod-tok"), uid,
+                         datetime.now(timezone.utc) + timedelta(hours=1))
+    assert store.delete_user(uid) is True
+    assert store.get_user(uid) is None
+    assert store.get_session_user(token_hash("mod-tok")) is None
+    assert store.get_run(run_id)["user_id"] is None  # SET NULL：任务保留但匿名
+    flagged = [r for r in store.list_moderation(kind="output_flagged") if r["id"] == record_id]
+    assert flagged and flagged[0]["user_id"] is None and flagged[0]["run_id"] == run_id
+
+    # 注销后该 run 的 user_id 已置空 ⇒ fixture 的前缀清理覆盖不到它；
+    # 必须显式清掉，否则会以 CREATED 形态留在库里污染 count_active（实测踩坑）。
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+        cur.execute("DELETE FROM moderation_records WHERE id = %s", (record_id,))

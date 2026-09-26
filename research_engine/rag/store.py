@@ -157,3 +157,18 @@ class VectorStore:
         client = self._get_client()
         if client:
             client.delete_collection(collection_name=self.collection)
+
+    def delete_by_user(self, user_id: str) -> None:
+        """删除某用户的全部文档块（P7-A 注销清理）。
+
+        Qdrant 不可用时抛 `RuntimeError` —— 由调用方决定是阻断注销还是如实回报「清理未完成」。
+        """
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        client.delete(
+            collection_name=self.collection,
+            points_selector=Filter(must=[
+                FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+            ]),
+        )

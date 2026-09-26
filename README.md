@@ -146,6 +146,7 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 - **账号（P4-A）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（httpOnly Session + CSRF 双提交）；邀请码与账号用 CLI 管理：`python -m web.backend.admin create-invite` / `create-user` / `ban-user`；本地默认全关（行为与 P3 一致）。
 - **配额与限流（P4-B）**：单用户 `DR_DAILY_RUNS_PER_USER=1` 次/日、并发 `DR_MAX_USER_CONCURRENT=1`；单次预算 `DR_RUN_BUDGET_CNY=¥1.50`、全局月度 `DR_MONTHLY_BUDGET_CNY=¥1,500`（100% 熔断新任务，查询/导出不受影响）；`GET /api/quota` 查余量；登录/注册/提交限流（进程内，多实例部署前需迁 Redis）。
 - **RAG 隔离（P5-A）**：知识库块带 `user_id`/`tenant_id`/`visibility`；每次研究按 run 所有者设检索作用域（owner 只见本人 private，匿名只见无主历史块，绝不跨用户）；HTTP 上传面（携带当前用户）属 P6。
+- **内容安全与隐私（P7-A）**：输入预检词表（`DR_MODERATION_BLOCKLIST`，命中即拒）；输出命中仅标记 `flagged` **不自动拦截**（等人工复核）；申诉入口与审核记录（CLI `moderation-list`）；账号注销（验密 + 清理知识库向量，任务匿名保留）；隐私政策/用户协议草案见 `docs/legal/`。⚠️ 规则预检**不是审核服务**，正式开放前必须接入有资质服务。
 
 Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
 查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、
@@ -370,7 +371,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **546 项收集 = 523 通过 + 23 跳过** | 2026-09-26 本机 Python 3.13.14 完整复验（零 LLM、零 key）；CI 覆盖 3.11/3.12/3.13 + `frontend` + **`infra`（真实 PG/Redis：仓储 19 + 队列/Worker 集成 4）** + `e2e`。跳过的 23 条为真实服务用例，由 `infra` job 强制执行；Web 层含流式 16 + HTTP 8 + 运行护栏 35 + 探针 6 + 持久化接线 13 + 鉴权 9 + 配额/限流 6；RAG 隔离 10 + 上传 API 6；Worker 单元 10；eval 侧 25 条；**浏览器 E2E 17 条**（含账号条 / 历史降级 / 上传类型拒绝 / 邀请链接 / 历史筛选分页 / 移动端无横向滚动） |
+| 单元测试 | **559 项收集 = 533 通过 + 26 跳过** | 2026-09-26 本机 Python 3.13.14 完整复验（零 LLM、零 key）；CI 覆盖 3.11/3.12/3.13 + `frontend` + **`infra`（真实 PG/Redis）** + `e2e`。跳过的 26 条为真实服务用例，由 `infra` job 强制执行；新增内容安全 5 + 内容安全 API 7 + 仓储契约 1；**浏览器 E2E 18 条**（含政策弹窗 / flagged 徽标 / 邀请链接 / 移动端无横向滚动） |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |

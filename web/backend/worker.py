@@ -43,6 +43,7 @@ from .agui import (
     STEP_FINISHED,
 )
 from .errors import error_payload
+from .moderation import flag_report
 from .persistence import persist_terminal
 from .queue import RunQueue
 from .runner import _env_int, _estimate_cost_cny
@@ -315,6 +316,8 @@ class Worker:
         }
         persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
                          result=result, report=report, meta=meta, topic=topic)
+        # P7-A：输出侧内容标记（命中词表 ⇒ flagged + 审核记录；不删除正文）
+        flag_report(self._store, run_id, row.get("user_id"), report)
 
     def _mark_crashed(self, run_id: str, exc: Exception) -> None:
         payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
