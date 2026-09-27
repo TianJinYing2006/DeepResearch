@@ -99,6 +99,15 @@ def _configure_connection(conn: psycopg.Connection) -> None:
 #: 终局状态（不得再迁移）；活跃状态见 `persistence.ACTIVE_STATUSES`（单一来源，此处再导出）
 TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
 
+#: SSE 事件唤醒通道（P2-4）：事件写入在**同一事务**内 `pg_notify`（提交后送达），
+#: API 进程的 LISTEN 连接借此即时唤醒尾随循环；仅作延迟优化，正确性仍靠轮询兜底。
+EVENTS_CHANNEL = "dr_run_events"
+
+
+def notify_events(cur: psycopg.Cursor, run_id: str) -> None:
+    """事务内事件唤醒（同事务提交才送达，回滚不发）。"""
+    cur.execute("SELECT pg_notify(%s, %s)", (EVENTS_CHANNEL, run_id))
+
 #: `update_status` 允许写的列白名单（防注入与误写主键/记账列）
 _UPDATABLE_FIELDS = frozenset({
     "research_status", "stop_reason", "current_node", "token_used", "cost_estimate_cny",
@@ -166,6 +175,11 @@ class RunStore:
         pool, self._pool = self._pool, None
         if pool is not None:
             pool.close()
+
+    @property
+    def dsn(self) -> str:
+        """连接串（P2-4：API 侧 LISTEN 专连接复用同一 DSN）。"""
+        return self._dsn
 
     def ping(self) -> None:
         """连接可用性探针（readiness 升级用；失败直接抛异常）。"""
@@ -464,6 +478,7 @@ class RunStore:
                         (run_id, sequence, event_type, Jsonb(payload or {})),
                     )
                     cur.fetchone()
+                    notify_events(cur, run_id)  # P2-4：SSE 唤醒（同事务）
                 return sequence
             except psycopg.errors.ForeignKeyViolation as exc:
                 raise LookupError(f"run not found: {run_id}") from exc
@@ -480,6 +495,8 @@ class RunStore:
                         (run_id, event_type, Jsonb(payload or {}), run_id),
                     )
                     row = cur.fetchone()
+                    if row is not None:
+                        notify_events(cur, run_id)  # P2-4：SSE 唤醒（同事务）
                 if row is None:
                     raise LookupError(f"run not found: {run_id}")
                 return row["sequence"]
@@ -796,6 +813,7 @@ class RunStore:
                             (run_id, sequence, event_type, Jsonb(payload or {})),
                         )
                     cur.fetchone()
+                    notify_events(cur, run_id)  # P2-4：SSE 唤醒（与终局事件/产物同事务）
                     for kind, meta in (artifacts or {}).items():
                         cur.execute(
                             """
