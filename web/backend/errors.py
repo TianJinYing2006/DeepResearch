@@ -103,10 +103,15 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         503, True,
         "文档摄取失败（解析 / embedding / 向量库）：按 message 排查后可重试同一文件。",
         component="rag"),
-    # --- 内容安全（P7-A）--------------------------------------------------
+    # --- 内容安全（P7-A / P0-4）------------------------------------------
     "content_blocked": ErrorSpec(
         400, False,
         "输入命中内容安全预检：请修改主题或附加要求后重试；如认为误判可提交申诉。",
+        component="moderation"),
+    "output_under_review": ErrorSpec(
+        403, False,
+        "报告命中内容安全预检，正在等待人工复核：复核通过或申诉处理前不开放查看与导出；"
+        "如认为误判可提交申诉。",
         component="moderation"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(

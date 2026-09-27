@@ -146,6 +146,8 @@ export interface RunFinishedEvent extends AguiEvent {
   elapsed_seconds?: number
   degradation_count: number
   has_report: boolean
+  /** P0-4：报告命中内容安全预检 ⇒ 正文已从事件流脱敏，等待人工复核 */
+  output_under_review?: boolean
   result: ResearchResult
 }
 
