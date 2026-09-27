@@ -94,6 +94,7 @@
 - [x] 运行类接口归属校验：鉴权开启时非本人一律 404；管理层走 CLI（不暴露 HTTP 管理面）
 - [x] 越权负向测试：查询 / 取消 / 导出 / SSE 订阅他人 `run_id` 全部 404 且不泄露存在性
 - [x] 密钥与账号不进日志（错误载荷不回显 password / token；FastAPI 默认不记录请求体）
+- [x] 安全审计日志（P1-5）：迁移 0007 `audit_logs`（**append-only**，无密码/token/PII，邮箱只记 `sha256[:16]`，actor 无外键保留线索）；请求级 `X-Request-ID` 关联。**事件最小集**：`register_success` / `login_success` / `login_failed` / `logout` / `password_changed` / `account_deletion_requested` / `csrf_failed` / `authz_denied` / `input_blocked` / `admin_*`（CLI 动作）；CLI `audit-list` 查看。⚠️ 防篡改（哈希链）与集中化外送（SIEM）留 P2；moderation 领域记录仍在 `moderation_records`
 
 ### 3.5 内容安全与隐私
 
@@ -320,3 +321,4 @@ location /api/ {
 | 2026-09-27 | P0-7 注销 durable outbox 同步：§3.5 注销行更新（台账 + outbox + 验证归零 + 告警 + CLI）；§5 恢复演练追加「重放删除台账」步骤；迁移 0005 与结构断言接入 CI `infra`；新增 `tests/test_deletion_outbox.py`（本机 604 收集 = 575 通过 + 29 跳过，ruff 全过） |
 | 2026-09-27 | P0-8a 上传硬化同步：§3.2 上传面更新（流式 + 三重校验 + 内容寻址 + 解析限额 + 限流）；§7.1 反代样例补 `client_max_body_size` / `client_body_timeout`；新增错误码 `unsupported_file_type` / `payload_too_large` / `document_limit_exceeded` 与 `tests/test_upload_hardening.py`（本机 612 收集 = 583 通过 + 29 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P0-8b 异步摄取管线同步：§3.2/§3.5 —— 隔离区 + 202 登记 + Worker 状态机（含可选 ClamAV）、`DELETE /api/rag/docs`、90 天保留期清扫、注销 outbox 联动清文件；compose api/worker 共享 `rag_quarantine` 卷；迁移 0006 与结构断言接入 CI `infra`；新增 `tests/test_ingestion_pipeline.py`（本机 623 收集 = 593 通过 + 30 跳过，ruff / tsc / vite build 全过） |
+| 2026-09-27 | P1-5 安全审计日志同步：§3.4 增补审计勾选与事件最小集（ASVS V16 口径）；迁移 0007 + 结构断言接入 CI `infra`；新增 `tests/test_audit_logs.py`（本机 628 收集 = 597 通过 + 31 跳过，ruff 全过） |

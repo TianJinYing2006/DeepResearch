@@ -15,6 +15,7 @@
     python -m web.backend.admin process-deletions [--batch 5]  # 手工跑一批 outbox
     python -m web.backend.admin ingestion-list [--status ready] [--limit 50]
     python -m web.backend.admin delete-doc --doc-id <user:hash16>  # 同步删向量并验证
+    python -m web.backend.admin audit-list [--action login_failed] [--actor u] [--limit 100]
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -37,6 +38,14 @@ def _store() -> RunStore:
         print("需要 DR_DATABASE_URL（任务库）", file=sys.stderr)
         raise SystemExit(2)
     return RunStore(dsn)
+
+
+def _audit(store: RunStore, action: str, **detail) -> None:
+    """P1-5：管理动作审计（best-effort，不打断 CLI 主流程）。"""
+    try:
+        store.record_audit(action, detail={"via": "cli", **detail})
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -79,6 +88,11 @@ def _build_parser() -> argparse.ArgumentParser:
     delete_doc = sub.add_parser("delete-doc", help="按 doc_id 删除知识库文档（P0-8b；同步 + 验证）")
     delete_doc.add_argument("--doc-id", required=True)
 
+    audit_list = sub.add_parser("audit-list", help="查看安全审计日志（P1-5）")
+    audit_list.add_argument("--action", default="")
+    audit_list.add_argument("--actor", default="")
+    audit_list.add_argument("--limit", type=int, default=100)
+
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
 
@@ -100,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         password = args.password or secrets.token_urlsafe(12)
         user_id = uuid.uuid4().hex[:12]
         store.create_user(user_id, email, hash_password(password))
+        _audit(store, "admin_create_user", target_id=user_id, detail={"email": email})
         print(f"created user_id={user_id} email={email}")
         if not args.password:
             print(f"临时密码（仅本次打印）：{password}")
@@ -112,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.expires_days > 0 else None
         )
         store.create_invite(token_hash(code), created_by=args.created_by, expires_at=expires_at)
+        _audit(store, "admin_create_invite", detail={"expires_days": args.expires_days})
         print(f"邀请码（仅本次打印）：{code}")
         return 0
 
@@ -130,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
         password = secrets.token_urlsafe(12)
         store.update_password(user["user_id"], hash_password(password))
         revoked = store.revoke_user_sessions(user["user_id"])
+        _audit(store, "admin_reset_password", actor_user_id=user["user_id"],
+               detail={"revoked_sessions": revoked})
         print(f"已重置 {user['email']}；吊销 {revoked} 个会话")
         print(f"临时密码（仅本次打印）：{password}")
         return 0
@@ -212,6 +230,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"deleted doc {args.doc_id}（清理隔离区文件 {cleaned} 个）")
         return 0
 
+    if args.command == "audit-list":
+        rows = store.list_audit(action=args.action or None,
+                                actor_user_id=args.actor or None, limit=args.limit)
+        for row in rows:
+            print(f"#{row['id']} {row['at']:%Y-%m-%d %H:%M:%S} {row['action']:<28} "
+                  f"actor={row['actor_user_id'] or '-'} ip={row['ip'] or '-'} "
+                  f"req={row['request_id'] or '-'} detail={row['detail']}")
+        return 0
+
     if args.command == "delete-user":
         user = store.get_user_by_email(normalize_email(args.email))
         if user is None:
@@ -219,12 +246,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         request_id = uuid.uuid4().hex[:12]
         store.request_account_deletion(request_id, user["user_id"])
+        _audit(store, "admin_delete_user", actor_user_id=user["user_id"],
+               target_id=request_id)
         print(f"deleted {args.email}（deletion_request_id={request_id}；"
               f"任务与审核记录匿名保留；RAG 清理由 Worker 重试执行，`deletion-list` 查看）")
         return 0
 
     if args.command == "revoke-invite":
         ok = store.revoke_invite(token_hash(args.code.strip()))
+        if ok:
+            _audit(store, "admin_revoke_invite")
         print("revoked" if ok else "not found / already used / already revoked")
         return 0 if ok else 1
 
@@ -235,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         status = "banned" if args.command == "ban-user" else "active"
         ok = store.set_user_status(user["user_id"], status)
+        if ok:
+            _audit(store, f"admin_{args.command}", actor_user_id=user["user_id"])
         print(f"{status} {user['user_id']}" if ok else "failed")
         return 0 if ok else 1
 

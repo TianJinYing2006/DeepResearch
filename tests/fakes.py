@@ -91,6 +91,7 @@ class FakeStore:
         self.deletion_outbox: dict[tuple, dict] = {}
         self._deletion_outbox_seq = 0
         self.ingestions: dict[str, dict] = {}
+        self.audits: list[dict] = []
         self.fail_events = False
 
     def ping(self) -> None:
@@ -712,6 +713,25 @@ class FakeStore:
         for row in self.ingestions.values():
             counts[row["status"]] = counts.get(row["status"], 0) + 1
         return counts
+
+    # ---- 安全审计日志（P1-5）----
+
+    def record_audit(self, action, *, actor_user_id=None, target_type=None, target_id=None,
+                     ip=None, user_agent=None, request_id=None, detail=None):
+        self.audits.append({
+            "id": len(self.audits) + 1, "at": datetime.now(UTC), "action": action,
+            "actor_user_id": actor_user_id, "target_type": target_type,
+            "target_id": target_id, "ip": ip, "user_agent": user_agent,
+            "request_id": request_id, "detail": detail or {},
+        })
+        return len(self.audits)
+
+    def list_audit(self, *, action=None, actor_user_id=None, limit=100):
+        rows = [row for row in self.audits
+                if (action is None or row["action"] == action)
+                and (actor_user_id is None or row["actor_user_id"] == actor_user_id)]
+        rows.sort(key=lambda row: row["at"], reverse=True)
+        return [dict(row) for row in rows[:limit]]
 
     def purge_expired_sessions(self):
         now = datetime.now(UTC)

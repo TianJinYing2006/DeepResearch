@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import secrets
@@ -101,6 +102,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next):
+    """P1-5：为每个请求分配 `X-Request-ID`（支持透传），供审计 / 日志关联。"""
+    request_id = (request.headers.get("x-request-id") or "").strip()[:64]
+    request.state.request_id = request_id or uuid.uuid4().hex[:12]
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
 
 
 @app.middleware("http")
@@ -532,6 +543,8 @@ def _check_csrf(request: Request) -> None:
     cookie = request.cookies.get(CSRF_COOKIE)
     header = request.headers.get(CSRF_HEADER)
     if not cookie or not header or not secrets.compare_digest(cookie, header):
+        _audit("csrf_failed", request=request,
+               detail={"path": request.url.path})
         raise http_error("csrf_failed", "CSRF 校验失败：缺少或错误的 X-CSRF-Token")
 
 
@@ -554,6 +567,8 @@ def _authorize_run(request: Request, run_id: str) -> Optional[str]:
     if AUTH_REQUIRED:
         user_id = _require_user(request)
         if owner != user_id:
+            _audit("authz_denied", request=request, actor_user_id=user_id,
+                   target_type="run", target_id=run_id)
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
     return owner
 
@@ -603,6 +618,27 @@ def _set_session_cookies(response: Response, user_id: str) -> None:
 
 def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+def _audit(action: str, *, request: Optional[Request] = None,
+           actor_user_id: Optional[str] = None, target_type: Optional[str] = None,
+           target_id: Optional[str] = None, detail: Optional[dict] = None) -> None:
+    """安全审计（P1-5，append-only）：best-effort —— 审计失败绝不打断业务。"""
+    if store is None:
+        return
+    meta: dict = {}
+    if request is not None:
+        meta = {
+            "ip": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent"),
+            "request_id": getattr(request.state, "request_id", None),
+        }
+    try:
+        store.record_audit(
+            action, actor_user_id=actor_user_id, target_type=target_type,
+            target_id=target_id, detail=detail, **meta)
+    except Exception:  # noqa: BLE001 —— 审计是旁路，不得影响主流程
+        pass
 
 
 def _day_start_utc() -> datetime:
@@ -773,6 +809,8 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
         ) from exc
     _store_call(store.touch_last_login, user["user_id"])
     _set_session_cookies(response, user["user_id"])
+    _audit("register_success", request=request, actor_user_id=user["user_id"],
+           detail={"invite": bool(req.invite_code)})
     return {"user": _public_user(user)}
 
 
@@ -786,17 +824,25 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
     user = _store_call(store.get_user_by_email, normalize_email(req.email))
     if (user is None or user["status"] != "active"
             or not verify_password(user["password_hash"], req.password)):
+        _audit("login_failed", request=request, detail={
+            "email_hash": hashlib.sha256(
+                normalize_email(req.email).encode("utf-8")).hexdigest()[:16],
+        })
         raise http_error("invalid_credentials", "邮箱或密码不正确")
     _store_call(store.touch_last_login, user["user_id"])
     _set_session_cookies(response, user["user_id"])
+    _audit("login_success", request=request, actor_user_id=user["user_id"])
     return {"user": _public_user(user)}
 
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response) -> dict:
+    user = _session_user(request)
     token = request.cookies.get(SESSION_COOKIE)
     if token and store is not None:
         _store_call(store.revoke_session, token_hash(token))
+    if user is not None:
+        _audit("logout", request=request, actor_user_id=user["user_id"])
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")
     return {"ok": True}
@@ -825,8 +871,10 @@ def auth_change_password(req: ChangePasswordRequest, request: Request, response:
     if not verify_password(user["password_hash"], req.current_password):
         raise http_error("invalid_credentials", "当前密码不正确")
     _store_call(store.update_password, user["user_id"], hash_password(req.new_password))
-    _store_call(store.revoke_user_sessions, user["user_id"])
+    revoked = _store_call(store.revoke_user_sessions, user["user_id"])
     _set_session_cookies(response, user["user_id"])
+    _audit("password_changed", request=request, actor_user_id=user["user_id"],
+           detail={"revoked_sessions": revoked})
     return {"ok": True}
 
 
@@ -860,6 +908,8 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
             "persistence_unavailable",
             f"注销登记失败：{type(exc).__name__}: {exc}"[:200],
         ) from exc
+    _audit("account_deletion_requested", request=request, actor_user_id=user_id,
+           target_type="deletion_request", target_id=request_id)
 
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")
@@ -895,6 +945,8 @@ def start(req: StartRequest, request: Request) -> StartResponse:
         if store is not None:
             _store_call(store.record_moderation, "input_blocked", user_id=user_id,
                         detail={"matches": blocked_terms[:10]})
+        _audit("input_blocked", request=request, actor_user_id=user_id,
+               detail={"matches": blocked_terms[:5]})
         raise http_error(
             "content_blocked", "输入包含不允许的内容",
             detail=f"matches={blocked_terms[:5]}",
