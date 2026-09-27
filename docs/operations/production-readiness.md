@@ -90,7 +90,7 @@
 - [ ] 密码重置（邮件通道）—— P4-B / P7
 - [x] 密码哈希 Argon2id；会话 httpOnly + SameSite；`DR_COOKIE_SECURE=true` 时加 Secure（**P0-9：staging/生产启动硬校验要求为 true**，不允许带 `Secure=false` 启动）
 - [x] CSRF 防护：双提交 Cookie（写操作校验 `X-CSRF-Token`）—— P4-A
-- [x] 登录与提交接口限流（进程内固定窗口，P4-B；⚠️ 多实例部署前必须迁移 Redis —— 否则各实例各算一份）
+- [x] 登录与提交接口限流：**P1-2 起配置 Redis 时为滑动窗口（Lua 原子、多实例共享）**，未配置回落进程内固定窗口；登录双维度（IP + 账号哈希，防定向撞库）；`DR_TRUST_PROXY=true` 时才采用 `X-Forwarded-For` 首跳；Redis 抖动 **fail-open** 并记 `ratelimit_redis_error`（限流是纵深，非唯一安全边界）
 - [x] 运行类接口归属校验：鉴权开启时非本人一律 404；管理层走 CLI（不暴露 HTTP 管理面）
 - [x] 越权负向测试：查询 / 取消 / 导出 / SSE 订阅他人 `run_id` 全部 404 且不泄露存在性
 - [x] 密钥与账号不进日志（错误载荷不回显 password / token；FastAPI 默认不记录请求体）
@@ -325,3 +325,4 @@ location /api/ {
 | 2026-09-27 | P1-5 安全审计日志同步：§3.4 增补审计勾选与事件最小集（ASVS V16 口径）；迁移 0007 + 结构断言接入 CI `infra`；新增 `tests/test_audit_logs.py`（本机 628 收集 = 597 通过 + 31 跳过，ruff 全过） |
 | 2026-09-27 | P1-1 幂等请求指纹同步：§3.3 幂等键行更新（同键不同载荷 409）；迁移 0008 + 结构断言接入 CI `infra`；新增 `tests/test_idempotency_conflict.py`（本机 634 收集 = 603 通过 + 31 跳过，ruff 全过） |
 | 2026-09-27 | P1-3 Worker registry 同步：§3.1 readiness 项勾选（队列模式要求活跃 worker）、§3.6 增补注册表/心跳；迁移 0009 + 结构断言接入 CI `infra`；新增 `tests/test_worker_registry.py`（本机 640 收集 = 608 通过 + 32 跳过，ruff 全过） |
+| 2026-09-27 | P1-2 分布式限流同步：§3.4 限流行更新（Redis 滑动窗口 + 双维度 + 可信代理 + fail-open）；compose 增 `DR_TRUST_PROXY`；真实 Redis 原子性测试接入 CI `infra`；新增 `tests/test_distributed_ratelimit.py`（本机 646 收集 = 613 通过 + 33 跳过，ruff 全过） |

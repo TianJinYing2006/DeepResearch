@@ -24,4 +24,6 @@ os.environ["LANGFUSE_ENABLED"] = "false"
 # P4-B：单测进程内关掉登录/提交限流（默认 10/分钟会跨用例累计，导致假失败）；
 # 限流本身由 tests/test_ratelimit.py 与 test_quotas.py 用显式限流器覆盖。
 os.environ.setdefault("DR_LOGIN_RATE_PER_MINUTE", "0")
+# P1-2：登录账号维度限流同理关闭（定向撞库用例单独 monkeypatch 覆盖）
+os.environ.setdefault("DR_LOGIN_ACCOUNT_RATE_PER_MINUTE", "0")
 os.environ.setdefault("DR_SUBMIT_RATE_PER_MINUTE", "0")
