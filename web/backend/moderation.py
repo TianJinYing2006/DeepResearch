@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from typing import Iterable, Optional
 
+from .injection_guard import scan_output_leak
+
 #: 默认空词表：宁可少拦，也不误伤；实际词表由部署方按属地要求配置
 DEFAULT_BLOCKLIST: tuple[str, ...] = ()
 
@@ -41,32 +43,35 @@ def scan(text: str, blocklist: Optional[Iterable[str]] = None) -> list[str]:
 
 
 def flag_report(store, run_id: str, user_id: Optional[str], report: Optional[str]) -> list[str]:
-    """输出侧标记（P7-A）：报告命中词表 ⇒ 标记 `flagged` 并留审核记录；不删除正文。
+    """输出侧标记（P7-A / P2-1a）：命中词表或系统提示泄漏 ⇒ 标记 `flagged` 并留记录。
 
     调用方负责异常隔离（这里让异常上抛，由 runner/worker 的持久化失败语义处理）。
     """
     matches = scan(report or "")
-    if not matches:
+    leaks = scan_output_leak(report or "")
+    if not matches and not leaks:
         return []
     store.record_moderation(
         "output_flagged", user_id=user_id, run_id=run_id,
-        detail={"matches": matches[:10]},
+        detail={"matches": matches[:10], "output_leaks": leaks[:5]},
     )
     store.set_moderation_status(run_id, "flagged")
-    return matches
+    return matches or leaks
 
 
 def apply_output_gate(payload: dict, report: Optional[str]) -> list[str]:
-    """输出侧统一闸（P0-4）：命中词表 ⇒ 事件流 / 传输层脱敏，**产物原文不删**。
+    """输出侧统一闸（P0-4 / P2-1a）：命中词表或系统提示泄漏 ⇒ 事件流 / 传输层脱敏，
+    **产物原文不删**。
 
     必须在**发帧与落库之前**调用：这样 `run_events`（SSE 回放的权威来源）
     与实时帧都不携带完整正文；完整原文只留在 `run_artifacts.report_md`，
     供管理员 / 审核人员经 CLI 复核（普通用户导出由 API 闸拒绝）。
 
-    返回命中词；无命中返回空列表（payload 原样不动）。
+    返回命中项（命中词或泄漏标记）；无命中返回空列表（payload 原样不动）。
     """
     matches = scan(report or "")
-    if not matches:
+    leaks = scan_output_leak(report or "")
+    if not matches and not leaks:
         return []
     result = payload.get("result")
     if isinstance(result, dict) and result.get("report"):
@@ -74,4 +79,4 @@ def apply_output_gate(payload: dict, report: Optional[str]) -> list[str]:
         result["report"] = ""
         payload["result"] = result
     payload["output_under_review"] = True
-    return matches
+    return matches or leaks

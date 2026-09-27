@@ -17,6 +17,7 @@ from qdrant_client.models import PointStruct
 from config import config
 from research_engine.rag.ids import stable_id as _stable_id
 from research_engine.rag.store import VectorStore
+from research_engine.sanitize import strip_invisible
 from research_engine.usage import UsageRecord, emit_usage
 
 
@@ -153,6 +154,8 @@ class DocumentIngester:
         """
         text = self.parse_file(path)
         chunks = self.chunk_text(text)
+        # P2-1a：摄入边界净化 —— 剥离不可见 Unicode（tag-block/零宽/变体选择符）
+        chunks = [clean for clean in (strip_invisible(chunk) for chunk in chunks) if clean.strip()]
         if len(chunks) > config.rag.max_chunks:
             raise IngestLimitExceeded(
                 f"分块数 {len(chunks)} 超过上限 {config.rag.max_chunks}")

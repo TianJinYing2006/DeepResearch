@@ -45,6 +45,7 @@ from .auth import (
 )
 from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload, http_error
+from .injection_guard import scan_injection
 from .metrics import METRICS
 from .moderation import (
     MAX_APPEAL_LENGTH,
@@ -1158,6 +1159,18 @@ def start(req: StartRequest, request: Request) -> StartResponse:
         raise http_error(
             "content_blocked", "输入包含不允许的内容",
             detail=f"matches={blocked_terms[:5]}",
+        )
+    # P2-1a：注入模式预检（窄口径：显式指令覆盖 / 系统提示索取；命中即拒绝并留痕）
+    injection_hits = scan_injection(f"{req.topic}\n{req.instructions}")
+    if injection_hits:
+        if store is not None:
+            _store_call(store.record_moderation, "input_blocked", user_id=user_id,
+                        detail={"injection": injection_hits})
+        _audit("input_injection_blocked", request=request, actor_user_id=user_id,
+               detail={"patterns": injection_hits})
+        raise http_error(
+            "content_blocked", "输入包含疑似指令注入内容",
+            detail=f"patterns={injection_hits}",
         )
     # 搜索引擎由服务端配置固定（需求 10 §3.1 第 13 项）；客户端字段已在上面忽略。
     try:
