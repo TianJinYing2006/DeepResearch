@@ -70,6 +70,10 @@ def policies() -> list[RetentionPolicy]:
             note="审核留痕 180 天",
         ),
         RetentionPolicy(
+            "moderation_appeals", "created_at", _env_days("DR_RETENTION_MODERATION_DAYS", 180),
+            note="申诉/复核留痕 180 天（与审核记录同档；超期未决由 SLA 告警暴露）",
+        ),
+        RetentionPolicy(
             "audit_logs", "at", _env_days("DR_RETENTION_AUDIT_DAYS", 180),
             note="安全审计 180 天",
         ),

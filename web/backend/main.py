@@ -32,6 +32,7 @@ from research_engine.search.base import KNOWN_PROVIDERS
 
 from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, sse_frame
 from .alerts import alert_webhook_url, collect_alerts
+from .appeals import submit_appeal
 from .auth import (
     CSRF_COOKIE,
     CSRF_HEADER,
@@ -1330,6 +1331,10 @@ def ops_alerts() -> dict:
                     within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS)
         if store is not None else None
     )
+    overdue_appeals = (
+        _store_call(store.count_appeals_overdue, datetime.now(UTC))
+        if store is not None else 0
+    )
     alerts = collect_alerts(
         thresholds={
             "http_5xx_rate_pct": ALERT_5XX_RATE_PCT,
@@ -1345,6 +1350,7 @@ def ops_alerts() -> dict:
         month_budget=MONTHLY_BUDGET_CNY,
         workers_live=workers_live,
         execution_mode=EXECUTION_MODE,
+        overdue_appeals=overdue_appeals,
     )
     return {"ok": True, "alert_count": len(alerts), "alerts": alerts,
             "webhook_configured": bool(alert_webhook_url())}
@@ -1387,11 +1393,32 @@ def moderation_appeal(req: AppealRequest, request: Request) -> dict:
                 "该任务的申诉已在处理中",
                 detail=f"run_id={req.run_id}",
             )
-    _store_call(
-        store.record_moderation, "appeal", user_id=user_id, run_id=req.run_id,
-        detail={"message": req.message[:MAX_APPEAL_LENGTH]},
-    )
-    return {"ok": True}
+    row = _store_call(submit_appeal, store, user_id=user_id,
+                      message=req.message[:MAX_APPEAL_LENGTH], run_id=req.run_id)
+    return {"ok": True, "appeal_id": row["appeal_id"], "status": row["status"],
+            "sla_due_at": row["sla_due_at"].isoformat() if row.get("sla_due_at") else None}
+
+
+@app.get("/api/moderation/appeals")
+def my_appeals(request: Request) -> dict:
+    """本人申诉与复核状态（P2-5b）；鉴权关闭时（本地/演示）返回全部最近记录。"""
+    if store is None:
+        return {"ok": True, "appeals": []}
+    user_id = _require_user(request) if AUTH_REQUIRED else None
+    rows = _store_call(store.list_appeals, user_id=user_id, limit=50)
+
+    def _iso(value) -> Optional[str]:
+        return value.isoformat() if value is not None else None
+
+    return {"ok": True, "appeals": [
+        {"appeal_id": row["appeal_id"], "run_id": row.get("run_id"),
+         "status": row["status"], "message": row["message"],
+         "decision_note": row.get("decision_note"),
+         "sla_due_at": _iso(row.get("sla_due_at")),
+         "decided_at": _iso(row.get("decided_at")),
+         "created_at": _iso(row.get("created_at"))}
+        for row in rows
+    ]}
 
 
 @app.get("/api/legal/{doc}")

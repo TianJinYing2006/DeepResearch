@@ -22,6 +22,9 @@
     python -m web.backend.admin alerts-list [--status firing] [--limit 100]
     python -m web.backend.admin alert-deliveries [--undelivered] [--limit 50]
     python -m web.backend.admin retry-alert --delivery-id 3 [--delay-seconds 0]
+    python -m web.backend.admin appeal-list [--status pending] [--limit 50]
+    python -m web.backend.admin appeal-claim --appeal-id <id> [--reviewer cli]
+    python -m web.backend.admin appeal-decide --appeal-id <id> --decision accepted|rejected [--note ...]
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -124,6 +127,24 @@ def _build_parser() -> argparse.ArgumentParser:
     retry_alert = sub.add_parser("retry-alert", help="人工重试告警外送（P2-6；重置 attempts）")
     retry_alert.add_argument("--delivery-id", type=int, required=True)
     retry_alert.add_argument("--delay-seconds", type=int, default=0)
+
+    appeal_list = sub.add_parser("appeal-list", help="列出申诉/复核状态（P2-5b）")
+    appeal_list.add_argument("--status", default="",
+                             help="pending / reviewing / accepted / rejected")
+    appeal_list.add_argument("--limit", type=int, default=50)
+
+    appeal_claim = sub.add_parser("appeal-claim",
+                                  help="领取申诉复核（pending→reviewing；P2-5b）")
+    appeal_claim.add_argument("--appeal-id", required=True)
+    appeal_claim.add_argument("--reviewer", default="cli")
+
+    appeal_decide = sub.add_parser("appeal-decide",
+                                   help="作出复核决策（accepted 置 run=cleared；P2-5b）")
+    appeal_decide.add_argument("--appeal-id", required=True)
+    appeal_decide.add_argument("--decision", required=True,
+                               choices=("accepted", "rejected"))
+    appeal_decide.add_argument("--note", default="")
+    appeal_decide.add_argument("--reviewer", default="cli")
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -333,6 +354,37 @@ def main(argv: list[str] | None = None) -> int:
             _audit(store, "admin_retry_alert", target_id=str(args.delivery_id))
         print("requeued" if ok else "not found / already delivered")
         return 0 if ok else 1
+
+    if args.command == "appeal-list":
+        rows = store.list_appeals(status=args.status or None, limit=args.limit)
+        for row in rows:
+            print(f"{row['appeal_id']} {row['status']:<10} run={row.get('run_id') or '-'} "
+                  f"user={row.get('user_id') or '-'} "
+                  f"sla={row.get('sla_due_at') or '-'} decided={row.get('decided_at') or '-'} "
+                  f"msg={row['message'][:60]}")
+        return 0
+
+    if args.command == "appeal-claim":
+        row = store.claim_appeal(args.appeal_id, reviewer=args.reviewer)
+        if row is None:
+            print("not found / not pending", file=sys.stderr)
+            return 1
+        _audit(store, "appeal_claimed", target_id=args.appeal_id,
+               detail={"reviewer": args.reviewer})
+        print(f"claimed {args.appeal_id} (reviewing by {args.reviewer})")
+        return 0
+
+    if args.command == "appeal-decide":
+        from .appeals import review_appeal
+
+        result = review_appeal(store, args.appeal_id, decision=args.decision,
+                               note=args.note or None, reviewer=args.reviewer)
+        if not result["ok"]:
+            print(f"failed: {result['reason']}", file=sys.stderr)
+            return 1
+        suffix = "（run 已置 cleared，导出放行）" if result["run_cleared"] else ""
+        print(f"decided {args.appeal_id}: {args.decision}{suffix}")
+        return 0
 
     if args.command == "delete-user":
         user = store.get_user_by_email(normalize_email(args.email))
