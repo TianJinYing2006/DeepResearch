@@ -22,11 +22,12 @@ BEGIN
     END IF;
 END $$;
 
+INSERT INTO runs (run_id, topic) VALUES ('__assert_artifact_run__', 't')
+ON CONFLICT DO NOTHING;
+
 DO $$
 BEGIN
     BEGIN
-        INSERT INTO runs (run_id, topic) VALUES ('__assert_artifact_run__', 't')
-        ON CONFLICT DO NOTHING;
         INSERT INTO run_artifacts (run_id, kind, body, storage)
         VALUES ('__assert_artifact_run__', 'bad', '', 'whatever');
         RAISE EXCEPTION 'schema assert: run_artifacts.storage accepted invalid value';
