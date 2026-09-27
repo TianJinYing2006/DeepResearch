@@ -18,6 +18,7 @@
     python -m web.backend.admin audit-list [--action login_failed] [--actor u] [--limit 100]
     python -m web.backend.admin create-reset-token --email a@b.c [--expires-minutes 30]
     python -m web.backend.admin usage-summary [--run-id r] [--days 30]
+    python -m web.backend.admin retention-run [--dry-run]  # 数据保留期清理（P2-2）
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -103,6 +104,10 @@ def _build_parser() -> argparse.ArgumentParser:
     usage = sub.add_parser("usage-summary", help="用量账本汇总（P1-4；先对请求数再对钱）")
     usage.add_argument("--run-id", default="")
     usage.add_argument("--days", type=int, default=30)
+
+    retention = sub.add_parser("retention-run",
+                               help="执行数据保留期清理（P2-2；默认真删，--dry-run 演练）")
+    retention.add_argument("--dry-run", action="store_true")
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -272,6 +277,18 @@ def main(argv: list[str] | None = None) -> int:
                   f"tokens={row['tokens']} cost≈¥{row['cost_cny']:.4f} ({row['cost_source']})")
         print(f"TOTAL calls={summary['calls']} tokens={summary['tokens']} "
               f"cost≈¥{summary['cost_cny']:.4f}")
+        return 0
+
+    if args.command == "retention-run":
+        from .retention import run_retention
+
+        summary = run_retention(store, dry_run=args.dry_run)
+        for item in summary["results"]:
+            flag = "  [ABORTED by guardrail]" if item.get("aborted") else ""
+            print(f"{item['table']:<20} total={item['total']:<8} "
+                  f"candidates={item['candidates']:<8} deleted={item['deleted']:<8}"
+                  f"{flag}")
+        print(f"deleted_total={summary['deleted_total']} dry_run={summary['dry_run']}")
         return 0
 
     if args.command == "delete-user":

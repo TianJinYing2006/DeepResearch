@@ -62,6 +62,7 @@ from .moderation import apply_output_gate, flag_report
 from .otel import run_span, setup_otel
 from .persistence import persist_terminal
 from .queue import RunQueue
+from .retention import run_retention
 from .runner import _env_int, _estimate_cost_cny
 from .store import RunStore
 from .usage import make_store_sink
@@ -202,6 +203,16 @@ class Worker:
                                 _log(f"retention: {purged}")
                         except Exception as exc:  # noqa: BLE001
                             _log(f"retention purge failed: {type(exc).__name__}: {exc}")
+                        try:
+                            # P2-2：数据保留期清理（事件 30d / 运行 90d / 审计等 180d）
+                            summary = run_retention(self._store)
+                            if summary["deleted_total"]:
+                                _log(f"retention purge: deleted={summary['deleted_total']}")
+                            aborted = [r["table"] for r in summary["results"] if r["aborted"]]
+                            if aborted:
+                                _log(f"retention guardrail aborted tables: {aborted}")
+                        except Exception as exc:  # noqa: BLE001
+                            _log(f"data retention failed: {type(exc).__name__}: {exc}")
                         next_retention = time.monotonic() + 24 * 3600
                     next_sweep = time.monotonic() + self.sweep_seconds
                 if self.claim_next():

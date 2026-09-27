@@ -1491,6 +1491,55 @@ class RunStore:
             cur.execute("SELECT status, count(*) AS n FROM rag_ingestions GROUP BY status")
             return {row["status"]: int(row["n"]) for row in cur.fetchall()}
 
+    # ---- 保留期清理（P2-2）----
+
+    #: 允许清理的表与时间列白名单（防注入；只接受代码内常量，不接受调用方自由拼接）
+    PURGE_TARGETS: frozenset[tuple[str, str]] = frozenset({
+        ("run_events", "created_at"),
+        ("runs", "finished_at"),
+        ("usage_ledger", "created_at"),
+        ("moderation_records", "created_at"),
+        ("audit_logs", "at"),
+    })
+
+    def _check_purge_target(self, table: str, time_column: str) -> None:
+        if (table, time_column) not in self.PURGE_TARGETS:
+            raise ValueError(f"purge target not allowed: {table}.{time_column}")
+
+    def count_table(self, table: str) -> int:
+        if table not in {name for name, _ in self.PURGE_TARGETS}:
+            raise ValueError(f"count target not allowed: {table}")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) AS n FROM {table}")  # noqa: S608 —— 标识符来自白名单
+            return int(cur.fetchone()["n"])
+
+    def count_before(self, table: str, time_column: str, before: datetime, *,
+                     where_extra: str = "") -> int:
+        self._check_purge_target(table, time_column)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT count(*) AS n FROM {table} "  # noqa: S608 —— 标识符来自白名单
+                f"WHERE {time_column} < %s {where_extra}",
+                (before,),
+            )
+            return int(cur.fetchone()["n"])
+
+    def purge_before(self, table: str, time_column: str, before: datetime, *,
+                     where_extra: str = "", batch: int = 5000) -> int:
+        """按时间批量硬删除（`ctid` + `LIMIT`，无需主键假设）；返回删除行数。
+
+        批量循环由调用方控制（避免长事务锁表）；标识符只来自 `PURGE_TARGETS` 白名单。
+        """
+        self._check_purge_target(table, time_column)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {table} WHERE ctid IN ("  # noqa: S608 —— 标识符来自白名单
+                f"SELECT ctid FROM {table} WHERE {time_column} < %s {where_extra} "
+                f"ORDER BY {time_column} LIMIT %s) RETURNING 1",
+                (before, max(1, batch)),
+            )
+            return len(cur.fetchall())
+
     # ---- 安全审计日志（P1-5）----
 
     def record_audit(self, action: str, *, actor_user_id: Optional[str] = None,

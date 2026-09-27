@@ -789,6 +789,69 @@ class FakeStore:
         rows.sort(key=lambda row: row["at"], reverse=True)
         return [dict(row) for row in rows[:limit]]
 
+    # ---- 保留期清理（P2-2）----
+
+    _PURGE_TARGETS = frozenset({
+        ("run_events", "created_at"),
+        ("runs", "finished_at"),
+        ("usage_ledger", "created_at"),
+        ("moderation_records", "created_at"),
+        ("audit_logs", "at"),
+    })
+
+    def _purge_rows(self, table):
+        if table == "runs":
+            return list(self.runs.values())
+        if table == "run_events":
+            return [event for events in self.events.values() for event in events]
+        if table == "usage_ledger":
+            return list(self.usage)
+        if table == "moderation_records":
+            return list(self.moderation)
+        if table == "audit_logs":
+            return list(self.audits)
+        raise ValueError(f"purge target not allowed: {table}")
+
+    def _purge_eligible(self, table, row, time_column, before):
+        stamp = row.get(time_column)
+        if stamp is None or stamp >= before:
+            return False
+        if table == "runs" and row["status"] not in TERMINAL:
+            return False
+        return True
+
+    def count_table(self, table):
+        if table not in {name for name, _ in self._PURGE_TARGETS}:
+            raise ValueError(f"count target not allowed: {table}")
+        return len(self._purge_rows(table))
+
+    def count_before(self, table, time_column, before, *, where_extra=""):
+        if (table, time_column) not in self._PURGE_TARGETS:
+            raise ValueError(f"purge target not allowed: {table}.{time_column}")
+        return sum(1 for row in self._purge_rows(table)
+                   if self._purge_eligible(table, row, time_column, before))
+
+    def purge_before(self, table, time_column, before, *, where_extra="", batch=5000):
+        if (table, time_column) not in self._PURGE_TARGETS:
+            raise ValueError(f"purge target not allowed: {table}.{time_column}")
+        eligible = [row for row in self._purge_rows(table)
+                    if self._purge_eligible(table, row, time_column, before)][:batch]
+        for row in eligible:
+            if table == "runs":
+                run_id = row["run_id"]
+                self.runs.pop(run_id, None)
+                self.events.pop(run_id, None)
+                self.artifacts.pop(run_id, None)  # 级联语义（真实库为 FK CASCADE）
+            elif table == "run_events":
+                self.events[row["run_id"]].remove(row)
+            elif table == "usage_ledger":
+                self.usage.remove(row)
+            elif table == "moderation_records":
+                self.moderation.remove(row)
+            elif table == "audit_logs":
+                self.audits.remove(row)
+        return len(eligible)
+
     # ---- Worker 注册表（P1-3）----
 
     def register_worker(self, worker_id, *, version=None, hostname=None):
