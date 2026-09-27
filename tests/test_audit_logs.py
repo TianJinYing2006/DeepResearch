@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from web.backend import main as api
 from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
+from web.backend.moderation_providers import ModerationResult
 
 PASSWORD = "password-123456"
 
@@ -88,7 +89,8 @@ def test_csrf_and_authz_failures_are_audited(monkeypatch, store: FakeStore):
 
 def test_input_blocked_is_audited(monkeypatch, store: FakeStore):
     client = _client(monkeypatch, store, auth=False)
-    monkeypatch.setattr(api, "scan", lambda text: ["badword"])
+    monkeypatch.setattr(api, "scan_text",
+                        lambda text: ModerationResult(provider="test", matches=["badword"]))
 
     response = client.post("/api/research", json={"topic": "t"})
     assert response.status_code == 400

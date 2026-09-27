@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from web.backend import main as api
 from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
+from web.backend.moderation_providers import ModerationResult
 
 PASSWORD = "password-123456"
 
@@ -37,7 +38,8 @@ def _csrf(client: TestClient) -> dict[str, str]:
 
 
 def test_input_blocked_and_recorded(monkeypatch, store: FakeStore):
-    monkeypatch.setattr(api, "scan", lambda text: ["badword"])
+    monkeypatch.setattr(api, "scan_text",
+                        lambda text: ModerationResult(provider="test", matches=["badword"]))
     client = _client(monkeypatch, store)
 
     response = client.post("/api/research", json={"topic": "t"})

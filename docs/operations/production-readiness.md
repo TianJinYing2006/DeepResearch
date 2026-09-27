@@ -104,6 +104,7 @@
 - [x] 注入确定性防护（P2-1a，OWASP LLM01:2026 口径）：外部内容统一剥离不可见 Unicode（搜索/arXiv/RAG 摄入与检索两侧）；输入显式注入模式预检（中英文窄口径）；**输出泄漏过滤**（系统提示有限标记集合，命中按 P0-4 脱敏 + flagged）；`research_engine/net/safe_fetch.py`（resolve→全地址公网校验→禁重定向→pin IP→限时限量）作为未来 URL 抓取的唯一入口；prompts 未改动（W8 基线不受影响）
 - [ ] 注入深度防护（P2-1b，另行评估）：spotlighting 提示词标注、guardrail 模型、Rule of Two 人工确认 —— 涉及核链提示词变更，需先评测基线影响
 - [ ] 恶意 URL / 文件处理（P7-B）：与审核 provider / 文件扫描联动
+- [x] 审核 provider 抽象（P2-5a）：`web/backend/moderation_providers.py` 统一接口 `ModerationProvider.scan(text) -> ModerationResult`；默认 `local_rules`（`DR_MODERATION_BLOCKLIST`）；`DR_MODERATION_PROVIDER` 选择实现，**未知/未实现（如 `aliyun`）或 provider 异常一律记 WARNING 回退 `local_rules`**（fail-safe：宁可多拦不乱放行、请求不 5xx）；留痕 `moderation_records.detail.provider` 供审计/申诉溯源；egress 快照动态记录当前 provider；**本 PR 不引入任何外部 SDK / 网络调用**（阿里云等实现留待接入阶段）
 - [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前脱敏、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核
 - [ ] 敏感结果拦截与模型输出标识 —— P7-B（含接入有资质的审核服务）
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
@@ -345,3 +346,4 @@ location /api/ {
 | 2026-09-27 | P2-3 连接池与慢查询同步：§3.2 连接池项勾选（`psycopg_pool` + `statement_timeout` + `_TimedCursor` 慢查询 WARNING（不含参数）+ `DR_PG_*` 可调 + `RunStore.close()`）；依赖 `psycopg-pool` 入 lock；新增 `tests/test_pg_pool.py`（配置解析 + 真实 PG 连接复用/超时生效/慢查询告警，已加入 CI `infra` job）；本机 702 收集 = 664 通过 + 38 跳过，ruff 全过 |
 | 2026-09-27 | P2-4 SSE LISTEN/NOTIFY 同步：§3.2 增补 SSE 完成通知项勾选（同事务 `pg_notify` + 专连接 LISTEN 自动重连 + 轮询兜底 + shutdown 收口）；新增 `tests/test_notify.py`（纯逻辑 + 真实 PG 通知/回滚语义，已加入 CI `infra` job）；本机 706 收集 = 667 通过 + 39 跳过，ruff 全过 |
 | 2026-09-27 | P2-6 告警外送同步：§3.7 告警触达项勾选（迁移 0013 `alert_states`/`alert_deliveries` + 指纹去重状态机 + webhook 退避重试 + CLI 三命令）；新增 `tests/test_alert_delivery.py`（状态机/退避/平台体格式/Worker 集成 + 真实 PG 契约，已加入 CI `infra` job）；本机 714 收集 = 674 通过 + 40 跳过，ruff 全过 |
+| 2026-09-27 | P2-5a 审核 provider 抽象同步：§3.5 增补 provider 抽象项勾选（接口 + `local_rules` 默认实现 + 未知/异常回退 + provider 留痕 + egress 动态名，零外部 SDK）；新增 `tests/test_moderation_providers.py`（默认/未知回退/异常回退/自定义注入留痕/兼容旧签名 6 条）；本机 720 收集 = 680 通过 + 40 跳过，ruff 全过 |

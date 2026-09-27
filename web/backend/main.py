@@ -52,7 +52,7 @@ from .moderation import (
     MAX_APPEAL_LENGTH,
     MAX_INSTRUCTIONS_LENGTH,
     MAX_TOPIC_LENGTH,
-    scan,
+    scan_text,
 )
 from .notify import RunEventNotifier
 from .objectstore import get_object_store
@@ -1167,14 +1167,16 @@ def start(req: StartRequest, request: Request) -> StartResponse:
     _enforce_quotas(user_id)
     if not req.topic.strip():
         raise http_error("empty_topic", "topic 不能为空")
-    # P7-A：输入侧预检（规则词表；命中即拒绝并留审核记录，不进入队列/执行）
-    blocked_terms = scan(f"{req.topic}\n{req.instructions}")
+    # P7-A / P2-5a：输入侧预检（provider 化；命中即拒绝并留审核记录，不进入队列/执行）
+    moderation_result = scan_text(f"{req.topic}\n{req.instructions}")
+    blocked_terms = moderation_result.matches
     if blocked_terms:
         if store is not None:
             _store_call(store.record_moderation, "input_blocked", user_id=user_id,
-                        detail={"matches": blocked_terms[:10]})
+                        detail={"matches": blocked_terms[:10],
+                                "provider": moderation_result.provider})
         _audit("input_blocked", request=request, actor_user_id=user_id,
-               detail={"matches": blocked_terms[:5]})
+               detail={"matches": blocked_terms[:5], "provider": moderation_result.provider})
         raise http_error(
             "content_blocked", "输入包含不允许的内容",
             detail=f"matches={blocked_terms[:5]}",
