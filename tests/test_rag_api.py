@@ -15,6 +15,7 @@ import research_engine.rag.ingest as ingest_module
 import research_engine.rag.store as store_module
 from web.backend import main as api
 from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
+from web.backend.ratelimit import FixedWindowLimiter
 
 
 class _FakeIngester:
@@ -54,6 +55,8 @@ def client(monkeypatch) -> TestClient:
     _FakeIngester.error = None
     monkeypatch.setattr(ingest_module, "DocumentIngester", _FakeIngester)
     monkeypatch.setattr(api, "AUTH_REQUIRED", False)
+    # P0-8a：上传限流是模块级单例 —— 用例内放开，避免跨用例累计
+    monkeypatch.setattr(api, "RAG_UPLOAD_LIMITER", FixedWindowLimiter(1000))
     return TestClient(api.app)
 
 
@@ -73,12 +76,13 @@ def test_ingest_success_with_anonymous_scope(client: TestClient):
 
 def test_ingest_rejects_bad_type_and_oversize(client: TestClient, monkeypatch):
     bad = _upload(client, name="evil.exe")
-    assert bad.status_code == 422  # invalid_request 规格为 422（P1 定稿）
-    assert bad.json()["detail"]["code"] == "invalid_request"
+    assert bad.status_code == 400
+    assert bad.json()["detail"]["code"] == "unsupported_file_type"
 
     monkeypatch.setattr(api, "RAG_MAX_UPLOAD_MB", 0.001)
     big = _upload(client, content=b"x" * 4096)
-    assert big.status_code == 422
+    assert big.status_code == 413
+    assert big.json()["detail"]["code"] == "payload_too_large"
     assert "上限" in big.json()["detail"]["message"]
 
 

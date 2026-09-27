@@ -125,6 +125,18 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         400, False,
         "生产环境仅接受 HTTPS 请求：请通过 TLS 入口（反向代理）访问，并确保透传 X-Forwarded-Proto。",
         component="web"),
+    "unsupported_file_type": ErrorSpec(
+        400, False,
+        "不支持的文件类型或文件内容与扩展名不符：只接受 PDF / DOCX / Markdown / 纯文本。",
+        component="rag"),
+    "payload_too_large": ErrorSpec(
+        413, False,
+        "文件或文档规模超过上限：压缩/拆分后重试（大小上限见 DR_RAG_MAX_FILE_MB）。",
+        component="rag"),
+    "document_limit_exceeded": ErrorSpec(
+        422, False,
+        "文档超过解析限额（页数 / 字符数 / 分块数 / 解析时长）：拆分文档或联系管理员调整限额。",
+        component="rag"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,
