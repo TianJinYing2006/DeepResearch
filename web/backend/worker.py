@@ -275,7 +275,8 @@ class Worker:
                 node=err.get("node") if err else None,
                 component="graph",
             )
-            persist_terminal(self._store, run_id, None, RUN_ERROR, payload, topic=topic)
+            if not persist_terminal(self._store, run_id, None, RUN_ERROR, payload, topic=topic):
+                _log(f"finalize {run_id}: terminal_conflict，错误终局写入整体回滚")
             return
 
         stop_reason = STOP_TIMEOUT if timed_out else step.stop_reason
@@ -320,8 +321,12 @@ class Worker:
             "degradation_count": len(state.degradation_log),
             "depth": state.depth,
         }
-        persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
-                         result=result, report=report, meta=meta, topic=topic)
+        finalized = persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
+                                     result=result, report=report, meta=meta, topic=topic)
+        if not finalized:
+            # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
+            _log(f"finalize {run_id}: terminal_conflict，终局写入整体回滚")
+            return
         # P7-A：输出侧内容标记（命中词表 ⇒ flagged + 审核记录；不删除正文）
         flag_report(self._store, run_id, row.get("user_id"), report)
 

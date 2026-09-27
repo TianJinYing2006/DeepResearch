@@ -458,6 +458,82 @@ class RunStore:
                 (run_id, kind, body),
             )
 
+    def finalize_run(
+        self,
+        run_id: str,
+        *,
+        event_type: str,
+        payload: Optional[dict[str, Any]],
+        sequence: Optional[int],
+        new_status: str,
+        allowed_from: Iterable[str],
+        fields: Optional[dict[str, Any]] = None,
+        artifacts: Optional[dict[str, str]] = None,
+    ) -> bool:
+        """终局原子落库（P0-6）：状态迁移 + 终局事件 + 产物在**同一事务**提交。
+
+        - 状态迁移失败（已被清扫 / 强制收口抢先）⇒ 整体回滚并返回 ``False``，
+          不产生「状态未迁移但事件/产物已写」的半成品（完成先落终局，之后不得改判）；
+        - `sequence=None`（Worker 单写者）由数据库分配 ``MAX(sequence)+1``，
+          冲突时整体重试；显式序号按幂等处理（``ON CONFLICT DO NOTHING``）。
+        """
+        fields = fields or {}
+        unknown = set(fields) - _UPDATABLE_FIELDS
+        if unknown:
+            raise ValueError(f"unknown fields: {sorted(unknown)}")
+        assignments = ["status = %s"]
+        values: list[Any] = [new_status]
+        for key in sorted(fields):
+            assignments.append(f"{key} = %s")
+            values.append(fields[key])
+        update_sql = (
+            f"UPDATE runs SET {', '.join(assignments)} "
+            "WHERE run_id = %s AND status = ANY(%s) RETURNING run_id"
+        )
+        update_values = [*values, run_id, list(allowed_from)]
+        attempts = 3 if sequence is None else 1
+        for _ in range(attempts):
+            try:
+                with self._connect() as conn, conn.cursor() as cur:
+                    cur.execute(update_sql, update_values)
+                    if cur.fetchone() is None:
+                        conn.rollback()
+                        return False
+                    if sequence is None:
+                        cur.execute(
+                            """
+                            INSERT INTO run_events (run_id, sequence, event_type, payload)
+                            SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                            FROM run_events WHERE run_id = %s
+                            RETURNING sequence
+                            """,
+                            (run_id, event_type, Jsonb(payload or {}), run_id),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO run_events (run_id, sequence, event_type, payload)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (run_id, sequence) DO NOTHING
+                            RETURNING sequence
+                            """,
+                            (run_id, sequence, event_type, Jsonb(payload or {})),
+                        )
+                    cur.fetchone()
+                    for kind, body in (artifacts or {}).items():
+                        cur.execute(
+                            """
+                            INSERT INTO run_artifacts (run_id, kind, body) VALUES (%s, %s, %s)
+                            ON CONFLICT (run_id, kind)
+                            DO UPDATE SET body = EXCLUDED.body, updated_at = now()
+                            """,
+                            (run_id, kind, body),
+                        )
+                return True
+            except psycopg.errors.UniqueViolation:
+                continue  # 序号竞争：整体重试（事务已回滚）
+        raise RuntimeError(f"finalize_run: sequence conflict persisted for run {run_id}")
+
     def get_artifact(self, run_id: str, kind: str) -> Optional[str]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(

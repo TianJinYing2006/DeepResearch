@@ -39,13 +39,16 @@ def persist_terminal(
     report: Optional[str] = None,
     meta: Optional[dict[str, Any]] = None,
     topic: str = "",
-) -> None:
-    """写终局事件 + 状态 + 产物（报告 / 导出载荷）；任一失败即抛异常。
+) -> bool:
+    """写终局事件 + 状态 + 产物（**同一事务**，P0-6）；任一失败即抛异常。
 
     `seq` 传 None 时由数据库分配序号（Worker 是单 run 唯一写者）；
     传显式序号时与内存帧号对齐（RunManager）。
+
+    Returns:
+        是否完成迁移。``False`` = 状态已被清扫 / 强制收口抢先（整体回滚，
+        不写半成品；调用方据此跳过输出标记等后续动作）。
     """
-    store.append_event(run_id, event_type, payload, sequence=seq)
     if event_type == RUN_ERROR:
         new_status, stop_reason = "FAILED", "error"
     else:
@@ -60,25 +63,36 @@ def persist_terminal(
         fields["token_used"] = meta.get("token_used")
         fields["cost_estimate_cny"] = meta.get("cost_estimate_cny")
         fields["budget_used_cny"] = meta.get("budget_used_cny")
-    store.update_status(
-        run_id, new_status,
-        allowed_from=ACTIVE_STATUSES,
-        **{key: value for key, value in fields.items() if value is not None},
-    )
+    artifacts: dict[str, str] = {}
     if report:
-        store.put_artifact(run_id, "report_md", report)
+        artifacts["report_md"] = report
     if result is not None and meta is not None:
         export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result)
-        store.put_artifact(run_id, "export_json", json.dumps(export, ensure_ascii=False))
-
-
-def persist_forced(store, run_id: str, seq: Optional[int], payload: dict[str, Any], reason: str) -> None:
-    """传输层强制收口落库（与内存语义一致：不写 research_status）。"""
-    store.append_event(run_id, RUN_ERROR, payload, sequence=seq)
-    store.update_status(
+        artifacts["export_json"] = json.dumps(export, ensure_ascii=False)
+    return store.finalize_run(
         run_id,
-        "CANCELLED" if reason == "cancel" else "TIMED_OUT",
+        event_type=event_type,
+        payload=payload,
+        sequence=seq,
+        new_status=new_status,
         allowed_from=ACTIVE_STATUSES,
-        stop_reason="user_cancelled" if reason == "cancel" else "timeout",
-        finished_at=datetime.now(UTC),
+        fields={key: value for key, value in fields.items() if value is not None},
+        artifacts=artifacts,
+    )
+
+
+def persist_forced(store, run_id: str, seq: Optional[int], payload: dict[str, Any],
+                   reason: str) -> bool:
+    """传输层强制收口落库（同一事务；与内存语义一致：不写 research_status）。"""
+    return store.finalize_run(
+        run_id,
+        event_type=RUN_ERROR,
+        payload=payload,
+        sequence=seq,
+        new_status="CANCELLED" if reason == "cancel" else "TIMED_OUT",
+        allowed_from=ACTIVE_STATUSES,
+        fields={
+            "stop_reason": "user_cancelled" if reason == "cancel" else "timeout",
+            "finished_at": datetime.now(UTC),
+        },
     )
