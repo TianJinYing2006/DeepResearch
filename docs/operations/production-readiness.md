@@ -100,7 +100,9 @@
 
 - [x] 输入侧（P7-A 部分）：超长输入限制（topic 1000 / instructions 2000）与文件类型 / 大小限制（P6-A）；
       敏感内容预检（规则词表 `DR_MODERATION_BLOCKLIST`，命中即拒并留痕）
-- [ ] 输入侧剩余（P7-B）：Prompt Injection 深度防护、恶意 URL / 文件处理
+- [x] 注入确定性防护（P2-1a，OWASP LLM01:2026 口径）：外部内容统一剥离不可见 Unicode（搜索/arXiv/RAG 摄入与检索两侧）；输入显式注入模式预检（中英文窄口径）；**输出泄漏过滤**（系统提示有限标记集合，命中按 P0-4 脱敏 + flagged）；`research_engine/net/safe_fetch.py`（resolve→全地址公网校验→禁重定向→pin IP→限时限量）作为未来 URL 抓取的唯一入口；prompts 未改动（W8 基线不受影响）
+- [ ] 注入深度防护（P2-1b，另行评估）：spotlighting 提示词标注、guardrail 模型、Rule of Two 人工确认 —— 涉及核链提示词变更，需先评测基线影响
+- [ ] 恶意 URL / 文件处理（P7-B）：与审核 provider / 文件扫描联动
 - [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前脱敏、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核
 - [ ] 敏感结果拦截与模型输出标识 —— P7-B（含接入有资质的审核服务）
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
@@ -337,3 +339,4 @@ location /api/ {
 | 2026-09-27 | P1-7 Qdrant payload index 同步：§3.2 检索过滤行更新（`is_tenant` 索引 + 幂等补齐）；新增 `tests/test_qdrant_indexes.py`（本机 667 收集 = 632 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-8 OTel 同步：§3.6 中心化观测勾选（OTLP/Prometheus 双路径 + GenAI 指标 + 后台任务 span，默认关）；compose 增 OTLP/Prometheus 透传；依赖入 lock；新增 `tests/test_otel.py`（本机 672 收集 = 637 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-6 对象存储同步：§3.2 对象存储项勾选（MinIO 私有桶 + 90 天生命周期 + 元数据化 + PG 双轨回落 + S3 失败兜底 + readiness 探针）；迁移 0012 + 结构断言接入 CI `infra`；依赖 boto3 入 lock；新增 `tests/test_object_storage.py`（本机 678 收集 = 643 通过 + 35 跳过，ruff / compose config 全过） |
+| 2026-09-27 | P2-1a 注入确定性防护同步：§3.5 增补确定性层勾选（不可见字符剥离 / 输入预检 / 输出泄漏过滤 / safe_fetch），深度防护（spotlighting、guardrail）显式记为 P2-1b；新增 `tests/test_injection_defense.py` + `tests/test_safe_fetch.py`（本机 692 收集 = 657 通过 + 35 跳过，ruff 全过） |

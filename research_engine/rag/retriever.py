@@ -16,6 +16,7 @@ from research_engine.rag.response import BackendFailure, RetrieveResponse
 from research_engine.rag.scope import RagScope, current_scope
 from research_engine.rag.store import VectorStore
 from research_engine.rag.tokenizer import tokenize
+from research_engine.sanitize import strip_invisible
 from research_engine.usage import UsageRecord, emit_usage
 
 
@@ -52,7 +53,7 @@ class HybridRetriever:
             return cached
         payloads = self.store.scroll_all(scope=scope)
         kept = [p for p in payloads if p.get("text")]
-        texts = [p["text"] for p in kept]
+        texts = [strip_invisible(p["text"]) for p in kept]  # P2-1a：检索侧净化
         sources = [p.get("source", "") for p in kept]
         bm25 = BM25Okapi([tokenize(t) for t in texts]) if texts else None
         self._cache[key] = (texts, sources, bm25)
@@ -135,7 +136,7 @@ class HybridRetriever:
         merged: List[dict] = []
         seen = set()
         for h in vec_hits:
-            text = h["payload"].get("text", "")
+            text = strip_invisible(h["payload"].get("text", ""))  # P2-1a：向量侧净化
             if text and text not in seen:
                 seen.add(text)
                 merged.append({

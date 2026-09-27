@@ -22,6 +22,7 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     is_fault_reason,
 )
 from research_engine.rag.retriever import HybridRetriever
+from research_engine.sanitize import strip_invisible
 from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.base import SearchProvider, create_search_provider
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
@@ -120,7 +121,8 @@ class Researcher:
             self._record_degradation("web_search", resp.failure_reason, detail=resp.failure_detail)
         findings = []
         for r in resp.results:
-            content = f"{r.title}\n{r.snippet}"
+            # P2-1a：剥离不可见 Unicode（外部内容统一净化，防走私指令）
+            content = strip_invisible(f"{r.title}\n{r.snippet}")
             findings.append(
                 ResearchFinding(
                     content=_truncate_head(content, WEB_SNIPPET_MAX),
@@ -152,7 +154,7 @@ class Researcher:
         findings = []
         for h in resp.items:
             doc = h.get("doc") or h.get("source") or "unknown"
-            text = h["text"]
+            text = strip_invisible(h["text"])  # P2-1a：检索侧净化（历史数据兜底）
             findings.append(
                 ResearchFinding(
                     content=text,  # 源 chunk_size=800 已控，Q5 不再截
@@ -177,7 +179,7 @@ class Researcher:
         for r in resp.results:
             findings.append(
                 ResearchFinding(
-                    content=_truncate_head(r.snippet, ARXIV_ABSTRACT_MAX),
+                    content=_truncate_head(strip_invisible(r.snippet), ARXIV_ABSTRACT_MAX),
                     source=r.url,  # abs URL 作 source（Q6 去重契约）
                     source_type="arxiv",
                     confidence=0.65,
