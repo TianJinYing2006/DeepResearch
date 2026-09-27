@@ -403,6 +403,10 @@ class FakeStore:
         rows = [row for row in self.moderation if kind is None or row["kind"] == kind]
         return list(reversed(rows))[:limit]
 
+    def has_appeal(self, user_id, run_id):
+        return any(row["kind"] == "appeal" and row["user_id"] == user_id
+                   and row["run_id"] == run_id for row in self.moderation)
+
     def set_moderation_status(self, run_id, status):
         row = self.runs.get(run_id)
         if row is None:
