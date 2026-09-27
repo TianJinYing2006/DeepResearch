@@ -49,6 +49,7 @@ from .moderation import (
     MAX_TOPIC_LENGTH,
     scan,
 )
+from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profile
 from .queue import RunQueue
 from .ratelimit import FixedWindowLimiter
 from .runner import RunManager
@@ -208,10 +209,19 @@ else:
 class StartRequest(BaseModel):
     topic: str = Field(..., max_length=MAX_TOPIC_LENGTH, description="研究主题")
     instructions: str = Field("", max_length=MAX_INSTRUCTIONS_LENGTH, description="附加要求")
-    max_total_hops: Optional[int] = Field(None, ge=1, le=50, description="全局检索跳数上限")
-    max_subquestions: Optional[int] = Field(None, ge=1, le=8, description="Planner 子问题数上限")
-    search_provider: Optional[str] = Field(None, description="搜索引擎：bocha | tavily（不传则用配置默认值）")
-    enable_arxiv: Optional[bool] = Field(None, description="是否开启学术检索（arXiv）")
+    profile: str = Field(
+        DEFAULT_PROFILE, max_length=32,
+        description="运行档位：quick | standard（底层参数由服务端档位固定，客户端不可覆盖）")
+    # 以下 4 个字段仅作旧客户端兼容：值一律**忽略**（以服务端档位/配置为准），
+    # 非空时记入 run 快照 request.ignored_overrides 作为审计留痕（需求 10 §5.6）。
+    max_total_hops: Optional[int] = Field(
+        None, ge=1, le=50, description="已废弃：由服务端档位固定，传入将被忽略")
+    max_subquestions: Optional[int] = Field(
+        None, ge=1, le=8, description="已废弃：由服务端档位固定，传入将被忽略")
+    search_provider: Optional[str] = Field(
+        None, max_length=32, description="已废弃：由服务端配置固定，传入将被忽略")
+    enable_arxiv: Optional[bool] = Field(
+        None, description="已废弃：由服务端配置固定，传入将被忽略")
     idempotency_key: Optional[str] = Field(
         None, max_length=128, description="创建幂等键：重复提交返回既有 run_id，不重复执行")
 
@@ -241,7 +251,6 @@ def options() -> dict:
     降级为零结果，跑完了才发现白跑（博查额度耗尽正是这个情形，只能靠 403 事后发现）。
     ⚠️ 已配 key ≠ 额度充足：额度耗尽只能在调用时由 provider 报出。
     """
-    from research_engine.search.base import KNOWN_PROVIDERS
     providers = [
         {"value": name, "label": _PROVIDER_LABELS.get(name, name),
          "available": _provider_has_key(name)}
@@ -253,6 +262,9 @@ def options() -> dict:
         "enable_arxiv_default": config.search.enable_arxiv,
         "max_total_hops_default": config.research.max_total_hops,
         "max_subquestions_default": config.research.max_subquestions,
+        # P0 profile 固化：前端只展示档位（底层参数不可提交，请求体同名字段被忽略）
+        "profiles": profile_options(),
+        "default_profile": DEFAULT_PROFILE,
         # P1-2 / P1-3：把后端**实际生效**的闸值下发给前端，前端才能显示剩余时间
         # 与「已有研究在运行」提示，而不是靠猜。
         "run_timeout_seconds": manager.run_timeout_seconds,
@@ -529,10 +541,29 @@ def _enforce_quotas(user_id: Optional[str]) -> None:
             )
 
 
-def _start_queued(req: StartRequest, user_id: Optional[str]) -> str:
+def _ignored_overrides(req: StartRequest) -> dict:
+    """旧客户端传入的底层参数：一律忽略；非空值记入 run 快照（审计留痕）。"""
+    values = {
+        "max_total_hops": req.max_total_hops,
+        "max_subquestions": req.max_subquestions,
+        "search_provider": req.search_provider,
+        "enable_arxiv": req.enable_arxiv,
+    }
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def _effective_run_budget(profile) -> float:
+    """单次预算 = 档位值，且不超过全局环境闸 `DR_RUN_BUDGET_CNY`（<=0 视为不设闸）。"""
+    if RUN_BUDGET_CNY > 0:
+        return min(profile.run_budget_cny, RUN_BUDGET_CNY)
+    return profile.run_budget_cny
+
+
+def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: dict) -> str:
     """队列模式（P3）：创建 `QUEUED` 任务并投递 Redis 队列；重复幂等键返回既有 run_id。
 
     幂等命中先于并发检查 —— 重复提交是同一个逻辑请求，不应被并发闸拒绝。
+    P0：run.request 写**档位快照**（而非客户端参数）；超时 / 预算取自档位。
     """
     if store is None or queue is None:
         raise ApiError("persistence_unavailable", "队列模式需要任务库与 Redis 均已配置")
@@ -554,16 +585,14 @@ def _start_queued(req: StartRequest, user_id: Optional[str]) -> str:
             run_id, req.topic,
             {
                 "instructions": req.instructions,
-                "max_total_hops": req.max_total_hops,
-                "search_provider": req.search_provider,
-                "enable_arxiv": req.enable_arxiv,
-                "max_subquestions": req.max_subquestions,
+                "profile": profile.snapshot(),
+                "ignored_overrides": ignored or None,
             },
             user_id=user_id,
             idempotency_key=req.idempotency_key,
             status="QUEUED",
-            timeout_at=datetime.now(UTC) + timedelta(seconds=manager.run_timeout_seconds),
-            budget_limit_cny=RUN_BUDGET_CNY or None,
+            timeout_at=datetime.now(UTC) + timedelta(seconds=profile.timeout_seconds),
+            budget_limit_cny=_effective_run_budget(profile),
         )
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
@@ -736,6 +765,15 @@ def start(req: StartRequest, request: Request) -> StartResponse:
     _check_csrf(request)
     if not SUBMIT_LIMITER.allow(f"submit:{user_id or _client_key(request)}"):
         raise http_error("rate_limited", "提交过于频繁，稍后再试")
+    # P0 profile 固化：档位由服务端解析；请求体底层参数（旧字段）一律忽略并留痕。
+    profile = resolve_profile(req.profile)
+    if profile is None:
+        raise http_error(
+            "invalid_request",
+            f"未知运行档位：{req.profile}",
+            detail=f"known={sorted(PROFILES)}",
+        )
+    ignored = _ignored_overrides(req)
     # 幂等命中先于配额闸：重复提交是同一个逻辑请求，不应被日限额/预算拒绝。
     if store is not None and req.idempotency_key is not None:
         existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
@@ -754,32 +792,16 @@ def start(req: StartRequest, request: Request) -> StartResponse:
             "content_blocked", "输入包含不允许的内容",
             detail=f"matches={blocked_terms[:5]}",
         )
-    # 搜索引擎必须**启动前**校验：未知源 / 未配 key 若放行，整场研究每跳都降级为零
-    # 结果，跑完才在报告里发现白跑（博查额度耗尽就是这个情形的极端版）。
-    if req.search_provider is not None:
-        if req.search_provider not in KNOWN_PROVIDERS:
-            raise http_error(
-                "unknown_search_provider",
-                f"未知搜索引擎：{req.search_provider}",
-                detail=f"known={' / '.join(KNOWN_PROVIDERS)}",
-                node=None,
-            )
-        if not _provider_has_key(req.search_provider):
-            raise http_error(
-                "missing_search_key",
-                f"搜索引擎「{req.search_provider}」未配置 API key",
-                detail=f"provider={req.search_provider}",
-                component="search",
-            )
+    # 搜索引擎由服务端配置固定（需求 10 §3.1 第 13 项）；客户端字段已在上面忽略。
     try:
         if EXECUTION_MODE == "queue":
-            run_id = _start_queued(req, user_id)
+            run_id = _start_queued(req, user_id, profile, ignored)
         else:
             run_id = manager.start(
-                req.topic, req.instructions, req.max_total_hops,
-                req.search_provider, req.enable_arxiv, req.max_subquestions,
+                req.topic, req.instructions, profile,
                 req.idempotency_key, user_id=user_id,
-                budget_limit_cny=RUN_BUDGET_CNY or None)
+                budget_limit_cny=_effective_run_budget(profile),
+                ignored_overrides=ignored)
     except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)

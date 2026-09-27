@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from config import config
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.client import LLMClient
+from research_engine.runtime_profile import effective_llm_model
 from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
 
 # W7 Arm3：validator 修复关闭时（TBD-8 基线对照）回退到 v1.1 提示与行为
@@ -105,8 +106,9 @@ def validator_model_name(cfg=None) -> str:
     生产里叫「validator 模型」，若两处各写一遍，改配置时容易只改一处 ——
     而这两个名字指的是**同一次 LLM 调用**。
     """
-    c = cfg if cfg is not None else config
-    return c.llm.validator_model
+    if cfg is not None:
+        return cfg.llm.validator_model
+    return effective_llm_model("validator")
 
 
 class CitationVerdictItem(BaseModel):

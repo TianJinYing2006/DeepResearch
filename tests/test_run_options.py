@@ -1,20 +1,27 @@
-"""运行选项（搜索引擎切换 + 学术检索开关 + 子问题数上限）单测。
+"""运行选项与档位（P0 profile 固化）单测。
 
-覆盖四层：
-1. `/api/options` 只把**已配 key** 的搜索源列为可用；
-2. 启动校验：未知源 / 未配 key 的源必须 **400 早失败**（否则整场研究每跳降级为零
-   结果，跑完才发现白跑 —— 博查额度耗尽正是这个情形）；
-3. 子问题数上限：滑块值落到本场 run 的 config，并真正进 Planner 提示词；
-4. `config.search.enable_arxiv=False` 时 Researcher 不再调度 arXiv。
+覆盖五层：
+1. `/api/options` 只把**已配 key** 的搜索源列为可用，并下发可选档位；
+2. 档位解析：未知档位 400 早失败；`quick` / `standard` 可启动；
+3. 旧底层参数（`max_total_hops` / `max_subquestions` / `search_provider` /
+   `enable_arxiv`）一律**忽略**：不影响本场 run 生效值，且写入
+   `run.request.ignored_overrides` 作审计留痕（需求 10 §5.6）；
+4. 档位真正生效：Planner 提示词拿到档位值，且**不污染全局 config**；
+5. `config.search.enable_arxiv=False` 时 Researcher 不再调度 arXiv。
 """
 from __future__ import annotations
 
 import pytest
+from fakes import FakeStore
 from fastapi.testclient import TestClient
 
 from config import config
+from research_engine.agents.planner import build_planner_system
+from research_engine.runtime_profile import use_profile
 from research_engine.state import DegradationSink, ResearchState
 from web.backend import main as api
+from web.backend.profiles import resolve_profile
+from web.backend.runner import RunManager
 
 
 class _OneStepGraph:
@@ -64,69 +71,87 @@ def test_options_marks_provider_available_with_key(client, monkeypatch):
     assert bocha["available"] is True
 
 
-# ---- 2) 启动校验：必须早失败 ----
-
-def test_start_rejects_unknown_provider(client):
-    resp = client.post("/api/research", json={"topic": "t", "search_provider": "nope"})
-    assert resp.status_code == 400
-    # P1-5：`detail` 是**结构化 dict**，断言错误码而不是匹配 message 文本
-    assert resp.json()["detail"]["code"] == "unknown_search_provider"
-
-
-def test_start_rejects_provider_without_key(client, monkeypatch):
-    monkeypatch.setattr(config.search, "bocha_api_key", "")
-    resp = client.post("/api/research", json={"topic": "t", "search_provider": "bocha"})
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "missing_search_key"
+def test_options_exposes_profiles(client):
+    """P0：前端只展示档位（底层参数不可提交）。"""
+    data = client.get("/api/options").json()
+    values = [item["value"] for item in data["profiles"]]
+    assert values == ["quick", "standard"]
+    assert data["default_profile"] == "quick"
+    quick = data["profiles"][0]
+    assert quick["max_total_hops"] == 6
+    assert quick["max_subquestions"] == 2
+    assert quick["timeout_seconds"] == 15 * 60
 
 
-def test_start_accepts_valid_provider(client, monkeypatch):
-    monkeypatch.setattr(config.search, "tavily_api_key", "fake-key")
-    resp = client.post("/api/research", json={
-        "topic": "t", "search_provider": "tavily", "enable_arxiv": False,
-    })
+# ---- 2) 档位解析：未知档位早失败 ----
+
+def test_start_rejects_unknown_profile(client):
+    resp = client.post("/api/research", json={"topic": "t", "profile": "nope"})
+    # 项目错误映射：invalid_request → 422（与 FastAPI 参数校验同码）
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "invalid_request"
+
+
+def test_start_accepts_standard_profile(client):
+    resp = client.post("/api/research", json={"topic": "t", "profile": "standard"})
     assert resp.status_code == 200
     assert resp.json()["run_id"]
 
 
-def test_start_without_options_still_works(client):
-    """不传新参数时必须照旧可用（向后兼容）。"""
+def test_start_without_profile_defaults_to_quick(client):
+    """不传档位时必须照旧可用（默认 quick）。"""
     resp = client.post("/api/research", json={"topic": "t"})
     assert resp.status_code == 200
 
 
-# ---- 3) 子问题数上限（运行期覆盖 + 提示词携带）----
+# ---- 3) 旧底层参数：忽略 + 留痕 ----
 
-def test_options_exposes_subquestion_default(client):
-    data = client.get("/api/options").json()
-    assert isinstance(data["max_subquestions_default"], int)
-    assert isinstance(data["max_total_hops_default"], int)
+def test_http_start_ignores_legacy_overrides(client, monkeypatch):
+    store = FakeStore()
+    manager = RunManager(graph_factory=_OneStepGraph, store=store, max_concurrent_runs=8)
+    monkeypatch.setattr(api, "store", store)
+    monkeypatch.setattr(api, "manager", manager)
+
+    resp = client.post("/api/research", json={
+        "topic": "t", "profile": "quick",
+        "max_total_hops": 50, "max_subquestions": 8,
+        "search_provider": "tavily", "enable_arxiv": True,
+    })
+    assert resp.status_code == 200
+    row = store.get_run(resp.json()["run_id"])
+    snapshot = row["request"]["profile"]
+    assert snapshot["name"] == "quick"
+    assert snapshot["max_total_hops"] == 6          # 客户端 50 被忽略
+    assert snapshot["max_subquestions"] == 2        # 客户端 8 被忽略
+    assert row["request"]["ignored_overrides"] == {
+        "max_total_hops": 50, "max_subquestions": 8,
+        "search_provider": "tavily", "enable_arxiv": True,
+    }
 
 
-def test_start_rejects_out_of_range_subquestions(client):
-    """越界必须 422 —— 否则 Planner 会拿到荒谬的上限去拼提示词。"""
-    assert client.post("/api/research", json={"topic": "t", "max_subquestions": 9}).status_code == 422
-    assert client.post("/api/research", json={"topic": "t", "max_subquestions": 0}).status_code == 422
+def test_profile_snapshot_persisted_with_run():
+    store = FakeStore()
+    manager = RunManager(graph_factory=_OneStepGraph, store=store, max_concurrent_runs=8)
+    run_id = manager.start("t", "附加", resolve_profile("standard"),
+                           ignored_overrides={"max_total_hops": 50})
+    row = store.get_run(run_id)
+    assert row["request"]["profile"]["name"] == "standard"
+    assert row["request"]["profile"]["model"] == "qwen-plus"
+    assert row["request"]["ignored_overrides"] == {"max_total_hops": 50}
 
 
-def test_worker_overrides_max_subquestions_for_this_run(client, monkeypatch):
-    """滑块值必须落到**本场 run** 的 config，并真正进 Planner 的提示词。
+# ---- 4) 档位生效但不污染全局 config ----
 
-    Planner 的 system prompt 里写着「数量控制在 {max_subquestions} 个以内」，
-    而 build_planner_system() 是**调用时**现读 config 的 —— 所以覆盖点必须在
-    建图（_graph_factory）之前，且覆盖后提示词里要能看到新数字。
-    """
-    from research_engine.agents.planner import build_planner_system
-
+def test_profile_drives_planner_prompt_without_global_mutation(monkeypatch):
+    """Planner 的 system prompt 现读**本场档位**；全局 config 保持原值。"""
     monkeypatch.setattr(config.research, "max_subquestions", 4)
-    run_id = api.manager.start("t", "", None, None, None, 7)
-    api.manager._threads[run_id].join(timeout=5)
+    with use_profile(resolve_profile("standard")):
+        assert "3 个以内" in build_planner_system()
+    assert "4 个以内" in build_planner_system()
+    assert config.research.max_subquestions == 4
 
-    assert config.research.max_subquestions == 7
-    assert "7 个以内" in build_planner_system()
 
-
-# ---- 4) 学术检索开关 ----
+# ---- 5) 学术检索开关（服务端配置，客户端不可覆盖）----
 
 def _bare_researcher():
     from research_engine.agents.researcher import Researcher

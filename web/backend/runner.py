@@ -30,6 +30,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
+from research_engine.runtime_profile import (
+    RuntimeProfile,
+    effective_research_config,
+    set_profile,
+)
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
@@ -140,13 +145,12 @@ class RunManager:
 
     # ------------------------------------------------------------------ 生命周期
 
-    def start(self, topic: str, instructions: str = "", max_total_hops: int | None = None,
-              search_provider: str | None = None,
-              enable_arxiv: bool | None = None,
-              max_subquestions: int | None = None,
+    def start(self, topic: str, instructions: str = "",
+              profile: Optional[RuntimeProfile] = None,
               idempotency_key: str | None = None,
               user_id: str | None = None,
-              budget_limit_cny: float | None = None) -> str:
+              budget_limit_cny: float | None = None,
+              ignored_overrides: Optional[dict] = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
         配置了仓储（P2-C）时：
@@ -171,20 +175,20 @@ class RunManager:
                     f"已有 {len(self._active)} 个研究在运行，上限 {self.max_concurrent_runs}",
                     detail=f"active={len(self._active)}; limit={self.max_concurrent_runs}",
                 )
+            run_timeout_seconds = (
+                profile.timeout_seconds if profile is not None else self.run_timeout_seconds)
             if self._store is not None:
                 try:
                     row, created = self._store.create_run(
                         run_id, topic,
                         {
                             "instructions": instructions,
-                            "max_total_hops": max_total_hops,
-                            "search_provider": search_provider,
-                            "enable_arxiv": enable_arxiv,
-                            "max_subquestions": max_subquestions,
+                            "profile": profile.snapshot() if profile is not None else None,
+                            "ignored_overrides": ignored_overrides or None,
                         },
                         user_id=user_id,
                         idempotency_key=idempotency_key,
-                        timeout_at=datetime.now(UTC) + timedelta(seconds=self.run_timeout_seconds),
+                        timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
                         budget_limit_cny=budget_limit_cny,
                     )
                 except Exception as exc:  # noqa: BLE001 —— 持久化是硬前提，失败即明确报错
@@ -200,16 +204,16 @@ class RunManager:
             self._cancel[run_id] = threading.Event()
             self._active.add(run_id)
             self._owners[run_id] = user_id
-            self._deadlines[run_id] = now + self.run_timeout_seconds
+            self._deadlines[run_id] = now + run_timeout_seconds
             self._hard_deadlines[run_id] = (
-                now + self.run_timeout_seconds + self.forced_stop_grace_seconds)
+                now + run_timeout_seconds + self.forced_stop_grace_seconds)
             self._status[run_id] = {
                 "run_id": run_id,
                 "topic": topic,
                 "status": "running",
                 "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "_started_monotonic": now,
-                "timeout_seconds": self.run_timeout_seconds,
+                "timeout_seconds": run_timeout_seconds,
                 "stop_reason": None,
                 "cancelled": False,
                 "run_status": None,
@@ -233,8 +237,7 @@ class RunManager:
                         f"{type(exc).__name__}: {exc}"[:300])
             t = threading.Thread(
                 target=self._worker,
-                args=(run_id, topic, instructions, max_total_hops,
-                      search_provider, enable_arxiv, max_subquestions),
+                args=(run_id, topic, instructions, profile),
                 name=f"research-{run_id}",
                 daemon=True,
             )
@@ -524,26 +527,14 @@ class RunManager:
         return round(max(0.0, now - started), 1)
 
     def _worker(self, run_id: str, topic: str, instructions: str,
-                max_total_hops: int | None,
-                search_provider: str | None = None,
-                enable_arxiv: bool | None = None,
-                max_subquestions: int | None = None) -> None:
+                profile: Optional[RuntimeProfile] = None) -> None:
         try:
             from config import config
 
-            if max_total_hops is not None:
-                config.research.max_total_hops = max_total_hops
-            # 子问题数上限：与跳数同构的运行期覆盖。Planner 在 plan() 里现读
-            # config 拼 system prompt（build_planner_system），所以同样必须设在建图前。
-            if max_subquestions is not None:
-                config.research.max_subquestions = max_subquestions
-            # 搜索引擎 / 学术检索：本次 run 的运行期覆盖。
-            # ⚠️ 必须设在 `self._graph_factory()` **之前** —— Researcher 在 __init__
-            # 里由工厂装配 provider，建图后再改 config 对本场 run 无效。
-            if search_provider is not None:
-                config.search.provider = search_provider
-            if enable_arxiv is not None:
-                config.search.enable_arxiv = enable_arxiv
+            # P0 profile 固化：档位装进**本线程**运行作用域（不再改全局 config，
+            # 并发 / 串行 run 之间互不污染）；无档位时核心链路回落全局 config。
+            set_profile(profile)
+            effective = effective_research_config()
 
             graph = self._graph_factory()
             # 把跳数上限随 RUN_STARTED 下发 ⇒ 前端才能算**真实的**检索阶段进度
@@ -553,11 +544,12 @@ class RunManager:
             self._emit(run_id, RUN_STARTED, {
                 "run_id": run_id,
                 "topic": topic,
-                "max_total_hops": config.research.max_total_hops,
-                "max_subquestions": config.research.max_subquestions,
+                "max_total_hops": effective.max_total_hops,
+                "max_subquestions": effective.max_subquestions,
                 "search_provider": config.search.provider,
                 "enable_arxiv": config.search.enable_arxiv,
-                "timeout_seconds": self.run_timeout_seconds,
+                "timeout_seconds": (
+                    profile.timeout_seconds if profile is not None else self.run_timeout_seconds),
             })
 
             cancel_event = self._cancel[run_id]
