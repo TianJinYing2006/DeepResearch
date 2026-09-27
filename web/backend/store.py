@@ -717,6 +717,17 @@ class RunStore:
             cur.execute(sql, params)
             return cur.fetchall()
 
+    def has_appeal(self, user_id: Optional[str], run_id: str) -> bool:
+        """该用户对该 run 是否已提交过申诉（P0-5 防重复）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM moderation_records "
+                "WHERE kind = 'appeal' AND user_id IS NOT DISTINCT FROM %s AND run_id = %s "
+                "LIMIT 1",
+                (user_id, run_id),
+            )
+            return cur.fetchone() is not None
+
     def set_moderation_status(self, run_id: str, status: str) -> bool:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(

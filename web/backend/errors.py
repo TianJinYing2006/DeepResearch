@@ -113,6 +113,14 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         "报告命中内容安全预检，正在等待人工复核：复核通过或申诉处理前不开放查看与导出；"
         "如认为误判可提交申诉。",
         component="moderation"),
+    "appeal_not_applicable": ErrorSpec(
+        409, False,
+        "该任务没有需要复核的标记（未被 flagged）：无需申诉；如对输入预检有异议可不带 run_id 提交申诉。",
+        component="moderation"),
+    "appeal_duplicate": ErrorSpec(
+        409, False,
+        "同一任务的申诉已在处理中：请等待复核结果，不要重复提交。",
+        component="moderation"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

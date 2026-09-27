@@ -75,12 +75,49 @@ def test_input_length_caps(monkeypatch, store: FakeStore):
 
 def test_appeal_records_and_requires_login_when_auth_on(monkeypatch, store: FakeStore):
     client = _client(monkeypatch, store)
-    response = client.post("/api/moderation/appeal", json={"message": "我认为是误判", "run_id": "r1"})
+    response = client.post("/api/moderation/appeal", json={"message": "我认为是误判"})
     assert response.status_code == 200
     assert store.list_moderation(kind="appeal")[0]["detail"]["message"] == "我认为是误判"
 
     auth_client = _client(monkeypatch, store, auth=True)
     assert auth_client.post("/api/moderation/appeal", json={"message": "x"}).status_code == 401
+
+
+def test_appeal_with_run_id_validates_ownership_status_and_duplicates(monkeypatch, store: FakeStore):
+    """P0-5：带 run_id 的申诉必须校验归属 / 标记状态 / 防重复。"""
+    client = _client(monkeypatch, store, auth=True)
+    _register(client, "appeal@example.com")
+    me = store.get_user_by_email("appeal@example.com")
+
+    # 他人任务：404（不泄露存在性）
+    store.create_run("other-run-1", "t", {}, user_id="someone-else", status="RUNNING")
+    store.set_moderation_status("other-run-1", "flagged")
+    assert client.post("/api/moderation/appeal",
+                       json={"message": "x", "run_id": "other-run-1"},
+                       headers=_csrf(client)).status_code == 404
+
+    # 本人未被标记的任务：409 appeal_not_applicable
+    store.create_run("clean-run-1", "t", {}, user_id=me["user_id"], status="RUNNING")
+    not_applicable = client.post("/api/moderation/appeal",
+                                 json={"message": "x", "run_id": "clean-run-1"},
+                                 headers=_csrf(client))
+    assert not_applicable.status_code == 409
+    assert not_applicable.json()["detail"]["code"] == "appeal_not_applicable"
+
+    # 本人已标记的任务：首次 200；重复 ⇒ 409 appeal_duplicate
+    store.create_run("flagged-run-1", "t", {}, user_id=me["user_id"], status="RUNNING")
+    store.set_moderation_status("flagged-run-1", "flagged")
+    first = client.post("/api/moderation/appeal",
+                        json={"message": "误判申诉", "run_id": "flagged-run-1"},
+                        headers=_csrf(client))
+    assert first.status_code == 200
+    duplicate = client.post("/api/moderation/appeal",
+                            json={"message": "再来一次", "run_id": "flagged-run-1"},
+                            headers=_csrf(client))
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "appeal_duplicate"
+    records = store.list_moderation(kind="appeal")
+    assert len(records) == 1 and records[0]["run_id"] == "flagged-run-1"
 
 
 def test_legal_documents(monkeypatch, store: FakeStore):

@@ -973,11 +973,33 @@ class AppealRequest(BaseModel):
 
 @app.post("/api/moderation/appeal")
 def moderation_appeal(req: AppealRequest, request: Request) -> dict:
-    """申诉入口（P7-A）：只落审核记录供人工复核；不做自动处置。"""
+    """申诉入口（P7-A / P0-5）：只落审核记录供人工复核；不做自动处置。
+
+    带 `run_id` 时（P0-5）：
+    - 鉴权开启时校验归属（非本人 404，不泄露存在性）；
+    - 只接受被标记（`flagged` / `blocked`）的任务，未标记 ⇒ 409 `appeal_not_applicable`；
+    - 同一用户同一任务只允许一次申诉 ⇒ 重复 ⇒ 409 `appeal_duplicate`。
+    不带 `run_id` 时为通用申诉（如输入预检异议）。
+    """
     if store is None:
         raise http_error("persistence_unavailable", "申诉需要任务库（DR_DATABASE_URL）")
     user_id = _require_user(request)
     _check_csrf(request)
+    if req.run_id:
+        _authorize_run(request, req.run_id)
+        row = _store_call(store.get_run, req.run_id)
+        if (row or {}).get("moderation_status") not in ("flagged", "blocked"):
+            raise http_error(
+                "appeal_not_applicable",
+                "该任务未被标记，无需申诉",
+                detail=f"run_id={req.run_id}; moderation_status={((row or {}).get('moderation_status'))}",
+            )
+        if _store_call(store.has_appeal, user_id, req.run_id):
+            raise http_error(
+                "appeal_duplicate",
+                "该任务的申诉已在处理中",
+                detail=f"run_id={req.run_id}",
+            )
     _store_call(
         store.record_moderation, "appeal", user_id=user_id, run_id=req.run_id,
         detail={"message": req.message[:MAX_APPEAL_LENGTH]},

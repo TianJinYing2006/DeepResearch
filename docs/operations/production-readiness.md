@@ -101,7 +101,7 @@
 - [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前脱敏、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核
 - [ ] 敏感结果拦截与模型输出标识 —— P7-B（含接入有资质的审核服务）
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
-- [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
+- [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；**P0-5 起带 `run_id` 的申诉校验归属 / 标记状态 / 防重复**（非本人 404、未标记 409 `appeal_not_applicable`、重复 409 `appeal_duplicate`）；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
 - [x] 隐私政策 / 用户协议草案（`docs/legal/`，API 可读）；⚠️ **法务确认与公示仍待 L3-C**
 - [x] 用户注销已实现（验密 + CSRF；删账号/会话、清 RAG 向量、任务匿名保留）
 - [ ] 报告保存期限的**到期自动清理**（当前仅写入政策与文档，执行留 P8）
@@ -303,3 +303,4 @@ location /api/ {
 | 2026-09-27 | P0 profile 固化同步：§3.3 勾选运行档位（服务端固定底层参数 + 快照留痕 + contextvar 运行作用域）；新增 `web/backend/profiles.py` / `research_engine/runtime_profile.py`、`runs.request.profile` 快照、前端档位选择器；新增 `tests/test_profiles.py`（本机 575 收集 = 550 通过 + 25 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P0-6 终局原子落库同步：§3.3 勾选终局原子（`RunStore.finalize_run` 单事务：状态 + 事件 + 产物；迁移失败整体回滚）；`persistence.persist_terminal` / `persist_forced` 返回是否完成迁移，Runner/Worker 据此跳过输出标记；新增 `tests/test_terminal_atomic.py`（本机 581 收集 = 555 通过 + 26 跳过，ruff 全过） |
 | 2026-09-27 | P0-4 输出闸同步：§3.5 输出侧改为「自动拦截」——`apply_output_gate` 发帧/落库前脱敏 + 审核状态与终局同事务 + 导出 403 `output_under_review` + 历史回放强制脱敏 + CLI `run-report`；新增 `tests/test_output_gate.py`（本机 587 收集 = 561 通过 + 26 跳过，ruff / tsc / vite build 全过） |
+| 2026-09-27 | P0-5 申诉校验同步：§3.5 处置链路勾选归属 / 状态 / 防重复（带 `run_id` 的申诉）；新增错误码 `appeal_not_applicable` / `appeal_duplicate` 与 `store.has_appeal`（本机 588 收集 = 562 通过 + 26 跳过，ruff 全过） |
