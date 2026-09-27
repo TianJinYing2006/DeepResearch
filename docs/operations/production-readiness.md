@@ -109,7 +109,7 @@
 - [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；**P0-5 起带 `run_id` 的申诉校验归属 / 标记状态 / 防重复**（非本人 404、未标记 409 `appeal_not_applicable`、重复 409 `appeal_duplicate`）；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
 - [x] 隐私政策 / 用户协议草案（`docs/legal/`，API 可读）；⚠️ **法务确认与公示仍待 L3-C**
 - [x] 用户注销已实现（验密 + CSRF；**P0-7 起 durable outbox**：同事务登记台账 + outbox + 删账号/会话，Qdrant 清理由 Worker 带退避重试直至**验证归零**；耗尽 `abandoned` 会告警，CLI `deletion-list` / `retry-deletion` 可查可重试；任务匿名保留）
-- [ ] 报告保存期限的**到期自动清理**（当前仅写入政策与文档，执行留 P8）
+- [x] 报告保存期限的**到期自动清理**（P2-2）：`web/backend/retention.py` 政策表（事件 30 天 / 终态运行与产物 90 天 / 用量账本与审核留痕与审计日志 180 天，环境变量可调），Worker 每日执行 + CLI `retention-run [--dry-run]`；批量 `ctid + LIMIT`（5000 行/批，最多 20 批/表/日）避免长事务；**误删护栏**：单表候选量 > `max(1000, 50% × 表总量)` 时中止该表并写 `retention_guardrail` 审计；每表执行写 `retention_purge` 审计（dry-run 同样留痕）；S3 报告由桶生命周期 90 天删除（对象层，双轨）
 - [x] 日志与错误载荷脱敏（不回声密码；登录失败统一 401；密钥不进日志有回归测试）
 - [x] 上传文件按用户作用域隔离存放与检索（P5/P6-A；不与公共知识混存）；**P0-8b**：原文只存隔离区，处理完成即删除；账号注销与 90 天保留期都会清理（向量 + 文件）
 
@@ -340,3 +340,4 @@ location /api/ {
 | 2026-09-27 | P1-8 OTel 同步：§3.6 中心化观测勾选（OTLP/Prometheus 双路径 + GenAI 指标 + 后台任务 span，默认关）；compose 增 OTLP/Prometheus 透传；依赖入 lock；新增 `tests/test_otel.py`（本机 672 收集 = 637 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-6 对象存储同步：§3.2 对象存储项勾选（MinIO 私有桶 + 90 天生命周期 + 元数据化 + PG 双轨回落 + S3 失败兜底 + readiness 探针）；迁移 0012 + 结构断言接入 CI `infra`；依赖 boto3 入 lock；新增 `tests/test_object_storage.py`（本机 678 收集 = 643 通过 + 35 跳过，ruff / compose config 全过） |
 | 2026-09-27 | P2-1a 注入确定性防护同步：§3.5 增补确定性层勾选（不可见字符剥离 / 输入预检 / 输出泄漏过滤 / safe_fetch），深度防护（spotlighting、guardrail）显式记为 P2-1b；新增 `tests/test_injection_defense.py` + `tests/test_safe_fetch.py`（本机 692 收集 = 657 通过 + 35 跳过，ruff 全过） |
+| 2026-09-27 | P2-2 数据保留自动清理同步：§3.7 报告到期自动清理项勾选（政策表 + Worker 每日 + CLI + dry-run + 误删护栏 + 审计留痕）；新增 `tests/test_retention.py`（FakeStore 政策用例 + 真实 PG `purge_before` 批量子句/级联契约，已加入 CI `infra` job）；本机 698 收集 = 662 通过 + 36 跳过，ruff 全过 |

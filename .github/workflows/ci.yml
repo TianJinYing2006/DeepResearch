@@ -113,12 +113,13 @@ jobs:
           pip install -r requirements-lock.txt -r requirements-dev-lock.txt
 
       # P2-B / P3-A 持久化与队列：真实 PostgreSQL + Redis 上跑契约与端到端测试
+      # P2-2 保留期清理：purge_before 批量子句 / 级联语义也在真实 PG 上验证
       - name: RunStore / Worker 集成测试（真实 PostgreSQL + Redis）
         env:
           DR_TEST_DATABASE_URL: postgresql://deepresearch:deepresearch-local@127.0.0.1:5432/deepresearch
           DR_TEST_REDIS_URL: redis://127.0.0.1:6379/0
           OTEL_SDK_DISABLED: "true"
-        run: pytest tests/test_run_store.py tests/test_worker_integration.py -q
+        run: pytest tests/test_run_store.py tests/test_worker_integration.py tests/test_retention.py -q
 
       # P8-A 恢复演练：真实脚本「备份（校验可读）→ 清库 → 恢复」；用种子数据与结构断言双向验证。
       # 没有恢复演练就不算有备份（上线清单 §3.8）。
