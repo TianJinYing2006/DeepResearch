@@ -141,7 +141,8 @@
 - [x] 预算闸落地（P3-B / P4-B）：单次 `DR_RUN_BUDGET_CNY=¥1.50` 在 Worker / 进程内执行器的节点边界生效；全局月度 `DR_MONTHLY_BUDGET_CNY`（默认 ¥1,500）达 100% 熔断新任务；单用户每日 `DR_DAILY_RUNS_PER_USER=1`
 - [x] 超限行为定义并留痕：预算停止 `stop_reason=budget_exceeded`（不伪装成 `TIMED_OUT`）；配额拒绝 429 `quota_exceeded`；查询 / 导出 / 管理保持可用
 - [ ] 月度 80% 预警通知（当前只有 100% 熔断；阈值告警属 P8 告警体系）
-- [ ] `usage_ledger` 对账：provider 账单与账本定期核对 —— P7/P8
+- [x] `usage_ledger` 逐调用记账（P1-4）：LLM / embedding / 搜索逐次一行（重试按 `attempt` 区分；`cost_source` 标注精度：`estimate` 本地价格表上界 / `per_call` 按次未建模 / `provider` 供应商实报）；账本无 prompt/PII；CLI `usage-summary` 按 run/时间窗口汇总（先对请求数再对钱）
+- [ ] 与 provider 账单定期核对（对账流程人工执行；供应商实报成本接入后写 `cost_source=provider`）—— P8
 
 ### 3.8 备份与恢复演练
 
@@ -327,3 +328,4 @@ location /api/ {
 | 2026-09-27 | P1-3 Worker registry 同步：§3.1 readiness 项勾选（队列模式要求活跃 worker）、§3.6 增补注册表/心跳；迁移 0009 + 结构断言接入 CI `infra`；新增 `tests/test_worker_registry.py`（本机 640 收集 = 608 通过 + 32 跳过，ruff 全过） |
 | 2026-09-27 | P1-2 分布式限流同步：§3.4 限流行更新（Redis 滑动窗口 + 双维度 + 可信代理 + fail-open）；compose 增 `DR_TRUST_PROXY`；真实 Redis 原子性测试接入 CI `infra`；新增 `tests/test_distributed_ratelimit.py`（本机 646 收集 = 613 通过 + 33 跳过，ruff 全过） |
 | 2026-09-27 | P1-10 会话治理同步：§3.4 会话/密码重置行更新（会话列表与远程终止、重置 token 单次/30min/管理员发放）；迁移 0010 + 结构断言接入 CI `infra`；新增 `tests/test_session_governance.py`（本机 654 收集 = 620 通过 + 34 跳过，ruff 全过） |
+| 2026-09-27 | P1-4 usage ledger 同步：§3.7 逐调用记账勾选（成本来源标注 + CLI 汇总）；迁移 0011 + 结构断言接入 CI `infra`；新增 `tests/test_usage_ledger.py`（本机 661 收集 = 626 通过 + 35 跳过，ruff 全过） |

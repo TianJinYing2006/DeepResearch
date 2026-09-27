@@ -662,6 +662,27 @@ def test_session_governance_and_reset_contract(store: RunStore):
         cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
 
 
+def test_usage_ledger_contract(store: RunStore):
+    """P1-4：逐调用账本写入 / 汇总（先对请求数再对钱）。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM usage_ledger")
+    store.record_usage(run_id="test-usage-run", attempt=1, kind="llm", provider="dashscope",
+                       model="qwen-plus", role="critic", input_tokens=100,
+                       output_tokens=20, total_tokens=120, cost_estimate_cny=0.00024,
+                       cost_source="estimate", request_id="cmpl-1")
+    store.record_usage(run_id="test-usage-run", attempt=2, kind="search", provider="bocha",
+                       role="web", cost_source="per_call")
+
+    summary = store.usage_summary(run_id="test-usage-run")
+    assert summary["calls"] == 2 and summary["tokens"] == 120
+    rows = store.list_usage(run_id="test-usage-run")
+    assert rows[0]["kind"] == "search"  # 倒序
+    assert rows[1]["request_id"] == "cmpl-1"
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM usage_ledger WHERE run_id = 'test-usage-run'")
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")
