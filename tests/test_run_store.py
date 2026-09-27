@@ -463,3 +463,33 @@ def test_status_counts_and_stale_leases(store: RunStore):
     # count_active 与 sweep 断言（与 P7-A 注销测试同类坑，D 盘实测教训）。
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE run_id IN (%s, %s)", (stale_id, fresh_id))
+
+
+def test_finalize_run_atomic_contract(store: RunStore):
+    """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
+    run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")
+
+    ok = store.finalize_run(
+        run_id, event_type="RUN_FINISHED", payload={"stop_reason": "completed"},
+        sequence=None, new_status="SUCCEEDED",
+        allowed_from=("RUNNING", "CANCEL_REQUESTED"),
+        fields={"stop_reason": "completed", "finished_at": _now()},
+        artifacts={"report_md": "# 正文", "export_json": "{}"},
+    )
+    assert ok is True
+    assert store.get_run(run_id)["status"] == "SUCCEEDED"
+    assert store.get_artifact(run_id, "report_md") == "# 正文"
+    assert [e["event_type"] for e in store.get_events(run_id)] == ["RUN_FINISHED"]
+
+    # 已终局的任务再次终局：整体回滚（事件不追加、产物不覆盖、状态不改判）
+    assert store.finalize_run(
+        run_id, event_type="RUN_FINISHED", payload={}, sequence=None,
+        new_status="FAILED", allowed_from=("RUNNING",),
+        fields={"stop_reason": "error"}, artifacts={"report_md": "# 迟到报告"},
+    ) is False
+    assert store.get_run(run_id)["status"] == "SUCCEEDED"
+    assert store.get_artifact(run_id, "report_md") == "# 正文"
+    assert len(store.get_events(run_id)) == 1
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))

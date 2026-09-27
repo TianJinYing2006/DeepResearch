@@ -497,8 +497,12 @@ class RunManager:
         try:
             with self._lock:
                 topic = (self._status.get(run_id) or {}).get("topic", "")
-            persist_terminal(store, run_id, seq, event_type, payload,
-                             result=result, report=report, meta=meta, topic=topic)
+            finalized = persist_terminal(store, run_id, seq, event_type, payload,
+                                         result=result, report=report, meta=meta, topic=topic)
+            if not finalized:
+                # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
+                self._set_persistence_error(run_id, RuntimeError("terminal_conflict"))
+                return
             # P7-A：输出侧内容标记（命中词表 ⇒ flagged + 审核记录；不删除正文）
             flag_report(store, run_id, self.owner(run_id), report)
         except Exception as exc:  # noqa: BLE001

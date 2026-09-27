@@ -76,6 +76,7 @@
 - [x] 启动维护按执行模式分流（P3-B 补丁）：`inprocess` 启动才标记失联任务 `LOST`；`queue` 模式下 API 重启不触碰活跃任务（RUNNING 归 Worker 心跳/租约、QUEUED 归 Redis 队列，接管只走 `sweep_stale_runs`）
 - [x] 并发限制：全局闸（API 配置上限）+ 单用户并发闸（`DR_MAX_USER_CONCURRENT`，P4-B）
 - [x] 单 run 预算闸在 Worker 节点边界生效（`budget_limit_cny` → `budget_used_cny` 每步回写；超限 `stop_reason=budget_exceeded`）
+- [x] 终局原子落库（P0-6）：状态迁移 + 终局事件 + 产物**同一事务**（`RunStore.finalize_run`）；迁移失败（已被清扫 / 强制收口抢先）整体回滚，不产生「SUCCEEDED 但报告缺失」或「状态未迁移但产物已写」的半成品
 - [x] 用户级每日次数与全局月度预算闸（P4-B：429 `quota_exceeded`；查询 / 导出不受影响）
 - [x] 运行档位（P0 profile 固化）：`quick/standard/deep` 由服务端固定跳数 / 子问题 / token / 模型 / 超时 / 单次预算（需求 10 §5.6）；请求体同名字段一律忽略并记入 `runs.request.ignored_overrides`；执行器经 contextvar 运行作用域读取，不再改全局 `config`
 - [ ] 用户级 / 全局成本闸 —— P4
@@ -300,3 +301,4 @@ location /api/ {
 | 2026-09-26 | P8-A 可观测与恢复演练同步：§3.6 增加「可判定已落地」说明（`/api/metrics`、`/api/ops/alerts`；触达与中心化留 P8-B）；§3.8 勾选备份脚本化与恢复演练（CI 每次 PR 真实执行） |
 | 2026-09-27 | P3-B 补丁：API 启动维护按执行模式分流（`main.py::_startup_store_maintenance`）—— 修复 queue 模式下 API 重启误将 Worker 的 RUNNING/QUEUED 标记为 `LOST` 的跨服务破坏；§3.3 增补对应勾选；新增 `tests/test_startup_maintenance.py`（本机 568 收集 = 543 通过 + 25 跳过，ruff 全过） |
 | 2026-09-27 | P0 profile 固化同步：§3.3 勾选运行档位（服务端固定底层参数 + 快照留痕 + contextvar 运行作用域）；新增 `web/backend/profiles.py` / `research_engine/runtime_profile.py`、`runs.request.profile` 快照、前端档位选择器；新增 `tests/test_profiles.py`（本机 575 收集 = 550 通过 + 25 跳过，ruff / tsc / vite build 全过） |
+| 2026-09-27 | P0-6 终局原子落库同步：§3.3 勾选终局原子（`RunStore.finalize_run` 单事务：状态 + 事件 + 产物；迁移失败整体回滚）；`persistence.persist_terminal` / `persist_forced` 返回是否完成迁移，Runner/Worker 据此跳过输出标记；新增 `tests/test_terminal_atomic.py`（本机 581 收集 = 555 通过 + 26 跳过，ruff 全过） |

@@ -123,6 +123,25 @@ class FakeStore:
         row.update(fields)
         return True
 
+    def finalize_run(self, run_id, *, event_type, payload, sequence, new_status,
+                     allowed_from, fields=None, artifacts=None):
+        """与 RunStore.finalize_run 同语义：迁移失败 ⇒ 不写事件 / 产物（P0-6）。"""
+        row = self.runs.get(run_id)
+        if row is None or row["status"] not in tuple(allowed_from):
+            return False
+        if self.fail_events:
+            raise RuntimeError("db down")
+        seq = sequence if sequence is not None else len(self.events[run_id])
+        if not any(item["sequence"] == seq for item in self.events[run_id]):
+            self.events[run_id].append({"run_id": run_id, "sequence": seq,
+                                        "event_type": event_type, "payload": payload or {}})
+            self.events[run_id].sort(key=lambda item: item["sequence"])
+        row["status"] = new_status
+        row.update(fields or {})
+        for kind, body in (artifacts or {}).items():
+            self.artifacts.setdefault(run_id, {})[kind] = body
+        return True
+
     def get_run(self, run_id):
         return self.runs.get(run_id)
 
