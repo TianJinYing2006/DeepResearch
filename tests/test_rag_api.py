@@ -100,6 +100,7 @@ def test_ingest_requires_auth_and_csrf_when_enabled(monkeypatch):
     _FakeIngester.error = None
     monkeypatch.setattr(ingest_module, "DocumentIngester", _FakeIngester)
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
+    monkeypatch.setattr(api, "RAG_UPLOAD_LIMITER", FixedWindowLimiter(1000))
     fake = FakeStore()
     fake.create_user("u-rag", "rag@example.com", "hash")
     fake.create_session(token_hash("tok-rag"), "u-rag",
@@ -113,9 +114,13 @@ def test_ingest_requires_auth_and_csrf_when_enabled(monkeypatch):
     client.cookies.set(CSRF_COOKIE, "c1")
     ok = client.post("/api/rag/ingest", files={"file": ("a.md", b"x", "text/markdown")},
                      headers={CSRF_HEADER: "c1"})
-    assert ok.status_code == 200
-    assert _FakeIngester.calls[-1]["user_id"] == "u-rag"
-    assert _FakeIngester.calls[-1]["doc_id"].startswith("u-rag:")
+    # P0-8b：有任务库时登记为异步摄取（202），处理由 Worker 执行
+    assert ok.status_code == 202
+    body = ok.json()
+    assert body["status"] == "pending"
+    assert body["doc_id"].startswith("u-rag:")
+    row = fake.get_ingestion(body["ingestion_id"])
+    assert row["user_id"] == "u-rag" and row["status"] == "pending"
 
 
 def test_docs_lists_sources_by_scope(monkeypatch):
@@ -131,8 +136,8 @@ def test_docs_lists_sources_by_scope(monkeypatch):
 
     body = TestClient(api.app).get("/api/rag/docs").json()
     assert body["docs"] == [
-        {"source": "a.md", "chunks": 2},
-        {"source": "b.md", "chunks": 1},
+        {"doc_id": "", "source": "a.md", "chunks": 2},
+        {"doc_id": "", "source": "b.md", "chunks": 1},
     ]
     assert _FakeVectorStore.seen_scopes == [None]
 

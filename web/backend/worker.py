@@ -55,6 +55,7 @@ from .agui import (
 )
 from .deletion import process_deletions_once
 from .errors import error_payload
+from .ingestion import process_ingestions_once, purge_expired_documents
 from .moderation import apply_output_gate, flag_report
 from .persistence import persist_terminal
 from .queue import RunQueue
@@ -117,6 +118,7 @@ class Worker:
 
     def run_forever(self) -> None:
         next_sweep = 0.0  # 启动即清扫一次：接管上次进程崩溃留下的过期租约
+        next_retention = 0.0  # P0-8b：保留期清理（默认每日一次）
         while not self._stop.is_set():
             if time.monotonic() >= next_sweep:
                 try:
@@ -132,6 +134,21 @@ class Worker:
                         _log(f"deletions: {deletions}")
                 except Exception as exc:  # noqa: BLE001 —— 注销清理失败不拖垮消费循环
                     _log(f"deletion outbox failed: {type(exc).__name__}: {exc}")
+                try:
+                    # P0-8b：异步摄取（隔离区 → 解析/embedding/Qdrant）
+                    ingestions = process_ingestions_once(self._store)
+                    if ingestions["claimed"]:
+                        _log(f"ingestions: {ingestions}")
+                except Exception as exc:  # noqa: BLE001 —— 摄取失败不拖垮消费循环
+                    _log(f"ingestion worker failed: {type(exc).__name__}: {exc}")
+                if time.monotonic() >= next_retention:
+                    try:
+                        purged = purge_expired_documents(self._store)
+                        if purged["expired"]:
+                            _log(f"retention: {purged}")
+                    except Exception as exc:  # noqa: BLE001
+                        _log(f"retention purge failed: {type(exc).__name__}: {exc}")
+                    next_retention = time.monotonic() + 24 * 3600
                 next_sweep = time.monotonic() + self.sweep_seconds
             if self.claim_next():
                 continue

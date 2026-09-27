@@ -562,6 +562,33 @@ def test_account_deletion_outbox_contract(store: RunStore):
         cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
 
 
+def test_rag_ingestion_contract(store: RunStore):
+    """P0-8b：摄取台账 claim/ready/retention 流转（真实 PG）。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM rag_ingestions")
+    ingestion_id = f"ing{uuid.uuid4().hex[:8]}"
+    store.create_ingestion(ingestion_id, f"{TEST_USER}:abc", user_id=TEST_USER,
+                           source="a.md", sha256="abc", size_bytes=3, stored_name="x.md")
+
+    row = store.claim_next_ingestion("w1", 60)
+    assert row is not None and row["ingestion_id"] == ingestion_id and row["attempts"] == 1
+    assert store.claim_next_ingestion("w2", 60) is None  # 租约未过期
+
+    store.mark_ingestion_ready(ingestion_id, 2)
+    assert store.get_ingestion(ingestion_id)["status"] == "ready"
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE rag_ingestions SET created_at = now() - interval '100 days' "
+                    "WHERE ingestion_id = %s", (ingestion_id,))
+    expired = store.list_expired_ingestions(datetime.now(timezone.utc) - timedelta(days=90))
+    assert any(item["ingestion_id"] == ingestion_id for item in expired)
+    store.mark_ingestion_deleted(ingestion_id)
+    assert store.get_ingestion(ingestion_id)["status"] == "deleted"
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM rag_ingestions WHERE ingestion_id = %s", (ingestion_id,))
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")

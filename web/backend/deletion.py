@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 from typing import Any, Optional
 
@@ -47,7 +48,7 @@ def process_deletions_once(
     summary = {"claimed": len(claimed), "done": 0, "retried": 0, "abandoned": 0}
     for item in claimed:
         try:
-            _execute_target(item, vector_store)
+            _execute_target(item, vector_store, store)
         except Exception as exc:  # noqa: BLE001 —— 失败必须进入退避/放弃流程
             error = f"{type(exc).__name__}: {exc}"[:300]
             backoff = min(
@@ -69,8 +70,13 @@ def process_deletions_once(
     return summary
 
 
-def _execute_target(item: dict[str, Any], vector_store: Optional[Any]) -> None:
-    """执行单条 outbox；失败抛异常，由调用方进入重试流程。"""
+def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
+                    store: RunStore) -> None:
+    """执行单条 outbox；失败抛异常，由调用方进入重试流程。
+
+    `qdrant` 目标包含两件事：删除该用户全部向量（验证归零）+ 清理其隔离区文件
+    （P0-8b：上传原文不能残留）。
+    """
     target = item["target"]
     if target != "qdrant":
         raise RuntimeError(f"unknown deletion target: {target}")
@@ -78,15 +84,27 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any]) -> None:
     if not user_id:
         raise RuntimeError("outbox payload missing user_id")
 
-    store = vector_store
-    if store is None:
+    store_ = vector_store
+    if store_ is None:
         from research_engine.rag.store import VectorStore
 
-        store = VectorStore()
-    reason = store.unavailable_reason
+        store_ = VectorStore()
+    reason = store_.unavailable_reason
     if reason:
         raise RuntimeError(f"qdrant unavailable: {reason}")
-    store.delete_by_user(user_id, wait=True)
-    remaining = store.count_by_user(user_id)
+    store_.delete_by_user(user_id, wait=True)
+    remaining = store_.count_by_user(user_id)
     if remaining:
         raise RuntimeError(f"qdrant still has {remaining} points for user {user_id}")
+
+    # P0-8b：隔离区原文清理（失败同样进入退避重试）
+    from .ingestion import quarantine_path
+
+    for name in store.list_ingestion_files_for_user(user_id):
+        if not name:
+            continue
+        try:
+            os.remove(quarantine_path(name))
+        except FileNotFoundError:
+            pass
+    store.mark_ingestions_deleted_for_user(user_id)

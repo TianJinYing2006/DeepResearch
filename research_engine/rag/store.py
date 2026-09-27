@@ -188,3 +188,30 @@ class VectorStore:
             exact=True,
         )
         return int(result.count)
+
+    def delete_by_doc(self, doc_id: str, *, wait: bool = True) -> None:
+        """删除某文档（内容寻址 doc_id）的全部块（P0-8b 文档删除 / 保留期清理）。"""
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        client.delete(
+            collection_name=self.collection,
+            points_selector=Filter(must=[
+                FieldCondition(key="doc_id", match=MatchValue(value=doc_id)),
+            ]),
+            wait=wait,
+        )
+
+    def count_by_doc(self, doc_id: str) -> int:
+        """该文档在集合中的点数（P0-8b 删除完成验证）。"""
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        result = client.count(
+            collection_name=self.collection,
+            count_filter=Filter(must=[
+                FieldCondition(key="doc_id", match=MatchValue(value=doc_id)),
+            ]),
+            exact=True,
+        )
+        return int(result.count)
