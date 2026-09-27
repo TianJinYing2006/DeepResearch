@@ -86,8 +86,8 @@
 
 ### 3.4 身份与权限
 
-- [x] 注册 / 登录 / 登出 / 会话过期 / 用户封禁（CLI）/ 邀请码（一次性、可过期、可撤销）—— P4-A
-- [ ] 密码重置（邮件通道）—— P4-B / P7
+- [x] 注册 / 登录 / 登出 / 会话过期 / 用户封禁（CLI）/ 邀请码（一次性、可过期、可撤销）—— P4-A；**P1-10 会话治理**：会话列表（session_id / last_seen / IP / UA，当前标记）、终止单会话（终止他人需重输密码，ASVS 7.5.2）、退出其他设备；last_seen 节流刷新；可选空闲超时 `DR_SESSION_IDLE_SECONDS`（默认 0 = 仅绝对超时，口径登记）
+- [x] 密码重置（P1-10，管理员协助形态）：`password_reset_tokens` 只存 SHA-256、单次原子消费、30 分钟过期、兄弟 token 互斥；`POST /api/auth/reset` 同事务完成「消费 + 改密 + 吊销全部会话 + 清理 token」；管理员 CLI `create-reset-token --email`；⚠️ 邮件自助通道待有 SMTP/SMS 后接入（接口已按该形态设计）
 - [x] 密码哈希 Argon2id；会话 httpOnly + SameSite；`DR_COOKIE_SECURE=true` 时加 Secure（**P0-9：staging/生产启动硬校验要求为 true**，不允许带 `Secure=false` 启动）
 - [x] CSRF 防护：双提交 Cookie（写操作校验 `X-CSRF-Token`）—— P4-A
 - [x] 登录与提交接口限流：**P1-2 起配置 Redis 时为滑动窗口（Lua 原子、多实例共享）**，未配置回落进程内固定窗口；登录双维度（IP + 账号哈希，防定向撞库）；`DR_TRUST_PROXY=true` 时才采用 `X-Forwarded-For` 首跳；Redis 抖动 **fail-open** 并记 `ratelimit_redis_error`（限流是纵深，非唯一安全边界）
@@ -326,3 +326,4 @@ location /api/ {
 | 2026-09-27 | P1-1 幂等请求指纹同步：§3.3 幂等键行更新（同键不同载荷 409）；迁移 0008 + 结构断言接入 CI `infra`；新增 `tests/test_idempotency_conflict.py`（本机 634 收集 = 603 通过 + 31 跳过，ruff 全过） |
 | 2026-09-27 | P1-3 Worker registry 同步：§3.1 readiness 项勾选（队列模式要求活跃 worker）、§3.6 增补注册表/心跳；迁移 0009 + 结构断言接入 CI `infra`；新增 `tests/test_worker_registry.py`（本机 640 收集 = 608 通过 + 32 跳过，ruff 全过） |
 | 2026-09-27 | P1-2 分布式限流同步：§3.4 限流行更新（Redis 滑动窗口 + 双维度 + 可信代理 + fail-open）；compose 增 `DR_TRUST_PROXY`；真实 Redis 原子性测试接入 CI `infra`；新增 `tests/test_distributed_ratelimit.py`（本机 646 收集 = 613 通过 + 33 跳过，ruff 全过） |
+| 2026-09-27 | P1-10 会话治理同步：§3.4 会话/密码重置行更新（会话列表与远程终止、重置 token 单次/30min/管理员发放）；迁移 0010 + 结构断言接入 CI `infra`；新增 `tests/test_session_governance.py`（本机 654 收集 = 620 通过 + 34 跳过，ruff 全过） |

@@ -168,6 +168,8 @@ AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
 INVITE_ONLY = _env_flag("DR_INVITE_ONLY", "true")
 COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
 SESSION_TTL_SECONDS = int(os.getenv("DR_SESSION_TTL_SECONDS", "604800"))
+# P1-10：空闲超时（秒）；0 = 仅绝对超时（L3-A 默认口径，文档登记）
+SESSION_IDLE_SECONDS = int(_env_number("DR_SESSION_IDLE_SECONDS", 0))
 
 
 def _parse_env() -> str:
@@ -268,6 +270,8 @@ def _startup_store_maintenance(run_store: RunStore, execution_mode: str) -> None
     if execution_mode == "inprocess":
         run_store.mark_stale_as_lost()
     run_store.purge_expired_sessions()
+    # P1-10：清理已消费 / 过期超过 1 天的重置 token（存储卫生）
+    run_store.purge_expired_password_resets()
 
 
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
@@ -552,7 +556,14 @@ def _session_user(request: Request) -> Optional[dict]:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
-    return _store_call(store.get_session_user, token_hash(token))
+    user = _store_call(store.get_session_user, token_hash(token),
+                       idle_seconds=SESSION_IDLE_SECONDS)
+    if user is not None:
+        try:
+            store.touch_session(token_hash(token))  # P1-10：节流刷新 last_seen
+        except Exception:  # noqa: BLE001 —— 会话卫生旁路
+            pass
+    return user
 
 
 def _require_user(request: Request) -> Optional[str]:
@@ -631,11 +642,16 @@ def _public_user(user: dict) -> dict:
     return {"user_id": user["user_id"], "email": user["email"]}
 
 
-def _set_session_cookies(response: Response, user_id: str) -> None:
-    """建会话 + 写 Cookie：session 为 httpOnly，CSRF 为可读双提交 Cookie。"""
+def _set_session_cookies(response: Response, user_id: str, request: Optional[Request] = None) -> None:
+    """建会话 + 写 Cookie：session 为 httpOnly，CSRF 为可读双提交 Cookie。
+
+    P1-10：会话记录 IP / User-Agent（会话治理展示与排障）。
+    """
     token = new_token()
     _store_call(store.create_session, token_hash(token), user_id,
-                datetime.now(UTC) + timedelta(seconds=SESSION_TTL_SECONDS))
+                datetime.now(UTC) + timedelta(seconds=SESSION_TTL_SECONDS),
+                ip=(_client_key(request) if request is not None else None),
+                user_agent=(request.headers.get("user-agent") if request is not None else None))
     response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_SECONDS, httponly=True,
                         samesite="lax", secure=COOKIE_SECURE, path="/")
     response.set_cookie(CSRF_COOKIE, new_token(), max_age=SESSION_TTL_SECONDS, httponly=False,
@@ -871,7 +887,7 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
             f"注册失败：{type(exc).__name__}: {exc}"[:200],
         ) from exc
     _store_call(store.touch_last_login, user["user_id"])
-    _set_session_cookies(response, user["user_id"])
+    _set_session_cookies(response, user["user_id"], request)
     _audit("register_success", request=request, actor_user_id=user["user_id"],
            detail={"invite": bool(req.invite_code)})
     return {"user": _public_user(user)}
@@ -898,7 +914,7 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
         _audit("login_failed", request=request, detail={"email_hash": email_hash})
         raise http_error("invalid_credentials", "邮箱或密码不正确")
     _store_call(store.touch_last_login, user["user_id"])
-    _set_session_cookies(response, user["user_id"])
+    _set_session_cookies(response, user["user_id"], request)
     _audit("login_success", request=request, actor_user_id=user["user_id"])
     return {"user": _public_user(user)}
 
@@ -924,6 +940,98 @@ def auth_session(request: Request) -> dict:
     return {"user": _public_user(user)}
 
 
+# ------------------------------------------------------------------ 会话治理（P1-10）
+
+
+class RevokeSessionRequest(BaseModel):
+    password: Optional[str] = Field(None, max_length=200)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=256)
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=200)
+
+
+def _require_session_user(request: Request) -> dict:
+    user = _session_user(request)
+    if user is None:
+        raise http_error("unauthenticated", "请先登录")
+    return user
+
+
+@app.get("/api/auth/sessions")
+def auth_sessions(request: Request) -> dict:
+    """本用户活跃会话列表（P1-10）：对外只暴露 `session_id`，不泄露 token 摘要。"""
+    user = _require_session_user(request)
+    current = user.get("session_token_hash")
+    rows = _store_call(store.list_sessions, user["user_id"])
+    return {"sessions": [{
+        "session_id": row["session_id"],
+        "current": row["token_hash"] == current,
+        "created_at": _iso(row["created_at"]),
+        "last_seen_at": _iso(row["last_seen_at"]),
+        "ip": row["ip"],
+        "user_agent": row["user_agent"],
+    } for row in rows]}
+
+
+@app.delete("/api/auth/sessions/{session_id}")
+def auth_revoke_session(session_id: str, req: RevokeSessionRequest, request: Request,
+                        response: Response) -> dict:
+    """终止一个会话（P1-10）；终止**其他**会话需重认证（ASVS 7.5.2）。"""
+    user = _require_session_user(request)
+    _check_csrf(request)
+    is_current = user.get("session_id") == session_id
+    if not is_current and (not req.password
+                           or not verify_password(user["password_hash"], req.password)):
+        _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
+               target_id=session_id)
+        raise http_error("invalid_credentials", "终止其他会话需要输入当前密码")
+    if not _store_call(store.revoke_session_by_id, user["user_id"], session_id):
+        raise http_error("invalid_request", "会话不存在")
+    _audit("session_revoked", request=request, actor_user_id=user["user_id"],
+           target_id=session_id, detail={"current": is_current})
+    if is_current:
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        response.delete_cookie(CSRF_COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.delete("/api/auth/sessions")
+def auth_revoke_other_sessions(req: RevokeSessionRequest, request: Request) -> dict:
+    """退出其他所有设备（P1-10）：需重认证；当前会话保留。"""
+    user = _require_session_user(request)
+    _check_csrf(request)
+    if not req.password or not verify_password(user["password_hash"], req.password):
+        _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
+               detail={"scope": "others"})
+        raise http_error("invalid_credentials", "退出其他设备需要输入当前密码")
+    revoked = _store_call(store.revoke_other_sessions, user["user_id"],
+                          user["session_token_hash"])
+    _audit("sessions_revoked_others", request=request, actor_user_id=user["user_id"],
+           detail={"revoked": revoked})
+    return {"ok": True, "revoked": revoked}
+
+
+@app.post("/api/auth/reset")
+def auth_reset_password(req: ResetPasswordRequest, request: Request) -> dict:
+    """密码重置（P1-10）：管理员 CLI 发放一次性 token；成功后吊销全部会话。
+
+    原子完成（消费 token + 改密 + 吊销会话同事务）；token 单次消费、30 分钟过期。
+    """
+    if not LOGIN_LIMITER.allow(f"reset:{_client_key(request)}"):
+        raise http_error("rate_limited", "请求过于频繁，稍后再试")
+    if store is None:
+        raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    user_id = _store_call(store.complete_password_reset, token_hash(req.token),
+                          hash_password(req.new_password))
+    if user_id is None:
+        _audit("password_reset_failed", request=request)
+        raise http_error("invalid_request", "重置链接无效或已过期，请重新申请")
+    _audit("password_reset_completed", request=request, actor_user_id=user_id)
+    return {"ok": True}
+
+
 @app.post("/api/auth/password")
 def auth_change_password(req: ChangePasswordRequest, request: Request, response: Response) -> dict:
     """登录态改密：校验当前密码 → 更新 Argon2id → **吊销全部会话** → 当前设备重新签发。
@@ -940,7 +1048,7 @@ def auth_change_password(req: ChangePasswordRequest, request: Request, response:
         raise http_error("invalid_credentials", "当前密码不正确")
     _store_call(store.update_password, user["user_id"], hash_password(req.new_password))
     revoked = _store_call(store.revoke_user_sessions, user["user_id"])
-    _set_session_cookies(response, user["user_id"])
+    _set_session_cookies(response, user["user_id"], request)
     _audit("password_changed", request=request, actor_user_id=user["user_id"],
            detail={"revoked_sessions": revoked})
     return {"ok": True}

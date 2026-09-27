@@ -809,22 +809,73 @@ class RunStore:
             )
             return cur.fetchall()
 
-    def create_session(self, session_hash: str, user_id: str, expires_at: datetime) -> None:
+    def create_session(self, session_hash: str, user_id: str, expires_at: datetime,
+                       *, ip: Optional[str] = None,
+                       user_agent: Optional[str] = None) -> str:
+        """建会话（P1-10：记录 IP / UA / last_seen；返回对外可见 `session_id`）。"""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
-                (session_hash, user_id, expires_at),
+                "INSERT INTO sessions (token_hash, user_id, expires_at, ip, user_agent) "
+                "VALUES (%s, %s, %s, %s, %s) RETURNING session_id",
+                (session_hash, user_id, expires_at, ip, (user_agent or "")[:300] or None),
             )
+            return cur.fetchone()["session_id"]
 
-    def get_session_user(self, session_hash: str) -> Optional[dict[str, Any]]:
-        """按令牌摘要取**有效**会话对应的用户（过期 / 封禁即视为无效）。"""
+    def get_session_user(self, session_hash: str, *, idle_seconds: int = 0) -> Optional[dict[str, Any]]:
+        """按令牌摘要取**有效**会话对应的用户（过期 / 空闲超时 / 封禁即无效）。
+
+        返回含会话元数据（`session_id` / `session_last_seen_at` / `session_ip` /
+        `session_user_agent`），供会话治理接口使用；`idle_seconds<=0` 表示不启用空闲超时。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT u.* FROM sessions s JOIN users u ON u.user_id = s.user_id "
-                "WHERE s.token_hash = %s AND s.expires_at > now() AND u.status = 'active'",
-                (session_hash,),
+                "SELECT u.*, s.session_id, s.created_at AS session_created_at, "
+                "       s.last_seen_at AS session_last_seen_at, s.ip AS session_ip, "
+                "       s.user_agent AS session_user_agent, s.token_hash AS session_token_hash "
+                "FROM sessions s JOIN users u ON u.user_id = s.user_id "
+                "WHERE s.token_hash = %s AND s.expires_at > now() AND u.status = 'active' "
+                "  AND (%s = 0 OR s.last_seen_at > now() - make_interval(secs => %s))",
+                (session_hash, idle_seconds, idle_seconds),
             )
             return cur.fetchone()
+
+    def touch_session(self, session_hash: str) -> None:
+        """刷新 last_seen（节流：60s 内不重复写）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sessions SET last_seen_at = now() WHERE token_hash = %s "
+                "AND last_seen_at < now() - interval '60 seconds'",
+                (session_hash,),
+            )
+
+    def list_sessions(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT session_id, created_at, last_seen_at, ip, user_agent, token_hash "
+                "FROM sessions WHERE user_id = %s ORDER BY last_seen_at DESC",
+                (user_id,),
+            )
+            return cur.fetchall()
+
+    def revoke_session_by_id(self, user_id: str, session_id: str) -> bool:
+        """按对外 `session_id` 终止本用户的一个会话（越权不可见）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sessions WHERE user_id = %s AND session_id = %s "
+                "RETURNING token_hash",
+                (user_id, session_id),
+            )
+            return cur.fetchone() is not None
+
+    def revoke_other_sessions(self, user_id: str, keep_token_hash: str) -> int:
+        """吊销该用户除当前会话外的全部会话（P1-10「退出其他设备」）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sessions WHERE user_id = %s AND token_hash <> %s "
+                "RETURNING token_hash",
+                (user_id, keep_token_hash),
+            )
+            return len(cur.fetchall())
 
     def revoke_session(self, session_hash: str) -> bool:
         with self._connect() as conn, conn.cursor() as cur:
@@ -856,6 +907,76 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM sessions WHERE expires_at <= now() RETURNING token_hash")
             return len(cur.fetchall())
+
+    # ---- 密码重置 token（P1-10）----
+
+    def create_password_reset(self, token_hash: str, user_id: str, expires_at: datetime,
+                              *, created_by: Optional[str] = None) -> None:
+        """发放重置 token：先失效该用户所有未消费 token（兄弟互斥），再写新 token。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM password_reset_tokens WHERE user_id = %s AND consumed_at IS NULL",
+                (user_id,),
+            )
+            cur.execute(
+                "INSERT INTO password_reset_tokens (token_hash, user_id, expires_at, created_by) "
+                "VALUES (%s, %s, %s, %s)",
+                (token_hash, user_id, expires_at, created_by),
+            )
+
+    def consume_password_reset(self, token_hash: str) -> Optional[str]:
+        """原子消费：有效且未消费才返回 `user_id`（单次；并发只有一个成功）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE password_reset_tokens SET consumed_at = now() "
+                "WHERE token_hash = %s AND consumed_at IS NULL AND expires_at > now() "
+                "RETURNING user_id",
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return row["user_id"] if row else None
+
+    def delete_password_resets(self, user_id: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM password_reset_tokens WHERE user_id = %s RETURNING token_hash",
+                (user_id,),
+            )
+            return len(cur.fetchall())
+
+    def purge_expired_password_resets(self) -> int:
+        """存储卫生：清理已消费或过期超过 1 天的 token。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM password_reset_tokens "
+                "WHERE consumed_at IS NOT NULL OR expires_at < now() - interval '1 day' "
+                "RETURNING token_hash",
+            )
+            return len(cur.fetchall())
+
+    def complete_password_reset(self, token_hash: str, password_hash: str) -> Optional[str]:
+        """原子完成重置（P1-10）：消费 token + 改密 + 吊销全部会话 + 清理其余 token。
+
+        返回 `user_id`；token 无效/过期/已消费返回 `None`（单次消费，并发只有一个成功）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE password_reset_tokens SET consumed_at = now() "
+                "WHERE token_hash = %s AND consumed_at IS NULL AND expires_at > now() "
+                "RETURNING user_id",
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            user_id = row["user_id"]
+            cur.execute(
+                "UPDATE users SET password_hash = %s, updated_at = now() WHERE user_id = %s",
+                (password_hash, user_id),
+            )
+            cur.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+            cur.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
+            return user_id
 
     # ---- 内容安全（P7-A）----
 

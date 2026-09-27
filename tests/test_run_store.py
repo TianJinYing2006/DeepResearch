@@ -629,6 +629,39 @@ def test_worker_registry_contract(store: RunStore):
     assert store.list_workers() == []
 
 
+def test_session_governance_and_reset_contract(store: RunStore):
+    """P1-10：会话元数据 / 远程终止 / 重置 token 单次消费 + 会话吊销（真实 PG）。"""
+    uid = "test-store-sess-user"
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO users (user_id, email, password_hash) VALUES (%s, %s, 'x') "
+                    "ON CONFLICT DO NOTHING", (uid, "test-store-sess@test-store.local"))
+        cur.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (uid,))
+        cur.execute("DELETE FROM sessions WHERE user_id = %s", (uid,))
+
+    sid = store.create_session(token_hash("sess-a"), uid,
+                               datetime.now(timezone.utc) + timedelta(hours=1),
+                               ip="203.0.113.1", user_agent="UA/1")
+    assert sid
+    user = store.get_session_user(token_hash("sess-a"))
+    assert user["session_id"] == sid and user["session_ip"] == "203.0.113.1"
+    store.touch_session(token_hash("sess-a"))
+    assert store.list_sessions(uid)[0]["last_seen_at"] is not None
+
+    store.create_password_reset(token_hash("reset-a"), uid,
+                                datetime.now(timezone.utc) + timedelta(minutes=30))
+    store.create_session(token_hash("sess-b"), uid,
+                         datetime.now(timezone.utc) + timedelta(hours=1))
+    assert store.complete_password_reset(token_hash("reset-a"), "new-hash") == uid
+    assert store.get_user(uid)["password_hash"] == "new-hash"
+    assert store.list_sessions(uid) == []  # 全部会话吊销
+    assert store.consume_password_reset(token_hash("reset-a")) is None  # 单次消费
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (uid,))
+        cur.execute("DELETE FROM sessions WHERE user_id = %s", (uid,))
+        cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")
