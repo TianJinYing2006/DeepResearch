@@ -106,6 +106,8 @@ services:
       DR_ENV: "${DR_ENV:-staging}"
       DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-true}"
       DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
+      # P1-2：部署在反向代理后时显式声明（限流/审计才采用 X-Forwarded-For 首跳）
+      DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

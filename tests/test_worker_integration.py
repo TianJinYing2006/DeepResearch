@@ -126,6 +126,19 @@ def test_queue_empty_dequeue_returns_none(queue: RunQueue):
     assert time.monotonic() - started < 5
 
 
+def test_redis_sliding_window_limiter():
+    """P1-2：Redis 滑动窗口原子计数（真实 Redis，CI infra 执行）。"""
+    from web.backend.ratelimit import RedisSlidingWindowLimiter
+
+    limiter = RedisSlidingWindowLimiter(
+        REDIS_URL, 2, window_seconds=60,
+        key_prefix=f"{{dr:test:rl:{uuid.uuid4().hex[:8]}}}")
+    assert limiter.allow("same-key") is True
+    assert limiter.allow("same-key") is True
+    assert limiter.allow("same-key") is False  # 第三个被拒
+    assert limiter.allow("other-key") is True  # 不同 key 独立
+
+
 def test_stale_lease_is_swept_and_retried(store: RunStore, queue: RunQueue):
     """P3-B：Worker 崩溃（租约过期）→ 清扫接管 → 重新入队 → 第二 attempt 成功。"""
     run_id = f"stale{uuid.uuid4().hex[:6]}"

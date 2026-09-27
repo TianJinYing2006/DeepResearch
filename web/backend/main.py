@@ -53,7 +53,7 @@ from .moderation import (
 )
 from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profile
 from .queue import RunQueue
-from .ratelimit import FixedWindowLimiter
+from .ratelimit import make_limiter
 from .runner import RunManager
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 from .upload_guard import (
@@ -208,16 +208,29 @@ def _validate_runtime_config() -> None:
 _validate_runtime_config()
 
 # P4-B：配额与限流（推荐基线 v2 默认值；0 = 关闭对应闸）。
+# P1-2：配置 Redis 时使用滑动窗口（多实例共享）；否则回落进程内固定窗口。
 MAX_USER_CONCURRENT = max(1, int(_env_number("DR_MAX_USER_CONCURRENT", 1)))
 DAILY_RUNS_PER_USER = int(_env_number("DR_DAILY_RUNS_PER_USER", 1))
 RUN_BUDGET_CNY = _env_number("DR_RUN_BUDGET_CNY", 1.50)
 MONTHLY_BUDGET_CNY = _env_number("DR_MONTHLY_BUDGET_CNY", 1500.0)
-LOGIN_LIMITER = FixedWindowLimiter(int(_env_number("DR_LOGIN_RATE_PER_MINUTE", 10)))
-SUBMIT_LIMITER = FixedWindowLimiter(int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)))
+_LIMITER_REDIS_URL = (os.getenv("DR_REDIS_URL") or "").strip()
+LOGIN_LIMITER = make_limiter(
+    "login_ip", int(_env_number("DR_LOGIN_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
+LOGIN_ACCOUNT_LIMITER = make_limiter(
+    "login_acct", int(_env_number("DR_LOGIN_ACCOUNT_RATE_PER_MINUTE", 5)),
+    redis_url=_LIMITER_REDIS_URL)
+SUBMIT_LIMITER = make_limiter(
+    "submit", int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
+# P1-2：仅当部署方显式声明信任反代时，限流/审计才采用 X-Forwarded-For 首跳
+TRUST_PROXY = _env_flag("DR_TRUST_PROXY", "false")
 
 # P6-A / P0-8a：RAG 上传限制（流式落盘 + magic bytes 三重校验 + 解析限额）
 RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
-RAG_UPLOAD_LIMITER = FixedWindowLimiter(int(_env_number("DR_RAG_UPLOADS_PER_MINUTE", 10)))
+RAG_UPLOAD_LIMITER = make_limiter(
+    "rag_upload", int(_env_number("DR_RAG_UPLOADS_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
 
 # P8-A：告警判定阈值（触达渠道由部署方接 IM/邮件；此处只做“可判定”）
 ALERT_5XX_RATE_PCT = _env_number("DR_ALERT_5XX_RATE_PCT", 2.0)
@@ -633,6 +646,11 @@ def _set_session_cookies(response: Response, user_id: str) -> None:
 
 
 def _client_key(request: Request) -> str:
+    """客户端标识：默认 `request.client.host`；显式 `DR_TRUST_PROXY=true` 时取 XFF 首跳。"""
+    if TRUST_PROXY:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()[:64] or "unknown"
     return request.client.host if request.client else "unknown"
 
 
@@ -645,7 +663,7 @@ def _audit(action: str, *, request: Optional[Request] = None,
     meta: dict = {}
     if request is not None:
         meta = {
-            "ip": request.client.host if request.client else None,
+            "ip": _client_key(request),
             "user_agent": request.headers.get("user-agent"),
             "request_id": getattr(request.state, "request_id", None),
         }
@@ -861,18 +879,23 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
 
 @app.post("/api/auth/login")
 def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
-    """邮箱 + 密码登录；失败统一 401（不区分「用户不存在 / 密码错 / 已封禁」）。"""
-    if not LOGIN_LIMITER.allow(f"login:{_client_key(request)}"):
+    """邮箱 + 密码登录；失败统一 401（不区分「用户不存在 / 密码错 / 已封禁」）。
+
+    P1-2：限流双维度 —— IP（`DR_LOGIN_RATE_PER_MINUTE`）+ 账号
+    （`DR_LOGIN_ACCOUNT_RATE_PER_MINUTE`，邮箱哈希作键，防定向撞库）。
+    """
+    email = normalize_email(req.email)
+    email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+    if (not LOGIN_LIMITER.allow(f"login:{_client_key(request)}")
+            or not LOGIN_ACCOUNT_LIMITER.allow(f"login-acct:{email_hash}")):
+        _audit("login_rate_limited", request=request, detail={"email_hash": email_hash})
         raise http_error("rate_limited", "登录请求过于频繁，稍后再试")
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
-    user = _store_call(store.get_user_by_email, normalize_email(req.email))
+    user = _store_call(store.get_user_by_email, email)
     if (user is None or user["status"] != "active"
             or not verify_password(user["password_hash"], req.password)):
-        _audit("login_failed", request=request, detail={
-            "email_hash": hashlib.sha256(
-                normalize_email(req.email).encode("utf-8")).hexdigest()[:16],
-        })
+        _audit("login_failed", request=request, detail={"email_hash": email_hash})
         raise http_error("invalid_credentials", "邮箱或密码不正确")
     _store_call(store.touch_last_login, user["user_id"])
     _set_session_cookies(response, user["user_id"])
