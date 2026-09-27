@@ -120,44 +120,47 @@ def test_purge_before_pg_batches_cascades_and_keeps_recent():
         )
 
     store = RunStore(DSN)
-    old = datetime.now(UTC) - timedelta(days=100)
-    recent = datetime.now(UTC) - timedelta(days=1)
-    old_ids = [uuid.uuid4().hex[:12] for _ in range(2)]
-    new_id = uuid.uuid4().hex[:12]
-    # runs 表有 CHECK (finished_at >= created_at)：造历史数据需同步回拨 created_at
-    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
-        for run_id, created in ((old_ids[0], old), (old_ids[1], old), (new_id, recent)):
-            store.create_run(run_id, "retention-pg", {}, user_id=TEST_USER)
-            cur.execute("UPDATE runs SET created_at = %s WHERE run_id = %s", (created, run_id))
-    for run_id in old_ids:
-        assert store.update_status(run_id, "SUCCEEDED", allowed_from=("CREATED",),
-                                   finished_at=old, started_at=old)
-        store.append_event(run_id, "run_finished", {})
-    assert store.update_status(new_id, "SUCCEEDED", allowed_from=("CREATED",),
-                               finished_at=recent, started_at=recent)
+    try:
+        old = datetime.now(UTC) - timedelta(days=100)
+        recent = datetime.now(UTC) - timedelta(days=1)
+        old_ids = [uuid.uuid4().hex[:12] for _ in range(2)]
+        new_id = uuid.uuid4().hex[:12]
+        # runs 表有 CHECK (finished_at >= created_at)：造历史数据需同步回拨 created_at
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            for run_id, created in ((old_ids[0], old), (old_ids[1], old), (new_id, recent)):
+                store.create_run(run_id, "retention-pg", {}, user_id=TEST_USER)
+                cur.execute("UPDATE runs SET created_at = %s WHERE run_id = %s",
+                            (created, run_id))
+        for run_id in old_ids:
+            assert store.update_status(run_id, "SUCCEEDED", allowed_from=("CREATED",),
+                                       finished_at=old, started_at=old)
+            store.append_event(run_id, "run_finished", {})
+        assert store.update_status(new_id, "SUCCEEDED", allowed_from=("CREATED",),
+                                   finished_at=recent, started_at=recent)
 
-    runs_policy = next(p for p in policies() if p.table == "runs")
-    before = datetime.now(UTC) - timedelta(days=90)
-    assert store.count_before("runs", "finished_at", before,
-                              where_extra=runs_policy.where_extra) >= 2
+        runs_policy = next(p for p in policies() if p.table == "runs")
+        before = datetime.now(UTC) - timedelta(days=90)
+        assert store.count_before("runs", "finished_at", before,
+                                  where_extra=runs_policy.where_extra) >= 2
 
-    remaining = store.count_before("runs", "finished_at", before,
-                                   where_extra=runs_policy.where_extra)
-    deleted = 0
-    while remaining:
-        purged = store.purge_before("runs", "finished_at", before,
-                                    where_extra=runs_policy.where_extra, batch=1)
-        if not purged:
-            break
-        deleted += purged
         remaining = store.count_before("runs", "finished_at", before,
                                        where_extra=runs_policy.where_extra)
-    assert deleted >= 2
+        deleted = 0
+        while remaining:
+            purged = store.purge_before("runs", "finished_at", before,
+                                        where_extra=runs_policy.where_extra, batch=1)
+            if not purged:
+                break
+            deleted += purged
+            remaining = store.count_before("runs", "finished_at", before,
+                                           where_extra=runs_policy.where_extra)
+        assert deleted >= 2
 
-    assert store.get_run(new_id) is not None
-    for run_id in old_ids:
-        assert store.get_run(run_id) is None
-        assert store.count_events(run_id) == 0  # FK CASCADE：事件随运行删除
-
-    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM runs WHERE user_id = %s", (TEST_USER,))
+        assert store.get_run(new_id) is not None
+        for run_id in old_ids:
+            assert store.get_run(run_id) is None
+            assert store.count_events(run_id) == 0  # FK CASCADE：事件随运行删除
+    finally:
+        store.close()
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM runs WHERE user_id = %s", (TEST_USER,))

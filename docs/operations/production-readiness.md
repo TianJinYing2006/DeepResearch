@@ -56,7 +56,7 @@
 
 - [ ] PostgreSQL 建表：`users` / `sessions` / `runs` / `run_events` / `run_checkpoints` / `run_artifacts` / `user_quotas` / `usage_ledger` / `moderation_records` / `audit_logs`
 - [ ] `run_events` 单调 `sequence` 约束（唯一索引，防重放）
-- [ ] 连接池与慢查询监控接入
+- [x] 连接池与慢查询监控接入（P2-3）：`psycopg_pool.ConnectionPool` 进程内复用（懒初始化，`DR_PG_POOL_MIN/MAX/TIMEOUT_S`）；每连接 `options` 固定 `statement_timeout`（`DR_PG_STATEMENT_TIMEOUT_MS`，默认 15s）+ `application_name`；`_TimedCursor` 逐条 SQL 计时，超 `DR_PG_SLOW_QUERY_MS`（默认 500ms）记 WARNING（**只记 SQL 模板，参数不入日志**）；`RunStore.close()` 释放池
 - [ ] Redis：队列 / 租约 / 限流键的过期策略；**不得作为唯一事实来源**（P0-2 起任务派发已完全离开 Redis，仅剩可选唤醒信号）
 - [x] 对象存储：报告与导出文件的生命周期规则（与「数据保存期限」拍板值一致）。**P1-6**：MinIO（compose 服务，私有桶）+ `runs/` 前缀 **90 天**生命周期（`DR_S3_REPORT_RETENTION_DAYS`，与隐私政策「报告与运行元数据 90 天」对齐）；`run_artifacts` 只存元数据（storage/object_key/sha256/size）；未配置 `DR_S3_ENDPOINT` 回落 PostgreSQL（双轨可切换）；S3 写入失败自动回落 db；读取经应用鉴权（flagged 闸在前，不暴露直链）；readiness 含对象存储探针
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
@@ -341,3 +341,4 @@ location /api/ {
 | 2026-09-27 | P1-6 对象存储同步：§3.2 对象存储项勾选（MinIO 私有桶 + 90 天生命周期 + 元数据化 + PG 双轨回落 + S3 失败兜底 + readiness 探针）；迁移 0012 + 结构断言接入 CI `infra`；依赖 boto3 入 lock；新增 `tests/test_object_storage.py`（本机 678 收集 = 643 通过 + 35 跳过，ruff / compose config 全过） |
 | 2026-09-27 | P2-1a 注入确定性防护同步：§3.5 增补确定性层勾选（不可见字符剥离 / 输入预检 / 输出泄漏过滤 / safe_fetch），深度防护（spotlighting、guardrail）显式记为 P2-1b；新增 `tests/test_injection_defense.py` + `tests/test_safe_fetch.py`（本机 692 收集 = 657 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P2-2 数据保留自动清理同步：§3.7 报告到期自动清理项勾选（政策表 + Worker 每日 + CLI + dry-run + 误删护栏 + 审计留痕）；新增 `tests/test_retention.py`（FakeStore 政策用例 + 真实 PG `purge_before` 批量子句/级联契约，已加入 CI `infra` job）；本机 698 收集 = 662 通过 + 36 跳过，ruff 全过 |
+| 2026-09-27 | P2-3 连接池与慢查询同步：§3.2 连接池项勾选（`psycopg_pool` + `statement_timeout` + `_TimedCursor` 慢查询 WARNING（不含参数）+ `DR_PG_*` 可调 + `RunStore.close()`）；依赖 `psycopg-pool` 入 lock；新增 `tests/test_pg_pool.py`（配置解析 + 真实 PG 连接复用/超时生效/慢查询告警，已加入 CI `infra` job）；本机 702 收集 = 664 通过 + 38 跳过，ruff 全过 |

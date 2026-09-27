@@ -35,7 +35,9 @@ def store() -> RunStore:
     # 否则活跃/过期租约行会污染并发闸与 sweep 断言（实测踩坑）。
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE user_id LIKE 'test-store-%'")
-    return RunStore(DSN)
+    instance = RunStore(DSN)
+    yield instance
+    instance.close()  # P2-3：归还连接池，避免用例间连接堆积
 
 
 @pytest.fixture()

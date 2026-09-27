@@ -8,19 +8,93 @@
 
 口径见 `docs/requirements/10-l3-production.md` §5.9 与 `migrations/0001_runs_and_events.sql`。
 
-连接策略：每次调用开一个短连接（psycopg 3 的 `connect()` 上下文负责提交/回滚）。
-L3-A 规模（≤5 用户、2 并发）足够；连接池留到 P3 与 Worker 一起定。
+连接策略（P2-3）：进程内 `psycopg_pool.ConnectionPool` 复用连接（懒初始化，
+`DR_PG_POOL_MIN/MAX` 可调），每连接以 `options` 固定 `statement_timeout`
+（`DR_PG_STATEMENT_TIMEOUT_MS`，默认 15s，防单条慢 SQL 挂死请求路径）；
+逐条 SQL 计时，超过 `DR_PG_SLOW_QUERY_MS`（默认 500ms）记 WARNING（只记
+SQL 模板不含参数，避免 PII 入日志）。`with store._connect()` 的事务语义与
+短连接一致（退出提交 / 异常回滚）。
 """
 from __future__ import annotations
 
+import logging
+import os
+import threading
+import time
 from datetime import UTC, datetime
 from typing import Any, Iterable, Optional
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 
 from .persistence import ACTIVE_STATUSES
+
+_log = logging.getLogger("deepresearch.pg")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+def pool_settings() -> dict[str, Any]:
+    """连接池 / 超时 / 慢查询阈值（每次建池时读取，测试可 monkeypatch 环境变量）。"""
+    max_size = max(1, _env_int("DR_PG_POOL_MAX", 8))
+    min_size = max(0, _env_int("DR_PG_POOL_MIN", 1))
+    return {
+        "min_size": min(min_size, max_size),
+        "max_size": max_size,
+        "timeout": float(_env_int("DR_PG_POOL_TIMEOUT_S", 10)),
+        "statement_timeout_ms": max(1, _env_int("DR_PG_STATEMENT_TIMEOUT_MS", 15000)),
+        "slow_ms": _env_int("DR_PG_SLOW_QUERY_MS", 500),
+        "application_name": (os.getenv("DR_PG_APP_NAME") or "deepresearch").strip(),
+    }
+
+
+def _sql_snippet(query: Any, limit: int = 200) -> str:
+    """慢查询日志用的 SQL 模板摘要：压缩空白 + 截断；**不包含参数值**。"""
+    text = " ".join(str(query).split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+class _TimedCursor(psycopg.Cursor):
+    """逐条 SQL 计时（P2-3）：超过连接上的慢查询阈值记 WARNING。"""
+
+    def _timed(self, method: Any, query: Any, params: Any, kwargs: dict) -> Any:
+        started = time.perf_counter()
+        try:
+            return method(query, params, **kwargs)
+        finally:
+            threshold = getattr(self.connection, "_dr_slow_ms", 0)
+            if threshold:
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                if elapsed_ms >= threshold:
+                    _log.warning(
+                        "slow query %.0fms (threshold %dms): %s",
+                        elapsed_ms, threshold, _sql_snippet(query),
+                    )
+
+    def execute(self, query: Any, params: Any = None, **kwargs: Any) -> Any:
+        return self._timed(super().execute, query, params, kwargs)
+
+    def executemany(self, query: Any, params_seq: Any, **kwargs: Any) -> Any:
+        return self._timed(super().executemany, query, params_seq, kwargs)
+
+    def copy(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
+        return self._timed(super().copy, statement, params, kwargs)
+
+
+def _configure_connection(conn: psycopg.Connection) -> None:
+    """池内连接初始化：挂慢查询阈值；statement_timeout 由池 kwargs options 固定。"""
+    conn._dr_slow_ms = pool_settings()["slow_ms"]  # type: ignore[attr-defined]
 
 #: 终局状态（不得再迁移）；活跃状态见 `persistence.ACTIVE_STATUSES`（单一来源，此处再导出）
 TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
@@ -48,16 +122,50 @@ class QuotaExceeded(Exception):
 
 
 class RunStore:
-    """runs / run_events / run_artifacts 的最小仓储实现（同步）。"""
+    """runs / run_events / run_artifacts 的最小仓储实现（同步，P2-3 连接池）。"""
 
     def __init__(self, dsn: str, *, connect_timeout: int = 3):
         self._dsn = dsn
         self._connect_timeout = connect_timeout
+        self._pool: Optional[ConnectionPool] = None
+        self._pool_lock = threading.Lock()
+
+    def _get_pool(self) -> ConnectionPool:
+        if self._pool is None:
+            with self._pool_lock:
+                if self._pool is None:
+                    settings = pool_settings()
+                    options = (
+                        f"-c statement_timeout={settings['statement_timeout_ms']} "
+                        f"-c application_name={settings['application_name']}"
+                    )
+                    pool = ConnectionPool(
+                        self._dsn,
+                        min_size=settings["min_size"],
+                        max_size=settings["max_size"],
+                        timeout=settings["timeout"],
+                        kwargs={
+                            "row_factory": dict_row,
+                            "connect_timeout": self._connect_timeout,
+                            "options": options,
+                            "cursor_factory": _TimedCursor,
+                        },
+                        configure=_configure_connection,
+                        open=False,
+                    )
+                    pool.open()
+                    self._pool = pool
+        return self._pool
 
     def _connect(self) -> psycopg.Connection:
-        return psycopg.connect(
-            self._dsn, row_factory=dict_row, connect_timeout=self._connect_timeout
-        )
+        """从此进程的连接池取连接（上下文退出：正常提交 / 异常回滚，归还池）。"""
+        return self._get_pool().connection()
+
+    def close(self) -> None:
+        """关闭连接池（进程退出 / 测试清理用；幂等）。"""
+        pool, self._pool = self._pool, None
+        if pool is not None:
+            pool.close()
 
     def ping(self) -> None:
         """连接可用性探针（readiness 升级用；失败直接抛异常）。"""
