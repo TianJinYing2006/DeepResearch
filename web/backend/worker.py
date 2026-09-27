@@ -262,6 +262,7 @@ class Worker:
             workers_live=self._store.count_live_workers(
                 within_seconds=self.worker_heartbeat_max_age_seconds),
             execution_mode="queue",
+            overdue_appeals=self._store.count_appeals_overdue(datetime.now(UTC)),
         )
         summary = sync_alerts(self._store, alerts)
         summary["delivery"] = process_deliveries_once(self._store)

@@ -88,6 +88,7 @@ class FakeStore:
         self.sessions: dict[str, dict] = {}
         self.invites: dict[str, dict] = {}
         self.moderation: list[dict] = []
+        self.appeals: dict[str, dict] = {}
         self.deletions: dict[str, dict] = {}
         self.deletion_outbox: dict[tuple, dict] = {}
         self._deletion_outbox_seq = 0
@@ -529,6 +530,62 @@ class FakeStore:
         row["moderation_status"] = status
         return True
 
+    # ---- 申诉/复核状态机（P2-5b）----
+
+    def create_appeal(self, appeal_id, *, message, run_id=None, user_id=None,
+                      sla_due_at=None):
+        now = datetime.now(UTC)
+        row = {
+            "appeal_id": appeal_id, "run_id": run_id, "user_id": user_id,
+            "message": message, "status": "pending", "decision_note": None,
+            "reviewed_by": None, "sla_due_at": sla_due_at, "decided_at": None,
+            "created_at": now, "updated_at": now,
+        }
+        self.appeals[appeal_id] = row
+        return dict(row)
+
+    def get_appeal(self, appeal_id):
+        row = self.appeals.get(appeal_id)
+        return dict(row) if row else None
+
+    def list_appeals(self, *, status=None, user_id=None, limit=100):
+        rows = [dict(row) for row in self.appeals.values()
+                if (status is None or row["status"] == status)
+                and (user_id is None or row["user_id"] == user_id)]
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return rows[:limit]
+
+    def claim_appeal(self, appeal_id, *, reviewer=None):
+        row = self.appeals.get(appeal_id)
+        if row is None or row["status"] != "pending":
+            return None
+        row["status"] = "reviewing"
+        row["reviewed_by"] = reviewer
+        row["updated_at"] = datetime.now(UTC)
+        return dict(row)
+
+    def decide_appeal(self, appeal_id, *, decision, note=None, reviewer=None):
+        if decision not in ("accepted", "rejected"):
+            raise ValueError(f"invalid decision: {decision}")
+        row = self.appeals.get(appeal_id)
+        if row is None or row["status"] not in ("pending", "reviewing"):
+            return None
+        now = datetime.now(UTC)
+        row["status"] = decision
+        row["decision_note"] = note
+        if reviewer is not None:
+            row["reviewed_by"] = reviewer
+        row["decided_at"] = now
+        row["updated_at"] = now
+        return dict(row)
+
+    def count_appeals_overdue(self, before):
+        return sum(
+            1 for row in self.appeals.values()
+            if row["status"] in ("pending", "reviewing")
+            and row["sla_due_at"] is not None and row["sla_due_at"] < before
+        )
+
     def delete_user(self, user_id):
         """镜像真实外键行为：删用户、级联会话、runs/邀请/记录脱钩。"""
         if user_id not in self.users:
@@ -889,6 +946,7 @@ class FakeStore:
         ("runs", "finished_at"),
         ("usage_ledger", "created_at"),
         ("moderation_records", "created_at"),
+        ("moderation_appeals", "created_at"),
         ("audit_logs", "at"),
     })
 
@@ -901,6 +959,8 @@ class FakeStore:
             return list(self.usage)
         if table == "moderation_records":
             return list(self.moderation)
+        if table == "moderation_appeals":
+            return list(self.appeals.values())
         if table == "audit_logs":
             return list(self.audits)
         raise ValueError(f"purge target not allowed: {table}")
@@ -941,6 +1001,8 @@ class FakeStore:
                 self.usage.remove(row)
             elif table == "moderation_records":
                 self.moderation.remove(row)
+            elif table == "moderation_appeals":
+                self.appeals.pop(row["appeal_id"], None)
             elif table == "audit_logs":
                 self.audits.remove(row)
         return len(eligible)

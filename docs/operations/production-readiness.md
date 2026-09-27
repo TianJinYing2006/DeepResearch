@@ -106,6 +106,7 @@
 - [ ] 恶意 URL / 文件处理（P7-B）：与审核 provider / 文件扫描联动
 - [x] 审核 provider 抽象（P2-5a）：`web/backend/moderation_providers.py` 统一接口 `ModerationProvider.scan(text) -> ModerationResult`；默认 `local_rules`（`DR_MODERATION_BLOCKLIST`）；`DR_MODERATION_PROVIDER` 选择实现，**未知/未实现（如 `aliyun`）或 provider 异常一律记 WARNING 回退 `local_rules`**（fail-safe：宁可多拦不乱放行、请求不 5xx）；留痕 `moderation_records.detail.provider` 供审计/申诉溯源；egress 快照动态记录当前 provider；**本 PR 不引入任何外部 SDK / 网络调用**（阿里云等实现留待接入阶段）
 - [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前脱敏、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核
+- [x] 申诉/复核状态机（P2-5b）：迁移 0014 `moderation_appeals`（同一 run+用户唯一；`pending→reviewing→accepted/rejected`；`sla_due_at` 由 `DR_APPEAL_SLA_HOURS` 默认 72h 生成）；API `POST /api/moderation/appeal` 建单 + `GET /api/moderation/appeals` 查本人状态；**accepted ⇒ run 置 `cleared`（导出闸放行）、rejected 维持 `flagged`**；决策同时写 `moderation_records`（append-only 证据）与 `audit_logs`；超期未决进入 `appeal_sla_overdue` 告警；CLI `appeal-list` / `appeal-claim` / `appeal-decide`；`moderation_appeals` 纳入 180 天保留期清理
 - [ ] 敏感结果拦截与模型输出标识 —— P7-B（含接入有资质的审核服务）
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
 - [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；**P0-5 起带 `run_id` 的申诉校验归属 / 标记状态 / 防重复**（非本人 404、未标记 409 `appeal_not_applicable`、重复 409 `appeal_duplicate`）；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
@@ -347,3 +348,4 @@ location /api/ {
 | 2026-09-27 | P2-4 SSE LISTEN/NOTIFY 同步：§3.2 增补 SSE 完成通知项勾选（同事务 `pg_notify` + 专连接 LISTEN 自动重连 + 轮询兜底 + shutdown 收口）；新增 `tests/test_notify.py`（纯逻辑 + 真实 PG 通知/回滚语义，已加入 CI `infra` job）；本机 706 收集 = 667 通过 + 39 跳过，ruff 全过 |
 | 2026-09-27 | P2-6 告警外送同步：§3.7 告警触达项勾选（迁移 0013 `alert_states`/`alert_deliveries` + 指纹去重状态机 + webhook 退避重试 + CLI 三命令）；新增 `tests/test_alert_delivery.py`（状态机/退避/平台体格式/Worker 集成 + 真实 PG 契约，已加入 CI `infra` job）；本机 714 收集 = 674 通过 + 40 跳过，ruff 全过 |
 | 2026-09-27 | P2-5a 审核 provider 抽象同步：§3.5 增补 provider 抽象项勾选（接口 + `local_rules` 默认实现 + 未知/异常回退 + provider 留痕 + egress 动态名，零外部 SDK）；新增 `tests/test_moderation_providers.py`（默认/未知回退/异常回退/自定义注入留痕/兼容旧签名 6 条）；本机 720 收集 = 680 通过 + 40 跳过，ruff 全过 |
+| 2026-09-27 | P2-5b 申诉/复核状态机同步：§3.5 增补申诉状态机项勾选（迁移 0014 + 状态机 + accepted⇒cleared/rejected⇒flagged 语义 + SLA 告警 + CLI 三命令 + 180 天保留）；新增 `tests/test_appeals.py`（状态机/决策语义/SLA/API/告警 + 真实 PG 契约，已加入 CI `infra` job）；本机 727 收集 = 686 通过 + 41 跳过，ruff 全过 |

@@ -85,6 +85,7 @@ def collect_alerts(
     month_budget: Optional[float] = None,
     workers_live: Optional[int] = None,
     execution_mode: str = "inprocess",
+    overdue_appeals: int = 0,
 ) -> list[dict[str, Any]]:
     """纯函数判定（无副作用）：返回当前触发的告警列表（与 `/api/ops/alerts` 同构）。"""
     alerts: list[dict[str, Any]] = []
@@ -109,6 +110,8 @@ def collect_alerts(
            "存在租约过期未被接管的任务")
     _check("deletion_abandoned", "high", int((deletions or {}).get("abandoned", 0)), 1,
            "存在被放弃的注销清理（外部数据可能残留，需人工介入）")
+    _check("appeal_sla_overdue", "medium", overdue_appeals, 1,
+           "存在超过 SLA 未完成复核的申诉（DR_APPEAL_SLA_HOURS）")
     if execution_mode == "queue" and workers_live is not None and int(workers_live) < 1:
         alerts.append({
             "code": "worker_heartbeat_missing", "severity": "high",

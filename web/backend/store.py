@@ -1240,6 +1240,97 @@ class RunStore:
             )
             return cur.fetchone() is not None
 
+    # ---- 申诉/复核状态机（P2-5b）----
+
+    def create_appeal(self, appeal_id: str, *, message: str,
+                      run_id: Optional[str] = None, user_id: Optional[str] = None,
+                      sla_due_at: Optional[datetime] = None) -> dict[str, Any]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO moderation_appeals (appeal_id, run_id, user_id, message,
+                                                sla_due_at)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (appeal_id, run_id, user_id, message, sla_due_at),
+            )
+            return cur.fetchone()
+
+    def get_appeal(self, appeal_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM moderation_appeals WHERE appeal_id = %s",
+                        (appeal_id,))
+            return cur.fetchone()
+
+    def list_appeals(self, *, status: Optional[str] = None,
+                     user_id: Optional[str] = None,
+                     limit: int = 100) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            clauses.append("status = %s")
+            params.append(status)
+        if user_id is not None:
+            clauses.append("user_id = %s")
+            params.append(user_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM moderation_appeals {where} "
+                "ORDER BY created_at DESC LIMIT %s",
+                params,
+            )
+            return cur.fetchall()
+
+    def claim_appeal(self, appeal_id: str, *, reviewer: Optional[str] = None) -> Optional[dict]:
+        """领取复核：pending → reviewing（并发下只有一次成功）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE moderation_appeals
+                   SET status = 'reviewing', reviewed_by = %s, updated_at = now()
+                 WHERE appeal_id = %s AND status = 'pending'
+                RETURNING *
+                """,
+                (reviewer, appeal_id),
+            )
+            return cur.fetchone()
+
+    def decide_appeal(self, appeal_id: str, *, decision: str,
+                      note: Optional[str] = None,
+                      reviewer: Optional[str] = None) -> Optional[dict]:
+        """决策：pending / reviewing → accepted / rejected（已决策不再变更）。"""
+        if decision not in ("accepted", "rejected"):
+            raise ValueError(f"invalid decision: {decision}")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE moderation_appeals
+                   SET status = %s, decision_note = %s,
+                       reviewed_by = COALESCE(%s, reviewed_by),
+                       decided_at = now(), updated_at = now()
+                 WHERE appeal_id = %s AND status IN ('pending', 'reviewing')
+                RETURNING *
+                """,
+                (decision, note, reviewer, appeal_id),
+            )
+            return cur.fetchone()
+
+    def count_appeals_overdue(self, before: datetime) -> int:
+        """未决（pending/reviewing）且 SLA 已过期的申诉数（运维告警用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) AS n FROM moderation_appeals
+                 WHERE status IN ('pending', 'reviewing')
+                   AND sla_due_at IS NOT NULL AND sla_due_at < %s
+                """,
+                (before,),
+            )
+            return int(cur.fetchone()["n"])
+
     def delete_user(self, user_id: str) -> bool:
         """删除用户（P7-A 注销）：会话级联删除、runs/记录脱钩（SET NULL）、邀请 used_by 置空。
 
@@ -1625,6 +1716,7 @@ class RunStore:
         ("runs", "finished_at"),
         ("usage_ledger", "created_at"),
         ("moderation_records", "created_at"),
+        ("moderation_appeals", "created_at"),
         ("audit_logs", "at"),
     })
 
