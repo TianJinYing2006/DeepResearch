@@ -55,6 +55,7 @@ from .agui import (
     STATE_DELTA,
     STEP_FINISHED,
 )
+from .alerts import collect_alerts, default_thresholds, process_deliveries_once, sync_alerts
 from .deletion import process_deletions_once
 from .errors import error_payload
 from .ingestion import process_ingestions_once, purge_expired_documents
@@ -73,6 +74,7 @@ DEFAULT_POLL_SECONDS = 5.0
 DEFAULT_SWEEP_SECONDS = 30
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_RUN_TIMEOUT_SECONDS = 3600
+DEFAULT_ALERT_CHECK_SECONDS = 60
 
 
 def _log(message: str) -> None:
@@ -121,6 +123,11 @@ class Worker:
         self.registry_heartbeat_seconds = _env_int(
             "DR_WORKER_REGISTRY_HEARTBEAT_SECONDS", 15)
         self._current_run_id: Optional[str] = None
+        # P2-6：告警状态同步与外送周期（webhook 未配置时只维护状态）
+        self.alert_check_seconds = _env_int("DR_ALERT_CHECK_SECONDS",
+                                            DEFAULT_ALERT_CHECK_SECONDS)
+        self.worker_heartbeat_max_age_seconds = _env_int(
+            "DR_WORKER_HEARTBEAT_MAX_AGE_SECONDS", 90)
 
     # ------------------------------------------------------------------ 主循环
 
@@ -173,6 +180,7 @@ class Worker:
         registry_thread.start()
         next_sweep = 0.0  # 启动即清扫一次：接管上次进程崩溃留下的过期租约
         next_retention = 0.0  # P0-8b：保留期清理（默认每日一次）
+        next_alerts = 0.0  # P2-6：告警判定 + 状态收敛 + webhook 外送
         try:
             while not self._stop.is_set():
                 if time.monotonic() >= next_sweep:
@@ -214,6 +222,17 @@ class Worker:
                         except Exception as exc:  # noqa: BLE001
                             _log(f"data retention failed: {type(exc).__name__}: {exc}")
                         next_retention = time.monotonic() + 24 * 3600
+                    if time.monotonic() >= next_alerts:
+                        try:
+                            alert_summary = self.sync_alerts_once()
+                            if (alert_summary["firing"] or alert_summary["repeat"]
+                                    or alert_summary["resolved"]
+                                    or alert_summary["delivery"]["delivered"]
+                                    or alert_summary["delivery"]["given_up"]):
+                                _log(f"alerts: {alert_summary}")
+                        except Exception as exc:  # noqa: BLE001 —— 告警失败不拖垮消费循环
+                            _log(f"alert sync failed: {type(exc).__name__}: {exc}")
+                        next_alerts = time.monotonic() + self.alert_check_seconds
                     next_sweep = time.monotonic() + self.sweep_seconds
                 if self.claim_next():
                     continue
@@ -221,6 +240,32 @@ class Worker:
         finally:
             registry_stop.set()
             self._mark_status("stopped")
+
+    def sync_alerts_once(self) -> dict[str, Any]:
+        """P2-6：告警判定 + 状态收敛 + webhook 外送（Worker 可判定项）。
+
+        5xx 比例是 API 进程本地指标，Worker 判不了（`http=None`），由 API 展示；
+        外送走 `DR_ALERT_WEBHOOK_URL`（未配置时只维护 alert_states，零外呼）。
+        """
+        try:
+            month_budget = float(os.getenv("DR_MONTHLY_BUDGET_CNY", "1500") or 0)
+        except ValueError:
+            month_budget = 0.0
+        alerts = collect_alerts(
+            thresholds=default_thresholds(),
+            http=None,
+            queue_depth=(self._queue.depth() if self._queue is not None else None),
+            stale_leases=self._store.count_stale_leases(),
+            deletions=self._store.count_deletions_by_status(),
+            month_cost=self._store.month_cost_cny(),
+            month_budget=month_budget,
+            workers_live=self._store.count_live_workers(
+                within_seconds=self.worker_heartbeat_max_age_seconds),
+            execution_mode="queue",
+        )
+        summary = sync_alerts(self._store, alerts)
+        summary["delivery"] = process_deliveries_once(self._store)
+        return summary
 
     def claim_next(self) -> bool:
         """从任务库原子领取下一条 QUEUED 并执行（P0-2 派发权威）。

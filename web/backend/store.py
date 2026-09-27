@@ -1704,6 +1704,145 @@ class RunStore:
                 f"SELECT * FROM audit_logs {where} ORDER BY at DESC LIMIT %s", params)
             return cur.fetchall()
 
+    # ---- 告警状态与外部交付（P2-6）----
+
+    def get_alert_state(self, fingerprint: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM alert_states WHERE fingerprint = %s", (fingerprint,))
+            return cur.fetchone()
+
+    def list_alert_states(self, *, status: Optional[str] = None,
+                          limit: int = 200) -> list[dict[str, Any]]:
+        clause = "WHERE status = %s" if status is not None else ""
+        params: list[Any] = [status] if status is not None else []
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM alert_states {clause} ORDER BY last_seen_at DESC LIMIT %s",
+                params)
+            return cur.fetchall()
+
+    def upsert_alert_state(self, fingerprint: str, *, severity: str, status: str,
+                           detail: Optional[dict[str, Any]] = None,
+                           notified_at: Optional[datetime] = None) -> dict[str, Any]:
+        """置状态并返回当前行；`notified_at` 非空时刷新 `last_notified_at`（否则保留旧值）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO alert_states (fingerprint, severity, status, detail,
+                                          last_notified_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (fingerprint) DO UPDATE
+                   SET severity = EXCLUDED.severity,
+                       status = EXCLUDED.status,
+                       detail = EXCLUDED.detail,
+                       last_seen_at = now(),
+                       last_notified_at = COALESCE(EXCLUDED.last_notified_at,
+                                                   alert_states.last_notified_at),
+                       updated_at = now()
+                RETURNING *
+                """,
+                (fingerprint, severity, status, Jsonb(detail or {}), notified_at),
+            )
+            return cur.fetchone()
+
+    def enqueue_alert_delivery(self, fingerprint: str, kind: str, severity: str, *,
+                               payload: Optional[dict[str, Any]] = None,
+                               max_attempts: int = 5) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO alert_deliveries (fingerprint, kind, severity, payload,
+                                              max_attempts)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING delivery_id
+                """,
+                (fingerprint, kind, severity, Jsonb(payload or {}), max(1, max_attempts)),
+            )
+            return int(cur.fetchone()["delivery_id"])
+
+    def claim_due_alert_deliveries(self, *, limit: int = 20,
+                                   lease_seconds: int = 120) -> list[dict[str, Any]]:
+        """原子领取到期交付（`SKIP LOCKED`，attempts+1 并把下次尝试推到租约后）。
+
+        领取即计数：HTTP 外送在事务外执行，进程中途崩溃最多在租约到期后重试。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE alert_deliveries d
+                   SET attempts = d.attempts + 1,
+                       next_attempt_at = now() + make_interval(secs => %s)
+                 WHERE d.delivery_id IN (
+                     SELECT delivery_id FROM alert_deliveries
+                      WHERE delivered_at IS NULL AND given_up = false
+                        AND next_attempt_at <= now()
+                      ORDER BY delivery_id
+                      LIMIT %s
+                      FOR UPDATE SKIP LOCKED
+                 )
+                RETURNING d.*
+                """,
+                (max(1, lease_seconds), max(1, limit)),
+            )
+            return cur.fetchall()
+
+    def finish_alert_delivery(self, delivery_id: int) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE alert_deliveries
+                   SET delivered_at = now(), last_error = NULL
+                 WHERE delivery_id = %s AND delivered_at IS NULL
+                """,
+                (delivery_id,),
+            )
+            return cur.rowcount > 0
+
+    def fail_alert_delivery(self, delivery_id: int, *, delay_seconds: int,
+                            error: Optional[str] = None) -> bool:
+        """记录失败并按退避重排；`attempts >= max_attempts` 时置 `given_up`（放弃外送）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE alert_deliveries
+                   SET last_error = %s,
+                       given_up = (attempts >= max_attempts),
+                       next_attempt_at = CASE
+                           WHEN attempts >= max_attempts THEN now()
+                           ELSE now() + make_interval(secs => %s)
+                       END
+                 WHERE delivery_id = %s AND delivered_at IS NULL
+                """,
+                (error, max(0, delay_seconds), delivery_id),
+            )
+            return cur.rowcount > 0
+
+    def retry_alert_delivery(self, delivery_id: int, *, delay_seconds: int = 0) -> bool:
+        """人工重试（CLI）：把放弃/失败的行重新排期，attempts / given_up 复位。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE alert_deliveries
+                   SET attempts = 0, given_up = false, last_error = NULL,
+                       next_attempt_at = now() + make_interval(secs => %s)
+                 WHERE delivery_id = %s AND delivered_at IS NULL
+                """,
+                (max(0, delay_seconds), delivery_id),
+            )
+            return cur.rowcount > 0
+
+    def list_alert_deliveries(self, *, undelivered_only: bool = False,
+                              limit: int = 100) -> list[dict[str, Any]]:
+        clause = "WHERE delivered_at IS NULL" if undelivered_only else ""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM alert_deliveries {clause} "
+                "ORDER BY delivery_id DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
     # ---- Worker 注册表（P1-3）----
 
     def register_worker(self, worker_id: str, *, version: Optional[str] = None,
