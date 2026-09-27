@@ -42,6 +42,7 @@ from research_engine.observability import (  # W3：可观测层（Q1~Q7）
     start_trace,
 )
 from research_engine.render import ReportRenderer
+from research_engine.runtime_profile import effective_research_config
 from research_engine.state import ResearchState, SubQuestion
 from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行载体
     STOP_CANCELLED,
@@ -157,7 +158,7 @@ class DeepResearchGraph:
             }
 
     def _research(self, state: ResearchState) -> Dict[str, Any]:
-        rc = config.research
+        rc = effective_research_config()
         frontier = list(state.frontier)
         per_subq_hop = dict(state.per_subq_hop)
         effective_cap = effective_per_subq_hop_cap(state, rc)
@@ -266,7 +267,7 @@ class DeepResearchGraph:
         }
 
     def _revise(self, state: ResearchState) -> Dict[str, Any]:
-        rc = config.research
+        rc = effective_research_config()
         with span_node(f"R{state.depth}-修订", node="revise",
                        input={"needs_replan": state.needs_replan, "replan_count": state.replan_count}):
             # Q2-B 兜底：方向跑偏且未达 replan 上限 → 全量重分解、重新 seed frontier
@@ -371,7 +372,7 @@ class DeepResearchGraph:
             thread_id = f"dr-{uuid.uuid4().hex[:12]}"
         initial = ResearchState(topic=topic, user_instructions=user_instructions)
         cfg = {"configurable": {"thread_id": thread_id},
-               "recursion_limit": config.research.max_total_hops * 2 + 20}
+               "recursion_limit": effective_research_config().max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
         token_base = LLMClient.tokens_total  # Q3=D'：run 级对账基线（类级累计跨 run 增长）
         self.last_exception = None
@@ -474,7 +475,7 @@ class DeepResearchGraph:
             thread_id = f"dr-{uuid.uuid4().hex[:12]}"
         initial = ResearchState(topic=topic, user_instructions=user_instructions)
         cfg = {"configurable": {"thread_id": thread_id},
-               "recursion_limit": config.research.max_total_hops * 2 + 20}
+               "recursion_limit": effective_research_config().max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
         token_base = LLMClient.tokens_total  # Q3=D'：与 run() 同一对账口径
         self.last_exception = None

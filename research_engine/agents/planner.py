@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from config import config
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
+from research_engine.runtime_profile import effective_research_config
 from research_engine.state import DegradationEntry, DegradationSink, SubQuestion
 
 PLANNER_SYSTEM = """你是一位资深研究规划专家。你的任务是将用户的研究主题分解为若干相互独立、可执行的子问题。
@@ -63,14 +63,16 @@ def build_planner_system(cfg=None) -> str:
     「配置改了但模板没改」这类变更。抽成 ``cfg`` 的纯函数后，指纹模块只要
     喂同一份 config 就能拿到与生产逐字相同的串。
     """
-    c = cfg if cfg is not None else config
-    return PLANNER_SYSTEM.format(max_subquestions=c.research.max_subquestions)
+    limit = (cfg.research.max_subquestions if cfg is not None
+             else effective_research_config().max_subquestions)
+    return PLANNER_SYSTEM.format(max_subquestions=limit)
 
 
 def build_replan_system(cfg=None) -> str:
     """重规划 system 提示词的唯一产生点（同上）。"""
-    c = cfg if cfg is not None else config
-    return REPLAN_SYSTEM.format(max_subquestions=c.research.max_subquestions)
+    limit = (cfg.research.max_subquestions if cfg is not None
+             else effective_research_config().max_subquestions)
+    return REPLAN_SYSTEM.format(max_subquestions=limit)
 
 
 class Planner:
@@ -149,7 +151,7 @@ class Planner:
         截断是策略性执行约束，不是故障；它不能污染 ``degradation_log`` 或
         ``run_status``，但仍必须可审计。
         """
-        limit = config.research.max_subquestions
+        limit = effective_research_config().max_subquestions
         if len(subs) <= limit:
             return subs
         kept = subs[:limit]

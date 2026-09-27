@@ -31,10 +31,8 @@ const NODE_LABELS: Record<string, string> = {
 interface LaunchParams {
   topic: string
   instructions: string
-  maxTotalHops: number
-  maxSubquestions: number
-  searchProvider?: string
-  enableArxiv?: boolean
+  /** P0 profile 固化：只提交档位名，底层参数由服务端固定 */
+  profile: string
 }
 
 /** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
@@ -62,12 +60,9 @@ function storeLaunchParams(params: LaunchParams): void {
 export default function App() {
   const [topic, setTopic] = useState('')
   const [instructions, setInstructions] = useState('')
-  const [maxTotalHops, setMaxTotalHops] = useState(20)
-  const [maxSubquestions, setMaxSubquestions] = useState(4)
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
-  // 运行选项：搜索引擎 / 学术检索。空串表示尚未从 /api/options 拿到默认值。
-  const [searchProvider, setSearchProvider] = useState('')
-  const [enableArxiv, setEnableArxiv] = useState(true)
+  // P0 profile 固化：前端只选档位（quick / standard），底层参数由服务端固定。
+  const [profile, setProfile] = useState('quick')
   const [options, setOptions] = useState<RunOptions | null>(null)
   // P6-A：是否开启鉴权（登录门开关；未开启时保持匿名可用）
   const [authRequired, setAuthRequired] = useState(false)
@@ -93,8 +88,7 @@ export default function App() {
     cancel,
   } = useResearchStream()
 
-  // 拉可用选项：只把已配 key 的搜索源列为可选，避免选了没 key 的源跑完整场才发现全降级。
-  // 拉不到不阻断（沿用本地默认），属于降级而非故障。
+  // 拉可用选项：搜索源可用性与运行档位列表；拉不到不阻断（沿用本地默认）。
   useEffect(() => {
     let cancelled = false
     fetch('/api/options')
@@ -103,26 +97,18 @@ export default function App() {
         if (cancelled || !data) return
         setOptions(data)
         setAuthRequired(Boolean(data.auth_required))
-        const usable = data.search_providers.filter((provider) => provider.available)
-        const preferred = usable.find((provider) => provider.value === data.default_provider) ?? usable[0]
-        setSearchProvider((current) => current || preferred?.value || '')
-        setEnableArxiv(data.enable_arxiv_default)
-        // 后端默认值优先：滑块初值不该是前端拍的常量，否则改了 .env 前端还显示旧值
-        if (typeof data.max_total_hops_default === 'number') {
-          setMaxTotalHops(data.max_total_hops_default)
-        }
-        if (typeof data.max_subquestions_default === 'number') {
-          setMaxSubquestions(data.max_subquestions_default)
-        }
+        // 后端默认档位优先；老后端没下发 profiles 时保持 quick。
+        if (data.default_profile) setProfile(data.default_profile)
       })
       .catch(() => { /* 保持本地默认，不阻断主流程 */ })
     return () => { cancelled = true }
   }, [])
 
-  // 分段切换器需要知道选中项的下标，才能平移高亮块
-  const providers = options?.search_providers ?? []
-  const activeProviderIndex = Math.max(
-    providers.findIndex((provider) => provider.value === searchProvider),
+  // 档位分段切换器：选中项下标用于平移高亮块。
+  const profileOptions = options?.profiles ?? []
+  const activeProfile = profileOptions.find((item) => item.value === profile)
+  const activeProfileIndex = Math.max(
+    profileOptions.findIndex((item) => item.value === profile),
     0,
   )
 
@@ -199,8 +185,7 @@ export default function App() {
     setLastRequest(params)
     setExportState('idle')
     storeLaunchParams(params)
-    void start(params.topic, params.instructions, params.maxTotalHops,
-      params.maxSubquestions, params.searchProvider, params.enableArxiv)
+    void start(params.topic, params.instructions, params.profile)
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -209,10 +194,7 @@ export default function App() {
     launch({
       topic,
       instructions,
-      maxTotalHops,
-      maxSubquestions,
-      searchProvider: searchProvider || undefined,
-      enableArxiv,
+      profile,
     })
   }
 
@@ -318,125 +300,51 @@ export default function App() {
               maxLength={2000}
             />
 
-            <div className="mt-5 flex items-center justify-between">
-              <label className="field-label mb-0" htmlFor="hops">最大检索跳数</label>
-              <span className="rounded-lg bg-black/25 px-2.5 py-1 font-mono text-sm text-emerald-200">{maxTotalHops}</span>
-            </div>
-            <input
-              id="hops"
-              className="mt-3 w-full accent-emerald-400"
-              type="range"
-              min={1}
-              max={50}
-              value={maxTotalHops}
-              onChange={(event) => setMaxTotalHops(Number(event.target.value))}
-              disabled={running}
-            />
-            <div className="mt-1 flex justify-between text-[10px] text-slate-600">
-              <span>快速 1</span>
-              <span>深入 50</span>
-            </div>
-
-            <div className="mt-5 flex items-center justify-between">
-              <label className="field-label mb-0" htmlFor="subquestions">子问题数上限</label>
-              <span className="rounded-lg bg-black/25 px-2.5 py-1 font-mono text-sm text-emerald-200">{maxSubquestions}</span>
-            </div>
-            <input
-              id="subquestions"
-              className="mt-3 w-full accent-emerald-400"
-              type="range"
-              min={1}
-              max={8}
-              value={maxSubquestions}
-              onChange={(event) => setMaxSubquestions(Number(event.target.value))}
-              disabled={running}
-            />
-            <div className="mt-1 flex justify-between text-[10px] text-slate-600">
-              <span>聚焦 1</span>
-              <span>发散 8</span>
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
-              规划阶段把主题切成几个可独立检索的子问题；每个子问题至少占 1 跳，
-              上限太高会摊薄每跳的深度。
-            </p>
-
-            <p className="field-label mt-5 mb-0" id="provider-label">搜索引擎</p>
+            <p className="field-label mt-5 mb-0" id="profile-label">运行档位</p>
             <div
               role="radiogroup"
-              aria-labelledby="provider-label"
+              aria-labelledby="profile-label"
               className="relative mt-2 flex overflow-hidden rounded-xl border border-white/10 bg-black/20 transition hover:border-white/20"
             >
-              {/* 滑动高亮块：选中项变化时平移（300ms ease-out）—— 原生 select 在暗色主题下
-                  渲染不可控（下拉箭头/选项底色），改用分段切换器，风格与表单其余控件一致 */}
+              {/* 滑动高亮块：与搜索引擎切换器同款交互（300ms ease-out） */}
               <span
                 aria-hidden="true"
                 className="absolute inset-y-0 left-0 rounded-lg bg-emerald-400/[0.14] ring-1 ring-inset ring-emerald-400/40 transition-transform duration-300 ease-out"
                 style={{
-                  width: `${100 / Math.max(providers.length, 1)}%`,
-                  transform: `translateX(${activeProviderIndex * 100}%)`,
+                  width: `${100 / Math.max(profileOptions.length, 1)}%`,
+                  transform: `translateX(${activeProfileIndex * 100}%)`,
                 }}
               />
-              {providers.length > 0 ? (
-                providers.map((provider) => (
+              {profileOptions.length > 0 ? (
+                profileOptions.map((option) => (
                   <button
-                    key={provider.value}
+                    key={option.value}
                     type="button"
                     role="radio"
-                    aria-checked={searchProvider === provider.value}
-                    onClick={() => setSearchProvider(provider.value)}
-                    disabled={!provider.available || running}
-                    title={provider.available ? undefined : '未配置 API key，不可用'}
+                    aria-checked={profile === option.value}
+                    onClick={() => setProfile(option.value)}
+                    disabled={running}
                     className={`relative z-10 flex-1 px-3 py-2.5 text-xs font-semibold transition-colors duration-200 ${
-                      searchProvider === provider.value
+                      profile === option.value
                         ? 'text-emerald-200'
                         : 'text-slate-400 hover:text-slate-200'
                     } disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:text-slate-600`}
                   >
-                    {provider.label}
-                    {provider.available ? null : <span className="ml-1 text-[10px] font-normal">（未配置）</span>}
+                    {option.label}
                   </button>
                 ))
               ) : (
                 <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-600">加载中…</span>
               )}
             </div>
-            {providers.some((provider) => !provider.available) ? (
-              <p className="mt-1.5 text-[10px] leading-4 text-slate-600">
-                标注「未配置」的源不可用 —— 选它会导致整场检索零结果。
-              </p>
-            ) : null}
+            <p className="mt-1.5 text-[10px] leading-4 text-slate-600">
+              档位由服务端固定底层参数（跳数 / 子问题 / 预算 / 时限），客户端不可覆盖。
+              {activeProfile
+                ? `当前：≤${activeProfile.max_total_hops} 跳 · ≤${activeProfile.max_subquestions} 个子问题 · ${Math.round(activeProfile.timeout_seconds / 60)} 分钟`
+                : ''}
+            </p>
 
-            <div className="mt-5 flex items-center justify-between gap-4">
-              <div>
-                <p className="field-label mb-0">学术检索（arXiv）</p>
-                <p className="mt-1 text-[10px] leading-4 text-slate-600">
-                  关闭后不再请求 arXiv，可避免该源产生的降级记录。
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enableArxiv}
-                aria-label="学术检索（arXiv）"
-                onClick={() => setEnableArxiv(!enableArxiv)}
-                disabled={running}
-                className={`relative h-6 w-11 shrink-0 rounded-full ring-1 ring-inset transition-colors duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-40 ${
-                  enableArxiv
-                    ? 'bg-emerald-400/90 ring-emerald-300/40'
-                    : 'bg-white/[0.08] ring-white/10 hover:bg-white/[0.14]'
-                }`}
-              >
-                {/* 位移量 = 轨道 44px − 滑块 20px − 左右各 2px 边距 = 20px（标准值 translate-x-5）。
-                    ⚠️ 必须显式 left-0.5：只给 top 的话水平位置取决于 absolute 的静态位置，
-                    而 button 默认 text-align:center 会让它在浏览器间飘移。 */}
-                <span
-                  aria-hidden="true"
-                  className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-md shadow-black/30 transition-transform duration-300 ease-out ${
-                    enableArxiv ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
+
 
             <button className="primary-button mt-6 w-full" type="submit" disabled={running || !topic.trim()}>
               <span>{status === 'starting' ? '启动中' : '开始研究'}</span>

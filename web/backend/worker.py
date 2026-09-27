@@ -27,6 +27,11 @@ from typing import Any, Callable, Optional
 from config import config
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
+from research_engine.runtime_profile import (
+    RuntimeProfile,
+    effective_research_config,
+    set_profile,
+)
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
@@ -171,8 +176,9 @@ class Worker:
     def _execute(self, run_id: str, row: dict[str, Any]) -> None:
         request = row.get("request") or {}
         topic = row["topic"]
-        self._apply_request_overrides(request)
+        self._apply_profile(request)
         graph = self._graph_factory()
+        effective = effective_research_config()
         timeout_at = row.get("timeout_at")
 
         def cancel_requested() -> bool:
@@ -191,8 +197,8 @@ class Worker:
         emit(RUN_STARTED, {
             "run_id": run_id,
             "topic": topic,
-            "max_total_hops": config.research.max_total_hops,
-            "max_subquestions": config.research.max_subquestions,
+            "max_total_hops": effective.max_total_hops,
+            "max_subquestions": effective.max_subquestions,
             "search_provider": config.search.provider,
             "enable_arxiv": config.search.enable_arxiv,
             "timeout_seconds": timeout_seconds,
@@ -327,16 +333,21 @@ class Worker:
             _log(f"persist crash for {run_id} failed: {type(persist_exc).__name__}: {persist_exc}")
 
     @staticmethod
-    def _apply_request_overrides(request: dict[str, Any]) -> None:
-        """与 RunManager._worker 相同的运行期覆盖（建图前生效）。"""
-        if request.get("max_total_hops") is not None:
-            config.research.max_total_hops = request["max_total_hops"]
-        if request.get("max_subquestions") is not None:
-            config.research.max_subquestions = request["max_subquestions"]
-        if request.get("search_provider") is not None:
-            config.search.provider = request["search_provider"]
-        if request.get("enable_arxiv") is not None:
-            config.search.enable_arxiv = request["enable_arxiv"]
+    def _apply_profile(request: dict[str, Any]) -> None:
+        """把 run 创建时固化的档位快照装进本线程运行作用域（P0 profile 固化）。
+
+        旧行（P3 之前创建，request 里只有 max_total_hops 等覆盖字段）不回放
+        客户端覆盖值：快照缺失时按全局 config 运行（安全默认），
+        超时 / 单次预算仍按该行已落库的 `timeout_at` / `budget_limit_cny` 生效。
+        """
+        snapshot = request.get("profile")
+        if isinstance(snapshot, dict):
+            try:
+                set_profile(RuntimeProfile.from_snapshot(snapshot))
+                return
+            except (KeyError, TypeError):
+                pass
+        set_profile(None)
 
 
 def main() -> int:

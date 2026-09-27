@@ -77,6 +77,7 @@
 - [x] 并发限制：全局闸（API 配置上限）+ 单用户并发闸（`DR_MAX_USER_CONCURRENT`，P4-B）
 - [x] 单 run 预算闸在 Worker 节点边界生效（`budget_limit_cny` → `budget_used_cny` 每步回写；超限 `stop_reason=budget_exceeded`）
 - [x] 用户级每日次数与全局月度预算闸（P4-B：429 `quota_exceeded`；查询 / 导出不受影响）
+- [x] 运行档位（P0 profile 固化）：`quick/standard/deep` 由服务端固定跳数 / 子问题 / token / 模型 / 超时 / 单次预算（需求 10 §5.6）；请求体同名字段一律忽略并记入 `runs.request.ignored_overrides`；执行器经 contextvar 运行作用域读取，不再改全局 `config`
 - [ ] 用户级 / 全局成本闸 —— P4
 - [ ] 不同步做断点续跑（首发只承诺「任务不丢」，见需求 10 §5.5）
 
@@ -298,3 +299,4 @@ location /api/ {
 | 2026-09-26 | P7-A 内容安全与隐私同步：§3.5 勾选输入预检/长度限制/审核记录/申诉/注销/脱敏/上传隔离；**输出自动拦截、Prompt Injection 深度防护、审核服务接入、期限到期清理**明确留 P7-B/P8（已含隐私政策草案，法务确认待 L3-C） |
 | 2026-09-26 | P8-A 可观测与恢复演练同步：§3.6 增加「可判定已落地」说明（`/api/metrics`、`/api/ops/alerts`；触达与中心化留 P8-B）；§3.8 勾选备份脚本化与恢复演练（CI 每次 PR 真实执行） |
 | 2026-09-27 | P3-B 补丁：API 启动维护按执行模式分流（`main.py::_startup_store_maintenance`）—— 修复 queue 模式下 API 重启误将 Worker 的 RUNNING/QUEUED 标记为 `LOST` 的跨服务破坏；§3.3 增补对应勾选；新增 `tests/test_startup_maintenance.py`（本机 568 收集 = 543 通过 + 25 跳过，ruff 全过） |
+| 2026-09-27 | P0 profile 固化同步：§3.3 勾选运行档位（服务端固定底层参数 + 快照留痕 + contextvar 运行作用域）；新增 `web/backend/profiles.py` / `research_engine/runtime_profile.py`、`runs.request.profile` 快照、前端档位选择器；新增 `tests/test_profiles.py`（本机 575 收集 = 550 通过 + 25 跳过，ruff / tsc / vite build 全过） |

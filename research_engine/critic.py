@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.runtime_profile import effective_llm_model, effective_research_config
 from research_engine.state import ResearchState
 
 Signal = str  # "continue" | "revise" | "stop"
@@ -73,7 +74,7 @@ class CriticVerdict(BaseModel):
     )
 
 
-def hard_gate(state: ResearchState, cfg=config) -> Optional[Signal]:
+def hard_gate(state: ResearchState, cfg=None) -> Optional[Signal]:
     """确定性硬闸。触发任一上限即返回 "stop"，否则 None（继续走 LLM 裁决）。
 
     P1 max_replan 语义修正：replan_count 不再是全局停止条件，
@@ -83,8 +84,11 @@ def hard_gate(state: ResearchState, cfg=config) -> Optional[Signal]:
       - frontier 空            → 没有待检索查询，循环终止
       - depth ≥ max_total_hops → 全局跳数预算耗尽
       - token_used ≥ token_budget → LLM token 预算耗尽
+
+    P0 profile 固化：`cfg` 缺省时取**本场 run 生效**的研究配置
+    （`runtime_profile.effective_research_config()`；无档位时等于全局 config）。
     """
-    rc = cfg.research
+    rc = cfg.research if cfg is not None else effective_research_config()
     if not state.frontier:
         return "stop"
     if state.depth >= rc.max_total_hops:
@@ -117,7 +121,7 @@ class Critic:
         # llm_fn 可注入，便于纯单测零 API key。生产环境传 None 走真实 LLM。
         self.llm_fn = llm_fn
 
-    def decide(self, state: ResearchState, cfg=config) -> Signal:
+    def decide(self, state: ResearchState, cfg=None) -> Signal:
         gate = hard_gate(state, cfg)
         if gate == "stop":
             state.critic_signal = "stop"
@@ -145,8 +149,7 @@ class Critic:
         # 方向跑偏优先走 revise（与 gap 规则互不覆盖）
         # P1 max_replan 语义修正：replan 达到上限时不再重规划，转为 stop
         if state.needs_replan:
-            from config import config as _cfg_rc
-            if state.replan_count >= _cfg_rc.research.max_replan:
+            if state.replan_count >= effective_research_config().max_replan:
                 return "stop", "replan_exhausted"
             return "revise", "revise"
 
@@ -212,7 +215,7 @@ class Critic:
         )
         # W4 Q7：裁决归位 critic_model（修复 W3 前硬编码 smart_model 的现状 bug——裁决属 strategic 层）
         # W5（Q2）：role="critic" 进职责桶
-        client = LLMClient(model=config.llm.critic_model, role="critic")
+        client = LLMClient(model=effective_llm_model("critic"), role="critic")
         return client.chat_json(
             [
                 {"role": "system", "content": system},

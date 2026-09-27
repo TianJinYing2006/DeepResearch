@@ -187,10 +187,7 @@ export function useResearchStream() {
   const start = useCallback(async (
     topic: string,
     instructions: string,
-    maxTotalHops: number,
-    maxSubquestions: number,
-    searchProvider?: string,
-    enableArxiv?: boolean,
+    profile: string,
   ) => {
     manualStartRef.current = true
     closeSource()
@@ -210,10 +207,7 @@ export function useResearchStream() {
         body: JSON.stringify({
           topic: topic.trim(),
           instructions: instructions.trim(),
-          max_total_hops: maxTotalHops,
-          max_subquestions: maxSubquestions,
-          search_provider: searchProvider,
-          enable_arxiv: enableArxiv,
+          profile,
         }),
       })
       if (!response.ok) throw await httpError(response, 'start_failed', '启动研究失败')
