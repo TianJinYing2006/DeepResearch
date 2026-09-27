@@ -124,12 +124,15 @@ def test_purge_before_pg_batches_cascades_and_keeps_recent():
     recent = datetime.now(UTC) - timedelta(days=1)
     old_ids = [uuid.uuid4().hex[:12] for _ in range(2)]
     new_id = uuid.uuid4().hex[:12]
+    # runs 表有 CHECK (finished_at >= created_at)：造历史数据需同步回拨 created_at
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        for run_id, created in ((old_ids[0], old), (old_ids[1], old), (new_id, recent)):
+            store.create_run(run_id, "retention-pg", {}, user_id=TEST_USER)
+            cur.execute("UPDATE runs SET created_at = %s WHERE run_id = %s", (created, run_id))
     for run_id in old_ids:
-        store.create_run(run_id, "retention-pg", {}, user_id=TEST_USER)
         assert store.update_status(run_id, "SUCCEEDED", allowed_from=("CREATED",),
                                    finished_at=old, started_at=old)
         store.append_event(run_id, "run_finished", {})
-    store.create_run(new_id, "retention-pg", {}, user_id=TEST_USER)
     assert store.update_status(new_id, "SUCCEEDED", allowed_from=("CREATED",),
                                finished_at=recent, started_at=recent)
 
