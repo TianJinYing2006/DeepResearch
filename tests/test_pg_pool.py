@@ -48,15 +48,19 @@ def test_sql_snippet_compresses_and_truncates_params_never_included():
 def test_pool_reuses_connection_and_sets_statement_timeout():
     store = RunStore(DSN)
     try:
+        pids = set()
         with store._connect() as conn, conn.cursor() as cur:
             cur.execute("SHOW statement_timeout")
             assert cur.fetchone()["statement_timeout"] == "15s"
-            cur.execute("SELECT pg_backend_pid() AS pid")
-            pid_first = cur.fetchone()["pid"]
-        with store._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT pg_backend_pid() AS pid")
-            pid_second = cur.fetchone()["pid"]
-        assert pid_first == pid_second  # min_size=1：同进程复用同一后端连接
+        for _ in range(4):
+            with store._connect() as conn, conn.cursor() as cur:
+                cur.execute("SELECT pg_backend_pid() AS pid")
+                pids.add(cur.fetchone()["pid"])
+        # 池复用：4 次取用只落在 1~2 个后端连接（min_size 预热与首个请求允许各建一条）
+        stats = store._get_pool().get_stats()
+        assert len(pids) <= 2
+        assert stats.requests_num >= 5
+        assert stats.connections_num <= 2
     finally:
         store.close()
 
