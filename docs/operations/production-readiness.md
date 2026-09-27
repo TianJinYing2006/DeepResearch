@@ -137,6 +137,7 @@
 
 - [x] 告警触达值班人（IM/邮件至少一条链路）
 - [x] 中心化观测（P1-8，OTel）：`OTEL_EXPORTER_OTLP_ENDPOINT` ⇒ traces+metrics 走 OTLP；`DR_METRICS_PROMETHEUS=true` ⇒ API 暴露 `/metrics`；resource 属性 `service.name`/`service.version`/`deployment.environment.name`；FastAPI+httpx 自动埋点；`gen_ai.client.token.usage`（input/output 拆分）与 `gen_ai.client.operation.count`（接 usage sink，**不落 prompt**）；后台任务独立根 span；默认全关（零行为变化）
+- [x] 容量标定（P2-7，手动不进 CI）：`tools/loadtest/locustfile.py`（提交 / SSE 尾随 / 探针混合，配额与限流拒绝按预期计入）+ `tools/loadtest/README.md`（`DR_LOADTEST_GRAPH=1` 假图零 LLM 费用）+ `docs/operations/capacity-model.md`（连接预算公式、存储增长上界、测量流程、**实测基线表待回填**）
 - [x] 告警外送（P2-6）：Worker 每 `DR_ALERT_CHECK_SECONDS`（默认 60s）判定 store/queue 侧告警（5xx 属 API 进程指标，仅 API 展示）→ `alert_states` 指纹收敛（firing 首次即发 / 冷却 `DR_ALERT_REPEAT_MINUTES` 默认 30min 内不重发 / 消失必发 resolved）→ `alert_deliveries` 外送队列；`DR_ALERT_WEBHOOK_URL` 支持飞书 / 钉钉 / 企业微信 / 通用 JSON（未配置时只维护状态，零外呼）；失败指数退避（30s×2ⁿ，上限 30min），`DR_ALERT_MAX_ATTEMPTS`（默认 5）次置 `given_up=true` 放弃（CLI `retry-alert` 复位重试）；payload 只带告警元数据（不含用户内容）；CLI `alerts-list` / `alert-deliveries`
 - [x] Worker 注册表与心跳（P1-3）：`workers` 表（active→draining→stopped、in_flight、current_run_id）；心跳 best-effort（失败自动重注册）；SIGTERM 先 draining、当前任务收口后置 stopped；`/api/metrics.workers_live` + 告警 `worker_heartbeat_missing`
 - [ ] 错误日志带 `run_id` / `user_id` 关联，便于定位
@@ -293,6 +294,9 @@ location /api/ {
 
 ### 7.5 告警阈值初始候选（待压测校准）
 
+> 压测入口：`tools/loadtest/`（P2-7）；阈值校准流程与连接预算见
+> `docs/operations/capacity-model.md` §3/§4。基线数值回填前，下表按保守值执行。
+
 | 指标 | 初始候选阈值 | 说明 |
 |------|-------------|------|
 | API 5xx 比例 | > 2% 持续 5 分钟 | 触发即人工介入 |
@@ -349,3 +353,4 @@ location /api/ {
 | 2026-09-27 | P2-6 告警外送同步：§3.7 告警触达项勾选（迁移 0013 `alert_states`/`alert_deliveries` + 指纹去重状态机 + webhook 退避重试 + CLI 三命令）；新增 `tests/test_alert_delivery.py`（状态机/退避/平台体格式/Worker 集成 + 真实 PG 契约，已加入 CI `infra` job）；本机 714 收集 = 674 通过 + 40 跳过，ruff 全过 |
 | 2026-09-27 | P2-5a 审核 provider 抽象同步：§3.5 增补 provider 抽象项勾选（接口 + `local_rules` 默认实现 + 未知/异常回退 + provider 留痕 + egress 动态名，零外部 SDK）；新增 `tests/test_moderation_providers.py`（默认/未知回退/异常回退/自定义注入留痕/兼容旧签名 6 条）；本机 720 收集 = 680 通过 + 40 跳过，ruff 全过 |
 | 2026-09-27 | P2-5b 申诉/复核状态机同步：§3.5 增补申诉状态机项勾选（迁移 0014 + 状态机 + accepted⇒cleared/rejected⇒flagged 语义 + SLA 告警 + CLI 三命令 + 180 天保留）；新增 `tests/test_appeals.py`（状态机/决策语义/SLA/API/告警 + 真实 PG 契约，已加入 CI `infra` job）；本机 727 收集 = 686 通过 + 41 跳过，ruff 全过 |
+| 2026-09-27 | P2-7 容量标定同步：§3.7 增补容量标定项勾选（Locust 脚本 + 假图开关 `DR_LOADTEST_GRAPH` + `capacity-model.md` 公式/连接预算/基线表）；新增 `tests/test_loadtest_graph.py`（图工厂选择 3 条）；本机 730 收集 = 689 通过 + 41 跳过，ruff 全过 |
