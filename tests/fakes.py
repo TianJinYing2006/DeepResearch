@@ -92,6 +92,7 @@ class FakeStore:
         self._deletion_outbox_seq = 0
         self.ingestions: dict[str, dict] = {}
         self.audits: list[dict] = []
+        self.workers: dict[str, dict] = {}
         self.fail_events = False
 
     def ping(self) -> None:
@@ -734,6 +735,57 @@ class FakeStore:
                 and (actor_user_id is None or row["actor_user_id"] == actor_user_id)]
         rows.sort(key=lambda row: row["at"], reverse=True)
         return [dict(row) for row in rows[:limit]]
+
+    # ---- Worker 注册表（P1-3）----
+
+    def register_worker(self, worker_id, *, version=None, hostname=None):
+        now = datetime.now(UTC)
+        row = self.workers.get(worker_id)
+        if row is None:
+            self.workers[worker_id] = {
+                "worker_id": worker_id, "version": version, "hostname": hostname,
+                "status": "active", "started_at": now, "last_heartbeat_at": now,
+                "in_flight": 0, "current_run_id": None, "stopped_at": None,
+            }
+        else:
+            row.update(version=version, hostname=hostname, status="active",
+                       last_heartbeat_at=now, stopped_at=None)
+
+    def heartbeat_worker(self, worker_id, *, in_flight=0, current_run_id=None,
+                         status="active"):
+        row = self.workers.get(worker_id)
+        if row is None:
+            return False
+        row.update(last_heartbeat_at=datetime.now(UTC), in_flight=in_flight,
+                   current_run_id=current_run_id, status=status)
+        return True
+
+    def mark_worker_status(self, worker_id, status):
+        row = self.workers.get(worker_id)
+        if row is None:
+            return
+        row["status"] = status
+        if status == "stopped":
+            row["stopped_at"] = datetime.now(UTC)
+
+    def count_live_workers(self, *, within_seconds=90):
+        cutoff = datetime.now(UTC) - timedelta(seconds=within_seconds)
+        return sum(1 for row in self.workers.values()
+                   if row["status"] == "active" and row["last_heartbeat_at"] > cutoff)
+
+    def list_workers(self, limit=50):
+        rows = sorted(self.workers.values(),
+                      key=lambda row: row["last_heartbeat_at"], reverse=True)
+        return [dict(row) for row in rows[:limit]]
+
+    def purge_stale_workers(self, *, days=7):
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        stale = [key for key, row in self.workers.items()
+                 if row["status"] in ("stopped", "draining")
+                 and row["last_heartbeat_at"] < cutoff]
+        for key in stale:
+            del self.workers[key]
+        return len(stale)
 
     def purge_expired_sessions(self):
         now = datetime.now(UTC)

@@ -1316,3 +1316,79 @@ class RunStore:
             cur.execute(
                 f"SELECT * FROM audit_logs {where} ORDER BY at DESC LIMIT %s", params)
             return cur.fetchall()
+
+    # ---- Worker 注册表（P1-3）----
+
+    def register_worker(self, worker_id: str, *, version: Optional[str] = None,
+                        hostname: Optional[str] = None) -> None:
+        """注册 / 复活 worker（心跳 best-effort 的落点）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO workers (worker_id, version, hostname)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (worker_id) DO UPDATE
+                   SET version = EXCLUDED.version,
+                       hostname = EXCLUDED.hostname,
+                       status = 'active',
+                       last_heartbeat_at = now(),
+                       stopped_at = NULL,
+                       updated_at = now()
+                """,
+                (worker_id, version, hostname),
+            )
+
+    def heartbeat_worker(self, worker_id: str, *, in_flight: int = 0,
+                         current_run_id: Optional[str] = None,
+                         status: str = "active") -> bool:
+        """心跳（含在飞任务数 / 当前 run）；行不存在返回 False（调用方重注册）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE workers
+                   SET last_heartbeat_at = now(),
+                       in_flight = %s,
+                       current_run_id = %s,
+                       status = %s,
+                       updated_at = now()
+                 WHERE worker_id = %s
+                RETURNING worker_id
+                """,
+                (in_flight, current_run_id, status, worker_id),
+            )
+            return cur.fetchone() is not None
+
+    def mark_worker_status(self, worker_id: str, status: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workers SET status = %s, "
+                "stopped_at = CASE WHEN %s = 'stopped' THEN now() ELSE stopped_at END, "
+                "updated_at = now() WHERE worker_id = %s",
+                (status, status, worker_id),
+            )
+
+    def count_live_workers(self, *, within_seconds: int = 90) -> int:
+        """最近 `within_seconds` 秒内有 active 心跳的 worker 数（readiness / 告警用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM workers WHERE status = 'active' "
+                "AND last_heartbeat_at > now() - make_interval(secs => %s)",
+                (within_seconds,),
+            )
+            return int(cur.fetchone()["n"])
+
+    def list_workers(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM workers ORDER BY last_heartbeat_at DESC LIMIT %s", (limit,))
+            return cur.fetchall()
+
+    def purge_stale_workers(self, *, days: int = 7) -> int:
+        """清理 stopped/draining 且心跳早于 `days` 天的行（保留期供排障）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM workers WHERE status IN ('stopped', 'draining') "
+                "AND last_heartbeat_at < now() - make_interval(days => %s) RETURNING worker_id",
+                (days,),
+            )
+            return len(cur.fetchall())

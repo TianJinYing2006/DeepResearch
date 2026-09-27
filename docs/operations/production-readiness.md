@@ -40,7 +40,7 @@
 - [x] `Dockerfile.api`（多阶段构建 + 依赖锁；**API 与 Worker 共用镜像、不同入口**，不单列 `Dockerfile.worker`）
 - [x] `docker-compose.staging.yml`（api / worker / PostgreSQL / Redis；反向代理待 P8）
 - [ ] 数据库迁移工具与迁移脚本（**只前向 + `schema_migrations` 幂等**；回退走备份恢复，见 §7.3）
-- [ ] `/api/health` 拆分为 readiness / liveness，并接反向代理探针
+- [x] `/api/health` 拆分为 readiness / liveness，并接反向代理探针；**P1-3 起队列模式 readiness 要求 ≥1 个心跳新鲜的 worker**（`workers` 注册表，窗口 `DR_WORKER_HEARTBEAT_MAX_AGE_SECONDS=90`）
 - [x] 配置分层：开发 / staging / 生产，敏感项全部走环境变量或密钥服务；**P0-9 起 `DR_ENV=staging|production` 启动自检 fail fast**（`DR_AUTH_REQUIRED` / `DR_COOKIE_SECURE` / `DR_CORS_ORIGINS` / `DASHSCOPE_API_KEY`），production 另拒明文 HTTP（`X-Forwarded-Proto`）
 - [ ] **CORS 环境变量化**（禁止生产继续固定 localhost，`main.py:47-52`）
 - [ ] 反向代理 SSE 专项配置：
@@ -131,6 +131,7 @@
 | 备份成功状态 | 待定 | 待定 |
 
 - [ ] 告警触达值班人（IM/邮件至少一条链路）
+- [x] Worker 注册表与心跳（P1-3）：`workers` 表（active→draining→stopped、in_flight、current_run_id）；心跳 best-effort（失败自动重注册）；SIGTERM 先 draining、当前任务收口后置 stopped；`/api/metrics.workers_live` + 告警 `worker_heartbeat_missing`
 - [ ] 错误日志带 `run_id` / `user_id` 关联，便于定位
 - [ ] 现有限制如实保留：协作式取消/超时是语言级限制（Python 线程无法强杀）；节点内部挂死时硬截止只保证传输层收口（见 ADR-0008 与看板 P1 说明）
 
@@ -323,3 +324,4 @@ location /api/ {
 | 2026-09-27 | P0-8b 异步摄取管线同步：§3.2/§3.5 —— 隔离区 + 202 登记 + Worker 状态机（含可选 ClamAV）、`DELETE /api/rag/docs`、90 天保留期清扫、注销 outbox 联动清文件；compose api/worker 共享 `rag_quarantine` 卷；迁移 0006 与结构断言接入 CI `infra`；新增 `tests/test_ingestion_pipeline.py`（本机 623 收集 = 593 通过 + 30 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P1-5 安全审计日志同步：§3.4 增补审计勾选与事件最小集（ASVS V16 口径）；迁移 0007 + 结构断言接入 CI `infra`；新增 `tests/test_audit_logs.py`（本机 628 收集 = 597 通过 + 31 跳过，ruff 全过） |
 | 2026-09-27 | P1-1 幂等请求指纹同步：§3.3 幂等键行更新（同键不同载荷 409）；迁移 0008 + 结构断言接入 CI `infra`；新增 `tests/test_idempotency_conflict.py`（本机 634 收集 = 603 通过 + 31 跳过，ruff 全过） |
+| 2026-09-27 | P1-3 Worker registry 同步：§3.1 readiness 项勾选（队列模式要求活跃 worker）、§3.6 增补注册表/心跳；迁移 0009 + 结构断言接入 CI `infra`；新增 `tests/test_worker_registry.py`（本机 640 收集 = 608 通过 + 32 跳过，ruff 全过） |

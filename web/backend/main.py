@@ -224,6 +224,8 @@ ALERT_5XX_RATE_PCT = _env_number("DR_ALERT_5XX_RATE_PCT", 2.0)
 ALERT_QUEUE_DEPTH = int(_env_number("DR_ALERT_QUEUE_DEPTH", 20))
 ALERT_STALE_RUNS = int(_env_number("DR_ALERT_STALE_RUNS", 1))
 ALERT_MONTHLY_PCT = _env_number("DR_ALERT_MONTHLY_PCT", 80.0)
+# P1-3：readiness / 告警的 worker 心跳新鲜度窗口
+WORKER_HEARTBEAT_MAX_AGE_SECONDS = int(_env_number("DR_WORKER_HEARTBEAT_MAX_AGE_SECONDS", 90))
 
 # P7-A：合规文本（隐私政策 / 用户协议）以仓库文档为唯一来源
 LEGAL_DIR = Path(__file__).resolve().parents[2] / "docs" / "legal"
@@ -440,7 +442,21 @@ def health_ready(response: Response) -> dict:
             "status": "ok" if _tcp_reachable(host, port) else "unreachable",
             "target": f"{host}:{port}",
         }
-    failed = [item for item in checks.values() if item["status"] in {"unreachable", "invalid_url"}]
+    if EXECUTION_MODE == "queue" and store is not None:
+        # P1-3：队列模式下「有活跃 worker」是 readiness 的硬条件
+        try:
+            live = int(store.count_live_workers(
+                within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS))
+        except Exception as exc:  # noqa: BLE001
+            checks["worker"] = {"status": "unreachable", "target": f"{type(exc).__name__}"}
+        else:
+            checks["worker"] = {
+                "status": "ok" if live else "unavailable",
+                "live": live,
+                "max_age_seconds": WORKER_HEARTBEAT_MAX_AGE_SECONDS,
+            }
+    failed = [item for item in checks.values()
+              if item["status"] in {"unreachable", "invalid_url", "unavailable"}]
     if failed:
         response.status_code = 503
     return {"ok": not failed, "status": "ready" if not failed else "not_ready", "checks": checks}
@@ -1097,6 +1113,10 @@ def metrics_endpoint() -> dict:
         "month_budget_cny": MONTHLY_BUDGET_CNY or None,
         # P0-7：注销清理进度（pending/in_progress/completed/abandoned）
         "deletions": (_store_call(store.count_deletions_by_status) if store is not None else None),
+        # P1-3：活跃 worker 数（心跳新鲜度窗口见 DR_WORKER_HEARTBEAT_MAX_AGE_SECONDS）
+        "workers_live": (_store_call(store.count_live_workers,
+                                     within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS)
+                         if store is not None else None),
     })
     return snapshot
 
@@ -1128,6 +1148,15 @@ def ops_alerts() -> dict:
     _check("stale_leases", "high", stale, ALERT_STALE_RUNS, "存在租约过期未被接管的任务")
     _check("deletion_abandoned", "high", int(deletions.get("abandoned", 0)), 1,
            "存在被放弃的注销清理（外部数据可能残留，需人工介入）")
+    if EXECUTION_MODE == "queue" and store is not None:
+        live = _store_call(store.count_live_workers,
+                           within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS)
+        if int(live) < 1:
+            alerts.append({
+                "code": "worker_heartbeat_missing", "severity": "high",
+                "value": int(live), "threshold": 1,
+                "message": "队列模式无活跃 worker（心跳过期），任务不会被执行",
+            })
     if MONTHLY_BUDGET_CNY:
         _check("monthly_budget", "high", monthly_pct, ALERT_MONTHLY_PCT, "月度预算消耗达到阈值")
     return {"ok": True, "alert_count": len(alerts), "alerts": alerts}
