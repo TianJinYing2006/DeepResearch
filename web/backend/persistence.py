@@ -40,6 +40,7 @@ def persist_terminal(
     meta: Optional[dict[str, Any]] = None,
     topic: str = "",
     moderation_status: Optional[str] = None,
+    egress: Optional[dict[str, Any]] = None,
 ) -> bool:
     """写终局事件 + 状态 + 产物（**同一事务**，P0-6）；任一失败即抛异常。
 
@@ -72,7 +73,8 @@ def persist_terminal(
     if report:
         artifacts["report_md"] = report
     if result is not None and meta is not None:
-        export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result)
+        export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result,
+                                      egress=egress)
         artifacts["export_json"] = json.dumps(export, ensure_ascii=False)
     return store.finalize_run(
         run_id,

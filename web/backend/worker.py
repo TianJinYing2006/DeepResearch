@@ -438,9 +438,12 @@ class Worker:
         }
         # P0-4：输出侧统一闸 —— 命中词表则**发帧与落库前**脱敏（正文只留产物）。
         matches = apply_output_gate(payload, report)
+        # P1-9：导出载荷随附 run 创建时固化的数据流向快照
+        egress = (row.get("request") or {}).get("egress")
         finalized = persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
                                      result=result, report=report, meta=meta, topic=topic,
-                                     moderation_status="flagged" if matches else None)
+                                     moderation_status="flagged" if matches else None,
+                                     egress=egress)
         if not finalized:
             # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
             _log(f"finalize {run_id}: terminal_conflict，终局写入整体回滚")

@@ -185,6 +185,8 @@
 
 > 用途：回答「用户的什么问题、什么内容，会流向哪家服务商、存放在哪里、留多久」。
 > 状态列初值来自代码事实；「待确认」项在 P7 前必须落档。
+> **P1-9 起每个 run 创建时固化数据流向快照**（`runs.request.egress`：模型/provider/端点域/策略版本/境外开关，不含密钥），
+> 历史任务可逐条解释「当时数据发给了谁」；快照随 `/api/research/{run_id}` 与导出 JSON 展示。
 > **政策基线（2026-09-24，推荐基线 v2）**：L3-A/B 默认不发送用户内容至境外服务；
 > Tavily、Langfuse Cloud、Semantic Scholar、arXiv 默认关闭，恢复须独立功能开关 + 数据流向提示 + 重新评审。
 
@@ -329,3 +331,4 @@ location /api/ {
 | 2026-09-27 | P1-2 分布式限流同步：§3.4 限流行更新（Redis 滑动窗口 + 双维度 + 可信代理 + fail-open）；compose 增 `DR_TRUST_PROXY`；真实 Redis 原子性测试接入 CI `infra`；新增 `tests/test_distributed_ratelimit.py`（本机 646 收集 = 613 通过 + 33 跳过，ruff 全过） |
 | 2026-09-27 | P1-10 会话治理同步：§3.4 会话/密码重置行更新（会话列表与远程终止、重置 token 单次/30min/管理员发放）；迁移 0010 + 结构断言接入 CI `infra`；新增 `tests/test_session_governance.py`（本机 654 收集 = 620 通过 + 34 跳过，ruff 全过） |
 | 2026-09-27 | P1-4 usage ledger 同步：§3.7 逐调用记账勾选（成本来源标注 + CLI 汇总）；迁移 0011 + 结构断言接入 CI `infra`；新增 `tests/test_usage_ledger.py`（本机 661 收集 = 626 通过 + 35 跳过，ruff 全过） |
+| 2026-09-27 | P1-9 provider/egress 快照同步：§4 数据流向登记表增「run 级快照」说明；`web/backend/egress.py` + 快照接口/导出展示；新增 `tests/test_egress_snapshot.py`（本机 664 收集 = 629 通过 + 35 跳过，ruff 全过） |

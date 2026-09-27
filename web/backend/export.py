@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def build_export_payload(
@@ -19,9 +19,13 @@ def build_export_payload(
     topic: str,
     meta: Dict[str, Any],
     result: Dict[str, Any],
+    egress: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """组装导出载荷：元数据 + 结果，**结构即导出契约**。"""
-    return {
+    """组装导出载荷：元数据 + 结果，**结构即导出契约**。
+
+    `egress`（P1-9）：run 创建时固化的数据流向快照（谁收到了什么；不含密钥）。
+    """
+    payload = {
         "run_id": run_id,
         "topic": topic,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -35,6 +39,9 @@ def build_export_payload(
         "depth": meta.get("depth", result.get("depth", 0)),
         "result": result,
     }
+    if egress is not None:
+        payload["egress"] = egress
+    return payload
 
 
 def _citation_lines(citations: List[Dict[str, Any]]) -> List[str]:
