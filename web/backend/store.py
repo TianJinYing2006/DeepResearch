@@ -906,3 +906,177 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM users WHERE user_id = %s RETURNING user_id", (user_id,))
             return cur.fetchone() is not None
+
+    # ---- 注销台账与 outbox（P0-7）----
+
+    def request_account_deletion(self, request_id: str, user_id: str, *,
+                                 targets: Iterable[str] = ("qdrant",),
+                                 payload: Optional[dict[str, Any]] = None) -> None:
+        """注销登记（P0-7）：**同一事务**写台账 + outbox + 删用户（会话级联、任务匿名）。
+
+        外部系统清理（Qdrant）不再同步做：由 `deletion_outbox` 承载，Worker 带退避重试。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO account_deletions (request_id, user_id) VALUES (%s, %s)",
+                (request_id, user_id),
+            )
+            for target in targets:
+                cur.execute(
+                    """
+                    INSERT INTO deletion_outbox (request_id, target, payload)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (request_id, target) DO NOTHING
+                    """,
+                    (request_id, target, Jsonb(payload or {"user_id": user_id})),
+                )
+            cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+
+    def claim_deletion_outbox(self, claimed_by: str, lease_seconds: int,
+                              limit: int = 5) -> list[dict[str, Any]]:
+        """领取到期 / 租约过期的 outbox（`FOR UPDATE SKIP LOCKED`），`attempts+1`。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE deletion_outbox
+                   SET status = 'in_progress',
+                       attempts = attempts + 1,
+                       claimed_by = %s,
+                       lease_expires_at = now() + make_interval(secs => %s),
+                       updated_at = now()
+                 WHERE id IN (
+                     SELECT id FROM deletion_outbox
+                      WHERE (status = 'pending' AND next_attempt_at <= now())
+                         OR (status = 'in_progress' AND lease_expires_at IS NOT NULL
+                             AND lease_expires_at < now())
+                      ORDER BY id
+                      FOR UPDATE SKIP LOCKED
+                      LIMIT %s
+                 )
+                RETURNING *
+                """,
+                (claimed_by, lease_seconds, limit),
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                cur.execute(
+                    "UPDATE account_deletions SET status = 'in_progress', updated_at = now() "
+                    "WHERE request_id = %s AND status = 'pending'",
+                    (row["request_id"],),
+                )
+            return rows
+
+    def mark_deletion_done(self, outbox_id: int) -> None:
+        """outbox 成功：置 `done`；该请求全部 target `done` ⇒ 台账 `completed`。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE deletion_outbox SET status = 'done', lease_expires_at = NULL, "
+                "claimed_by = NULL, last_error = NULL, updated_at = now() "
+                "WHERE id = %s RETURNING request_id",
+                (outbox_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return
+            cur.execute(
+                """
+                UPDATE account_deletions
+                   SET status = CASE
+                         WHEN NOT EXISTS (
+                             SELECT 1 FROM deletion_outbox
+                              WHERE request_id = %s AND status <> 'done')
+                         THEN 'completed' ELSE 'in_progress' END,
+                       completed_at = CASE
+                         WHEN NOT EXISTS (
+                             SELECT 1 FROM deletion_outbox
+                              WHERE request_id = %s AND status <> 'done')
+                         THEN now() ELSE completed_at END,
+                       last_error = NULL,
+                       updated_at = now()
+                 WHERE request_id = %s
+                """,
+                (row["request_id"], row["request_id"], row["request_id"]),
+            )
+
+    def mark_deletion_retry(self, outbox_id: int, error: str, *,
+                            backoff_seconds: int, max_attempts: int) -> str:
+        """outbox 失败：未耗尽 ⇒ `pending` + 退避；耗尽 ⇒ `abandoned` + 台账 `abandoned`。
+
+        返回新状态（`pending` / `abandoned` / `missing`）。绝不静默丢弃。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT request_id, attempts FROM deletion_outbox WHERE id = %s",
+                (outbox_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return "missing"
+            exhausted = row["attempts"] >= max_attempts
+            new_status = "abandoned" if exhausted else "pending"
+            cur.execute(
+                """
+                UPDATE deletion_outbox
+                   SET status = %s, lease_expires_at = NULL, claimed_by = NULL,
+                       next_attempt_at = now() + make_interval(secs => %s),
+                       last_error = %s, updated_at = now()
+                 WHERE id = %s
+                """,
+                (new_status, max(1, backoff_seconds), error[:500], outbox_id),
+            )
+            if exhausted:
+                cur.execute(
+                    "UPDATE account_deletions SET status = 'abandoned', last_error = %s, "
+                    "updated_at = now() WHERE request_id = %s",
+                    (error[:500], row["request_id"]),
+                )
+            return new_status
+
+    def retry_deletion(self, request_id: str) -> int:
+        """人工重试（CLI）：把该请求的 outbox 复位为 pending、attempts 归零。返回复位条数。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE deletion_outbox
+                   SET status = 'pending', attempts = 0, next_attempt_at = now(),
+                       lease_expires_at = NULL, claimed_by = NULL, last_error = NULL,
+                       updated_at = now()
+                 WHERE request_id = %s AND status <> 'done'
+                RETURNING id
+                """,
+                (request_id,),
+            )
+            count = len(cur.fetchall())
+            cur.execute(
+                "UPDATE account_deletions SET status = 'pending', last_error = NULL, "
+                "updated_at = now() WHERE request_id = %s AND status = 'abandoned'",
+                (request_id,),
+            )
+            return count
+
+    def deletion_status(self, request_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM account_deletions WHERE request_id = %s", (request_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            cur.execute(
+                "SELECT target, status, attempts, next_attempt_at, last_error "
+                "FROM deletion_outbox WHERE request_id = %s ORDER BY id",
+                (request_id,),
+            )
+            row["targets"] = cur.fetchall()
+            return row
+
+    def list_deletions(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM account_deletions ORDER BY requested_at DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+    def count_deletions_by_status(self) -> dict[str, int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT status, count(*) AS n FROM account_deletions GROUP BY status")
+            return {row["status"]: int(row["n"]) for row in cur.fetchall()}

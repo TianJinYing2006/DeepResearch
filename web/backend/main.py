@@ -827,10 +827,11 @@ class DeleteAccountRequest(BaseModel):
 
 @app.delete("/api/auth/account")
 def auth_delete_account(req: DeleteAccountRequest, request: Request, response: Response) -> dict:
-    """注销账号（P7-A）：验密 + CSRF；删除用户与会话，RAG 向量尽力清理并**如实回报**。
+    """注销账号（P7-A / P0-7）：验密 + CSRF；登记**持久注销请求**并立即删账号与会话。
 
-    任务与审核记录按外键 SET NULL **保留但匿名**（审计需要）；若 Qdrant 不可用，
-    账号仍删除但返回 `rag_cleanup=skipped:*`，由运营侧登记后续清理。
+    任务与审核记录按外键 SET NULL **保留但匿名**（审计需要）；RAG 向量清理改为
+    durable outbox：与注销登记同事务写入，由 Worker 带指数退避重试直至验证归零
+    （`deletion_request_id` 可经 CLI `deletion-list` 查询；失败会告警，绝不静默）。
     """
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
@@ -841,24 +842,19 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     if not verify_password(user["password_hash"], req.password):
         raise http_error("invalid_credentials", "密码不正确")
     user_id = user["user_id"]
+    request_id = uuid.uuid4().hex[:12]
 
-    rag_cleanup = "done"
     try:
-        from research_engine.rag.store import VectorStore
+        store.request_account_deletion(request_id, user_id)
+    except Exception as exc:  # noqa: BLE001 —— 注销登记是硬前提，失败即明确报错
+        raise http_error(
+            "persistence_unavailable",
+            f"注销登记失败：{type(exc).__name__}: {exc}"[:200],
+        ) from exc
 
-        vector_store = VectorStore()
-        reason = vector_store.unavailable_reason
-        if reason:
-            rag_cleanup = f"skipped: {reason}"
-        else:
-            vector_store.delete_by_user(user_id)
-    except Exception as exc:  # noqa: BLE001 —— 注销不能被知识库拖死，但必须如实回报
-        rag_cleanup = f"failed: {type(exc).__name__}"
-
-    _store_call(store.delete_user, user_id)
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")
-    return {"ok": True, "rag_cleanup": rag_cleanup}
+    return {"ok": True, "deletion_request_id": request_id, "rag_cleanup": "pending"}
 
 
 @app.post("/api/research", response_model=StartResponse)
@@ -1008,6 +1004,8 @@ def metrics_endpoint() -> dict:
         "stale_leases": _store_call(store.count_stale_leases) if store is not None else None,
         "month_cost_cny": round(_store_call(store.month_cost_cny), 4) if store is not None else None,
         "month_budget_cny": MONTHLY_BUDGET_CNY or None,
+        # P0-7：注销清理进度（pending/in_progress/completed/abandoned）
+        "deletions": (_store_call(store.count_deletions_by_status) if store is not None else None),
     })
     return snapshot
 
@@ -1022,6 +1020,7 @@ def ops_alerts() -> dict:
     stale = _store_call(store.count_stale_leases) if store is not None else 0
     monthly = _store_call(store.month_cost_cny) if store is not None else 0.0
     monthly_pct = (monthly / MONTHLY_BUDGET_CNY * 100) if MONTHLY_BUDGET_CNY else 0.0
+    deletions = _store_call(store.count_deletions_by_status) if store is not None else {}
 
     alerts: list[dict] = []
 
@@ -1036,6 +1035,8 @@ def ops_alerts() -> dict:
     if queue_depth is not None:
         _check("queue_depth", "medium", queue_depth, ALERT_QUEUE_DEPTH, "队列积压超过阈值")
     _check("stale_leases", "high", stale, ALERT_STALE_RUNS, "存在租约过期未被接管的任务")
+    _check("deletion_abandoned", "high", int(deletions.get("abandoned", 0)), 1,
+           "存在被放弃的注销清理（外部数据可能残留，需人工介入）")
     if MONTHLY_BUDGET_CNY:
         _check("monthly_budget", "high", monthly_pct, ALERT_MONTHLY_PCT, "月度预算消耗达到阈值")
     return {"ok": True, "alert_count": len(alerts), "alerts": alerts}

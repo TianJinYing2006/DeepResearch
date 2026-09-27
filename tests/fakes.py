@@ -87,6 +87,9 @@ class FakeStore:
         self.sessions: dict[str, dict] = {}
         self.invites: dict[str, dict] = {}
         self.moderation: list[dict] = []
+        self.deletions: dict[str, dict] = {}
+        self.deletion_outbox: dict[tuple, dict] = {}
+        self._deletion_outbox_seq = 0
         self.fail_events = False
 
     def ping(self) -> None:
@@ -482,6 +485,115 @@ class FakeStore:
             if record["user_id"] == user_id:
                 record["user_id"] = None
         return True
+
+    # ---- 注销台账与 outbox（P0-7）----
+
+    def request_account_deletion(self, request_id, user_id, *,
+                                 targets=("qdrant",), payload=None):
+        """与 RunStore.request_account_deletion 同语义（同事务：台账 + outbox + 删用户）。"""
+        self.deletions[request_id] = {
+            "request_id": request_id, "user_id": user_id, "status": "pending",
+            "attempts": 0, "last_error": None, "requested_at": datetime.now(UTC),
+            "completed_at": None, "updated_at": datetime.now(UTC),
+        }
+        for target in targets:
+            key = (request_id, target)
+            if key in self.deletion_outbox:
+                continue
+            self._deletion_outbox_seq += 1
+            self.deletion_outbox[key] = {
+                "id": self._deletion_outbox_seq, "request_id": request_id, "target": target,
+                "payload": dict(payload or {"user_id": user_id}), "status": "pending",
+                "attempts": 0, "next_attempt_at": datetime.now(UTC),
+                "lease_expires_at": None, "claimed_by": None, "last_error": None,
+            }
+        self.delete_user(user_id)
+
+    def claim_deletion_outbox(self, claimed_by, lease_seconds, limit=5):
+        now = datetime.now(UTC)
+        due = [row for row in self.deletion_outbox.values()
+               if (row["status"] == "pending" and row["next_attempt_at"] <= now)
+               or (row["status"] == "in_progress" and row["lease_expires_at"] is not None
+                   and row["lease_expires_at"] < now)]
+        due.sort(key=lambda row: row["id"])
+        claimed = due[:limit]
+        for row in claimed:
+            row["status"] = "in_progress"
+            row["attempts"] += 1
+            row["claimed_by"] = claimed_by
+            row["lease_expires_at"] = now + timedelta(seconds=lease_seconds)
+            parent = self.deletions.get(row["request_id"])
+            if parent is not None and parent["status"] == "pending":
+                parent["status"] = "in_progress"
+        return claimed
+
+    def mark_deletion_done(self, outbox_id):
+        row = next((item for item in self.deletion_outbox.values()
+                    if item["id"] == outbox_id), None)
+        if row is None:
+            return
+        row["status"] = "done"
+        row["lease_expires_at"] = None
+        row["last_error"] = None
+        parent = self.deletions.get(row["request_id"])
+        if parent is not None:
+            siblings = [item for item in self.deletion_outbox.values()
+                        if item["request_id"] == row["request_id"]]
+            if all(item["status"] == "done" for item in siblings):
+                parent["status"] = "completed"
+                parent["completed_at"] = datetime.now(UTC)
+            else:
+                parent["status"] = "in_progress"
+
+    def mark_deletion_retry(self, outbox_id, error, *, backoff_seconds, max_attempts):
+        row = next((item for item in self.deletion_outbox.values()
+                    if item["id"] == outbox_id), None)
+        if row is None:
+            return "missing"
+        exhausted = row["attempts"] >= max_attempts
+        row["status"] = "abandoned" if exhausted else "pending"
+        row["lease_expires_at"] = None
+        row["claimed_by"] = None
+        row["next_attempt_at"] = datetime.now(UTC) + timedelta(seconds=max(1, backoff_seconds))
+        row["last_error"] = error[:500]
+        if exhausted:
+            parent = self.deletions.get(row["request_id"])
+            if parent is not None:
+                parent["status"] = "abandoned"
+                parent["last_error"] = error[:500]
+        return row["status"]
+
+    def retry_deletion(self, request_id):
+        count = 0
+        for row in self.deletion_outbox.values():
+            if row["request_id"] == request_id and row["status"] != "done":
+                row.update(status="pending", attempts=0, next_attempt_at=datetime.now(UTC),
+                           lease_expires_at=None, claimed_by=None, last_error=None)
+                count += 1
+        parent = self.deletions.get(request_id)
+        if parent is not None and parent["status"] == "abandoned":
+            parent["status"] = "pending"
+            parent["last_error"] = None
+        return count
+
+    def deletion_status(self, request_id):
+        row = self.deletions.get(request_id)
+        if row is None:
+            return None
+        out = dict(row)
+        out["targets"] = [dict(item) for item in self.deletion_outbox.values()
+                          if item["request_id"] == request_id]
+        return out
+
+    def list_deletions(self, limit=50):
+        rows = sorted(self.deletions.values(), key=lambda row: row["requested_at"], reverse=True)
+        return [dict(row) for row in rows[:limit]]
+
+    def count_deletions_by_status(self):
+        counts = {}
+        for row in self.deletions.values():
+            counts[row["status"]] = counts.get(row["status"], 0) + 1
+        return counts
 
     def purge_expired_sessions(self):
         now = datetime.now(UTC)

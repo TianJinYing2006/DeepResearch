@@ -524,6 +524,44 @@ def test_claim_next_queued_atomic(store: RunStore):
         cur.execute("DELETE FROM runs WHERE run_id = ANY(%s)", (ids + [expired_id],))
 
 
+def test_account_deletion_outbox_contract(store: RunStore):
+    """P0-7：注销登记同事务（台账 + outbox + 删用户）；领取 / 退避 / 完成流转。"""
+    uid = "test-store-del-user"
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users (user_id, email, password_hash) VALUES (%s, %s, 'x') "
+            "ON CONFLICT DO NOTHING",
+            (uid, "test-store-del@test-store.local"),
+        )
+    request_id = uuid.uuid4().hex[:12]
+    store.request_account_deletion(request_id, uid)
+
+    assert store.get_user(uid) is None
+    record = store.deletion_status(request_id)
+    assert record["status"] == "pending"
+    assert [item["target"] for item in record["targets"]] == ["qdrant"]
+
+    claimed = store.claim_deletion_outbox("w1", 60, limit=1)
+    assert len(claimed) == 1 and claimed[0]["attempts"] == 1
+    assert store.claim_deletion_outbox("w2", 60, limit=1) == []  # 租约未过期
+
+    assert store.mark_deletion_retry(claimed[0]["id"], "boom",
+                                     backoff_seconds=60, max_attempts=5) == "pending"
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE deletion_outbox SET next_attempt_at = now() WHERE id = %s",
+                    (claimed[0]["id"],))
+    again = store.claim_deletion_outbox("w2", 60, limit=1)
+    assert len(again) == 1 and again[0]["attempts"] == 2
+
+    store.mark_deletion_done(again[0]["id"])
+    record = store.deletion_status(request_id)
+    assert record["status"] == "completed" and record["completed_at"] is not None
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM account_deletions WHERE request_id = %s", (request_id,))
+        cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")

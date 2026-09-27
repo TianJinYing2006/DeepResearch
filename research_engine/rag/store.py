@@ -158,10 +158,11 @@ class VectorStore:
         if client:
             client.delete_collection(collection_name=self.collection)
 
-    def delete_by_user(self, user_id: str) -> None:
-        """删除某用户的全部文档块（P7-A 注销清理）。
+    def delete_by_user(self, user_id: str, *, wait: bool = True) -> None:
+        """删除某用户的全部文档块（P7-A 注销清理；P0-7 由 outbox 执行）。
 
-        Qdrant 不可用时抛 `RuntimeError` —— 由调用方决定是阻断注销还是如实回报「清理未完成」。
+        `wait=True` 等待删除实际完成（Qdrant `wait` 参数），供执行器做完成验证；
+        Qdrant 不可用时抛 `RuntimeError` —— 由 outbox 重试语义处理。
         """
         client = self._get_client()
         if client is None:
@@ -171,4 +172,19 @@ class VectorStore:
             points_selector=Filter(must=[
                 FieldCondition(key="user_id", match=MatchValue(value=user_id)),
             ]),
+            wait=wait,
         )
+
+    def count_by_user(self, user_id: str) -> int:
+        """该用户在集合中的点数（P0-7 删除完成验证；`exact=True` 不用近似值）。"""
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        result = client.count(
+            collection_name=self.collection,
+            count_filter=Filter(must=[
+                FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+            ]),
+            exact=True,
+        )
+        return int(result.count)
