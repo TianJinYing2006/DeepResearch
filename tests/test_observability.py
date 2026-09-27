@@ -196,10 +196,11 @@ def test_chat_real_path_tokens_total_without_state(monkeypatch):
 
 def test_format_cost_report_conservative(monkeypatch):
     from config import config
-    config.llm.pricing = {
+    # 必须用 monkeypatch：直接赋值会污染同进程后续用例（P1-4 实测踩坑）
+    monkeypatch.setattr(config.llm, "pricing", {
         "qwen-turbo": {"input": 0.0001, "output": 0.0002},
         "qwen-plus": {"input": 0.0002, "output": 0.001},
-    }
+    })
     report = obs.format_cost_report(100_000)
     assert "100,000 tokens" in report
     assert "¥" in report

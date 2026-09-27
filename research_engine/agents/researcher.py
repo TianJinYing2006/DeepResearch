@@ -26,6 +26,7 @@ from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.base import SearchProvider, create_search_provider
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.tools.code_exec import exec_code, should_execute
+from research_engine.usage import UsageRecord, emit_usage
 
 # R2.4 Q5=A 第一层：自指/元描述关键词启发式初标（漏标由 validator verdict 兜底复核）
 META_KEYWORDS = (
@@ -106,10 +107,12 @@ class Researcher:
         """网络搜索。失败 → 空列表（Q1 并行 + Q4 读型 retries=1 在调度层）。"""
         try:
             resp = self.search.search(query, max_results=8)
+            emit_usage(UsageRecord(kind="search", provider=config.search.provider, role="web"))
         except Exception as e:  # noqa: BLE001
             # Arm 4 后 provider 已结构化返回失败原因；能抛到这里的属**未预期**内部错误，
             # 按非工具类归类（llm_error/token_limit/recursion_limit/internal），
             # 不再凭异常文本猜工具层 5 值。
+            emit_usage(UsageRecord(kind="search", provider=config.search.provider, role="web"))
             self._record_degradation("web_search", classify_exception(e), detail=str(e))
             return []
         # 单向派生：reason 直接取 resp.failure_reason，禁止在此手写第二个字面量
@@ -164,6 +167,7 @@ class Researcher:
     def _search_arxiv(self, query: str) -> List[ResearchFinding]:
         """arXiv 学术检索（Q3：provider 已 relevance 排序 + 3s 限流）。"""
         resp = self.arxiv.search(query)  # provider 内部失败返回带 failure_reason 的空响应
+        emit_usage(UsageRecord(kind="search", provider="arxiv", role="arxiv"))
         # 单向派生：reason 直接取 resp.failure_reason。零命中（empty_result）不上抛降级（D-03）。
         if is_fault_reason(resp.failure_reason):
             self._record_degradation(

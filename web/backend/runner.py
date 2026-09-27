@@ -41,6 +41,7 @@ from research_engine.streaming import (
     STOP_TIMEOUT,
     RunStep,
 )
+from research_engine.usage import pop_usage_sink, push_usage_sink
 
 from .agui import (
     DEGRADATION,
@@ -56,6 +57,7 @@ from .export import build_export_payload, render_markdown
 from .moderation import apply_output_gate, flag_report
 from .persistence import persist_forced, persist_terminal
 from .store import QuotaExceeded, RunStore
+from .usage import make_store_sink
 
 # --- P1-2 / P1-3 默认值 --------------------------------------------------------
 # 依据：单轮实测 48~51 分钟（W8 after 基线）⇒ 时限必须给出**真实运行的余量**，
@@ -556,6 +558,11 @@ class RunManager:
 
     def _worker(self, run_id: str, topic: str, instructions: str,
                 profile: Optional[RuntimeProfile] = None) -> None:
+        usage_token = None
+        if self._store is not None:
+            # P1-4：本线程的逐调用用量落进 usage_ledger（无 store 时为 no-op）
+            usage_token = push_usage_sink(
+                make_store_sink(self._store, run_id=run_id, attempt=1))
         try:
             from config import config
 
@@ -646,6 +653,8 @@ class RunManager:
             if seq is not None:
                 self._persist_terminal(run_id, seq, RUN_ERROR, payload)
         finally:
+            if usage_token is not None:
+                pop_usage_sink(usage_token)
             with self._condition:
                 self._finished.add(run_id)
                 self._active.discard(run_id)

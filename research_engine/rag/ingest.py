@@ -17,6 +17,7 @@ from qdrant_client.models import PointStruct
 from config import config
 from research_engine.rag.ids import stable_id as _stable_id
 from research_engine.rag.store import VectorStore
+from research_engine.usage import UsageRecord, emit_usage
 
 
 class IngestLimitExceeded(ValueError):
@@ -131,6 +132,13 @@ class DocumentIngester:
                 model=config.rag.embedding_model,
                 input=batch,
             )
+            usage = getattr(resp, "usage", None)
+            total = int(getattr(usage, "total_tokens", 0) or 0) if usage else 0
+            emit_usage(UsageRecord(
+                kind="embedding", provider="dashscope", model=config.rag.embedding_model,
+                input_tokens=total, total_tokens=total,
+                request_id=getattr(resp, "id", None),
+            ))
             vectors.extend(d.embedding for d in resp.data)
         return vectors
 

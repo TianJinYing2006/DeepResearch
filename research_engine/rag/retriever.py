@@ -16,6 +16,7 @@ from research_engine.rag.response import BackendFailure, RetrieveResponse
 from research_engine.rag.scope import RagScope, current_scope
 from research_engine.rag.store import VectorStore
 from research_engine.rag.tokenizer import tokenize
+from research_engine.usage import UsageRecord, emit_usage
 
 
 class HybridRetriever:
@@ -62,6 +63,13 @@ class HybridRetriever:
             model=config.rag.embedding_model,
             input=[query],
         )
+        usage = getattr(resp, "usage", None)
+        total = int(getattr(usage, "total_tokens", 0) or 0) if usage else 0
+        emit_usage(UsageRecord(
+            kind="embedding", provider="dashscope", model=config.rag.embedding_model,
+            role="query", input_tokens=total, total_tokens=total,
+            request_id=getattr(resp, "id", None),
+        ))
         return resp.data[0].embedding
 
     def retrieve(self, query: str, top_k: int | None = None,

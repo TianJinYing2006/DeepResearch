@@ -95,6 +95,7 @@ class FakeStore:
         self.audits: list[dict] = []
         self.workers: dict[str, dict] = {}
         self.password_resets: dict[str, dict] = {}
+        self.usage: list[dict] = []
         self.fail_events = False
 
     def ping(self) -> None:
@@ -878,6 +879,50 @@ class FakeStore:
         self.revoke_user_sessions(user_id)
         self.delete_password_resets(user_id)
         return user_id
+
+    # ---- 用量账本（P1-4）----
+
+    def record_usage(self, *, run_id=None, attempt=1, kind, provider="", model="", role="",
+                     input_tokens=0, output_tokens=0, total_tokens=0,
+                     cost_estimate_cny=0.0, cost_source="estimate", request_id=None,
+                     detail=None):
+        self.usage.append({
+            "id": len(self.usage) + 1, "run_id": run_id, "attempt": attempt, "kind": kind,
+            "provider": provider, "model": model, "role": role,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "total_tokens": total_tokens, "cost_estimate_cny": cost_estimate_cny,
+            "cost_source": cost_source, "request_id": request_id, "detail": detail or {},
+            "created_at": datetime.now(UTC),
+        })
+        return len(self.usage)
+
+    def list_usage(self, *, run_id=None, limit=200):
+        rows = [row for row in self.usage if run_id is None or row["run_id"] == run_id]
+        return [dict(row) for row in rows[::-1][:limit]]
+
+    def usage_summary(self, *, run_id=None, since=None):
+        rows = [row for row in self.usage
+                if (run_id is None or row["run_id"] == run_id)
+                and (since is None or row["created_at"] >= since)]
+        grouped: dict[tuple, dict] = {}
+        for row in rows:
+            key = (row["kind"], row["model"], row["cost_source"])
+            item = grouped.setdefault(key, {
+                "kind": row["kind"], "model": row["model"],
+                "cost_source": row["cost_source"], "calls": 0, "tokens": 0, "cost_cny": 0.0,
+            })
+            item["calls"] += 1
+            item["tokens"] += row["total_tokens"]
+            item["cost_cny"] += float(row["cost_estimate_cny"])
+        out = sorted(grouped.values(), key=lambda item: (item["kind"], item["model"]))
+        for item in out:
+            item["cost_cny"] = round(item["cost_cny"], 6)
+        return {
+            "rows": out,
+            "calls": sum(item["calls"] for item in out),
+            "tokens": sum(item["tokens"] for item in out),
+            "cost_cny": round(sum(item["cost_cny"] for item in out), 6),
+        }
 
 
 def wait_terminal(store, run_id, timeout: float = 5.0) -> dict:

@@ -978,6 +978,78 @@ class RunStore:
             cur.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
             return user_id
 
+    # ---- 用量账本（P1-4）----
+
+    def record_usage(self, *, run_id: Optional[str] = None, attempt: int = 1, kind: str,
+                     provider: str = "", model: str = "", role: str = "",
+                     input_tokens: int = 0, output_tokens: int = 0, total_tokens: int = 0,
+                     cost_estimate_cny: float = 0.0, cost_source: str = "estimate",
+                     request_id: Optional[str] = None,
+                     detail: Optional[dict[str, Any]] = None) -> int:
+        """追加一条逐调用用量（P1-4；不含 prompt / PII）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO usage_ledger (run_id, attempt, kind, provider, model, role,
+                                          input_tokens, output_tokens, total_tokens,
+                                          cost_estimate_cny, cost_source, request_id, detail)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, attempt, kind, provider, model, role, input_tokens, output_tokens,
+                 total_tokens, cost_estimate_cny, cost_source, request_id, Jsonb(detail or {})),
+            )
+            return cur.fetchone()["id"]
+
+    def list_usage(self, *, run_id: Optional[str] = None,
+                   limit: int = 200) -> list[dict[str, Any]]:
+        params: list[Any] = []
+        sql = "SELECT * FROM usage_ledger"
+        if run_id is not None:
+            sql += " WHERE run_id = %s"
+            params.append(run_id)
+        sql += " ORDER BY id DESC LIMIT %s"
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+    def usage_summary(self, *, run_id: Optional[str] = None,
+                      since: Optional[datetime] = None) -> dict[str, Any]:
+        """按 kind/model/cost_source 聚合（先对请求数再对钱；金额为估算上界）。"""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = %s")
+            params.append(run_id)
+        if since is not None:
+            clauses.append("created_at >= %s")
+            params.append(since)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT kind, model, cost_source, count(*) AS calls,
+                       COALESCE(SUM(total_tokens), 0) AS tokens,
+                       COALESCE(SUM(cost_estimate_cny), 0) AS cost_cny
+                FROM usage_ledger {where}
+                GROUP BY kind, model, cost_source
+                ORDER BY kind, model
+                """,
+                params,
+            )
+            rows = [
+                {**row, "calls": int(row["calls"]), "tokens": int(row["tokens"]),
+                 "cost_cny": round(float(row["cost_cny"]), 6)}
+                for row in cur.fetchall()
+            ]
+        return {
+            "rows": rows,
+            "calls": sum(row["calls"] for row in rows),
+            "tokens": sum(row["tokens"] for row in rows),
+            "cost_cny": round(sum(row["cost_cny"] for row in rows), 6),
+        }
+
     # ---- 内容安全（P7-A）----
 
     def record_moderation(self, kind: str, *, user_id: Optional[str] = None,

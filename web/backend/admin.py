@@ -17,6 +17,7 @@
     python -m web.backend.admin delete-doc --doc-id <user:hash16>  # 同步删向量并验证
     python -m web.backend.admin audit-list [--action login_failed] [--actor u] [--limit 100]
     python -m web.backend.admin create-reset-token --email a@b.c [--expires-minutes 30]
+    python -m web.backend.admin usage-summary [--run-id r] [--days 30]
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -98,6 +99,10 @@ def _build_parser() -> argparse.ArgumentParser:
                                  help="发放一次性密码重置 token（P1-10；默认 30 分钟）")
     reset_token.add_argument("--email", required=True)
     reset_token.add_argument("--expires-minutes", type=int, default=30)
+
+    usage = sub.add_parser("usage-summary", help="用量账本汇总（P1-4；先对请求数再对钱）")
+    usage.add_argument("--run-id", default="")
+    usage.add_argument("--days", type=int, default=30)
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -257,6 +262,16 @@ def main(argv: list[str] | None = None) -> int:
         _audit(store, "admin_create_reset_token", actor_user_id=user["user_id"])
         print(f"重置 token（仅本次打印，{args.expires_minutes} 分钟内有效）：{token}")
         print("用户调用 POST /api/auth/reset {token, new_password} 完成重置（将吊销全部会话）")
+        return 0
+
+    if args.command == "usage-summary":
+        since = datetime.now(UTC) - timedelta(days=args.days)
+        summary = store.usage_summary(run_id=args.run_id or None, since=since)
+        for row in summary["rows"]:
+            print(f"{row['kind']:<10} {row['model'] or '-':<22} calls={row['calls']} "
+                  f"tokens={row['tokens']} cost≈¥{row['cost_cny']:.4f} ({row['cost_source']})")
+        print(f"TOTAL calls={summary['calls']} tokens={summary['tokens']} "
+              f"cost≈¥{summary['cost_cny']:.4f}")
         return 0
 
     if args.command == "delete-user":

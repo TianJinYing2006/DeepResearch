@@ -45,6 +45,7 @@ from research_engine.streaming import (
     STOP_TIMEOUT,
     RunStep,
 )
+from research_engine.usage import pop_usage_sink, push_usage_sink
 
 from .agui import (
     DEGRADATION,
@@ -62,6 +63,7 @@ from .persistence import persist_terminal
 from .queue import RunQueue
 from .runner import _env_int, _estimate_cost_cny
 from .store import RunStore
+from .usage import make_store_sink
 
 DEFAULT_LEASE_SECONDS = 120
 DEFAULT_HEARTBEAT_SECONDS = 30
@@ -257,6 +259,9 @@ class Worker:
         """执行已认领的任务（心跳 + 执行 + 崩溃兜底）。"""
         run_id = row["run_id"]
         self._current_run_id = run_id
+        # P1-4：逐调用用量落进 usage_ledger（attempt = 本行 attempt）
+        usage_token = push_usage_sink(make_store_sink(
+            self._store, run_id=run_id, attempt=int(row.get("attempt") or 1)))
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
             target=self._heartbeat_loop, args=(run_id, hb_stop),
@@ -268,6 +273,7 @@ class Worker:
         except Exception as exc:  # noqa: BLE001 —— 兜底：任务必须落到终局或留给租约清扫
             self._mark_crashed(run_id, exc)
         finally:
+            pop_usage_sink(usage_token)
             hb_stop.set()
             heartbeat.join(timeout=1.0)
             self._current_run_id = None

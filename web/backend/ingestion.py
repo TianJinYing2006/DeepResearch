@@ -21,7 +21,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from research_engine.usage import use_usage_sink
+
 from .store import RunStore
+from .usage import make_store_sink
 
 DEFAULT_LEASE_SECONDS = 300
 DEFAULT_MAX_ATTEMPTS = 3
@@ -119,7 +122,12 @@ def _process_item(store: RunStore, item: dict[str, Any],
         if not os.path.isfile(path):
             raise FileNotFoundError(f"quarantine file missing: {item['stored_name']}")
         factory = ingester_factory or _default_ingester_factory
-        chunks = factory().ingest_file(path, doc_id=item["doc_id"], user_id=item["user_id"])
+        # P1-4：摄取期 embedding 调用逐次记账（run_id=None；doc_id 进 detail）
+        with use_usage_sink(make_store_sink(
+                store, run_id=None, attempt=int(item["attempts"]),
+                detail={"doc_id": item["doc_id"]})):
+            chunks = factory().ingest_file(path, doc_id=item["doc_id"],
+                                           user_id=item["user_id"])
         if not chunks:
             store.mark_ingestion_rejected(ingestion_id, "empty_document", scan_status=scan)
             _remove(path)

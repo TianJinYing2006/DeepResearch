@@ -13,6 +13,7 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from config import config
+from research_engine.usage import UsageRecord, emit_usage
 
 
 class LLMClient:
@@ -97,6 +98,12 @@ class LLMClient:
                 io["output"] += out
                 if state is not None:
                     state.token_used = getattr(state, "token_used", 0) + total
+                # P1-4：逐调用记账（无 sink 时为 no-op）
+                emit_usage(UsageRecord(
+                    kind="llm", provider="dashscope", model=self.model, role=self.role,
+                    input_tokens=inp, output_tokens=out, total_tokens=total,
+                    request_id=getattr(resp, "id", None),
+                ))
         except Exception:  # noqa: BLE001
             pass
 
