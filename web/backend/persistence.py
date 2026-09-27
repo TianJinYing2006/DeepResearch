@@ -39,11 +39,14 @@ def persist_terminal(
     report: Optional[str] = None,
     meta: Optional[dict[str, Any]] = None,
     topic: str = "",
+    moderation_status: Optional[str] = None,
 ) -> bool:
     """写终局事件 + 状态 + 产物（**同一事务**，P0-6）；任一失败即抛异常。
 
     `seq` 传 None 时由数据库分配序号（Worker 是单 run 唯一写者）；
     传显式序号时与内存帧号对齐（RunManager）。
+    `moderation_status`（P0-4）与终局同事务写入，关闭「终局已落但审核状态未落」
+    的导出窗口。
 
     Returns:
         是否完成迁移。``False`` = 状态已被清扫 / 强制收口抢先（整体回滚，
@@ -63,6 +66,8 @@ def persist_terminal(
         fields["token_used"] = meta.get("token_used")
         fields["cost_estimate_cny"] = meta.get("cost_estimate_cny")
         fields["budget_used_cny"] = meta.get("budget_used_cny")
+    if moderation_status:
+        fields["moderation_status"] = moderation_status
     artifacts: dict[str, str] = {}
     if report:
         artifacts["report_md"] = report

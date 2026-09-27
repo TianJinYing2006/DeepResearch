@@ -48,7 +48,7 @@ from .agui import (
     STEP_FINISHED,
 )
 from .errors import error_payload
-from .moderation import flag_report
+from .moderation import apply_output_gate, flag_report
 from .persistence import persist_terminal
 from .queue import RunQueue
 from .runner import _env_int, _estimate_cost_cny
@@ -321,8 +321,11 @@ class Worker:
             "degradation_count": len(state.degradation_log),
             "depth": state.depth,
         }
+        # P0-4：输出侧统一闸 —— 命中词表则**发帧与落库前**脱敏（正文只留产物）。
+        matches = apply_output_gate(payload, report)
         finalized = persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
-                                     result=result, report=report, meta=meta, topic=topic)
+                                     result=result, report=report, meta=meta, topic=topic,
+                                     moderation_status="flagged" if matches else None)
         if not finalized:
             # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
             _log(f"finalize {run_id}: terminal_conflict，终局写入整体回滚")

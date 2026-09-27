@@ -53,7 +53,7 @@ from .agui import (
 )
 from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
-from .moderation import flag_report
+from .moderation import apply_output_gate, flag_report
 from .persistence import persist_forced, persist_terminal
 from .store import RunStore
 
@@ -484,7 +484,8 @@ class RunManager:
                           payload: Dict[str, Any],
                           result: Optional[Dict[str, Any]] = None,
                           report: Optional[str] = None,
-                          meta: Optional[Dict[str, Any]] = None) -> None:
+                          meta: Optional[Dict[str, Any]] = None,
+                          moderation_status: Optional[str] = None) -> None:
         """终局落库（P3 起实现抽到 `persistence.persist_terminal`；失败只留痕）。
 
         ⚠️ 时序：本方法在**内存终局之后**执行（不在 condition 锁内做 DB I/O，避免
@@ -498,7 +499,8 @@ class RunManager:
             with self._lock:
                 topic = (self._status.get(run_id) or {}).get("topic", "")
             finalized = persist_terminal(store, run_id, seq, event_type, payload,
-                                         result=result, report=report, meta=meta, topic=topic)
+                                         result=result, report=report, meta=meta, topic=topic,
+                                         moderation_status=moderation_status)
             if not finalized:
                 # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
                 self._set_persistence_error(run_id, RuntimeError("terminal_conflict"))
@@ -694,6 +696,8 @@ class RunManager:
             "degradation_count": len(step.state.degradation_log),
             "depth": step.state.depth,
         }
+        # P0-4：输出侧统一闸 —— 命中词表则**发帧与落库前**脱敏（正文只留产物）。
+        matches = apply_output_gate(payload, report)
         seq = self._emit_terminal_frame(
             run_id, RUN_FINISHED, payload,
             status_fields={
@@ -708,4 +712,5 @@ class RunManager:
         )
         if seq is not None:
             self._persist_terminal(run_id, seq, RUN_FINISHED, payload,
-                                   result=result, report=report, meta=meta)
+                                   result=result, report=report, meta=meta,
+                                   moderation_status="flagged" if matches else None)

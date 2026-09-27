@@ -486,6 +486,31 @@ def _authorize_run(request: Request, run_id: str) -> Optional[str]:
     return owner
 
 
+def _enforce_output_policy(run_id: str) -> None:
+    """P0-4 统一输出闸：`flagged` / `blocked` 的报告不向普通用户开放查看与导出。
+
+    原文仍保留在 `run_artifacts`，管理员经 CLI（`admin run-report`）复核。
+    """
+    if store is None:
+        return
+    row = _store_call(store.get_run, run_id)
+    status = row.get("moderation_status") if row else None
+    if status in ("flagged", "blocked"):
+        raise http_error(
+            "output_under_review",
+            "报告命中内容安全预检，正在等待人工复核",
+            detail=f"moderation_status={status}",
+        )
+
+
+def _redact_report_payload(payload: dict) -> dict:
+    """P0-4：修复前落库的终局事件可能带完整正文 —— 回放前强制脱敏。"""
+    result = payload.get("result")
+    if not isinstance(result, dict) or not result.get("report"):
+        return payload
+    return {**payload, "result": {**result, "report": ""}, "output_under_review": True}
+
+
 def _public_user(user: dict) -> dict:
     return {"user_id": user["user_id"], "email": user["email"]}
 
@@ -1087,9 +1112,10 @@ def export_report(run_id: str, request: Request,
     为什么走后端而不沿用前端 Blob：前端那份只有 `result.report` 正文，
     导出的文件脱离页面后无从自证来源；后端版本带 run_id / run_status /
     降级条数等审计元数据与引用清单。P2-C：内存未命中时回落任务库产物。
-    P4-A：鉴权开启时只允许导出自己的 run。
+    P4-A：鉴权开启时只允许导出自己的 run。P0-4：flagged / blocked 一律 403。
     """
     _authorize_run(request, run_id)
+    _enforce_output_policy(run_id)
     if not manager.exists(run_id):
         if store is None:
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
@@ -1172,12 +1198,17 @@ async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncI
                 return
             if row is None:
                 return
+            flagged = row.get("moderation_status") in ("flagged", "blocked")
             for event in events:
                 cursor = event["sequence"]
+                payload = event["payload"] or {}
+                # P0-4：flagged / blocked 的历史回放不携带正文（原文只在产物里）
+                if flagged and event["event_type"] == "RUN_FINISHED":
+                    payload = _redact_report_payload(payload)
                 yield sse_frame(
                     event_id=cursor,
                     event_type=event["event_type"],
-                    payload=event["payload"] or {},
+                    payload=payload,
                 )
             if row["status"] not in ACTIVE_STATUSES:
                 return

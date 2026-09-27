@@ -9,6 +9,7 @@
     python -m web.backend.admin revoke-invite --code <邀请码>
     python -m web.backend.admin ban-user --email a@b.c
     python -m web.backend.admin unban-user --email a@b.c
+    python -m web.backend.admin run-report --run-id <run_id>   # 人工复核原文（P0-4）
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -53,6 +54,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     delete_user = sub.add_parser("delete-user", help="管理员删除用户（P7-A 注销；RAG 向量需另行清理）")
     delete_user.add_argument("--email", required=True)
+
+    run_report = sub.add_parser("run-report", help="查看某 run 的报告原文（人工复核用；P0-4）")
+    run_report.add_argument("--run-id", required=True)
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -114,6 +118,20 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             print(f"#{row['id']}  {row['kind']:<15} user={row['user_id'] or '-'} run={row['run_id'] or '-'} "
                   f"at={row['created_at']:%Y-%m-%d %H:%M}  detail={row['detail']}")
+        return 0
+
+    if args.command == "run-report":
+        row = store.get_run(args.run_id)
+        if row is None:
+            print("run not found", file=sys.stderr)
+            return 1
+        body = store.get_artifact(args.run_id, "report_md")
+        if not body:
+            print("no report artifact", file=sys.stderr)
+            return 1
+        status = row.get("moderation_status") or "-"
+        print(f"# run={args.run_id} status={row['status']} moderation={status}", file=sys.stderr)
+        print(body)
         return 0
 
     if args.command == "delete-user":

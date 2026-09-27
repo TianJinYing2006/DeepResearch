@@ -144,6 +144,8 @@ export default function App() {
   const lastStep = steps[steps.length - 1]
   const lastDelta = useMemo(() => lastEventOfType(events, 'STATE_DELTA') as StateDeltaEvent | undefined, [events])
   const finished = useMemo(() => lastEventOfType(events, 'RUN_FINISHED') as RunFinishedEvent | undefined, [events])
+  // P0-4：报告命中预检 ⇒ 事件流正文已脱敏，展示「待复核」而不是空报告
+  const outputUnderReview = Boolean(finished?.output_under_review)
   // 完整活动：原先 .slice(-18) 会把早期事件挤掉，导致「之前的活动丢失」。
   // 容器本身已可滚动，这里不再截断。
   const timeline = useMemo(
@@ -502,7 +504,7 @@ export default function App() {
                 <SummaryItem label="完成节点" value={String(steps.length)} />
                 <SummaryItem label="检索跳数" value={String(finished.result.depth)} />
                 <SummaryItem label="降级条目" value={String(finished.degradation_count)} />
-                <SummaryItem label="报告字数" value={formatNumber(finished.result.report.length)} />
+                <SummaryItem label="报告字数" value={outputUnderReview ? '待复核' : formatNumber(finished.result.report.length)} />
                 <SummaryItem label="成本估算" value={`≈ ¥${formatCost(finished.cost_estimate_cny)}`} />
               </div>
             </section>
@@ -569,10 +571,14 @@ export default function App() {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Research report</p>
                     <h2 className="mt-1 text-xl font-semibold text-white" data-testid="report-heading">研究报告</h2>
-                    <p className="mt-1 text-xs text-slate-500">Markdown 安全渲染 · {result.report.length.toLocaleString('zh-CN')} 字符</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {outputUnderReview
+                        ? '报告命中内容安全预检，正在等待人工复核'
+                        : `Markdown 安全渲染 · ${result.report.length.toLocaleString('zh-CN')} 字符`}
+                    </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button className="secondary-button !px-3 !py-2" type="button" onClick={() => void copyReport()} disabled={!result.report}>
+                    <button className="secondary-button !px-3 !py-2" type="button" onClick={() => void copyReport()} disabled={!result.report || outputUnderReview}>
                       {copyState === 'copied' ? '已复制' : '复制正文'}
                     </button>
                     {/* P1-6：走后端导出（正文 + 审计元数据 + 引用清单），不是前端 Blob 那份纯正文 */}
@@ -580,7 +586,7 @@ export default function App() {
                       className="secondary-button !px-3 !py-2"
                       type="button"
                       onClick={() => void exportReport()}
-                      disabled={!runId}
+                      disabled={!runId || outputUnderReview}
                       data-testid="export-button"
                     >
                       {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
@@ -588,7 +594,9 @@ export default function App() {
                   </div>
                 </div>
                 <div className="px-5 py-6 sm:px-8 sm:py-8">
-                  {result.report ? (
+                  {outputUnderReview ? (
+                    <EmptyState icon="⚑" title="报告待人工复核" text="报告命中内容安全预检：复核通过或申诉处理前不开放查看与导出；如认为误判可提交申诉。" />
+                  ) : result.report ? (
                     <ReportView report={result.report} />
                   ) : (
                     <EmptyState icon="◌" title="暂无完整报告" text="运行在报告生成前停止，已完成的事件与统计仍保留。" />

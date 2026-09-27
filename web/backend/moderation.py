@@ -54,3 +54,24 @@ def flag_report(store, run_id: str, user_id: Optional[str], report: Optional[str
     )
     store.set_moderation_status(run_id, "flagged")
     return matches
+
+
+def apply_output_gate(payload: dict, report: Optional[str]) -> list[str]:
+    """输出侧统一闸（P0-4）：命中词表 ⇒ 事件流 / 传输层脱敏，**产物原文不删**。
+
+    必须在**发帧与落库之前**调用：这样 `run_events`（SSE 回放的权威来源）
+    与实时帧都不携带完整正文；完整原文只留在 `run_artifacts.report_md`，
+    供管理员 / 审核人员经 CLI 复核（普通用户导出由 API 闸拒绝）。
+
+    返回命中词；无命中返回空列表（payload 原样不动）。
+    """
+    matches = scan(report or "")
+    if not matches:
+        return []
+    result = payload.get("result")
+    if isinstance(result, dict) and result.get("report"):
+        result = dict(result)
+        result["report"] = ""
+        payload["result"] = result
+    payload["output_under_review"] = True
+    return matches

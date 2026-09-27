@@ -30,7 +30,7 @@ _UPDATABLE_FIELDS = frozenset({
     "research_status", "stop_reason", "current_node", "token_used", "cost_estimate_cny",
     "budget_used_cny", "attempt", "retry_of", "worker_id", "worker_status",
     "lease_expires_at", "queued_at", "started_at", "finished_at", "cancel_requested_at",
-    "timeout_at", "hard_deadline_at",
+    "timeout_at", "hard_deadline_at", "moderation_status",
 })
 
 

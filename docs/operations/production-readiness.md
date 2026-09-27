@@ -98,7 +98,7 @@
 - [x] 输入侧（P7-A 部分）：超长输入限制（topic 1000 / instructions 2000）与文件类型 / 大小限制（P6-A）；
       敏感内容预检（规则词表 `DR_MODERATION_BLOCKLIST`，命中即拒并留痕）
 - [ ] 输入侧剩余（P7-B）：Prompt Injection 深度防护、恶意 URL / 文件处理
-- [ ] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**未自动拦截**（等人工复核）
+- [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前脱敏、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核
 - [ ] 敏感结果拦截与模型输出标识 —— P7-B（含接入有资质的审核服务）
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
 - [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
@@ -302,3 +302,4 @@ location /api/ {
 | 2026-09-27 | P3-B 补丁：API 启动维护按执行模式分流（`main.py::_startup_store_maintenance`）—— 修复 queue 模式下 API 重启误将 Worker 的 RUNNING/QUEUED 标记为 `LOST` 的跨服务破坏；§3.3 增补对应勾选；新增 `tests/test_startup_maintenance.py`（本机 568 收集 = 543 通过 + 25 跳过，ruff 全过） |
 | 2026-09-27 | P0 profile 固化同步：§3.3 勾选运行档位（服务端固定底层参数 + 快照留痕 + contextvar 运行作用域）；新增 `web/backend/profiles.py` / `research_engine/runtime_profile.py`、`runs.request.profile` 快照、前端档位选择器；新增 `tests/test_profiles.py`（本机 575 收集 = 550 通过 + 25 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P0-6 终局原子落库同步：§3.3 勾选终局原子（`RunStore.finalize_run` 单事务：状态 + 事件 + 产物；迁移失败整体回滚）；`persistence.persist_terminal` / `persist_forced` 返回是否完成迁移，Runner/Worker 据此跳过输出标记；新增 `tests/test_terminal_atomic.py`（本机 581 收集 = 555 通过 + 26 跳过，ruff 全过） |
+| 2026-09-27 | P0-4 输出闸同步：§3.5 输出侧改为「自动拦截」——`apply_output_gate` 发帧/落库前脱敏 + 审核状态与终局同事务 + 导出 403 `output_under_review` + 历史回放强制脱敏 + CLI `run-report`；新增 `tests/test_output_gate.py`（本机 587 收集 = 561 通过 + 26 跳过，ruff / tsc / vite build 全过） |
