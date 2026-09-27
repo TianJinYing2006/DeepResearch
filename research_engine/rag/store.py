@@ -9,7 +9,16 @@ import time
 from typing import List, Optional
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    KeywordIndexParams,
+    MatchValue,
+    PayloadSchemaType,
+    PointStruct,
+    VectorParams,
+)
 
 from config import config
 from research_engine.failure_reasons import FailureReason
@@ -18,6 +27,9 @@ from research_engine.rag.scope import RagScope, payload_matches
 
 class VectorStore:
     """Qdrant 向量存储封装。"""
+
+    #: P1-7：检索过滤 / 删除依赖的 payload 字段（幂等建索引）
+    INDEXED_PAYLOAD_FIELDS = ("user_id", "tenant_id", "visibility", "doc_id")
 
     def __init__(self, url: Optional[str] = None, collection: Optional[str] = None):
         self.url = url or config.rag.qdrant_url
@@ -80,7 +92,7 @@ class VectorStore:
         return self._client
 
     def _ensure_collection(self):
-        """确保集合存在，不存在则创建。"""
+        """确保集合存在，不存在则创建；随后幂等补齐 payload index（P1-7）。"""
         if self._client is None:
             return
         collections = self._client.get_collections().collections
@@ -90,6 +102,32 @@ class VectorStore:
                 collection_name=self.collection,
                 vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
             )
+        self._ensure_payload_indexes()
+
+    def _ensure_payload_indexes(self) -> None:
+        """P1-7：为过滤字段建 payload index（`user_id` 启用 `is_tenant`）。
+
+        幂等：已存在的字段跳过；单字段失败不阻断（检索侧仍有 Python 后置过滤兜底），
+        但会把原因留在 `last_error` 供排障。过滤字段建索引可显著加速多租户检索。
+        """
+        if self._client is None:
+            return
+        try:
+            info = self._client.get_collection(self.collection)
+            existing = set((getattr(info, "payload_schema", None) or {}).keys())
+        except Exception:  # noqa: BLE001 —— 查询失败则尝试全量建（重复建是幂等的）
+            existing = set()
+        for field in self.INDEXED_PAYLOAD_FIELDS:
+            if field in existing:
+                continue
+            schema = (KeywordIndexParams(type="keyword", is_tenant=True)
+                      if field == "user_id" else PayloadSchemaType.KEYWORD)
+            try:
+                self._client.create_payload_index(
+                    collection_name=self.collection, field_name=field,
+                    field_schema=schema, wait=True)
+            except Exception as exc:  # noqa: BLE001
+                self._last_error = str(exc)[:300]
 
     def upsert(self, points: List[PointStruct]):
         """批量写入向量点。"""

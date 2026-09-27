@@ -61,7 +61,7 @@
 - [ ] 对象存储：报告与导出文件的生命周期规则（与「数据保存期限」拍板值一致）
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
 - [ ] 恢复演练（见 §5）
-- [x] RAG 检索按作用域强制过滤（P5：payload `user_id`/`tenant_id`/`visibility`；owner 只见本人 private，历史无主块向后兼容）
+- [x] RAG 检索按作用域强制过滤（P5：payload `user_id`/`tenant_id`/`visibility`；owner 只见本人 private，历史无主块向后兼容）；**P1-7 起为过滤字段建 payload index**（`user_id` 启用 `is_tenant=true`；幂等补齐，索引失败不阻断且留 `last_error`）
 - [x] RAG 上传面（P6-A）：类型白名单 + `DR_RAG_MAX_FILE_MB` 上限；上传按当前用户打标，清单按作用域列出。**P0-8a 硬化**：流式落盘（不整文件入内存）、magic bytes/结构三重校验、服务端 UUID 存储名、文件名清洗、内容寻址 `doc_id`（幂等去重）、解析限额（页数/字符/分块/墙钟）、按用户上传限流；**P0-8b 异步管线**：隔离区（`DR_RAG_QUARANTINE_DIR`，compose api/worker 共享卷）→ 202 登记 → Worker 解析/embedding（解析类错误直接 rejected、供应商类错误退避重试）→ `GET /api/rag/ingestions/{id}`；`DELETE /api/rag/docs` 同步删向量并验证归零；90 天保留期自动清扫（`DR_RAG_RETENTION_DAYS`）；可选 ClamAV（`DR_CLAMSCAN_BIN` 未配置则如实 `scan_status=skipped`）
 
 ### 3.3 任务运行（Worker）
@@ -332,3 +332,4 @@ location /api/ {
 | 2026-09-27 | P1-10 会话治理同步：§3.4 会话/密码重置行更新（会话列表与远程终止、重置 token 单次/30min/管理员发放）；迁移 0010 + 结构断言接入 CI `infra`；新增 `tests/test_session_governance.py`（本机 654 收集 = 620 通过 + 34 跳过，ruff 全过） |
 | 2026-09-27 | P1-4 usage ledger 同步：§3.7 逐调用记账勾选（成本来源标注 + CLI 汇总）；迁移 0011 + 结构断言接入 CI `infra`；新增 `tests/test_usage_ledger.py`（本机 661 收集 = 626 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-9 provider/egress 快照同步：§4 数据流向登记表增「run 级快照」说明；`web/backend/egress.py` + 快照接口/导出展示；新增 `tests/test_egress_snapshot.py`（本机 664 收集 = 629 通过 + 35 跳过，ruff 全过） |
+| 2026-09-27 | P1-7 Qdrant payload index 同步：§3.2 检索过滤行更新（`is_tenant` 索引 + 幂等补齐）；新增 `tests/test_qdrant_indexes.py`（本机 667 收集 = 632 通过 + 35 跳过，ruff 全过） |
