@@ -53,6 +53,7 @@ from .moderation import (
     MAX_TOPIC_LENGTH,
     scan,
 )
+from .notify import RunEventNotifier
 from .objectstore import get_object_store
 from .otel import (
     PROMETHEUS_ENABLED,
@@ -291,6 +292,23 @@ def _startup_store_maintenance(run_store: RunStore, execution_mode: str) -> None
 
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
 store = None if DEMO_MODE else _make_store()
+
+# P2-4：SSE 尾随的 LISTEN/NOTIFY 唤醒（懒启动；通知只放 run_id，正确性靠轮询兜底）
+SSE_POLL_SECONDS = max(0.5, _env_number("DR_SSE_POLL_SECONDS", 5.0))
+_notifier: Optional[RunEventNotifier] = None
+
+
+def _get_notifier() -> Optional[RunEventNotifier]:
+    """按当前 store 懒装配通知器；无任务库（本地零依赖 / 测试替身）返回 None。"""
+    global _notifier
+    if store is None:
+        return None
+    dsn = getattr(store, "dsn", "")
+    if not dsn:
+        return None
+    if _notifier is None or _notifier.dsn != dsn:
+        _notifier = RunEventNotifier(dsn, poll_seconds=SSE_POLL_SECONDS)
+    return _notifier
 if store is not None:
     try:
         _startup_store_maintenance(store, EXECUTION_MODE)
@@ -1714,10 +1732,11 @@ async def stream(
 
 
 async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator[str]:
-    """任务库实时尾随（P2-C 一次回放 → P3 轮询尾随）。
+    """任务库实时尾随（P2-C 回放 + **P2-4 LISTEN/NOTIFY 唤醒**）。
 
-    先按 `sequence` 补发历史，再每秒轮询新增事件，直到 run 终局；期间每 15s 发心跳注释帧。
-    L3-A 规模下轮询足够简单可靠，暂不引入 Redis 订阅（queue 只做任务分发）。
+    先按 `sequence` 补发历史，再等待新事件通知（PG LISTEN/NOTIFY；无任务库或
+    连接断开时按 `DR_SSE_POLL_SECONDS` 轮询兜底），直到 run 终局；期间每 15s
+    发心跳注释帧。唤醒只影响延迟，正确性始终由查库决定。
     """
     METRICS.sse_open()
     try:
@@ -1751,9 +1770,23 @@ async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncI
             if now - last_beat >= HEARTBEAT_SECONDS:
                 last_beat = now
                 yield HEARTBEAT_FRAME
-            await asyncio.sleep(1.0)
+            await _wait_for_run_events(run_id)
     finally:
         METRICS.sse_close()
+
+
+async def _wait_for_run_events(run_id: str) -> None:
+    """P2-4：等待新事件唤醒（PG LISTEN/NOTIFY）；无任务库时退化为固定轮询间隔。
+
+    等待在 executor 线程进行（psycopg 阻塞读）；无论是否收到通知，醒来后都会
+    重新查库，正确性不依赖通知（断线 / 竞态最多增加 `SSE_POLL_SECONDS` 延迟）。
+    """
+    notifier = _get_notifier()
+    if notifier is None:
+        await asyncio.sleep(SSE_POLL_SECONDS)
+        return
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, notifier.wait_for, run_id, SSE_POLL_SECONDS)
 
 
 async def _event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator[str]:
@@ -1791,6 +1824,14 @@ async def _event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator
 if OTEL_ENABLED and PROMETHEUS_ENABLED:
     # P1-8：Prometheus 抓取端点（仅显式开启时挂载；生产应由反代限制来源）
     app.mount("/metrics", prometheus_asgi_app())
+
+
+@app.on_event("shutdown")
+async def _shutdown_notifier() -> None:
+    """P2-4：进程退出时关闭 LISTEN 专连接（幂等；未启动过则不动作）。"""
+    notifier = _notifier
+    if notifier is not None:
+        notifier.close()
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 if FRONTEND_DIST.is_dir():
