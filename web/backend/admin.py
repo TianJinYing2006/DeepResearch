@@ -10,6 +10,9 @@
     python -m web.backend.admin ban-user --email a@b.c
     python -m web.backend.admin unban-user --email a@b.c
     python -m web.backend.admin run-report --run-id <run_id>   # 人工复核原文（P0-4）
+    python -m web.backend.admin deletion-list [--limit 50]     # 注销清理进度（P0-7）
+    python -m web.backend.admin retry-deletion --request-id <id>
+    python -m web.backend.admin process-deletions [--batch 5]  # 手工跑一批 outbox
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -57,6 +60,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_report = sub.add_parser("run-report", help="查看某 run 的报告原文（人工复核用；P0-4）")
     run_report.add_argument("--run-id", required=True)
+
+    deletion_list = sub.add_parser("deletion-list", help="注销清理台账与 outbox 进度（P0-7）")
+    deletion_list.add_argument("--limit", type=int, default=50)
+
+    retry_deletion = sub.add_parser("retry-deletion", help="人工重试被放弃的注销清理（P0-7）")
+    retry_deletion.add_argument("--request-id", required=True)
+
+    process_deletions = sub.add_parser("process-deletions", help="手工执行一批注销 outbox（P0-7）")
+    process_deletions.add_argument("--batch", type=int, default=5)
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -134,13 +146,34 @@ def main(argv: list[str] | None = None) -> int:
         print(body)
         return 0
 
+    if args.command == "deletion-list":
+        for row in store.list_deletions(limit=args.limit):
+            print(f"{row['request_id']}  {row['status']:<10} user={row['user_id']} "
+                  f"attempts={row['attempts']} requested={row['requested_at']:%Y-%m-%d %H:%M} "
+                  f"error={row['last_error'] or '-'}")
+        return 0
+
+    if args.command == "retry-deletion":
+        count = store.retry_deletion(args.request_id)
+        print(f"reset {count} outbox entr{'y' if count == 1 else 'ies'}")
+        return 0 if count else 1
+
+    if args.command == "process-deletions":
+        from .deletion import process_deletions_once
+
+        summary = process_deletions_once(store, batch=args.batch)
+        print(f"deletions: {summary}")
+        return 0
+
     if args.command == "delete-user":
         user = store.get_user_by_email(normalize_email(args.email))
         if user is None:
             print("user not found", file=sys.stderr)
             return 1
-        store.delete_user(user["user_id"])
-        print(f"deleted {args.email}（任务与审核记录保留但匿名；RAG 向量请另行按 user_id 清理）")
+        request_id = uuid.uuid4().hex[:12]
+        store.request_account_deletion(request_id, user["user_id"])
+        print(f"deleted {args.email}（deletion_request_id={request_id}；"
+              f"任务与审核记录匿名保留；RAG 清理由 Worker 重试执行，`deletion-list` 查看）")
         return 0
 
     if args.command == "revoke-invite":

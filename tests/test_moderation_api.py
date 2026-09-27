@@ -9,27 +9,10 @@ import pytest
 from fakes import FakeStore
 from fastapi.testclient import TestClient
 
-import research_engine.rag.store as store_module
 from web.backend import main as api
 from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
 
 PASSWORD = "password-123456"
-
-
-class _FakeVectorStore:
-    reason: str | None = "not_configured"
-    deleted: list[str] = []
-
-    @property
-    def unavailable_reason(self):
-        return type(self).reason
-
-    @property
-    def last_error(self):
-        return "n/a"
-
-    def delete_by_user(self, user_id: str) -> None:
-        type(self).deleted.append(user_id)
 
 
 @pytest.fixture()
@@ -138,12 +121,11 @@ def test_password_never_echoed_in_errors(monkeypatch, store: FakeStore):
     assert "wrong-secret-xyz" not in bad.text
 
 
-def test_delete_account_reports_skipped_rag_cleanup(monkeypatch, store: FakeStore):
-    monkeypatch.setattr(store_module, "VectorStore", _FakeVectorStore)
-    _FakeVectorStore.reason = "not_configured"
-    _FakeVectorStore.deleted = []
+def test_delete_account_registers_durable_cleanup(monkeypatch, store: FakeStore):
+    """P0-7：注销改为 durable outbox —— 立即删账号/会话，RAG 清理挂待执行。"""
     client = _client(monkeypatch, store, auth=True)
     _register(client, "gone@example.com")
+    user = store.get_user_by_email("gone@example.com")
 
     wrong = client.request("DELETE", "/api/auth/account",
                            json={"password": "not-the-password"}, headers=_csrf(client))
@@ -153,21 +135,13 @@ def test_delete_account_reports_skipped_rag_cleanup(monkeypatch, store: FakeStor
     response = client.request("DELETE", "/api/auth/account",
                               json={"password": PASSWORD}, headers=_csrf(client))
     assert response.status_code == 200
-    assert response.json()["rag_cleanup"].startswith("skipped")
+    body = response.json()
+    assert body["rag_cleanup"] == "pending"
+    request_id = body["deletion_request_id"]
     assert store.get_user_by_email("gone@example.com") is None
     assert client.get("/api/auth/session").status_code == 401
 
-
-def test_delete_account_cleans_rag_when_available(monkeypatch, store: FakeStore):
-    monkeypatch.setattr(store_module, "VectorStore", _FakeVectorStore)
-    _FakeVectorStore.reason = None
-    _FakeVectorStore.deleted = []
-    client = _client(monkeypatch, store, auth=True)
-    _register(client, "cleanup@example.com")
-    user = store.get_user_by_email("cleanup@example.com")
-
-    response = client.request("DELETE", "/api/auth/account",
-                              json={"password": PASSWORD}, headers=_csrf(client))
-    assert response.status_code == 200
-    assert response.json()["rag_cleanup"] == "done"
-    assert _FakeVectorStore.deleted == [user["user_id"]]
+    record = store.deletion_status(request_id)
+    assert record["status"] == "pending"
+    assert record["user_id"] == user["user_id"]
+    assert [item["target"] for item in record["targets"]] == ["qdrant"]

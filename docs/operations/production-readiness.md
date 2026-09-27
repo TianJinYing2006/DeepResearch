@@ -105,7 +105,7 @@
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
 - [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；**P0-5 起带 `run_id` 的申诉校验归属 / 标记状态 / 防重复**（非本人 404、未标记 409 `appeal_not_applicable`、重复 409 `appeal_duplicate`）；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
 - [x] 隐私政策 / 用户协议草案（`docs/legal/`，API 可读）；⚠️ **法务确认与公示仍待 L3-C**
-- [x] 用户注销已实现（验密 + CSRF；删账号/会话、清 RAG 向量、任务匿名保留）
+- [x] 用户注销已实现（验密 + CSRF；**P0-7 起 durable outbox**：同事务登记台账 + outbox + 删账号/会话，Qdrant 清理由 Worker 带退避重试直至**验证归零**；耗尽 `abandoned` 会告警，CLI `deletion-list` / `retry-deletion` 可查可重试；任务匿名保留）
 - [ ] 报告保存期限的**到期自动清理**（当前仅写入政策与文档，执行留 P8）
 - [x] 日志与错误载荷脱敏（不回声密码；登录失败统一 401；密钥不进日志有回归测试）
 - [x] 上传文件按用户作用域隔离存放与检索（P5/P6-A；不与公共知识混存）
@@ -213,6 +213,10 @@
 |------|--------|--------|--------------|-----------|------|---------|
 | 待填 | 待填 | 待填 | 待填 | 待填 | 待填 | 待填 |
 
+> **P0-7 追加步骤（恢复后必做）**：比对 `account_deletions` 台账与运维侧备份点之后的注销请求记录，
+> 对备份恢复后「复活」的用户重放删除（当前为人工 runbook；自动重放列 P1）。
+> 台账无 PII，但若恢复点早于注销时间，台账行也可能回滚 —— 以运维侧的注销请求记录为准补齐。
+
 ## 6. 落档记录（合规确认 / 供应商答复）
 
 | 日期 | 事项 | 来源（部门 / 云厂商 / 供应商） | 结论摘要 | 证据（文件 / 邮件 / 截图路径） |
@@ -309,3 +313,4 @@ location /api/ {
 | 2026-09-27 | P0-3 准入原子化同步：§3.3 并发与预算闸改为同事务原子判定（`RunStore.create_run_admitted` + `pg_advisory_xact_lock`）；真实 PG 并发竞争测试接入 CI `infra`（本机 589 收集 = 562 通过 + 27 跳过，ruff 全过） |
 | 2026-09-27 | P0-2 队列可靠性同步：§3.2/§3.3 —— 派发权威迁到 PostgreSQL（`claim_next_queued` + `FOR UPDATE SKIP LOCKED`），Redis 降级为可选唤醒信号；排队超时收口 `TIMED_OUT`；队列深度以 `count_queued` 为准；真实 PG 并发领取测试接入 CI `infra`（本机 593 收集 = 565 通过 + 28 跳过，ruff 全过） |
 | 2026-09-27 | P0-9 启动硬校验同步：§3.1 配置分层勾选（`DR_ENV` fail fast）、§3.4 Cookie 行更新；compose staging 默认 `DR_COOKIE_SECURE=true` 并在文件头注明自检要求；production 拒明文 HTTP（400 `https_required`）；新增 `tests/test_startup_validation.py`（本机 599 收集 = 571 通过 + 28 跳过，ruff 全过） |
+| 2026-09-27 | P0-7 注销 durable outbox 同步：§3.5 注销行更新（台账 + outbox + 验证归零 + 告警 + CLI）；§5 恢复演练追加「重放删除台账」步骤；迁移 0005 与结构断言接入 CI `infra`；新增 `tests/test_deletion_outbox.py`（本机 604 收集 = 575 通过 + 29 跳过，ruff 全过） |

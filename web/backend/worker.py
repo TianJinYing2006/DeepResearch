@@ -53,6 +53,7 @@ from .agui import (
     STATE_DELTA,
     STEP_FINISHED,
 )
+from .deletion import process_deletions_once
 from .errors import error_payload
 from .moderation import apply_output_gate, flag_report
 from .persistence import persist_terminal
@@ -124,6 +125,13 @@ class Worker:
                         _log(f"sweep: {swept}")
                 except Exception as exc:  # noqa: BLE001 —— 清扫失败不拖垮消费循环
                     _log(f"sweep failed: {type(exc).__name__}: {exc}")
+                try:
+                    # P0-7：注销 outbox（Qdrant 清理 + 验证）随清扫周期推进
+                    deletions = process_deletions_once(self._store)
+                    if deletions["claimed"]:
+                        _log(f"deletions: {deletions}")
+                except Exception as exc:  # noqa: BLE001 —— 注销清理失败不拖垮消费循环
+                    _log(f"deletion outbox failed: {type(exc).__name__}: {exc}")
                 next_sweep = time.monotonic() + self.sweep_seconds
             if self.claim_next():
                 continue
