@@ -103,6 +103,24 @@ async def _metrics_middleware(request: Request, call_next):
     METRICS.observe_latency_ms((time.perf_counter() - started) * 1000)
     return response
 
+
+@app.middleware("http")
+async def _https_enforcement(request: Request, call_next):
+    """P0-9：production 环境拒绝非 HTTPS 请求（信任反向代理透传的 X-Forwarded-Proto）。
+
+    本地 / staging 不拦（staging 由启动硬校验保证 Cookie Secure 等配置）。
+    """
+    if ENV == "production":
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        if proto.split(",")[0].strip().lower() != "https":
+            return JSONResponse(
+                status_code=400,
+                content={"detail": error_payload(
+                    "https_required", "生产环境仅接受 HTTPS 请求",
+                    detail=f"scheme={proto}")},
+            )
+    return await call_next(request)
+
 # DR_DEMO=1 ⇒ 用假 graph 跑演示（不调 LLM、不烧钱），用于查看 UI 效果。
 # 演示与真实运行**共用**后端全部 SSE 管线，故事件序列 / 降级推送 / 取消行为都是真的。
 DEMO_MODE = os.getenv("DR_DEMO") == "1"
@@ -130,6 +148,44 @@ AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
 INVITE_ONLY = _env_flag("DR_INVITE_ONLY", "true")
 COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
 SESSION_TTL_SECONDS = int(os.getenv("DR_SESSION_TTL_SECONDS", "604800"))
+
+
+def _parse_env() -> str:
+    """运行环境（P0-9）：local（默认，宽松）/ staging / production（启动硬校验）。"""
+    env = (os.getenv("DR_ENV") or "local").strip().lower()
+    if env not in {"local", "staging", "production"}:
+        raise RuntimeError(f"DR_ENV 仅支持 local|staging|production，收到：{env!r}")
+    return env
+
+
+ENV = _parse_env()
+
+
+def _validate_runtime_config() -> None:
+    """P0-9 启动硬校验：staging / production 不允许带不安全默认启动（fail fast）。
+
+    校验项：鉴权开关、Secure Cookie、CORS 显式来源、LLM 密钥。
+    本地（`DR_ENV=local`，含 CI / E2E / 单测）不校验，行为与历史一致。
+    """
+    if ENV == "local":
+        return
+    problems: list[str] = []
+    if not AUTH_REQUIRED:
+        problems.append("DR_AUTH_REQUIRED 必须为 true（邀请制/账号体系是准入前提）")
+    if not COOKIE_SECURE:
+        problems.append("DR_COOKIE_SECURE 必须为 true（HTTPS 下会话 Cookie 才安全）")
+    if not (os.getenv("DR_CORS_ORIGINS") or "").strip():
+        problems.append("DR_CORS_ORIGINS 必须显式配置（禁止沿用 localhost 默认）")
+    if not DEMO_MODE and not config.llm.api_key:
+        problems.append("DASHSCOPE_API_KEY 缺失（研究链路无法运行）")
+    if problems:
+        raise RuntimeError(
+            f"启动自检失败（DR_ENV={ENV}）：" + "；".join(problems)
+            + "。确认配置后重启；本地开发可设 DR_ENV=local。"
+        )
+
+
+_validate_runtime_config()
 
 # P4-B：配额与限流（推荐基线 v2 默认值；0 = 关闭对应闸）。
 MAX_USER_CONCURRENT = max(1, int(_env_number("DR_MAX_USER_CONCURRENT", 1)))

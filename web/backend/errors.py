@@ -121,6 +121,10 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         409, False,
         "同一任务的申诉已在处理中：请等待复核结果，不要重复提交。",
         component="moderation"),
+    "https_required": ErrorSpec(
+        400, False,
+        "生产环境仅接受 HTTPS 请求：请通过 TLS 入口（反向代理）访问，并确保透传 X-Forwarded-Proto。",
+        component="web"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

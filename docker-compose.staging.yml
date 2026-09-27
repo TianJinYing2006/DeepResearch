@@ -7,6 +7,11 @@
 # 探针：
 #   curl http://127.0.0.1:8000/api/health/ready
 #
+# P0-9 启动自检（staging 默认）：API 要求显式配置
+#   DR_CORS_ORIGINS（不得沿用 localhost 默认）、DASHSCOPE_API_KEY、
+#   DR_COOKIE_SECURE=true、DR_AUTH_REQUIRED=true —— 缺失即启动失败（fail fast）。
+# 纯本地 HTTP 调试：DR_ENV=local DR_COOKIE_SECURE=false DR_AUTH_REQUIRED=false。
+#
 # 说明：
 # - Qdrant 不在本文件内：默认指向宿主机（host.docker.internal）；staging 部署时用 QDRANT_URL 指向真实实例。
 # - Worker 服务在 P3 增加；API 现在仍走请求进程内 RunManager（P2/P3 迁移到队列）。
@@ -94,7 +99,10 @@ services:
       # P4-A：staging 默认开启鉴权与邀请制（本地开发不设，行为与 P3 一致）
       DR_AUTH_REQUIRED: "${DR_AUTH_REQUIRED:-true}"
       DR_INVITE_ONLY: "${DR_INVITE_ONLY:-true}"
-      DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-false}"
+      # P0-9：staging 启动硬校验（Secure Cookie / CORS / 密钥缺失即 fail fast）；
+      # 纯 HTTP 本地调试可显式设 DR_ENV=local 并关掉 DR_COOKIE_SECURE。
+      DR_ENV: "${DR_ENV:-staging}"
+      DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-true}"
       DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
