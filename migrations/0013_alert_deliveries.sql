@@ -6,8 +6,8 @@
 -- - `alert_states`：按 fingerprint（告警码）收敛当前状态（firing/resolved）与最近通知
 --   时间 —— 同一告警持续 firing 时在冷却期内不重复外送（防刷屏），条件消失必发 resolved；
 -- - `alert_deliveries`：外送队列（firing/repeat/resolved），失败指数退避重试；
---   成功后写 `delivered_at`；`attempts >= max_attempts` 时把 `next_attempt_at` 置
---   'infinity'（放弃，CLI 可手动重试）。
+--   成功后写 `delivered_at`；`attempts >= max_attempts` 时置 `given_up = true`
+--   （放弃外送，CLI 可手动重试）。
 --
 -- 注意：执行器 tools/migrate.sh 已用 --single-transaction 包裹，本文件不得写 BEGIN/COMMIT。
 
@@ -35,6 +35,7 @@ CREATE TABLE alert_deliveries (
     max_attempts    integer NOT NULL DEFAULT 5 CHECK (max_attempts >= 1),
     next_attempt_at timestamptz NOT NULL DEFAULT now(),
     delivered_at    timestamptz,
+    given_up        boolean NOT NULL DEFAULT false,
     last_error      text,
     created_at      timestamptz NOT NULL DEFAULT now()
 );
@@ -47,4 +48,4 @@ CREATE INDEX alert_deliveries_fingerprint_idx ON alert_deliveries (fingerprint, 
 COMMENT ON TABLE alert_states IS
     'P2-6：按 fingerprint 收敛的告警状态（firing/resolved 与最近通知时间，用于去重防刷屏）';
 COMMENT ON TABLE alert_deliveries IS
-    'P2-6：告警外送队列（退避重试；attempts>=max_attempts 时 next_attempt_at=infinity 放弃）';
+    'P2-6：告警外送队列（退避重试；attempts>=max_attempts 置 given_up=true 放弃，CLI 可重试）';

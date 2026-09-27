@@ -833,14 +833,15 @@ class FakeStore:
             "kind": kind, "severity": severity, "payload": payload or {},
             "attempts": 0, "max_attempts": max(1, max_attempts),
             "next_attempt_at": datetime.now(UTC), "delivered_at": None,
-            "last_error": None, "created_at": datetime.now(UTC),
+            "given_up": False, "last_error": None, "created_at": datetime.now(UTC),
         })
         return self._alert_delivery_seq
 
     def claim_due_alert_deliveries(self, *, limit=20, lease_seconds=120):
         now = datetime.now(UTC)
         due = [row for row in self.alert_deliveries
-               if row["delivered_at"] is None and row["next_attempt_at"] <= now][:limit]
+               if row["delivered_at"] is None and not row["given_up"]
+               and row["next_attempt_at"] <= now][:limit]
         for row in due:
             row["attempts"] += 1
             row["next_attempt_at"] = now + timedelta(seconds=max(1, lease_seconds))
@@ -858,9 +859,8 @@ class FakeStore:
         for row in self.alert_deliveries:
             if row["delivery_id"] == delivery_id and row["delivered_at"] is None:
                 row["last_error"] = error
-                if row["attempts"] >= row["max_attempts"]:
-                    row["next_attempt_at"] = datetime.max.replace(tzinfo=UTC)
-                else:
+                row["given_up"] = row["attempts"] >= row["max_attempts"]
+                if not row["given_up"]:
                     row["next_attempt_at"] = (
                         datetime.now(UTC) + timedelta(seconds=max(0, delay_seconds)))
                 return True
@@ -870,6 +870,7 @@ class FakeStore:
         for row in self.alert_deliveries:
             if row["delivery_id"] == delivery_id and row["delivered_at"] is None:
                 row["attempts"] = 0
+                row["given_up"] = False
                 row["last_error"] = None
                 row["next_attempt_at"] = (
                     datetime.now(UTC) + timedelta(seconds=max(0, delay_seconds)))

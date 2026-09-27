@@ -14,7 +14,7 @@ BEGIN
         ('alert_deliveries.kind'), ('alert_deliveries.severity'), ('alert_deliveries.payload'),
         ('alert_deliveries.attempts'), ('alert_deliveries.max_attempts'),
         ('alert_deliveries.next_attempt_at'), ('alert_deliveries.delivered_at'),
-        ('alert_deliveries.last_error')
+        ('alert_deliveries.given_up'), ('alert_deliveries.last_error')
     ) AS v(c)
     WHERE NOT EXISTS (
         SELECT 1 FROM information_schema.columns col

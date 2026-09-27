@@ -99,16 +99,16 @@ def test_process_deliveries_backoff_and_give_up(monkeypatch):
     assert row["attempts"] == 1 and row["last_error"].startswith("RuntimeError")
     assert row["next_attempt_at"] > datetime.now(UTC) + timedelta(seconds=20)
 
-    # 模拟退避到期：第二次失败达到 max_attempts ⇒ 放弃（infinity）
+    # 模拟退避到期：第二次失败达到 max_attempts ⇒ 放弃（given_up）
     row["next_attempt_at"] = datetime.now(UTC)
     summary = process_deliveries_once(store, transport=failing)
     assert summary["given_up"] == 1
-    assert row["next_attempt_at"] == datetime.max.replace(tzinfo=UTC)
+    assert row["given_up"] is True
     assert "give up after 2 attempts" in row["last_error"]
 
-    # 人工重试：attempts 清零并成功送达
+    # 人工重试：attempts/given_up 复位并成功送达
     assert store.retry_alert_delivery(row["delivery_id"]) is True
-    assert row["attempts"] == 0
+    assert row["attempts"] == 0 and row["given_up"] is False
     summary = process_deliveries_once(store, transport=lambda url, body: None)
     assert summary["delivered"] == 1
     assert row["delivered_at"] is not None
@@ -191,12 +191,13 @@ def test_alert_pg_roundtrip():
                                          error="test-fail") is True
         row = next(d for d in store.list_alert_deliveries(undelivered_only=True, limit=200)
                    if d["delivery_id"] == delivery_id)
-        assert row["next_attempt_at"] == datetime.max.replace(tzinfo=UTC)  # infinity 放弃
+        assert row["given_up"] is True  # attempts=1 >= max_attempts=1 ⇒ 放弃
 
         assert store.retry_alert_delivery(delivery_id) is True
         reclaimed = [d for d in store.claim_due_alert_deliveries(limit=50)
                      if d["delivery_id"] == delivery_id]
         assert reclaimed and reclaimed[0]["attempts"] == 1
+        assert reclaimed[0]["given_up"] is False
         assert store.finish_alert_delivery(delivery_id) is True
 
         resolved = store.upsert_alert_state(fingerprint, severity="high",

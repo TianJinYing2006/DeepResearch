@@ -319,7 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         rows = store.list_alert_deliveries(undelivered_only=args.undelivered,
                                            limit=args.limit)
         for row in rows:
-            status = "delivered" if row["delivered_at"] else "pending"
+            status = ("delivered" if row["delivered_at"]
+                      else ("given-up" if row["given_up"] else "pending"))
             print(f"#{row['delivery_id']} {row['fingerprint']:<24} {row['kind']:<8} "
                   f"{status:<9} attempts={row['attempts']}/{row['max_attempts']} "
                   f"next={row['next_attempt_at']:%Y-%m-%d %H:%M} "

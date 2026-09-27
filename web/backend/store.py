@@ -1775,7 +1775,8 @@ class RunStore:
                        next_attempt_at = now() + make_interval(secs => %s)
                  WHERE d.delivery_id IN (
                      SELECT delivery_id FROM alert_deliveries
-                      WHERE delivered_at IS NULL AND next_attempt_at <= now()
+                      WHERE delivered_at IS NULL AND given_up = false
+                        AND next_attempt_at <= now()
                       ORDER BY delivery_id
                       LIMIT %s
                       FOR UPDATE SKIP LOCKED
@@ -1800,14 +1801,15 @@ class RunStore:
 
     def fail_alert_delivery(self, delivery_id: int, *, delay_seconds: int,
                             error: Optional[str] = None) -> bool:
-        """记录失败并按退避重排；`attempts >= max_attempts` 时置 infinity（放弃）。"""
+        """记录失败并按退避重排；`attempts >= max_attempts` 时置 `given_up`（放弃外送）。"""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE alert_deliveries
                    SET last_error = %s,
+                       given_up = (attempts >= max_attempts),
                        next_attempt_at = CASE
-                           WHEN attempts >= max_attempts THEN 'infinity'::timestamptz
+                           WHEN attempts >= max_attempts THEN now()
                            ELSE now() + make_interval(secs => %s)
                        END
                  WHERE delivery_id = %s AND delivered_at IS NULL
@@ -1817,12 +1819,12 @@ class RunStore:
             return cur.rowcount > 0
 
     def retry_alert_delivery(self, delivery_id: int, *, delay_seconds: int = 0) -> bool:
-        """人工重试（CLI）：把放弃/失败的行重新排期，attempts 清零。"""
+        """人工重试（CLI）：把放弃/失败的行重新排期，attempts / given_up 复位。"""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE alert_deliveries
-                   SET attempts = 0, last_error = NULL,
+                   SET attempts = 0, given_up = false, last_error = NULL,
                        next_attempt_at = now() + make_interval(secs => %s)
                  WHERE delivery_id = %s AND delivered_at IS NULL
                 """,
