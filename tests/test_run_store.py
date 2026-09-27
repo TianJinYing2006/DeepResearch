@@ -500,6 +500,30 @@ def test_create_run_admitted_serializes_concurrency(store: RunStore):
         cur.execute("DELETE FROM runs WHERE run_id LIKE 'race%'")
 
 
+def test_claim_next_queued_atomic(store: RunStore):
+    """P0-2：SKIP LOCKED 领取互不重复；过期 QUEUED 不可领、由清扫收口为 TIMED_OUT。"""
+    ids = []
+    for _ in range(2):
+        rid, _, _ = _create(store, status="QUEUED")
+        ids.append(rid)
+    expired_id, _, _ = _create(store, status="QUEUED",
+                               timeout_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+
+    first = store.claim_next_queued("w1", 120)
+    second = store.claim_next_queued("w2", 120)
+    assert first is not None and second is not None
+    assert {first["run_id"], second["run_id"]} == set(ids)
+    assert store.claim_next_queued("w3", 120) is None  # 过期行不可领
+    assert store.count_queued() == 1  # 只剩过期那条
+
+    swept = store.sweep_stale_runs()
+    assert {"run_id": expired_id, "action": "timed_out"} in swept
+    assert store.get_run(expired_id)["status"] == "TIMED_OUT"
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE run_id = ANY(%s)", (ids + [expired_id],))
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")

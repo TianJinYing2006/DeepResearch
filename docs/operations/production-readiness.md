@@ -57,7 +57,7 @@
 - [ ] PostgreSQL 建表：`users` / `sessions` / `runs` / `run_events` / `run_checkpoints` / `run_artifacts` / `user_quotas` / `usage_ledger` / `moderation_records` / `audit_logs`
 - [ ] `run_events` 单调 `sequence` 约束（唯一索引，防重放）
 - [ ] 连接池与慢查询监控接入
-- [ ] Redis：队列 / 租约 / 限流键的过期策略；**不得作为唯一事实来源**
+- [ ] Redis：队列 / 租约 / 限流键的过期策略；**不得作为唯一事实来源**（P0-2 起任务派发已完全离开 Redis，仅剩可选唤醒信号）
 - [ ] 对象存储：报告与导出文件的生命周期规则（与「数据保存期限」拍板值一致）
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
 - [ ] 恢复演练（见 §5）
@@ -66,12 +66,13 @@
 
 ### 3.3 任务运行（Worker）
 
-- [x] API 队列模式只创建 QUEUED 任务并推入队列（`DR_EXECUTION_MODE=queue`）；本地开发保留 `inprocess` 模式
+- [x] API 队列模式只创建 QUEUED 任务并投递唤醒信号（`DR_EXECUTION_MODE=queue`）；**P0-2 起派发权威在任务库**（`claim_next_queued` + `FOR UPDATE SKIP LOCKED`），Redis 信号可丢、可无
 - [x] Worker 心跳（30s）与任务租约（120s）持续续期
 - [x] 任务幂等键：同一 `idempotency_key` 重复提交不产生第二个 run（且不受并发闸拒绝）
 - [x] 超时：沿用协作式节点边界检查 + 传输层硬截止口径（`runner.py:285`），Worker 侧按 `timeout_at` 在节点边界停止并落 `TIMED_OUT`
 - [x] 取消：`CANCEL_REQUESTED` 落库，Worker 在节点边界停止且不产生新 LLM 调用（迁移现契约 C1~C7）
 - [x] 租约超时清扫与接管：取消意图 → `CANCELLED`（不重跑）；可重试 → `QUEUED`（`attempt+1`）并重新入队；重试耗尽 → `LOST`（`FOR UPDATE SKIP LOCKED` 原子接管，Worker 每 30s 清扫）
+- [x] 排队超时收口（P0-2）：`QUEUED` 且 `timeout_at` 已过 ⇒ 清扫置 `TIMED_OUT`（不执行、不占额度）；孤儿 QUEUED 由下一轮领取自动回收
 - [x] 崩溃接管：Worker 进程崩溃后由租约清扫接管；图内异常 → `FAILED`（P3-A 已覆盖）
 - [x] 启动维护按执行模式分流（P3-B 补丁）：`inprocess` 启动才标记失联任务 `LOST`；`queue` 模式下 API 重启不触碰活跃任务（RUNNING 归 Worker 心跳/租约、QUEUED 归 Redis 队列，接管只走 `sweep_stale_runs`）
 - [x] 并发限制：全局闸（API 配置上限）+ 单用户并发闸（`DR_MAX_USER_CONCURRENT`，P4-B）；**P0-3 起准入与插入同事务原子判定**（多实例并发不会突破）
@@ -306,3 +307,4 @@ location /api/ {
 | 2026-09-27 | P0-4 输出闸同步：§3.5 输出侧改为「自动拦截」——`apply_output_gate` 发帧/落库前脱敏 + 审核状态与终局同事务 + 导出 403 `output_under_review` + 历史回放强制脱敏 + CLI `run-report`；新增 `tests/test_output_gate.py`（本机 587 收集 = 561 通过 + 26 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P0-5 申诉校验同步：§3.5 处置链路勾选归属 / 状态 / 防重复（带 `run_id` 的申诉）；新增错误码 `appeal_not_applicable` / `appeal_duplicate` 与 `store.has_appeal`（本机 588 收集 = 562 通过 + 26 跳过，ruff 全过） |
 | 2026-09-27 | P0-3 准入原子化同步：§3.3 并发与预算闸改为同事务原子判定（`RunStore.create_run_admitted` + `pg_advisory_xact_lock`）；真实 PG 并发竞争测试接入 CI `infra`（本机 589 收集 = 562 通过 + 27 跳过，ruff 全过） |
+| 2026-09-27 | P0-2 队列可靠性同步：§3.2/§3.3 —— 派发权威迁到 PostgreSQL（`claim_next_queued` + `FOR UPDATE SKIP LOCKED`），Redis 降级为可选唤醒信号；排队超时收口 `TIMED_OUT`；队列深度以 `count_queued` 为准；真实 PG 并发领取测试接入 CI `infra`（本机 593 收集 = 565 通过 + 28 跳过，ruff 全过） |

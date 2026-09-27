@@ -1,4 +1,4 @@
-"""独立 Worker（P3-A）：从 Redis 队列领取任务 → 执行 graph → 写任务库。
+"""独立 Worker（P3-A；P0-2 起以任务库为派发权威）：执行 QUEUED 任务 → 写任务库。
 
 与 RunManager（进程内执行）共用 `persistence.persist_terminal`，保证同一停止原因
 写出同一状态；差别只在事件写入方式：
@@ -6,12 +6,18 @@
 - Worker 是单 run 的唯一写者 ⇒ 事件序号由数据库分配（`MAX(sequence)+1`，`seq=None`）；
 - 没有内存帧 —— SSE 由 API 从 `run_events` 实时尾随（`main._stored_event_gen`）。
 
-租约（P3-A 范围）：
-- 认领时写 `worker_id` + `lease_expires_at`（默认 120s），执行期由心跳线程续租（默认 30s）；
-- 节点在飞时单节点最长实测约 31s（需求 9 §5.4.1）⇒ 租约覆盖有余；
-- **崩溃后任务的接管**（租约超时扫描 / 重试 / `LOST`）属 P3-B，本批只保证租约持续续期。
+派发（P0-2）：
+- 领取走 `RunStore.claim_next_queued`（`FOR UPDATE SKIP LOCKED`），**不再**从 Redis
+  BRPOP 取任务 —— 不存在「先出队、后认领」的丢失窗口；
+- Redis（如配置）只作**唤醒信号**：`enqueue`/`dequeue` 丢失或重复都不影响正确性，
+  无 Redis 时退化为按 `poll_seconds` 轮询；
+- 旧实现遗留的孤儿 QUEUED 会被下一轮领取自动回收（过期则被清扫为 `TIMED_OUT`）。
 
-启动：`python -m web.backend.worker`（需 `DR_DATABASE_URL` + `DR_REDIS_URL`）。
+租约：
+- 认领时写 `worker_id` + `lease_expires_at`（默认 120s），执行期由心跳线程续租（默认 30s）；
+- 崩溃后任务的接管（租约超时扫描 / 重试 / `LOST`）见 `sweep_stale_runs`。
+
+启动：`python -m web.backend.worker`（需 `DR_DATABASE_URL`；`DR_REDIS_URL` 可选）。
 """
 from __future__ import annotations
 
@@ -70,7 +76,7 @@ class Worker:
     def __init__(
         self,
         store: RunStore,
-        queue: RunQueue,
+        queue: Optional[RunQueue] = None,
         *,
         graph_factory: Callable[[], DeepResearchGraph] = create_graph,
         worker_id: Optional[str] = None,
@@ -119,35 +125,58 @@ class Worker:
                 except Exception as exc:  # noqa: BLE001 —— 清扫失败不拖垮消费循环
                     _log(f"sweep failed: {type(exc).__name__}: {exc}")
                 next_sweep = time.monotonic() + self.sweep_seconds
-            try:
-                run_id = self._queue.dequeue(self.poll_seconds)
-            except Exception as exc:  # noqa: BLE001 —— Redis 抖动不应打死 Worker
-                _log(f"dequeue failed: {type(exc).__name__}: {exc}；5s 后重试")
-                time.sleep(5)
+            if self.claim_next():
                 continue
-            if run_id is None:
-                continue
+            self._wait_for_signal()
+
+    def claim_next(self) -> bool:
+        """从任务库原子领取下一条 QUEUED 并执行（P0-2 派发权威）。
+
+        返回是否领到任务。Redis 唤醒信号只影响领取延迟，不参与正确性。
+        """
+        try:
+            row = self._store.claim_next_queued(self.worker_id, self.lease_seconds)
+        except Exception as exc:  # noqa: BLE001 —— 库抖动不应打死 Worker
+            _log(f"claim_next failed: {type(exc).__name__}: {exc}；5s 后重试")
+            time.sleep(5)
+            return False
+        if row is None:
+            return False
+        self._run_claimed(row)
+        return True
+
+    def _wait_for_signal(self) -> None:
+        """空闲等待：有 Redis 时阻塞等唤醒信号（可丢），否则按 poll_seconds 轮询。"""
+        if self._queue is not None:
             try:
-                self.run_once(run_id)
-            except Exception as exc:  # noqa: BLE001 —— 单个任务失败不得拖垮 Worker
-                _log(f"run_once({run_id}) failed: {type(exc).__name__}: {exc}")
+                self._queue.dequeue(self.poll_seconds)
+                return
+            except Exception as exc:  # noqa: BLE001 —— 信号失败退化为轮询
+                _log(f"dequeue hint failed: {type(exc).__name__}: {exc}")
+        time.sleep(self.poll_seconds)
 
     def sweep_and_requeue(self) -> list[dict[str, Any]]:
-        """租约超时清扫（P3-B）：接管停滞任务，并把可重试的重新入队。"""
+        """租约超时清扫（P3-B）：接管停滞任务，并唤醒可重试的任务（Redis 信号，可丢）。"""
         results = self._store.sweep_stale_runs(self.max_attempts)
         for item in results:
-            if item["action"] == "requeued":
+            if item["action"] == "requeued" and self._queue is not None:
                 try:
                     self._queue.enqueue(item["run_id"])
-                except Exception as exc:  # noqa: BLE001 —— 入队失败留给下轮清扫
-                    _log(f"requeue {item['run_id']} failed: {type(exc).__name__}: {exc}")
+                except Exception as exc:  # noqa: BLE001 —— 信号失败由 PG 轮询兜底
+                    _log(f"requeue {item['run_id']} signal failed: {type(exc).__name__}: {exc}")
         return results
 
     def run_once(self, run_id: str) -> bool:
-        """认领并执行一个任务；认领失败（已被领走 / 非 QUEUED）返回 False。"""
+        """按 id 认领并执行（兼容入口 / 测试）；认领失败（已被领走 / 非 QUEUED）返回 False。"""
         row = self._store.claim_run(run_id, self.worker_id, self.lease_seconds)
         if row is None:
             return False
+        self._run_claimed(row)
+        return True
+
+    def _run_claimed(self, row: dict[str, Any]) -> None:
+        """执行已认领的任务（心跳 + 执行 + 崩溃兜底）。"""
+        run_id = row["run_id"]
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
             target=self._heartbeat_loop, args=(run_id, hb_stop),
@@ -161,7 +190,6 @@ class Worker:
         finally:
             hb_stop.set()
             heartbeat.join(timeout=1.0)
-        return True
 
     def _heartbeat_loop(self, run_id: str, stop: threading.Event) -> None:
         while not stop.wait(self.heartbeat_seconds):
@@ -360,11 +388,14 @@ class Worker:
 
 def main() -> int:
     dsn = (os.getenv("DR_DATABASE_URL") or "").strip()
-    redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
-    if not dsn or not redis_url:
-        _log("DR_DATABASE_URL / DR_REDIS_URL 均为必填（任务库 + 队列）")
+    if not dsn:
+        _log("DR_DATABASE_URL 必填（任务库；P0-2 起派发权威在 PostgreSQL）")
         return 2
-    worker = Worker(RunStore(dsn), RunQueue(redis_url))
+    redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
+    queue = RunQueue(redis_url) if redis_url else None
+    worker = Worker(RunStore(dsn), queue)
+    if queue is None:
+        _log("未配置 DR_REDIS_URL：仅按任务库轮询领取（唤醒信号降级）")
 
     def _handle_stop(_signum, _frame):
         _log("收到停止信号：完成当前任务后退出")

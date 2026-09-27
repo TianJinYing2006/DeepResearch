@@ -266,3 +266,20 @@ def test_queue_mode_returns_503_without_store(monkeypatch):
     response = TestClient(api.app).post("/api/research", json={"topic": "t"})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "persistence_unavailable"
+
+
+def test_queue_signal_failure_does_not_fail_run(monkeypatch):
+    """P0-2：Redis 唤醒信号失败不影响任务 —— 仍为 QUEUED，等 PG 派发。"""
+    class BrokenQueue:
+        def enqueue(self, run_id):
+            raise RuntimeError("redis down")
+
+    store = FakeStore()
+    monkeypatch.setattr(api, "store", store)
+    monkeypatch.setattr(api, "queue", BrokenQueue())
+    monkeypatch.setattr(api, "EXECUTION_MODE", "queue")
+
+    response = TestClient(api.app).post("/api/research", json={"topic": "t"})
+    assert response.status_code == 200
+    row = store.get_run(response.json()["run_id"])
+    assert row["status"] == "QUEUED"
