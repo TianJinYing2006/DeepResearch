@@ -11,6 +11,7 @@ from typing import Optional
 
 from research_engine.state import ResearchState
 from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
+from web.backend.store import QuotaExceeded
 
 ACTIVE = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
@@ -144,6 +145,37 @@ class FakeStore:
 
     def get_run(self, run_id):
         return self.runs.get(run_id)
+
+    def create_run_admitted(self, run_id, topic, request=None, *, user_id=None, tenant_id=None,
+                            idempotency_key=None, status="CREATED", timeout_at=None,
+                            budget_limit_cny=None, global_active_limit=None,
+                            user_active_limit=None, daily_limit=None,
+                            monthly_budget_cny=None, daily_since=None):
+        """与 RunStore.create_run_admitted 同语义（P0-3；内存版无并发竞争）。"""
+        if idempotency_key is not None:
+            existing = self.get_run_by_idempotency(user_id, idempotency_key)
+            if existing is not None:
+                return existing, False
+        if monthly_budget_cny is not None and monthly_budget_cny > 0:
+            spent = self.month_cost_cny()
+            if spent >= monthly_budget_cny:
+                raise QuotaExceeded("monthly_budget", f"spent={spent:.4f}; limit={monthly_budget_cny}")
+        if global_active_limit is not None and global_active_limit > 0:
+            active = self.count_active()
+            if active >= global_active_limit:
+                raise QuotaExceeded("global_concurrency", f"active={active}; limit={global_active_limit}")
+        if user_id is not None:
+            if user_active_limit is not None and user_active_limit > 0:
+                active = self.count_active(user_id)
+                if active >= user_active_limit:
+                    raise QuotaExceeded("user_concurrency", f"active={active}; limit={user_active_limit}")
+            if daily_limit is not None and daily_limit > 0 and daily_since is not None:
+                used = self.count_user_runs_since(user_id, daily_since)
+                if used >= daily_limit:
+                    raise QuotaExceeded("daily_runs", f"used={used}; limit={daily_limit}")
+        return self.create_run(run_id, topic, request, user_id=user_id, tenant_id=tenant_id,
+                               idempotency_key=idempotency_key, status=status,
+                               timeout_at=timeout_at, budget_limit_cny=budget_limit_cny)
 
     def get_run_by_idempotency(self, user_id, idempotency_key):
         for row in self.runs.values():

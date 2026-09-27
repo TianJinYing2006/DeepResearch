@@ -53,7 +53,7 @@ from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profil
 from .queue import RunQueue
 from .ratelimit import FixedWindowLimiter
 from .runner import RunManager
-from .store import ACTIVE_STATUSES, RunStore
+from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 
 app = FastAPI(title="DeepResearch", version="w9")
 
@@ -584,6 +584,32 @@ def _effective_run_budget(profile) -> float:
     return profile.run_budget_cny
 
 
+def _quota_api_error(exc: QuotaExceeded) -> ApiError:
+    """P0-3：准入失败 → 既有结构化错误码（全局并发 = concurrency_limit，其余 = quota_exceeded）。"""
+    if exc.kind == "global_concurrency":
+        return ApiError("concurrency_limit", "已有研究在运行，请稍后再试", detail=exc.detail)
+    if exc.kind == "monthly_budget":
+        return ApiError(
+            "quota_exceeded",
+            "本月全局预算已用尽，已暂停新建任务（查询 / 导出不受影响）",
+            detail=exc.detail,
+        )
+    if exc.kind == "user_concurrency":
+        return ApiError("quota_exceeded", "你有正在运行的任务（单用户并发上限）", detail=exc.detail)
+    return ApiError("quota_exceeded", "今日运行次数已达上限", detail=exc.detail)
+
+
+def _admission_limits() -> dict:
+    """当前生效的准入闸（P0-3：由 store 在同一事务内原子执行）。"""
+    return {
+        "global_active_limit": manager.max_concurrent_runs,
+        "user_active_limit": MAX_USER_CONCURRENT,
+        "daily_limit": DAILY_RUNS_PER_USER or None,
+        "monthly_budget_cny": MONTHLY_BUDGET_CNY or None,
+        "daily_since": _day_start_utc(),
+    }
+
+
 def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: dict) -> str:
     """队列模式（P3）：创建 `QUEUED` 任务并投递 Redis 队列；重复幂等键返回既有 run_id。
 
@@ -596,17 +622,9 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
         existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
         if existing is not None:
             return existing["run_id"]
-    active = _store_call(store.count_active)
-    limit = manager.max_concurrent_runs
-    if active >= limit:
-        raise ApiError(
-            "concurrency_limit",
-            f"已有 {active} 个研究在运行，上限 {limit}",
-            detail=f"active={active}; limit={limit}",
-        )
     run_id = uuid.uuid4().hex[:12]
     try:
-        row, created = store.create_run(
+        row, created = store.create_run_admitted(
             run_id, req.topic,
             {
                 "instructions": req.instructions,
@@ -618,7 +636,10 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
             status="QUEUED",
             timeout_at=datetime.now(UTC) + timedelta(seconds=profile.timeout_seconds),
             budget_limit_cny=_effective_run_budget(profile),
+            **_admission_limits(),
         )
+    except QuotaExceeded as exc:  # P0-3：准入闸在同一事务内判定
+        raise _quota_api_error(exc) from exc
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             "persistence_unavailable",
@@ -826,7 +847,8 @@ def start(req: StartRequest, request: Request) -> StartResponse:
                 req.topic, req.instructions, profile,
                 req.idempotency_key, user_id=user_id,
                 budget_limit_cny=_effective_run_budget(profile),
-                ignored_overrides=ignored)
+                ignored_overrides=ignored,
+                admission=_admission_limits())
     except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)
