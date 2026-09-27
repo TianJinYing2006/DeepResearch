@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -93,6 +94,7 @@ class FakeStore:
         self.ingestions: dict[str, dict] = {}
         self.audits: list[dict] = []
         self.workers: dict[str, dict] = {}
+        self.password_resets: dict[str, dict] = {}
         self.fail_events = False
 
     def ping(self) -> None:
@@ -418,20 +420,58 @@ class FakeStore:
     def list_invites(self, limit=50):
         return list(self.invites.values())[:limit]
 
-    def create_session(self, session_hash, user_id, expires_at):
+    def create_session(self, session_hash, user_id, expires_at, *, ip=None, user_agent=None):
+        session_id = uuid.uuid4().hex[:12]
         self.sessions[session_hash] = {
-            "token_hash": session_hash, "user_id": user_id,
-            "created_at": datetime.now(UTC), "expires_at": expires_at,
+            "token_hash": session_hash, "user_id": user_id, "session_id": session_id,
+            "created_at": datetime.now(UTC), "last_seen_at": datetime.now(UTC),
+            "expires_at": expires_at, "ip": ip, "user_agent": user_agent,
         }
+        return session_id
 
-    def get_session_user(self, session_hash):
+    def get_session_user(self, session_hash, *, idle_seconds=0):
         session = self.sessions.get(session_hash)
-        if session is None or session["expires_at"] < datetime.now(UTC):
+        now = datetime.now(UTC)
+        if session is None or session["expires_at"] < now:
+            return None
+        if idle_seconds > 0 and session["last_seen_at"] < now - timedelta(seconds=idle_seconds):
             return None
         user = self.users.get(session["user_id"])
         if user is None or user["status"] != "active":
             return None
-        return user
+        return {
+            **user,
+            "session_id": session["session_id"],
+            "session_created_at": session["created_at"],
+            "session_last_seen_at": session["last_seen_at"],
+            "session_ip": session["ip"],
+            "session_user_agent": session["user_agent"],
+            "session_token_hash": session["token_hash"],
+        }
+
+    def touch_session(self, session_hash):
+        session = self.sessions.get(session_hash)
+        if session is not None:
+            session["last_seen_at"] = datetime.now(UTC)
+
+    def list_sessions(self, user_id):
+        rows = [dict(row) for row in self.sessions.values() if row["user_id"] == user_id]
+        rows.sort(key=lambda row: row["last_seen_at"], reverse=True)
+        return rows
+
+    def revoke_session_by_id(self, user_id, session_id):
+        for key, value in list(self.sessions.items()):
+            if value["user_id"] == user_id and value["session_id"] == session_id:
+                del self.sessions[key]
+                return True
+        return False
+
+    def revoke_other_sessions(self, user_id, keep_token_hash):
+        keys = [key for key, value in self.sessions.items()
+                if value["user_id"] == user_id and key != keep_token_hash]
+        for key in keys:
+            del self.sessions[key]
+        return len(keys)
 
     def revoke_session(self, session_hash):
         return self.sessions.pop(session_hash, None) is not None
@@ -793,6 +833,51 @@ class FakeStore:
         for key in expired:
             del self.sessions[key]
         return len(expired)
+
+    # ---- 密码重置 token（P1-10）----
+
+    def create_password_reset(self, token_hash, user_id, expires_at, *, created_by=None):
+        for key in [k for k, v in self.password_resets.items()
+                    if v["user_id"] == user_id and v["consumed_at"] is None]:
+            del self.password_resets[key]
+        self.password_resets[token_hash] = {
+            "token_hash": token_hash, "user_id": user_id, "created_by": created_by,
+            "created_at": datetime.now(UTC), "expires_at": expires_at, "consumed_at": None,
+        }
+
+    def consume_password_reset(self, token_hash):
+        row = self.password_resets.get(token_hash)
+        now = datetime.now(UTC)
+        if row is None or row["consumed_at"] is not None or row["expires_at"] <= now:
+            return None
+        row["consumed_at"] = now
+        return row["user_id"]
+
+    def delete_password_resets(self, user_id):
+        keys = [k for k, v in self.password_resets.items() if v["user_id"] == user_id]
+        for key in keys:
+            del self.password_resets[key]
+        return len(keys)
+
+    def purge_expired_password_resets(self):
+        now = datetime.now(UTC)
+        keys = [k for k, v in self.password_resets.items()
+                if v["consumed_at"] is not None
+                or v["expires_at"] < now - timedelta(days=1)]
+        for key in keys:
+            del self.password_resets[key]
+        return len(keys)
+
+    def complete_password_reset(self, token_hash, password_hash):
+        user_id = self.consume_password_reset(token_hash)
+        if user_id is None:
+            return None
+        row = self.users.get(user_id)
+        if row is not None:
+            row["password_hash"] = password_hash
+        self.revoke_user_sessions(user_id)
+        self.delete_password_resets(user_id)
+        return user_id
 
 
 def wait_terminal(store, run_id, timeout: float = 5.0) -> dict:

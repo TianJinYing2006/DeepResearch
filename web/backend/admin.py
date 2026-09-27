@@ -16,6 +16,7 @@
     python -m web.backend.admin ingestion-list [--status ready] [--limit 50]
     python -m web.backend.admin delete-doc --doc-id <user:hash16>  # 同步删向量并验证
     python -m web.backend.admin audit-list [--action login_failed] [--actor u] [--limit 100]
+    python -m web.backend.admin create-reset-token --email a@b.c [--expires-minutes 30]
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -92,6 +93,11 @@ def _build_parser() -> argparse.ArgumentParser:
     audit_list.add_argument("--action", default="")
     audit_list.add_argument("--actor", default="")
     audit_list.add_argument("--limit", type=int, default=100)
+
+    reset_token = sub.add_parser("create-reset-token",
+                                 help="发放一次性密码重置 token（P1-10；默认 30 分钟）")
+    reset_token.add_argument("--email", required=True)
+    reset_token.add_argument("--expires-minutes", type=int, default=30)
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -237,6 +243,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"#{row['id']} {row['at']:%Y-%m-%d %H:%M:%S} {row['action']:<28} "
                   f"actor={row['actor_user_id'] or '-'} ip={row['ip'] or '-'} "
                   f"req={row['request_id'] or '-'} detail={row['detail']}")
+        return 0
+
+    if args.command == "create-reset-token":
+        user = store.get_user_by_email(normalize_email(args.email))
+        if user is None:
+            print("user not found", file=sys.stderr)
+            return 1
+        token = secrets.token_urlsafe(32)
+        store.create_password_reset(
+            token_hash(token), user["user_id"],
+            datetime.now(UTC) + timedelta(minutes=args.expires_minutes))
+        _audit(store, "admin_create_reset_token", actor_user_id=user["user_id"])
+        print(f"重置 token（仅本次打印，{args.expires_minutes} 分钟内有效）：{token}")
+        print("用户调用 POST /api/auth/reset {token, new_password} 完成重置（将吊销全部会话）")
         return 0
 
     if args.command == "delete-user":
