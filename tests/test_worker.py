@@ -164,6 +164,36 @@ def test_worker_sweep_respects_cancel_intent():
     assert queue.items == []  # 用户取消意图优先于自动重试
 
 
+# ---------------------------------------------------------------- P0-2：PG 派发权威
+
+def test_worker_claims_next_from_store_without_redis():
+    """P0-2：无 Redis（queue=None）时，Worker 仍按任务库领取并执行。"""
+    store = FakeStore()
+    run_id = _queued(store)
+    worker = Worker(store, None, graph_factory=lambda: TinyGraph(report="# PG 派发"),
+                    worker_id="pg-worker", lease_seconds=60, heartbeat_seconds=5,
+                    poll_seconds=0)
+    assert worker.claim_next() is True
+    assert worker.claim_next() is False  # 已领完
+
+    row = wait_terminal(store, run_id)
+    assert row["status"] == "SUCCEEDED"
+    assert store.get_artifact(run_id, "report_md") == "# PG 派发"
+
+
+def test_sweep_times_out_expired_queued():
+    """P0-2：排队等到超时的 QUEUED 由清扫收口为 TIMED_OUT（不执行、不可再领）。"""
+    store = FakeStore()
+    run_id = _queued(store, timeout_seconds=-1)
+    worker = _worker(store, TinyGraph())
+
+    assert worker.sweep_and_requeue() == [{"run_id": run_id, "action": "timed_out"}]
+    row = wait_terminal(store, run_id)
+    assert row["status"] == "TIMED_OUT"
+    assert row["stop_reason"] == "timeout"
+    assert worker.claim_next() is False
+
+
 def test_worker_budget_gate_stops_run_at_node_boundary():
     store = FakeStore()
     run_id = "run-" + uuid.uuid4().hex[:10]

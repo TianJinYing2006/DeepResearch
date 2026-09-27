@@ -189,10 +189,11 @@ if store is not None:
 
 queue: Optional[RunQueue] = None
 if EXECUTION_MODE == "queue":
+    if store is None:
+        raise RuntimeError("DR_EXECUTION_MODE=queue 需要配置 DR_DATABASE_URL（P0-2：派发权威在任务库）")
     _redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
-    if store is None or not _redis_url:
-        raise RuntimeError("DR_EXECUTION_MODE=queue 需要同时配置 DR_DATABASE_URL 与 DR_REDIS_URL")
-    queue = RunQueue(_redis_url)
+    if _redis_url:
+        queue = RunQueue(_redis_url)  # 可选：仅作唤醒信号（丢失不影响正确性）
 
 if DEMO_MODE:
     from .demo_graph import DemoGraph
@@ -276,11 +277,17 @@ def options() -> dict:
 
 
 def _queue_depth() -> Optional[int]:
+    """队列深度：以任务库 QUEUED 计数为准（P0-2）；无库时回落 Redis（仅唤醒信号）。"""
+    if store is not None:
+        try:
+            return int(store.count_queued())
+        except Exception:  # noqa: BLE001 —— 健康接口不因库抖动而失败
+            return None
     if queue is None:
         return None
     try:
         return queue.depth()
-    except Exception:  # noqa: BLE001 —— 健康接口不因队列抖动而失败
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -616,8 +623,8 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
     幂等命中先于并发检查 —— 重复提交是同一个逻辑请求，不应被并发闸拒绝。
     P0：run.request 写**档位快照**（而非客户端参数）；超时 / 预算取自档位。
     """
-    if store is None or queue is None:
-        raise ApiError("persistence_unavailable", "队列模式需要任务库与 Redis 均已配置")
+    if store is None:
+        raise ApiError("persistence_unavailable", "队列模式需要任务库（DR_DATABASE_URL）")
     if req.idempotency_key is not None:
         existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
         if existing is not None:
@@ -647,18 +654,11 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
         ) from exc
     if not created:
         return row["run_id"]
-    try:
-        queue.enqueue(row["run_id"])
-    except Exception as exc:  # noqa: BLE001 —— 入队失败必须落终局，不留永久 QUEUED
+    if queue is not None:
         try:
-            store.update_status(row["run_id"], "FAILED", allowed_from=("QUEUED",),
-                                stop_reason="error", finished_at=datetime.now(UTC))
-        except Exception:  # noqa: BLE001
+            queue.enqueue(row["run_id"])  # 唤醒信号：丢失由 PG 轮询兜底（P0-2）
+        except Exception:  # noqa: BLE001 —— 信号失败不影响任务正确性
             pass
-        raise ApiError(
-            "persistence_unavailable",
-            f"任务入队失败：{type(exc).__name__}",
-        ) from exc
     return row["run_id"]
 
 

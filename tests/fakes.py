@@ -207,6 +207,17 @@ class FakeStore:
         row["lease_expires_at"] = datetime.now(UTC) + timedelta(seconds=lease_seconds)
         return row
 
+    def claim_next_queued(self, worker_id, lease_seconds):
+        """与 RunStore.claim_next_queued 同语义（P0-2）：按排队时间取最早一条。"""
+        now = datetime.now(UTC)
+        candidates = [row for row in self.runs.values()
+                      if row["status"] == "QUEUED"
+                      and (row["timeout_at"] is None or row["timeout_at"] > now)]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda row: (row["queued_at"] or row["created_at"], row["run_id"]))
+        return self.claim_run(candidates[0]["run_id"], worker_id, lease_seconds)
+
     def renew_lease(self, run_id, worker_id, lease_seconds):
         row = self.runs.get(run_id)
         if row is None or row["worker_id"] != worker_id:
@@ -220,6 +231,9 @@ class FakeStore:
     def count_active(self, user_id=None):
         return sum(1 for row in self.runs.values()
                    if row["status"] in ACTIVE and (user_id is None or row["user_id"] == user_id))
+
+    def count_queued(self):
+        return sum(1 for row in self.runs.values() if row["status"] == "QUEUED")
 
     def count_user_runs_since(self, user_id, since):
         return sum(1 for row in self.runs.values()
@@ -245,9 +259,14 @@ class FakeStore:
                    and row["lease_expires_at"] < now)
 
     def sweep_stale_runs(self, max_attempts: int = 2):
-        """租约超时清扫：与 RunStore.sweep_stale_runs 同语义。"""
+        """租约超时清扫：与 RunStore.sweep_stale_runs 同语义（含过期 QUEUED 收口）。"""
         now = datetime.now(UTC)
         results = []
+        for row in self.runs.values():
+            if (row["status"] == "QUEUED" and row["timeout_at"] is not None
+                    and row["timeout_at"] < now):
+                row.update(status="TIMED_OUT", stop_reason="timeout", finished_at=now)
+                results.append({"run_id": row["run_id"], "action": "timed_out"})
         for row in self.runs.values():
             if row["status"] not in ("RUNNING", "CANCEL_REQUESTED"):
                 continue

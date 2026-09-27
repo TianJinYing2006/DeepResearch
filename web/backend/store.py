@@ -432,6 +432,39 @@ class RunStore:
             )
             return cur.fetchone()
 
+    def claim_next_queued(self, worker_id: str, lease_seconds: int) -> Optional[dict[str, Any]]:
+        """原子领取**下一条** QUEUED（P0-2）：`FOR UPDATE SKIP LOCKED`，多 Worker 并发安全。
+
+        派发权威在 PostgreSQL —— 不存在「先出队、后认领」的丢失窗口：
+        领取失败/崩溃只会留下 QUEUED 行，下一轮或下一个 Worker 继续领。
+
+        跳过已过 `timeout_at` 的行（由 `sweep_stale_runs` 收口为 `TIMED_OUT`）。
+        返回 `None` = 当前没有可领取任务。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE runs
+                   SET status = 'RUNNING',
+                       worker_id = %s,
+                       worker_status = 'alive',
+                       started_at = COALESCE(started_at, now()),
+                       queued_at = COALESCE(queued_at, created_at),
+                       lease_expires_at = now() + make_interval(secs => %s)
+                 WHERE run_id = (
+                     SELECT run_id FROM runs
+                      WHERE status = 'QUEUED'
+                        AND (timeout_at IS NULL OR timeout_at > now())
+                      ORDER BY queued_at NULLS FIRST, created_at
+                      FOR UPDATE SKIP LOCKED
+                      LIMIT 1
+                 )
+                RETURNING *
+                """,
+                (worker_id, lease_seconds),
+            )
+            return cur.fetchone()
+
     def renew_lease(self, run_id: str, worker_id: str, lease_seconds: int) -> bool:
         """续租（Worker 心跳）；任务已终局或已换主时返回 False。"""
         with self._connect() as conn, conn.cursor() as cur:
@@ -454,6 +487,12 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchone()["n"]
+
+    def count_queued(self) -> int:
+        """QUEUED 任务数（P0-2：队列深度以任务库为准；Redis 只是唤醒信号）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM runs WHERE status = 'QUEUED'")
+            return int(cur.fetchone()["n"])
 
     def count_user_runs_since(self, user_id: str, since: datetime) -> int:
         """某用户自 `since` 起创建的 run 数（每日运行次数配额用；`since` 由调用方按 UTC 日界给出）。"""
@@ -496,18 +535,31 @@ class RunStore:
             return cur.fetchone()["n"]
 
     def sweep_stale_runs(self, max_attempts: int = 2) -> list[dict[str, Any]]:
-        """租约超时清扫（P3-B）：接管停滞的 RUNNING / CANCEL_REQUESTED 任务。
+        """租约超时清扫（P3-B）+ 过期 QUEUED 收口（P0-2）：接管停滞的活跃任务。
 
         规则（需求 10 §5.9.3）：
+        - `QUEUED` 且 `timeout_at` 已过（排队等到超时）→ `TIMED_OUT`（不执行、不占额度）；
         - 有取消意图（`cancel_requested_at` 非空）→ `CANCELLED`（尊重用户，不重跑）；
-        - `attempt < max_attempts` → 回 `QUEUED`（`attempt+1`，清空 worker/租约），调用方负责重新入队；
+        - `attempt < max_attempts` → 回 `QUEUED`（`attempt+1`，清空 worker/租约），调用方负责唤醒；
         - 重试耗尽 → `LOST`。
 
         原子性：`SELECT ... FOR UPDATE SKIP LOCKED` + 同一事务更新 ⇒ 多 Worker 并发清扫只接管一次。
-        返回处理明细（供 Worker 重新入队与日志）。
+        返回处理明细（供 Worker 唤醒与日志）。
         """
         results: list[dict[str, Any]] = []
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT run_id FROM runs "
+                "WHERE status = 'QUEUED' AND timeout_at IS NOT NULL AND timeout_at < now() "
+                "FOR UPDATE SKIP LOCKED"
+            )
+            for row in cur.fetchall():
+                cur.execute(
+                    "UPDATE runs SET status = 'TIMED_OUT', stop_reason = 'timeout', "
+                    "finished_at = now() WHERE run_id = %s",
+                    (row["run_id"],),
+                )
+                results.append({"run_id": row["run_id"], "action": "timed_out"})
             cur.execute(
                 "SELECT run_id, attempt, cancel_requested_at FROM runs "
                 "WHERE status IN ('RUNNING','CANCEL_REQUESTED') "
