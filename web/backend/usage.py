@@ -13,6 +13,8 @@ from typing import Any, Optional
 from config import config
 from research_engine.usage import UsageRecord
 
+from .otel import record_otel_usage
+
 
 def _llm_cost_cny(model: str, total_tokens: int) -> float:
     pricing = (config.llm.pricing or {}).get(model or "", {})
@@ -35,5 +37,7 @@ def make_store_sink(store, *, run_id: Optional[str], attempt: int,
             output_tokens=record.output_tokens, total_tokens=record.total_tokens,
             cost_estimate_cny=cost, cost_source=source,
             request_id=record.request_id, detail=detail)
+        # P1-8：同步写 OTel 指标（未启用时 no-op；不落 prompt/PII）
+        record_otel_usage(record)
 
     return sink
