@@ -81,6 +81,32 @@ def _log(message: str) -> None:
     print(f"[worker] {message}", file=sys.stderr, flush=True)
 
 
+def _env_flag(name: str, default: str = "false") -> bool:
+    return (os.getenv(name) or default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def make_graph_factory() -> Callable[[], Any]:
+    """Worker 图工厂（P2-7）：默认真实研究图；`DR_LOADTEST_GRAPH=1` 换演示假图。
+
+    假图（`DemoGraph`）不调用 LLM / 检索（零费用、零外呼），事件序列与真实图同管线，
+    专用于 Locust 容量标定与 staging 联调；**生产环境不得设置该开关**。
+    """
+    if _env_flag("DR_LOADTEST_GRAPH"):
+        from .demo_graph import DemoGraph
+
+        try:
+            step_seconds = float(os.getenv("DR_LOADTEST_STEP_SECONDS", "0.05"))
+        except ValueError:
+            step_seconds = 0.05
+        _log(f"loadtest graph enabled（DemoGraph step={step_seconds}s，零 LLM 调用）")
+
+        def factory() -> DemoGraph:
+            return DemoGraph(step_seconds=step_seconds)
+
+        return factory
+    return create_graph
+
+
 class Worker:
     def __init__(
         self,
@@ -545,7 +571,7 @@ def main() -> int:
     redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
     queue = RunQueue(redis_url) if redis_url else None
     setup_otel("deepresearch-worker")  # P1-8：默认关闭，配置导出端点才启用
-    worker = Worker(RunStore(dsn), queue)
+    worker = Worker(RunStore(dsn), queue, graph_factory=make_graph_factory())
     if queue is None:
         _log("未配置 DR_REDIS_URL：仅按任务库轮询领取（唤醒信号降级）")
 
