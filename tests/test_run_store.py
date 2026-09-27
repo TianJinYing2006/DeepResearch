@@ -43,7 +43,9 @@ def store() -> RunStore:
             "('test-store-user', 'test-store-user@test-store.local', 'x'), "
             "('test-store-other', 'test-store-other@test-store.local', 'x')"
         )
-    return RunStore(DSN)
+    instance = RunStore(DSN)
+    yield instance
+    instance.close()  # P2-3：归还连接池，避免用例间连接堆积
 
 
 def _create(store: RunStore, **kwargs) -> tuple[str, dict, bool]:

@@ -209,6 +209,8 @@ psycopg==3.3.6
     # via -r requirements.txt
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via psycopg
+psycopg-pool==3.3.3
+    # via -r requirements.txt
 pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
 pydantic==2.13.5
@@ -288,6 +290,7 @@ typing-extensions==4.16.0
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
     #   psycopg
+    #   psycopg-pool
     #   pydantic
     #   pydantic-core
     #   python-docx
