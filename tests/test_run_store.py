@@ -72,12 +72,15 @@ def test_create_and_get_roundtrip(store: RunStore):
 
 
 def test_idempotent_create_returns_existing(store: RunStore):
-    first_id, _, created_first = _create(store, idempotency_key="key-1")
-    second_id, row, created_second = _create(store, idempotency_key="key-1")
+    first_id, _, created_first = _create(store, idempotency_key="key-1",
+                                         request_hash="hash-1")
+    second_id, row, created_second = _create(store, idempotency_key="key-1",
+                                             request_hash="hash-2")
     assert created_first is True
     assert created_second is False
     assert second_id != first_id
     assert row["run_id"] == first_id
+    assert row["request_hash"] == "hash-1"  # P1-1：指纹随行保存，供冲突判定
 
     # 幂等键按用户隔离：另一个用户可用同一个键
     _, _, created_other = _create(store, user_id=OTHER_USER, idempotency_key="key-1")

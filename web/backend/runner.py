@@ -151,7 +151,8 @@ class RunManager:
               user_id: str | None = None,
               budget_limit_cny: float | None = None,
               ignored_overrides: Optional[dict] = None,
-              admission: Optional[dict] = None) -> str:
+              admission: Optional[dict] = None,
+              request_hash: Optional[str] = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
         配置了仓储（P2-C）时：
@@ -168,6 +169,10 @@ class RunManager:
             # 幂等命中先于并发检查：重复提交是同一个逻辑请求，不应被并发闸拒绝。
             existing = self._persist_call(run_id, "get_run_by_idempotency", user_id, idempotency_key)
             if existing is not None:
+                stored = existing.get("request_hash")
+                if (request_hash is not None and stored is not None
+                        and stored != request_hash):
+                    raise ApiError("idempotency_conflict", "该幂等键已用于不同请求")
                 return existing["run_id"]
         with self._lock:
             if len(self._active) >= self.max_concurrent_runs:
@@ -191,6 +196,7 @@ class RunManager:
                             run_id, topic, request_payload,
                             user_id=user_id,
                             idempotency_key=idempotency_key,
+                            request_hash=request_hash,
                             timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
                             budget_limit_cny=budget_limit_cny,
                             **admission)
@@ -199,6 +205,7 @@ class RunManager:
                             run_id, topic, request_payload,
                             user_id=user_id,
                             idempotency_key=idempotency_key,
+                            request_hash=request_hash,
                             timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
                             budget_limit_cny=budget_limit_cny,
                         )

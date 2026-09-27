@@ -94,6 +94,10 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         component="web"),
     "rate_limited": ErrorSpec(
         429, True, "请求过于频繁（登录 / 提交限流）：稍后再试。", component="web"),
+    "idempotency_conflict": ErrorSpec(
+        409, False,
+        "幂等键已用于不同请求：换一个新 key 重试，或原样重发首次请求（同键不同载荷会被拒绝）。",
+        component="web"),
     # --- RAG 知识库（P6-A） ----------------------------------------------
     "rag_unavailable": ErrorSpec(
         503, True,

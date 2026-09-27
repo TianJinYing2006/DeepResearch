@@ -76,6 +76,7 @@ class RunStore:
         user_id: Optional[str] = None,
         tenant_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        request_hash: Optional[str] = None,
         status: str = "CREATED",
         timeout_at: Optional[datetime] = None,
         budget_limit_cny: Optional[float] = None,
@@ -93,12 +94,13 @@ class RunStore:
                 cur.execute(
                     """
                     INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
-                                      idempotency_key, timeout_at, budget_limit_cny, queued_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                      idempotency_key, request_hash, timeout_at,
+                                      budget_limit_cny, queued_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
                     """,
                     (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
-                     idempotency_key, timeout_at, budget_limit_cny,
+                     idempotency_key, request_hash, timeout_at, budget_limit_cny,
                      _now() if status == "QUEUED" else None),
                 )
                 row = cur.fetchone()
@@ -125,6 +127,7 @@ class RunStore:
         user_id: Optional[str] = None,
         tenant_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        request_hash: Optional[str] = None,
         status: str = "CREATED",
         timeout_at: Optional[datetime] = None,
         budget_limit_cny: Optional[float] = None,
@@ -194,12 +197,13 @@ class RunStore:
                 cur.execute(
                     """
                     INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
-                                      idempotency_key, timeout_at, budget_limit_cny, queued_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                      idempotency_key, request_hash, timeout_at,
+                                      budget_limit_cny, queued_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
                     """,
                     (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
-                     idempotency_key, timeout_at, budget_limit_cny,
+                     idempotency_key, request_hash, timeout_at, budget_limit_cny,
                      _now() if status == "QUEUED" else None),
                 )
                 row = cur.fetchone()
