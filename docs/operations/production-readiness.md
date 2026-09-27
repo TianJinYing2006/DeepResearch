@@ -285,12 +285,14 @@ location /api/ {
 
 ### 7.4 发布检查单
 
+> 逐步操作手册：`docs/operations/release-runbook.md`（P2-8；含回滚决策树与记录模板）。
+
 - [ ] 迁移已评审：前向兼容（旧 API 进程可读新表结构）
 - [ ] 备份点已生成并校验可读
 - [ ] 配置 diff 已核对（CORS / 预算 / 并发 / 境外服务开关）
 - [ ] 新版本部署 → readiness 通过 → staging 冒烟（提交 / 进度 / 取消 / 导出）
 - [ ] 观察窗口内错误率、队列等待、worker 心跳正常
-- [ ] 回滚路径已验证（应用版本回滚 + 数据回退走备份恢复）
+- [ ] 回滚路径已验证（应用版本回滚 + 数据回退走备份恢复）—— 流程见 runbook §6；**应用回滚演练未执行前不得视为已验证**（runbook §9 有状态登记）
 
 ### 7.5 告警阈值初始候选（待压测校准）
 
@@ -354,3 +356,4 @@ location /api/ {
 | 2026-09-27 | P2-5a 审核 provider 抽象同步：§3.5 增补 provider 抽象项勾选（接口 + `local_rules` 默认实现 + 未知/异常回退 + provider 留痕 + egress 动态名，零外部 SDK）；新增 `tests/test_moderation_providers.py`（默认/未知回退/异常回退/自定义注入留痕/兼容旧签名 6 条）；本机 720 收集 = 680 通过 + 40 跳过，ruff 全过 |
 | 2026-09-27 | P2-5b 申诉/复核状态机同步：§3.5 增补申诉状态机项勾选（迁移 0014 + 状态机 + accepted⇒cleared/rejected⇒flagged 语义 + SLA 告警 + CLI 三命令 + 180 天保留）；新增 `tests/test_appeals.py`（状态机/决策语义/SLA/API/告警 + 真实 PG 契约，已加入 CI `infra` job）；本机 727 收集 = 686 通过 + 41 跳过，ruff 全过 |
 | 2026-09-27 | P2-7 容量标定同步：§3.7 增补容量标定项勾选（Locust 脚本 + 假图开关 `DR_LOADTEST_GRAPH` + `capacity-model.md` 公式/连接预算/基线表）；新增 `tests/test_loadtest_graph.py`（图工厂选择 3 条）；本机 730 收集 = 689 通过 + 41 跳过，ruff 全过 |
+| 2026-09-27 | P2-8 发布/回滚 runbook 同步：新增 `docs/operations/release-runbook.md`（发布步骤 / 冒烟 / 观察窗口 / 回滚决策树 / 记录模板 / 演练状态如实登记）；§7.4 发布检查单引用 runbook 并明确「回滚演练未执行前不得视为已验证」；纯文档，测试基线 730 收集 = 689 通过 + 41 跳过不变 |
