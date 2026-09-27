@@ -90,6 +90,7 @@ class FakeStore:
         self.deletions: dict[str, dict] = {}
         self.deletion_outbox: dict[tuple, dict] = {}
         self._deletion_outbox_seq = 0
+        self.ingestions: dict[str, dict] = {}
         self.fail_events = False
 
     def ping(self) -> None:
@@ -592,6 +593,123 @@ class FakeStore:
     def count_deletions_by_status(self):
         counts = {}
         for row in self.deletions.values():
+            counts[row["status"]] = counts.get(row["status"], 0) + 1
+        return counts
+
+    # ---- RAG 摄取台账（P0-8b）----
+
+    def create_ingestion(self, ingestion_id, doc_id, *, user_id=None, source, sha256,
+                         size_bytes, stored_name):
+        now = datetime.now(UTC)
+        row = {
+            "ingestion_id": ingestion_id, "doc_id": doc_id, "user_id": user_id,
+            "source": source, "sha256": sha256, "size_bytes": size_bytes,
+            "stored_name": stored_name, "status": "pending", "chunks": 0,
+            "attempts": 0, "next_attempt_at": now, "lease_expires_at": None,
+            "claimed_by": None, "scan_status": "skipped", "last_error": None,
+            "created_at": now, "updated_at": now, "processed_at": None,
+        }
+        self.ingestions[ingestion_id] = row
+        return row
+
+    def get_ingestion(self, ingestion_id):
+        return self.ingestions.get(ingestion_id)
+
+    def find_ingestion_by_doc(self, user_id, doc_id):
+        rows = [row for row in self.ingestions.values()
+                if row["user_id"] == user_id and row["doc_id"] == doc_id
+                and row["status"] != "deleted"]
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return rows[0] if rows else None
+
+    def claim_next_ingestion(self, claimed_by, lease_seconds):
+        now = datetime.now(UTC)
+        due = [row for row in self.ingestions.values()
+               if (row["status"] == "pending" and row["next_attempt_at"] <= now)
+               or (row["status"] == "processing" and row["lease_expires_at"] is not None
+                   and row["lease_expires_at"] < now)]
+        due.sort(key=lambda row: row["created_at"])
+        if not due:
+            return None
+        row = due[0]
+        row.update(status="processing", attempts=row["attempts"] + 1, claimed_by=claimed_by,
+                   lease_expires_at=now + timedelta(seconds=lease_seconds))
+        return row
+
+    def mark_ingestion_ready(self, ingestion_id, chunks, scan_status="skipped"):
+        row = self.ingestions.get(ingestion_id)
+        if row is None:
+            return
+        row.update(status="ready", chunks=chunks, scan_status=scan_status,
+                   lease_expires_at=None, claimed_by=None, last_error=None,
+                   processed_at=datetime.now(UTC))
+
+    def mark_ingestion_rejected(self, ingestion_id, error, *, scan_status=None):
+        row = self.ingestions.get(ingestion_id)
+        if row is None:
+            return
+        row.update(status="rejected", last_error=error[:500], lease_expires_at=None,
+                   claimed_by=None, processed_at=datetime.now(UTC))
+        if scan_status is not None:
+            row["scan_status"] = scan_status
+
+    def mark_ingestion_retry(self, ingestion_id, error, *, backoff_seconds, max_attempts):
+        row = self.ingestions.get(ingestion_id)
+        if row is None:
+            return "missing"
+        if row["attempts"] >= max_attempts:
+            row.update(status="rejected", last_error=error[:500], lease_expires_at=None,
+                       claimed_by=None, processed_at=datetime.now(UTC))
+            return "rejected"
+        row.update(status="pending", last_error=error[:500], lease_expires_at=None,
+                   claimed_by=None,
+                   next_attempt_at=datetime.now(UTC) + timedelta(seconds=max(1, backoff_seconds)))
+        return "pending"
+
+    def list_ingestions(self, *, user_id=None, status=None, limit=50):
+        rows = [row for row in self.ingestions.values()
+                if (user_id is None or row["user_id"] == user_id)
+                and (status is None or row["status"] == status)]
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return [dict(row) for row in rows[:limit]]
+
+    def list_ingestion_files_for_user(self, user_id):
+        return [row["stored_name"] for row in self.ingestions.values()
+                if row["user_id"] == user_id and row["status"] != "deleted"
+                and row["stored_name"]]
+
+    def mark_ingestions_deleted_for_user(self, user_id):
+        count = 0
+        for row in self.ingestions.values():
+            if row["user_id"] == user_id and row["status"] != "deleted":
+                row.update(status="deleted", stored_name="", source="(deleted)")
+                count += 1
+        return count
+
+    def delete_ingestion_by_doc(self, user_id, doc_id):
+        names = []
+        for row in self.ingestions.values():
+            if row["user_id"] == user_id and row["doc_id"] == doc_id and row["status"] != "deleted":
+                if row["stored_name"]:
+                    names.append(row["stored_name"])
+                row.update(status="deleted", stored_name="", source="(deleted)")
+        return names
+
+    def list_expired_ingestions(self, before, limit=50):
+        rows = [row for row in self.ingestions.values()
+                if row["status"] == "ready" and row["created_at"] < before]
+        rows.sort(key=lambda row: row["created_at"])
+        return [dict(row) for row in rows[:limit]]
+
+    def mark_ingestion_deleted(self, ingestion_id, reason="expired"):
+        row = self.ingestions.get(ingestion_id)
+        if row is None:
+            return
+        row.update(status="deleted", stored_name="", source=f"({reason})")
+
+    def count_ingestions_by_status(self):
+        counts = {}
+        for row in self.ingestions.values():
             counts[row["status"]] = counts.get(row["status"], 0) + 1
         return counts
 

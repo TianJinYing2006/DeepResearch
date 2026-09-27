@@ -267,7 +267,28 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     }
   }
 
-  async function uploadFile(file: File) {    setUploadState('上传中…')
+  async function pollIngestion(ingestionId: string, attempts = 30): Promise<{
+    status: string; chunks: number; source: string; error: string | null
+  }> {
+    // P0-8b：异步摄取 —— 每秒轮询直到终态（最长约 30s，之后提示稍后刷新）
+    for (let index = 0; index < attempts; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      try {
+        const response = await fetch(`/api/rag/ingestions/${ingestionId}`)
+        if (!response.ok) continue
+        const body = (await response.json()) as {
+          status: string; chunks: number; source: string; error: string | null
+        }
+        if (body.status === 'ready' || body.status === 'rejected') return body
+      } catch {
+        /* 网络抖动继续轮询 */
+      }
+    }
+    return { status: 'timeout', chunks: 0, source: '', error: null }
+  }
+
+  async function uploadFile(file: File) {
+    setUploadState('上传中…')
     try {
       const form = new FormData()
       form.append('file', file)
@@ -280,8 +301,22 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         setUploadState(await readError(response))
         return
       }
-      const body = (await response.json()) as { source: string; chunks: number }
-      setUploadState(`已摄取 ${body.source}（${body.chunks} 块）`)
+      const body = (await response.json()) as {
+        source: string; chunks?: number; ingestion_id?: string
+      }
+      if (body.ingestion_id) {
+        setUploadState(`${body.source} 处理中…`)
+        const final = await pollIngestion(body.ingestion_id)
+        if (final.status === 'ready') {
+          setUploadState(`已摄取 ${final.source || body.source}（${final.chunks} 块）`)
+        } else if (final.status === 'rejected') {
+          setUploadState(`${final.source || body.source} 处理失败：${final.error ?? '已拒绝'}`)
+        } else {
+          setUploadState(`${body.source} 仍在处理中，稍后刷新查看`)
+        }
+      } else {
+        setUploadState(`已摄取 ${body.source}（${body.chunks ?? 0} 块）`)
+      }
       void refreshSideData()
     } catch {
       setUploadState('网络错误，请重试')

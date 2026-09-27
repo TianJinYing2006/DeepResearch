@@ -1110,14 +1110,14 @@ def legal_document(doc: str) -> dict:
 # ------------------------------------------------------------------ RAG 知识库（P6-A）
 
 @app.post("/api/rag/ingest")
-async def rag_ingest(request: Request, file: UploadFile = File(...)) -> dict:
-    """上传并摄取文档（P6-A / P0-8a）：流式落盘 + 三重校验 + 解析限额；按当前用户打标。
+async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response:
+    """上传并摄取文档（P6-A / P0-8a / P0-8b）：流式落盘 + 三重校验 + 异步管线。
 
-    - 流式写临时文件（不整文件入内存），超限 413 `payload_too_large`；
-    - 扩展名 + magic bytes 双校验（PDF/DOCX/文本），DOCX 另做 ZIP 结构与解压比检查；
-    - 存储名由服务端生成（UUID）；原文件名清洗后仅作 `source` 展示元数据；
-    - `doc_id` 内容寻址（`user:sha256[:16]`）⇒ 重复上传幂等（upsert 覆盖）；
-    - 解析限额（页数/字符/分块/墙钟）由 `config.rag` 控制，超限 422 `document_limit_exceeded`。
+    - 有任务库（staging/生产）：写入隔离区 + 登记 `rag_ingestions` ⇒ **202**，
+      由 Worker 异步解析 / embedding / 写 Qdrant；`GET /api/rag/ingestions/{id}` 查状态；
+      相同内容（内容寻址 doc_id）重复上传命中既有记录，不重复处理。
+    - 无任务库（本地零依赖）：退化为同步摄取 ⇒ **200**（行为与 P6-A 一致）。
+    - 三重校验与解析限额同 P0-8a；隔离区目录由 `DR_RAG_QUARANTINE_DIR` 配置。
     """
     user_id = _require_user(request)
     _check_csrf(request)
@@ -1133,8 +1133,16 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> dict:
         )
 
     max_bytes = int(RAG_MAX_UPLOAD_MB * 1024 * 1024)
-    tmp_dir = tempfile.mkdtemp(prefix="dr-rag-")
-    path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}{extension}")
+    if store is not None:
+        from .ingestion import quarantine_dir
+
+        stored_name = f"{uuid.uuid4().hex}{extension}"
+        path = os.path.join(quarantine_dir(), stored_name)
+    else:
+        stored_name = ""
+        tmp_dir = tempfile.mkdtemp(prefix="dr-rag-")
+        path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}{extension}")
+
     try:
         try:
             size, digest, head = await stream_to_temp(file, path, max_bytes)
@@ -1148,27 +1156,121 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> dict:
             raise http_error(exc.code, exc.message, detail=exc.detail) from exc
 
         doc_id = f"{user_id or 'local'}:{digest[:16]}"
+        if store is not None:
+            # P0-8b：登记后由 Worker 异步处理；重复内容直接返回既有记录
+            existing = _store_call(store.find_ingestion_by_doc, user_id, doc_id)
+            if existing is not None:
+                os.remove(path)
+                return JSONResponse(status_code=202, content={
+                    "ingestion_id": existing["ingestion_id"], "doc_id": doc_id,
+                    "source": existing["source"], "status": existing["status"],
+                })
+            ingestion_id = uuid.uuid4().hex[:12]
+            try:
+                store.create_ingestion(
+                    ingestion_id, doc_id, user_id=user_id, source=filename,
+                    sha256=digest, size_bytes=size, stored_name=stored_name)
+            except Exception as exc:  # noqa: BLE001
+                os.remove(path)
+                raise http_error(
+                    "persistence_unavailable",
+                    f"摄取登记失败：{type(exc).__name__}: {exc}"[:200],
+                ) from exc
+            return JSONResponse(status_code=202, content={
+                "ingestion_id": ingestion_id, "doc_id": doc_id,
+                "source": filename, "status": "pending",
+            })
+
+        # 本地零依赖：同步摄取（P6-A 行为）
         from research_engine.rag.ingest import DocumentIngester, IngestLimitExceeded
 
         def _run_ingest() -> int:
-            ingester = DocumentIngester()
-            return ingester.ingest_file(path, doc_id=doc_id, user_id=user_id)
+            return DocumentIngester().ingest_file(path, doc_id=doc_id, user_id=user_id)
 
         try:
             chunks = await asyncio.get_running_loop().run_in_executor(None, _run_ingest)
         except IngestLimitExceeded as exc:
             raise http_error("document_limit_exceeded", str(exc)[:200]) from exc
-        except Exception as exc:  # noqa: BLE001 —— embedding / 解析 / Qdrant 故障统一结构化
+        except Exception as exc:  # noqa: BLE001
             raise http_error(
                 "rag_ingest_failed",
                 f"文档摄取失败：{type(exc).__name__}: {exc}"[:200],
             ) from exc
+        if not chunks:
+            raise http_error("rag_ingest_failed", "文档未解析出任何内容")
+        return JSONResponse(status_code=200, content={
+            "doc_id": doc_id, "source": filename, "chunks": chunks,
+        })
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if store is None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    if not chunks:
-        raise http_error("rag_ingest_failed", "文档未解析出任何内容")
-    return {"doc_id": doc_id, "source": filename, "chunks": chunks}
+
+@app.get("/api/rag/ingestions/{ingestion_id}")
+def rag_ingestion_status(ingestion_id: str, request: Request) -> dict:
+    """摄取状态（P0-8b）：前端轮询 pending → processing → ready | rejected。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "摄取状态需要任务库（DR_DATABASE_URL）")
+    user_id = _require_user(request)
+    row = _store_call(store.get_ingestion, ingestion_id)
+    if row is None or (AUTH_REQUIRED and row.get("user_id") != user_id):
+        raise http_error("ingestion_not_found", f"摄取记录不存在：{ingestion_id}")
+    return {
+        "ingestion_id": row["ingestion_id"],
+        "doc_id": row["doc_id"],
+        "source": row["source"],
+        "status": row["status"],
+        "chunks": row["chunks"],
+        "attempts": row["attempts"],
+        "scan_status": row["scan_status"],
+        "error": row.get("last_error"),
+        "created_at": _iso(row.get("created_at")),
+        "processed_at": _iso(row.get("processed_at")),
+    }
+
+
+@app.delete("/api/rag/docs")
+def rag_delete_doc(request: Request, doc_id: str = Query(..., max_length=128)) -> dict:
+    """删除知识库文档（P0-8b）：Qdrant 按 doc_id 删除并**验证归零**，再清隔离区文件。
+
+    同步删除 + 失败 503（用户在场可重试）；账号注销走 durable outbox（P0-7）。
+    """
+    if store is None:
+        raise http_error("persistence_unavailable", "文档删除需要任务库（DR_DATABASE_URL）")
+    user_id = _require_user(request)
+    _check_csrf(request)
+    if doc_id.split(":", 1)[0] != (user_id or "local"):
+        raise http_error("invalid_request", "无权删除该文档", detail="ownership mismatch")
+
+    from research_engine.rag.store import VectorStore
+
+    from .ingestion import quarantine_path
+
+    vector_store = VectorStore()
+    reason = vector_store.unavailable_reason
+    if reason:
+        raise http_error("rag_unavailable", "知识库当前不可用，稍后再试",
+                         detail=vector_store.last_error or reason)
+    try:
+        vector_store.delete_by_doc(doc_id, wait=True)
+        remaining = vector_store.count_by_doc(doc_id)
+        if remaining:
+            raise RuntimeError(f"still has {remaining} points")
+    except Exception as exc:  # noqa: BLE001 —— 删除失败如实报错，用户可重试
+        raise http_error(
+            "rag_unavailable",
+            f"文档删除失败：{type(exc).__name__}: {exc}"[:200],
+        ) from exc
+
+    names = _store_call(store.delete_ingestion_by_doc, user_id, doc_id)
+    for name in names:
+        if not name:
+            continue
+        try:
+            os.remove(quarantine_path(name))
+        except FileNotFoundError:
+            pass
+    return {"ok": True, "doc_id": doc_id}
 
 
 @app.get("/api/rag/docs")
@@ -1186,11 +1288,14 @@ def rag_docs(request: Request) -> dict:
             "知识库当前不可用（Qdrant 未配置或连不上）",
             detail=vector_store.last_error or reason,
         )
-    counts: dict[str, int] = {}
+    counts: dict[str, dict] = {}
     for payload in vector_store.scroll_all(scope=RagScope(user_id=user_id)):
-        source = payload.get("source") or payload.get("doc_id") or "(未命名)"
-        counts[source] = counts.get(source, 0) + 1
-    return {"docs": [{"source": name, "chunks": count} for name, count in sorted(counts.items())]}
+        doc_id = str(payload.get("doc_id") or "")
+        source = payload.get("source") or doc_id or "(未命名)"
+        key = doc_id or source
+        entry = counts.setdefault(key, {"doc_id": doc_id, "source": source, "chunks": 0})
+        entry["chunks"] += 1
+    return {"docs": sorted(counts.values(), key=lambda item: item["source"])}
 
 
 @app.post("/api/research/{run_id}/cancel")

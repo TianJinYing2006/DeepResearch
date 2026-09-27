@@ -137,6 +137,10 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         422, False,
         "文档超过解析限额（页数 / 字符数 / 分块数 / 解析时长）：拆分文档或联系管理员调整限额。",
         component="rag"),
+    "ingestion_not_found": ErrorSpec(
+        404, False,
+        "摄取记录不存在（或不属于当前用户）：确认 ingestion_id，或重新上传。",
+        component="rag"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

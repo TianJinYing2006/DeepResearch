@@ -24,6 +24,8 @@ x-app-environment: &app-environment
   DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
   DR_REDIS_URL: "redis://redis:6379/0"
   QDRANT_URL: "${QDRANT_URL:-http://host.docker.internal:6333}"
+  # P0-8b：RAG 隔离区（api 写入、worker 读取）—— 两服务共享同一卷
+  DR_RAG_QUARANTINE_DIR: "/var/lib/deepresearch/rag-quarantine"
   DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
   DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
   SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
@@ -106,6 +108,8 @@ services:
       DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - rag_quarantine:/var/lib/deepresearch/rag-quarantine
     ports:
       - "${DR_API_BIND:-127.0.0.1}:${DR_API_PORT:-8000}:8000"
     healthcheck:
@@ -132,7 +136,10 @@ services:
     environment: *app-environment
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - rag_quarantine:/var/lib/deepresearch/rag-quarantine
 
 volumes:
   pg_data:
   redis_data:
+  rag_quarantine:

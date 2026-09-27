@@ -13,6 +13,8 @@
     python -m web.backend.admin deletion-list [--limit 50]     # 注销清理进度（P0-7）
     python -m web.backend.admin retry-deletion --request-id <id>
     python -m web.backend.admin process-deletions [--batch 5]  # 手工跑一批 outbox
+    python -m web.backend.admin ingestion-list [--status ready] [--limit 50]
+    python -m web.backend.admin delete-doc --doc-id <user:hash16>  # 同步删向量并验证
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -69,6 +71,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     process_deletions = sub.add_parser("process-deletions", help="手工执行一批注销 outbox（P0-7）")
     process_deletions.add_argument("--batch", type=int, default=5)
+
+    ingestion_list = sub.add_parser("ingestion-list", help="列出 RAG 摄取台账（P0-8b）")
+    ingestion_list.add_argument("--status", default="", help="pending / processing / ready / rejected / deleted")
+    ingestion_list.add_argument("--limit", type=int, default=50)
+
+    delete_doc = sub.add_parser("delete-doc", help="按 doc_id 删除知识库文档（P0-8b；同步 + 验证）")
+    delete_doc.add_argument("--doc-id", required=True)
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -163,6 +172,44 @@ def main(argv: list[str] | None = None) -> int:
 
         summary = process_deletions_once(store, batch=args.batch)
         print(f"deletions: {summary}")
+        return 0
+
+    if args.command == "ingestion-list":
+        rows = store.list_ingestions(status=args.status or None, limit=args.limit)
+        for row in rows:
+            print(f"{row['ingestion_id']}  {row['status']:<10} doc={row['doc_id']} "
+                  f"user={row['user_id'] or '-'} chunks={row['chunks']} "
+                  f"attempts={row['attempts']} scan={row['scan_status']} "
+                  f"error={row['last_error'] or '-'}")
+        return 0
+
+    if args.command == "delete-doc":
+        from research_engine.rag.store import VectorStore
+
+        from .ingestion import quarantine_path
+
+        vector_store = VectorStore()
+        reason = vector_store.unavailable_reason
+        if reason:
+            print(f"qdrant unavailable: {reason}", file=sys.stderr)
+            return 1
+        vector_store.delete_by_doc(args.doc_id, wait=True)
+        remaining = vector_store.count_by_doc(args.doc_id)
+        if remaining:
+            print(f"delete incomplete: {remaining} points remain", file=sys.stderr)
+            return 1
+        cleaned = 0
+        for row in store.list_ingestions(limit=1000):
+            if row["doc_id"] != args.doc_id or row["status"] == "deleted":
+                continue
+            if row["stored_name"]:
+                try:
+                    os.remove(quarantine_path(row["stored_name"]))
+                except FileNotFoundError:
+                    pass
+                cleaned += 1
+            store.mark_ingestion_deleted(row["ingestion_id"], reason="admin")
+        print(f"deleted doc {args.doc_id}（清理隔离区文件 {cleaned} 个）")
         return 0
 
     if args.command == "delete-user":

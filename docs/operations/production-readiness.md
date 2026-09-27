@@ -62,7 +62,7 @@
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
 - [ ] 恢复演练（见 §5）
 - [x] RAG 检索按作用域强制过滤（P5：payload `user_id`/`tenant_id`/`visibility`；owner 只见本人 private，历史无主块向后兼容）
-- [x] RAG 上传面（P6-A）：类型白名单 + `DR_RAG_MAX_FILE_MB` 上限；上传按当前用户打标，清单按作用域列出。**P0-8a 硬化**：流式落盘（不整文件入内存）、magic bytes/结构三重校验、服务端 UUID 存储名、文件名清洗、内容寻址 `doc_id`（幂等去重）、解析限额（页数/字符/分块/墙钟）、按用户上传限流；异步摄取管线（隔离区 + 状态机 + 可选 AV）见 P0-8b
+- [x] RAG 上传面（P6-A）：类型白名单 + `DR_RAG_MAX_FILE_MB` 上限；上传按当前用户打标，清单按作用域列出。**P0-8a 硬化**：流式落盘（不整文件入内存）、magic bytes/结构三重校验、服务端 UUID 存储名、文件名清洗、内容寻址 `doc_id`（幂等去重）、解析限额（页数/字符/分块/墙钟）、按用户上传限流；**P0-8b 异步管线**：隔离区（`DR_RAG_QUARANTINE_DIR`，compose api/worker 共享卷）→ 202 登记 → Worker 解析/embedding（解析类错误直接 rejected、供应商类错误退避重试）→ `GET /api/rag/ingestions/{id}`；`DELETE /api/rag/docs` 同步删向量并验证归零；90 天保留期自动清扫（`DR_RAG_RETENTION_DAYS`）；可选 ClamAV（`DR_CLAMSCAN_BIN` 未配置则如实 `scan_status=skipped`）
 
 ### 3.3 任务运行（Worker）
 
@@ -108,7 +108,7 @@
 - [x] 用户注销已实现（验密 + CSRF；**P0-7 起 durable outbox**：同事务登记台账 + outbox + 删账号/会话，Qdrant 清理由 Worker 带退避重试直至**验证归零**；耗尽 `abandoned` 会告警，CLI `deletion-list` / `retry-deletion` 可查可重试；任务匿名保留）
 - [ ] 报告保存期限的**到期自动清理**（当前仅写入政策与文档，执行留 P8）
 - [x] 日志与错误载荷脱敏（不回声密码；登录失败统一 401；密钥不进日志有回归测试）
-- [x] 上传文件按用户作用域隔离存放与检索（P5/P6-A；不与公共知识混存）
+- [x] 上传文件按用户作用域隔离存放与检索（P5/P6-A；不与公共知识混存）；**P0-8b**：原文只存隔离区，处理完成即删除；账号注销与 90 天保留期都会清理（向量 + 文件）
 
 ### 3.6 可观测性与告警
 
@@ -319,3 +319,4 @@ location /api/ {
 | 2026-09-27 | P0-9 启动硬校验同步：§3.1 配置分层勾选（`DR_ENV` fail fast）、§3.4 Cookie 行更新；compose staging 默认 `DR_COOKIE_SECURE=true` 并在文件头注明自检要求；production 拒明文 HTTP（400 `https_required`）；新增 `tests/test_startup_validation.py`（本机 599 收集 = 571 通过 + 28 跳过，ruff 全过） |
 | 2026-09-27 | P0-7 注销 durable outbox 同步：§3.5 注销行更新（台账 + outbox + 验证归零 + 告警 + CLI）；§5 恢复演练追加「重放删除台账」步骤；迁移 0005 与结构断言接入 CI `infra`；新增 `tests/test_deletion_outbox.py`（本机 604 收集 = 575 通过 + 29 跳过，ruff 全过） |
 | 2026-09-27 | P0-8a 上传硬化同步：§3.2 上传面更新（流式 + 三重校验 + 内容寻址 + 解析限额 + 限流）；§7.1 反代样例补 `client_max_body_size` / `client_body_timeout`；新增错误码 `unsupported_file_type` / `payload_too_large` / `document_limit_exceeded` 与 `tests/test_upload_hardening.py`（本机 612 收集 = 583 通过 + 29 跳过，ruff / tsc / vite build 全过） |
+| 2026-09-27 | P0-8b 异步摄取管线同步：§3.2/§3.5 —— 隔离区 + 202 登记 + Worker 状态机（含可选 ClamAV）、`DELETE /api/rag/docs`、90 天保留期清扫、注销 outbox 联动清文件；compose api/worker 共享 `rag_quarantine` 卷；迁移 0006 与结构断言接入 CI `infra`；新增 `tests/test_ingestion_pipeline.py`（本机 623 收集 = 593 通过 + 30 跳过，ruff / tsc / vite build 全过） |

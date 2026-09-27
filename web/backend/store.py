@@ -1080,3 +1080,197 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT status, count(*) AS n FROM account_deletions GROUP BY status")
             return {row["status"]: int(row["n"]) for row in cur.fetchall()}
+
+    # ---- RAG 摄取台账（P0-8b）----
+
+    def create_ingestion(self, ingestion_id: str, doc_id: str, *, user_id: Optional[str] = None,
+                         source: str, sha256: str, size_bytes: int,
+                         stored_name: str) -> dict[str, Any]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO rag_ingestions (ingestion_id, doc_id, user_id, source, sha256,
+                                            size_bytes, stored_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (ingestion_id, doc_id, user_id, source, sha256, size_bytes, stored_name),
+            )
+            return cur.fetchone()
+
+    def get_ingestion(self, ingestion_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM rag_ingestions WHERE ingestion_id = %s", (ingestion_id,))
+            return cur.fetchone()
+
+    def find_ingestion_by_doc(self, user_id: Optional[str],
+                              doc_id: str) -> Optional[dict[str, Any]]:
+        """该用户该内容最近一条未删除摄取记录（内容寻址去重用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM rag_ingestions "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND doc_id = %s AND status <> 'deleted' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (user_id, doc_id),
+            )
+            return cur.fetchone()
+
+    def claim_next_ingestion(self, claimed_by: str,
+                             lease_seconds: int) -> Optional[dict[str, Any]]:
+        """原子领取下一条待处理摄取（SKIP LOCKED + 租约），`attempts+1`。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE rag_ingestions
+                   SET status = 'processing',
+                       attempts = attempts + 1,
+                       claimed_by = %s,
+                       lease_expires_at = now() + make_interval(secs => %s),
+                       updated_at = now()
+                 WHERE ingestion_id = (
+                     SELECT ingestion_id FROM rag_ingestions
+                      WHERE (status = 'pending' AND next_attempt_at <= now())
+                         OR (status = 'processing' AND lease_expires_at IS NOT NULL
+                             AND lease_expires_at < now())
+                      ORDER BY created_at
+                      FOR UPDATE SKIP LOCKED
+                      LIMIT 1
+                 )
+                RETURNING *
+                """,
+                (claimed_by, lease_seconds),
+            )
+            return cur.fetchone()
+
+    def mark_ingestion_ready(self, ingestion_id: str, chunks: int,
+                             scan_status: str = "skipped") -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'ready', chunks = %s, scan_status = %s, "
+                "lease_expires_at = NULL, claimed_by = NULL, last_error = NULL, "
+                "processed_at = now(), updated_at = now() WHERE ingestion_id = %s",
+                (chunks, scan_status, ingestion_id),
+            )
+
+    def mark_ingestion_rejected(self, ingestion_id: str, error: str, *,
+                                scan_status: Optional[str] = None) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'rejected', last_error = %s, "
+                "scan_status = COALESCE(%s, scan_status), lease_expires_at = NULL, "
+                "claimed_by = NULL, processed_at = now(), updated_at = now() "
+                "WHERE ingestion_id = %s",
+                (error[:500], scan_status, ingestion_id),
+            )
+
+    def mark_ingestion_retry(self, ingestion_id: str, error: str, *,
+                             backoff_seconds: int, max_attempts: int) -> str:
+        """供应商类失败：未耗尽 ⇒ pending + 退避；耗尽 ⇒ rejected。返回新状态。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT attempts FROM rag_ingestions WHERE ingestion_id = %s",
+                        (ingestion_id,))
+            row = cur.fetchone()
+            if row is None:
+                return "missing"
+            exhausted = row["attempts"] >= max_attempts
+            if exhausted:
+                cur.execute(
+                    "UPDATE rag_ingestions SET status = 'rejected', last_error = %s, "
+                    "lease_expires_at = NULL, claimed_by = NULL, processed_at = now(), "
+                    "updated_at = now() WHERE ingestion_id = %s",
+                    (error[:500], ingestion_id),
+                )
+                return "rejected"
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'pending', last_error = %s, "
+                "next_attempt_at = now() + make_interval(secs => %s), "
+                "lease_expires_at = NULL, claimed_by = NULL, updated_at = now() "
+                "WHERE ingestion_id = %s",
+                (error[:500], max(1, backoff_seconds), ingestion_id),
+            )
+            return "pending"
+
+    def list_ingestions(self, *, user_id: Optional[str] = None, status: Optional[str] = None,
+                        limit: int = 50) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id IS NOT DISTINCT FROM %s")
+            params.append(user_id)
+        if status is not None:
+            clauses.append("status = %s")
+            params.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM rag_ingestions {where} ORDER BY created_at DESC LIMIT %s",
+                params,
+            )
+            return cur.fetchall()
+
+    def list_ingestion_files_for_user(self, user_id: Optional[str]) -> list[str]:
+        """该用户仍占用的隔离区文件名（账号注销时清理）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT stored_name FROM rag_ingestions "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' "
+                "AND stored_name <> ''",
+                (user_id,),
+            )
+            return [row["stored_name"] for row in cur.fetchall()]
+
+    def mark_ingestions_deleted_for_user(self, user_id: Optional[str]) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
+                "source = '(deleted)', updated_at = now() "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' RETURNING ingestion_id",
+                (user_id,),
+            )
+            return len(cur.fetchall())
+
+    def delete_ingestion_by_doc(self, user_id: Optional[str], doc_id: str) -> list[str]:
+        """按 doc_id 标记删除，返回需清理的隔离区文件名（Qdrant 由调用方删除）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT stored_name FROM rag_ingestions "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND doc_id = %s AND status <> 'deleted' "
+                "AND stored_name <> ''",
+                (user_id, doc_id),
+            )
+            names = [row["stored_name"] for row in cur.fetchall()]
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
+                "source = '(deleted)', updated_at = now() "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND doc_id = %s AND status <> 'deleted'",
+                (user_id, doc_id),
+            )
+            return names
+
+    def list_expired_ingestions(self, before: datetime,
+                                limit: int = 50) -> list[dict[str, Any]]:
+        """保留期到期（隐私政策 90 天）的 ready 摄取；由调用方清向量/文件后置 deleted。
+
+        先列后删（不在 SQL 里直接改状态）：向量删除失败时行保持 ready，下轮清扫重试。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ingestion_id, doc_id, user_id, stored_name FROM rag_ingestions "
+                "WHERE status = 'ready' AND created_at < %s ORDER BY created_at LIMIT %s",
+                (before, limit),
+            )
+            return cur.fetchall()
+
+    def mark_ingestion_deleted(self, ingestion_id: str, reason: str = "expired") -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
+                "source = %s, updated_at = now() WHERE ingestion_id = %s",
+                (f"({reason})", ingestion_id),
+            )
+
+    def count_ingestions_by_status(self) -> dict[str, int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT status, count(*) AS n FROM rag_ingestions GROUP BY status")
+            return {row["status"]: int(row["n"]) for row in cur.fetchall()}
