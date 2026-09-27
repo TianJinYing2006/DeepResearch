@@ -589,6 +589,22 @@ def test_rag_ingestion_contract(store: RunStore):
         cur.execute("DELETE FROM rag_ingestions WHERE ingestion_id = %s", (ingestion_id,))
 
 
+def test_audit_log_contract(store: RunStore):
+    """P1-5：审计只追加；按 action / actor 过滤；detail 保留。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM audit_logs")
+    store.record_audit("login_failed", detail={"email_hash": "abc"}, ip="127.0.0.1")
+    store.record_audit("login_success", actor_user_id=TEST_USER, request_id="req-1")
+
+    failed = store.list_audit(action="login_failed")
+    assert len(failed) == 1 and failed[0]["detail"]["email_hash"] == "abc"
+    mine = store.list_audit(actor_user_id=TEST_USER)
+    assert len(mine) == 1 and mine[0]["request_id"] == "req-1"
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM audit_logs")
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")

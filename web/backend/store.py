@@ -1274,3 +1274,41 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT status, count(*) AS n FROM rag_ingestions GROUP BY status")
             return {row["status"]: int(row["n"]) for row in cur.fetchall()}
+
+    # ---- 安全审计日志（P1-5）----
+
+    def record_audit(self, action: str, *, actor_user_id: Optional[str] = None,
+                     target_type: Optional[str] = None, target_id: Optional[str] = None,
+                     ip: Optional[str] = None, user_agent: Optional[str] = None,
+                     request_id: Optional[str] = None,
+                     detail: Optional[dict[str, Any]] = None) -> int:
+        """追加一条安全审计（append-only；不落密码 / token / PII）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO audit_logs (action, actor_user_id, target_type, target_id,
+                                        ip, user_agent, request_id, detail)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (action, actor_user_id, target_type, target_id,
+                 ip, (user_agent or "")[:300] or None, request_id, Jsonb(detail or {})),
+            )
+            return cur.fetchone()["id"]
+
+    def list_audit(self, *, action: Optional[str] = None, actor_user_id: Optional[str] = None,
+                   limit: int = 100) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if action is not None:
+            clauses.append("action = %s")
+            params.append(action)
+        if actor_user_id is not None:
+            clauses.append("actor_user_id = %s")
+            params.append(actor_user_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM audit_logs {where} ORDER BY at DESC LIMIT %s", params)
+            return cur.fetchall()
