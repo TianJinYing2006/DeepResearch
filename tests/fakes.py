@@ -98,7 +98,7 @@ class FakeStore:
         return None
 
     def create_run(self, run_id, topic, request=None, *, user_id=None, tenant_id=None,
-                   idempotency_key=None, status="CREATED", timeout_at=None,
+                   idempotency_key=None, request_hash=None, status="CREATED", timeout_at=None,
                    budget_limit_cny=None):
         if idempotency_key is not None:
             for row in self.runs.values():
@@ -111,7 +111,8 @@ class FakeStore:
             "topic": topic, "request": request or {}, "token_used": 0,
             "cost_estimate_cny": 0.0, "budget_limit_cny": budget_limit_cny,
             "budget_used_cny": 0.0, "attempt": 1, "retry_of": None,
-            "idempotency_key": idempotency_key, "worker_id": None, "worker_status": None,
+            "idempotency_key": idempotency_key, "request_hash": request_hash,
+            "worker_id": None, "worker_status": None,
             "lease_expires_at": None, "timeout_at": timeout_at, "hard_deadline_at": None,
             "cancel_requested_at": None, "created_at": now,
             "queued_at": now if status == "QUEUED" else None,
@@ -152,8 +153,8 @@ class FakeStore:
         return self.runs.get(run_id)
 
     def create_run_admitted(self, run_id, topic, request=None, *, user_id=None, tenant_id=None,
-                            idempotency_key=None, status="CREATED", timeout_at=None,
-                            budget_limit_cny=None, global_active_limit=None,
+                            idempotency_key=None, request_hash=None, status="CREATED",
+                            timeout_at=None, budget_limit_cny=None, global_active_limit=None,
                             user_active_limit=None, daily_limit=None,
                             monthly_budget_cny=None, daily_since=None):
         """与 RunStore.create_run_admitted 同语义（P0-3；内存版无并发竞争）。"""
@@ -179,8 +180,9 @@ class FakeStore:
                 if used >= daily_limit:
                     raise QuotaExceeded("daily_runs", f"used={used}; limit={daily_limit}")
         return self.create_run(run_id, topic, request, user_id=user_id, tenant_id=tenant_id,
-                               idempotency_key=idempotency_key, status=status,
-                               timeout_at=timeout_at, budget_limit_cny=budget_limit_cny)
+                               idempotency_key=idempotency_key, request_hash=request_hash,
+                               status=status, timeout_at=timeout_at,
+                               budget_limit_cny=budget_limit_cny)
 
     def get_run_by_idempotency(self, user_id, idempotency_key):
         for row in self.runs.values():

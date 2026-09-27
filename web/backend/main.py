@@ -685,6 +685,33 @@ def _ignored_overrides(req: StartRequest) -> dict:
     return {key: value for key, value in values.items() if value is not None}
 
 
+def _request_fingerprint(req: StartRequest, profile_name: str) -> str:
+    """P1-1：幂等请求指纹 —— 规范化（topic + instructions + profile）的 SHA-256。"""
+    canonical = json.dumps(
+        {"topic": req.topic, "instructions": req.instructions, "profile": profile_name},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _idempotent_existing(user_id: Optional[str], idempotency_key: Optional[str],
+                         fingerprint: str) -> Optional[dict]:
+    """P1-1：同键查询；指纹不一致 ⇒ 409（不得静默复用）。旧行 NULL 指纹按遗留口径放行。"""
+    if store is None or idempotency_key is None:
+        return None
+    existing = _store_call(store.get_run_by_idempotency, user_id, idempotency_key)
+    if existing is None:
+        return None
+    stored = existing.get("request_hash")
+    if stored is not None and stored != fingerprint:
+        raise http_error(
+            "idempotency_conflict",
+            "该幂等键已用于不同请求",
+            detail=f"idempotency_key={idempotency_key}",
+        )
+    return existing
+
+
 def _effective_run_budget(profile) -> float:
     """单次预算 = 档位值，且不超过全局环境闸 `DR_RUN_BUDGET_CNY`（<=0 视为不设闸）。"""
     if RUN_BUDGET_CNY > 0:
@@ -718,18 +745,19 @@ def _admission_limits() -> dict:
     }
 
 
-def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: dict) -> str:
-    """队列模式（P3）：创建 `QUEUED` 任务并投递 Redis 队列；重复幂等键返回既有 run_id。
+def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: dict,
+                  fingerprint: str) -> str:
+    """队列模式（P3）：创建 `QUEUED` 任务并投递唤醒信号；重复幂等键返回既有 run_id。
 
     幂等命中先于并发检查 —— 重复提交是同一个逻辑请求，不应被并发闸拒绝。
     P0：run.request 写**档位快照**（而非客户端参数）；超时 / 预算取自档位。
+    P1-1：同键不同指纹 ⇒ 409（由 `_idempotent_existing` 判定）。
     """
     if store is None:
         raise ApiError("persistence_unavailable", "队列模式需要任务库（DR_DATABASE_URL）")
-    if req.idempotency_key is not None:
-        existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
-        if existing is not None:
-            return existing["run_id"]
+    existing = _idempotent_existing(user_id, req.idempotency_key, fingerprint)
+    if existing is not None:
+        return existing["run_id"]
     run_id = uuid.uuid4().hex[:12]
     try:
         row, created = store.create_run_admitted(
@@ -741,6 +769,7 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
             },
             user_id=user_id,
             idempotency_key=req.idempotency_key,
+            request_hash=fingerprint,
             status="QUEUED",
             timeout_at=datetime.now(UTC) + timedelta(seconds=profile.timeout_seconds),
             budget_limit_cny=_effective_run_budget(profile),
@@ -931,11 +960,11 @@ def start(req: StartRequest, request: Request) -> StartResponse:
             detail=f"known={sorted(PROFILES)}",
         )
     ignored = _ignored_overrides(req)
+    fingerprint = _request_fingerprint(req, profile.name)
     # 幂等命中先于配额闸：重复提交是同一个逻辑请求，不应被日限额/预算拒绝。
-    if store is not None and req.idempotency_key is not None:
-        existing = _store_call(store.get_run_by_idempotency, user_id, req.idempotency_key)
-        if existing is not None:
-            return StartResponse(run_id=existing["run_id"])
+    existing = _idempotent_existing(user_id, req.idempotency_key, fingerprint)
+    if existing is not None:
+        return StartResponse(run_id=existing["run_id"])
     _enforce_quotas(user_id)
     if not req.topic.strip():
         raise http_error("empty_topic", "topic 不能为空")
@@ -954,14 +983,15 @@ def start(req: StartRequest, request: Request) -> StartResponse:
     # 搜索引擎由服务端配置固定（需求 10 §3.1 第 13 项）；客户端字段已在上面忽略。
     try:
         if EXECUTION_MODE == "queue":
-            run_id = _start_queued(req, user_id, profile, ignored)
+            run_id = _start_queued(req, user_id, profile, ignored, fingerprint)
         else:
             run_id = manager.start(
                 req.topic, req.instructions, profile,
                 req.idempotency_key, user_id=user_id,
                 budget_limit_cny=_effective_run_budget(profile),
                 ignored_overrides=ignored,
-                admission=_admission_limits())
+                admission=_admission_limits(),
+                request_hash=fingerprint)
     except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)

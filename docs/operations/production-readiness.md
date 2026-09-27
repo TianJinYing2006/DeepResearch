@@ -68,7 +68,7 @@
 
 - [x] API 队列模式只创建 QUEUED 任务并投递唤醒信号（`DR_EXECUTION_MODE=queue`）；**P0-2 起派发权威在任务库**（`claim_next_queued` + `FOR UPDATE SKIP LOCKED`），Redis 信号可丢、可无
 - [x] Worker 心跳（30s）与任务租约（120s）持续续期
-- [x] 任务幂等键：同一 `idempotency_key` 重复提交不产生第二个 run（且不受并发闸拒绝）
+- [x] 任务幂等键：同一 `idempotency_key` 重复提交不产生第二个 run（且不受并发闸拒绝）；**P1-1 起带请求指纹**（topic+instructions+profile 的 SHA-256）：同键不同载荷 ⇒ 409 `idempotency_conflict`，旧行（NULL）按遗留口径放行
 - [x] 超时：沿用协作式节点边界检查 + 传输层硬截止口径（`runner.py:285`），Worker 侧按 `timeout_at` 在节点边界停止并落 `TIMED_OUT`
 - [x] 取消：`CANCEL_REQUESTED` 落库，Worker 在节点边界停止且不产生新 LLM 调用（迁移现契约 C1~C7）
 - [x] 租约超时清扫与接管：取消意图 → `CANCELLED`（不重跑）；可重试 → `QUEUED`（`attempt+1`）并重新入队；重试耗尽 → `LOST`（`FOR UPDATE SKIP LOCKED` 原子接管，Worker 每 30s 清扫）
@@ -322,3 +322,4 @@ location /api/ {
 | 2026-09-27 | P0-8a 上传硬化同步：§3.2 上传面更新（流式 + 三重校验 + 内容寻址 + 解析限额 + 限流）；§7.1 反代样例补 `client_max_body_size` / `client_body_timeout`；新增错误码 `unsupported_file_type` / `payload_too_large` / `document_limit_exceeded` 与 `tests/test_upload_hardening.py`（本机 612 收集 = 583 通过 + 29 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P0-8b 异步摄取管线同步：§3.2/§3.5 —— 隔离区 + 202 登记 + Worker 状态机（含可选 ClamAV）、`DELETE /api/rag/docs`、90 天保留期清扫、注销 outbox 联动清文件；compose api/worker 共享 `rag_quarantine` 卷；迁移 0006 与结构断言接入 CI `infra`；新增 `tests/test_ingestion_pipeline.py`（本机 623 收集 = 593 通过 + 30 跳过，ruff / tsc / vite build 全过） |
 | 2026-09-27 | P1-5 安全审计日志同步：§3.4 增补审计勾选与事件最小集（ASVS V16 口径）；迁移 0007 + 结构断言接入 CI `infra`；新增 `tests/test_audit_logs.py`（本机 628 收集 = 597 通过 + 31 跳过，ruff 全过） |
+| 2026-09-27 | P1-1 幂等请求指纹同步：§3.3 幂等键行更新（同键不同载荷 409）；迁移 0008 + 结构断言接入 CI `infra`；新增 `tests/test_idempotency_conflict.py`（本机 634 收集 = 603 通过 + 31 跳过，ruff 全过） |
