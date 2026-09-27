@@ -92,6 +92,12 @@ class RAGConfig:
     chunk_overlap: int = 100
     top_k: int = 5
     use_rerank: bool = False  # rerank 先评测再决定去留
+    # P0-8a 解析限额（防资源耗尽 / 压缩炸弹；超限抛 IngestLimitExceeded）
+    max_pages: int = field(default_factory=lambda: int(_env("RAG_MAX_PAGES", "200")))
+    max_chars: int = field(default_factory=lambda: int(_env("RAG_MAX_CHARS", "2000000")))
+    max_chunks: int = field(default_factory=lambda: int(_env("RAG_MAX_CHUNKS", "2000")))
+    parse_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("RAG_PARSE_TIMEOUT_SECONDS", "60")))
 
 
 @dataclass

@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import secrets
+import shutil
 import socket
 import tempfile
 import time
@@ -54,6 +55,14 @@ from .queue import RunQueue
 from .ratelimit import FixedWindowLimiter
 from .runner import RunManager
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
+from .upload_guard import (
+    ALLOWED_EXT,
+    UploadRejected,
+    detect_and_validate,
+    extension_of,
+    sanitize_filename,
+    stream_to_temp,
+)
 
 app = FastAPI(title="DeepResearch", version="w9")
 
@@ -195,9 +204,9 @@ MONTHLY_BUDGET_CNY = _env_number("DR_MONTHLY_BUDGET_CNY", 1500.0)
 LOGIN_LIMITER = FixedWindowLimiter(int(_env_number("DR_LOGIN_RATE_PER_MINUTE", 10)))
 SUBMIT_LIMITER = FixedWindowLimiter(int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)))
 
-# P6-A：RAG 上传限制（文件类型白名单 + 单文件大小上限）
+# P6-A / P0-8a：RAG 上传限制（流式落盘 + magic bytes 三重校验 + 解析限额）
 RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
-RAG_ALLOWED_EXT = {".pdf", ".docx", ".md", ".markdown", ".txt", ".text"}
+RAG_UPLOAD_LIMITER = FixedWindowLimiter(int(_env_number("DR_RAG_UPLOADS_PER_MINUTE", 10)))
 
 # P8-A：告警判定阈值（触达渠道由部署方接 IM/邮件；此处只做“可判定”）
 ALERT_5XX_RATE_PCT = _env_number("DR_ALERT_5XX_RATE_PCT", 2.0)
@@ -1102,50 +1111,64 @@ def legal_document(doc: str) -> dict:
 
 @app.post("/api/rag/ingest")
 async def rag_ingest(request: Request, file: UploadFile = File(...)) -> dict:
-    """上传并摄取文档（P6-A）：白名单类型 + 大小上限；**按当前用户打标**（P5 作用域）。
+    """上传并摄取文档（P6-A / P0-8a）：流式落盘 + 三重校验 + 解析限额；按当前用户打标。
 
-    摄取是 CPU/IO 混合任务（解析 + embedding），放执行器线程跑，避免阻塞事件循环。
+    - 流式写临时文件（不整文件入内存），超限 413 `payload_too_large`；
+    - 扩展名 + magic bytes 双校验（PDF/DOCX/文本），DOCX 另做 ZIP 结构与解压比检查；
+    - 存储名由服务端生成（UUID）；原文件名清洗后仅作 `source` 展示元数据；
+    - `doc_id` 内容寻址（`user:sha256[:16]`）⇒ 重复上传幂等（upsert 覆盖）；
+    - 解析限额（页数/字符/分块/墙钟）由 `config.rag` 控制，超限 422 `document_limit_exceeded`。
     """
     user_id = _require_user(request)
     _check_csrf(request)
-    filename = os.path.basename(file.filename or "")
-    extension = os.path.splitext(filename)[1].lower()
-    if not filename or extension not in RAG_ALLOWED_EXT:
+    if not RAG_UPLOAD_LIMITER.allow(f"rag:{user_id or _client_key(request)}"):
+        raise http_error("rate_limited", "上传过于频繁，稍后再试")
+
+    filename = sanitize_filename(file.filename)
+    extension = extension_of(filename)
+    if extension not in ALLOWED_EXT:
         raise http_error(
-            "invalid_request", "不支持的文件类型",
-            detail=f"allowed={sorted(RAG_ALLOWED_EXT)}",
+            "unsupported_file_type", "不支持的文件类型",
+            detail=f"allowed={sorted(ALLOWED_EXT)}",
         )
-    content = await file.read()
-    if len(content) > RAG_MAX_UPLOAD_MB * 1024 * 1024:
-        raise http_error(
-            "invalid_request",
-            f"文件超过 {RAG_MAX_UPLOAD_MB:g}MB 上限",
-            detail=f"size={len(content)}; max_mb={RAG_MAX_UPLOAD_MB:g}",
-        )
-    if not content:
-        raise http_error("invalid_request", "文件为空")
 
-    from research_engine.rag.ingest import DocumentIngester
-
-    def _run_ingest() -> int:
-        ingester = DocumentIngester()
-        with tempfile.TemporaryDirectory(prefix="dr-rag-") as tmp_dir:
-            path = os.path.join(tmp_dir, filename)
-            with open(path, "wb") as handle:
-                handle.write(content)
-            return ingester.ingest_file(path, doc_id=f"{user_id or 'local'}:{filename}",
-                                        user_id=user_id)
-
+    max_bytes = int(RAG_MAX_UPLOAD_MB * 1024 * 1024)
+    tmp_dir = tempfile.mkdtemp(prefix="dr-rag-")
+    path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}{extension}")
     try:
-        chunks = await asyncio.get_running_loop().run_in_executor(None, _run_ingest)
-    except Exception as exc:  # noqa: BLE001 —— embedding / 解析 / Qdrant 故障统一结构化
-        raise http_error(
-            "rag_ingest_failed",
-            f"文档摄取失败：{type(exc).__name__}: {exc}"[:200],
-        ) from exc
+        try:
+            size, digest, head = await stream_to_temp(file, path, max_bytes)
+        except UploadRejected as exc:
+            raise http_error(exc.code, exc.message, detail=exc.detail) from exc
+        if size == 0:
+            raise http_error("invalid_request", "文件为空")
+        try:
+            detect_and_validate(path, filename, head)
+        except UploadRejected as exc:
+            raise http_error(exc.code, exc.message, detail=exc.detail) from exc
+
+        doc_id = f"{user_id or 'local'}:{digest[:16]}"
+        from research_engine.rag.ingest import DocumentIngester, IngestLimitExceeded
+
+        def _run_ingest() -> int:
+            ingester = DocumentIngester()
+            return ingester.ingest_file(path, doc_id=doc_id, user_id=user_id)
+
+        try:
+            chunks = await asyncio.get_running_loop().run_in_executor(None, _run_ingest)
+        except IngestLimitExceeded as exc:
+            raise http_error("document_limit_exceeded", str(exc)[:200]) from exc
+        except Exception as exc:  # noqa: BLE001 —— embedding / 解析 / Qdrant 故障统一结构化
+            raise http_error(
+                "rag_ingest_failed",
+                f"文档摄取失败：{type(exc).__name__}: {exc}"[:200],
+            ) from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
     if not chunks:
         raise http_error("rag_ingest_failed", "文档未解析出任何内容")
-    return {"doc_id": f"{user_id or 'local'}:{filename}", "source": filename, "chunks": chunks}
+    return {"doc_id": doc_id, "source": filename, "chunks": chunks}
 
 
 @app.get("/api/rag/docs")

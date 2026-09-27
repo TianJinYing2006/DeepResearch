@@ -62,7 +62,7 @@
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
 - [ ] 恢复演练（见 §5）
 - [x] RAG 检索按作用域强制过滤（P5：payload `user_id`/`tenant_id`/`visibility`；owner 只见本人 private，历史无主块向后兼容）
-- [x] RAG 上传面（P6-A）：类型白名单 + `DR_RAG_MAX_FILE_MB` 上限；上传按当前用户打标，清单按作用域列出
+- [x] RAG 上传面（P6-A）：类型白名单 + `DR_RAG_MAX_FILE_MB` 上限；上传按当前用户打标，清单按作用域列出。**P0-8a 硬化**：流式落盘（不整文件入内存）、magic bytes/结构三重校验、服务端 UUID 存储名、文件名清洗、内容寻址 `doc_id`（幂等去重）、解析限额（页数/字符/分块/墙钟）、按用户上传限流；异步摄取管线（隔离区 + 状态机 + 可选 AV）见 P0-8b
 
 ### 3.3 任务运行（Worker）
 
@@ -244,6 +244,10 @@ location /api/ {
     proxy_read_timeout 3900s;   # > 默认 run_timeout 3600s + 余量
     proxy_send_timeout 3900s;
     chunked_transfer_encoding on;
+
+    # P0-8a 上传：在代理层先于应用拒绝超大/慢速请求体
+    client_max_body_size 12m;   # = DR_RAG_MAX_FILE_MB(10) + multipart 余量
+    client_body_timeout 60s;
 }
 ```
 
@@ -314,3 +318,4 @@ location /api/ {
 | 2026-09-27 | P0-2 队列可靠性同步：§3.2/§3.3 —— 派发权威迁到 PostgreSQL（`claim_next_queued` + `FOR UPDATE SKIP LOCKED`），Redis 降级为可选唤醒信号；排队超时收口 `TIMED_OUT`；队列深度以 `count_queued` 为准；真实 PG 并发领取测试接入 CI `infra`（本机 593 收集 = 565 通过 + 28 跳过，ruff 全过） |
 | 2026-09-27 | P0-9 启动硬校验同步：§3.1 配置分层勾选（`DR_ENV` fail fast）、§3.4 Cookie 行更新；compose staging 默认 `DR_COOKIE_SECURE=true` 并在文件头注明自检要求；production 拒明文 HTTP（400 `https_required`）；新增 `tests/test_startup_validation.py`（本机 599 收集 = 571 通过 + 28 跳过，ruff 全过） |
 | 2026-09-27 | P0-7 注销 durable outbox 同步：§3.5 注销行更新（台账 + outbox + 验证归零 + 告警 + CLI）；§5 恢复演练追加「重放删除台账」步骤；迁移 0005 与结构断言接入 CI `infra`；新增 `tests/test_deletion_outbox.py`（本机 604 收集 = 575 通过 + 29 跳过，ruff 全过） |
+| 2026-09-27 | P0-8a 上传硬化同步：§3.2 上传面更新（流式 + 三重校验 + 内容寻址 + 解析限额 + 限流）；§7.1 反代样例补 `client_max_body_size` / `client_body_timeout`；新增错误码 `unsupported_file_type` / `payload_too_large` / `document_limit_exceeded` 与 `tests/test_upload_hardening.py`（本机 612 收集 = 583 通过 + 29 跳过，ruff / tsc / vite build 全过） |

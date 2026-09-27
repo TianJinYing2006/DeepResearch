@@ -1,10 +1,14 @@
 """文档摄取：解析、分块、向量化、写入 Qdrant。
 
 支持 PDF / Word / Markdown / 纯文本。分块策略：按段落/标题切分，控制块大小。
+
+P0-8a 解析限额（防资源耗尽 / 压缩炸弹）：页数 / 抽取字符数 / 分块数 / 解析墙钟，
+超限抛 :class:`IngestLimitExceeded`（API 层转结构化错误）。
 """
 from __future__ import annotations
 
 import os
+import time
 from typing import List
 
 from openai import OpenAI
@@ -13,6 +17,10 @@ from qdrant_client.models import PointStruct
 from config import config
 from research_engine.rag.ids import stable_id as _stable_id
 from research_engine.rag.store import VectorStore
+
+
+class IngestLimitExceeded(ValueError):
+    """文档超过解析限额（P0-8a）。"""
 
 
 class DocumentIngester:
@@ -35,7 +43,7 @@ class DocumentIngester:
 
     # ---- 文档解析 ----
     def parse_file(self, path: str) -> str:
-        """按扩展名解析文档为纯文本。"""
+        """按扩展名解析文档为纯文本（P0-8a：受页数 / 字符数 / 墙钟限额约束）。"""
         ext = os.path.splitext(path)[1].lower()
         if ext == ".pdf":
             return self._parse_pdf(path)
@@ -44,23 +52,56 @@ class DocumentIngester:
         if ext in (".md", ".markdown"):
             return self._parse_markdown(path)
         if ext in (".txt", ".text"):
-            with open(path, encoding="utf-8", errors="ignore") as f:
-                return f.read()
+            return self._parse_markdown(path)
         raise ValueError(f"不支持的文档类型: {ext}")
+
+    def _check_chars(self, chars: int) -> None:
+        if chars > config.rag.max_chars:
+            raise IngestLimitExceeded(
+                f"抽取字符数超过上限 {config.rag.max_chars}（当前 {chars}）")
 
     def _parse_pdf(self, path: str) -> str:
         from pypdf import PdfReader
+
         reader = PdfReader(path)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        pages = reader.pages
+        if len(pages) > config.rag.max_pages:
+            raise IngestLimitExceeded(
+                f"PDF 页数 {len(pages)} 超过上限 {config.rag.max_pages}")
+        deadline = time.monotonic() + config.rag.parse_timeout_seconds
+        parts: List[str] = []
+        chars = 0
+        for page in pages:
+            if time.monotonic() > deadline:
+                raise IngestLimitExceeded(
+                    f"解析超时（上限 {config.rag.parse_timeout_seconds:g}s）")
+            text = page.extract_text() or ""
+            chars += len(text)
+            self._check_chars(chars)
+            parts.append(text)
+        return "\n".join(parts)
 
     def _parse_docx(self, path: str) -> str:
         import docx
+
         doc = docx.Document(path)
-        return "\n".join(p.text for p in doc.paragraphs)
+        deadline = time.monotonic() + config.rag.parse_timeout_seconds
+        parts: List[str] = []
+        chars = 0
+        for index, paragraph in enumerate(doc.paragraphs):
+            if index % 200 == 0 and time.monotonic() > deadline:
+                raise IngestLimitExceeded(
+                    f"解析超时（上限 {config.rag.parse_timeout_seconds:g}s）")
+            chars += len(paragraph.text)
+            self._check_chars(chars)
+            parts.append(paragraph.text)
+        return "\n".join(parts)
 
     def _parse_markdown(self, path: str) -> str:
         with open(path, encoding="utf-8", errors="ignore") as f:
-            return f.read()
+            text = f.read(config.rag.max_chars + 1)
+        self._check_chars(len(text))
+        return text
 
     # ---- 分块 ----
     def chunk_text(self, text: str) -> List[str]:
@@ -104,6 +145,9 @@ class DocumentIngester:
         """
         text = self.parse_file(path)
         chunks = self.chunk_text(text)
+        if len(chunks) > config.rag.max_chunks:
+            raise IngestLimitExceeded(
+                f"分块数 {len(chunks)} 超过上限 {config.rag.max_chunks}")
         if not chunks:
             return 0
         vectors = self.embed(chunks)
