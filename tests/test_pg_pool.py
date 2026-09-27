@@ -59,8 +59,8 @@ def test_pool_reuses_connection_and_sets_statement_timeout():
         # 池复用：4 次取用只落在 1~2 个后端连接（min_size 预热与首个请求允许各建一条）
         stats = store._get_pool().get_stats()
         assert len(pids) <= 2
-        assert stats.requests_num >= 5
-        assert stats.connections_num <= 2
+        assert stats["requests_num"] >= 5
+        assert stats["connections_num"] <= 2
     finally:
         store.close()
 
