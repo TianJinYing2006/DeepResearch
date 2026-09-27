@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -20,7 +21,7 @@ from research_engine.state import ResearchState
 from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
 from web.backend.auth import token_hash
 from web.backend.runner import RunManager
-from web.backend.store import RunStore
+from web.backend.store import QuotaExceeded, RunStore
 
 DSN = os.getenv("DR_TEST_DATABASE_URL", "").strip()
 
@@ -463,6 +464,40 @@ def test_status_counts_and_stale_leases(store: RunStore):
     # count_active 与 sweep 断言（与 P7-A 注销测试同类坑，D 盘实测教训）。
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE run_id IN (%s, %s)", (stale_id, fresh_id))
+
+
+def test_create_run_admitted_serializes_concurrency(store: RunStore):
+    """P0-3：并发准入下全局并发闸不得被突破（真实 PostgreSQL advisory lock）。"""
+    results: list[tuple] = []
+    lock = threading.Lock()
+
+    def worker(index: int) -> None:
+        try:
+            row, created = store.create_run_admitted(
+                f"race{index:08d}", "t", {"instructions": "x"},
+                user_id=TEST_USER, status="QUEUED",
+                global_active_limit=1, user_active_limit=1,
+                daily_limit=None, monthly_budget_cny=None)
+            with lock:
+                results.append(("created", row["run_id"], created))
+        except QuotaExceeded as exc:
+            with lock:
+                results.append(("quota", exc.kind, None))
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    created = [item for item in results if item[0] == "created"]
+    quota = [item for item in results if item[0] == "quota"]
+    assert len(created) == 1
+    assert len(quota) == 4
+    assert all(item[1] in ("global_concurrency", "user_concurrency") for item in quota)
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE run_id LIKE 'race%'")
 
 
 def test_finalize_run_atomic_contract(store: RunStore):

@@ -38,6 +38,15 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class QuotaExceeded(Exception):
+    """准入检查失败（P0-3）：kind ∈ global_concurrency / user_concurrency / daily_runs / monthly_budget。"""
+
+    def __init__(self, kind: str, detail: str):
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+
+
 class RunStore:
     """runs / run_events / run_artifacts 的最小仓储实现（同步）。"""
 
@@ -106,6 +115,107 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM runs WHERE run_id = %s", (run_id,))
             return cur.fetchone()
+
+    def create_run_admitted(
+        self,
+        run_id: str,
+        topic: str,
+        request: Optional[dict[str, Any]] = None,
+        *,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        status: str = "CREATED",
+        timeout_at: Optional[datetime] = None,
+        budget_limit_cny: Optional[float] = None,
+        global_active_limit: Optional[int] = None,
+        user_active_limit: Optional[int] = None,
+        daily_limit: Optional[int] = None,
+        monthly_budget_cny: Optional[float] = None,
+        daily_since: Optional[datetime] = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """原子准入 + 创建（P0-3）：检查与插入在**同一事务**，多 API 实例并发安全。
+
+        串行化手段：`pg_advisory_xact_lock`（全局配额一把、用户配额一把），
+        锁随事务提交/回滚自动释放；检查失败抛 :class:`QuotaExceeded`（事务回滚，
+        不插入半成品）。
+
+        与 :meth:`create_run` 的幂等语义一致：幂等命中返回既有行（`created=False`）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("dr:quota:global",))
+            if monthly_budget_cny is not None and monthly_budget_cny > 0:
+                cur.execute(
+                    "SELECT COALESCE(SUM(cost_estimate_cny), 0) AS total FROM runs "
+                    "WHERE created_at >= date_trunc('month', now())"
+                )
+                spent = float(cur.fetchone()["total"])
+                if spent >= monthly_budget_cny:
+                    raise QuotaExceeded(
+                        "monthly_budget", f"spent={spent:.4f}; limit={monthly_budget_cny}")
+            if global_active_limit is not None and global_active_limit > 0:
+                cur.execute("SELECT count(*) AS n FROM runs WHERE status = ANY(%s)",
+                            (list(ACTIVE_STATUSES),))
+                active = int(cur.fetchone()["n"])
+                if active >= global_active_limit:
+                    raise QuotaExceeded(
+                        "global_concurrency", f"active={active}; limit={global_active_limit}")
+            if user_id is not None:
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",
+                            (f"dr:quota:user:{user_id}",))
+                if user_active_limit is not None and user_active_limit > 0:
+                    cur.execute(
+                        "SELECT count(*) AS n FROM runs WHERE status = ANY(%s) AND user_id = %s",
+                        (list(ACTIVE_STATUSES), user_id),
+                    )
+                    active = int(cur.fetchone()["n"])
+                    if active >= user_active_limit:
+                        raise QuotaExceeded(
+                            "user_concurrency", f"active={active}; limit={user_active_limit}")
+                if daily_limit is not None and daily_limit > 0 and daily_since is not None:
+                    cur.execute(
+                        "SELECT count(*) AS n FROM runs WHERE user_id = %s AND created_at >= %s",
+                        (user_id, daily_since),
+                    )
+                    used = int(cur.fetchone()["n"])
+                    if used >= daily_limit:
+                        raise QuotaExceeded(
+                            "daily_runs", f"used={used}; limit={daily_limit}")
+            if idempotency_key is not None:
+                cur.execute(
+                    "SELECT * FROM runs WHERE user_id IS NOT DISTINCT FROM %s "
+                    "AND idempotency_key = %s",
+                    (user_id, idempotency_key),
+                )
+                existing = cur.fetchone()
+                if existing is not None:
+                    return existing, False
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
+                                      idempotency_key, timeout_at, budget_limit_cny, queued_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING *
+                    """,
+                    (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
+                     idempotency_key, timeout_at, budget_limit_cny,
+                     _now() if status == "QUEUED" else None),
+                )
+                row = cur.fetchone()
+            except psycopg.errors.UniqueViolation:
+                if idempotency_key is None:
+                    raise
+                cur.execute(
+                    "SELECT * FROM runs WHERE user_id IS NOT DISTINCT FROM %s "
+                    "AND idempotency_key = %s",
+                    (user_id, idempotency_key),
+                )
+                existing = cur.fetchone()
+                if existing is None:
+                    raise
+                return existing, False
+            return row, True
 
     def get_run_by_idempotency(
         self, user_id: Optional[str], idempotency_key: str

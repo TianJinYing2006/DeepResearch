@@ -55,7 +55,7 @@ from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
 from .moderation import apply_output_gate, flag_report
 from .persistence import persist_forced, persist_terminal
-from .store import RunStore
+from .store import QuotaExceeded, RunStore
 
 # --- P1-2 / P1-3 默认值 --------------------------------------------------------
 # 依据：单轮实测 48~51 分钟（W8 after 基线）⇒ 时限必须给出**真实运行的余量**，
@@ -150,7 +150,8 @@ class RunManager:
               idempotency_key: str | None = None,
               user_id: str | None = None,
               budget_limit_cny: float | None = None,
-              ignored_overrides: Optional[dict] = None) -> str:
+              ignored_overrides: Optional[dict] = None,
+              admission: Optional[dict] = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
         配置了仓储（P2-C）时：
@@ -178,19 +179,33 @@ class RunManager:
             run_timeout_seconds = (
                 profile.timeout_seconds if profile is not None else self.run_timeout_seconds)
             if self._store is not None:
+                request_payload = {
+                    "instructions": instructions,
+                    "profile": profile.snapshot() if profile is not None else None,
+                    "ignored_overrides": ignored_overrides or None,
+                }
                 try:
-                    row, created = self._store.create_run(
-                        run_id, topic,
-                        {
-                            "instructions": instructions,
-                            "profile": profile.snapshot() if profile is not None else None,
-                            "ignored_overrides": ignored_overrides or None,
-                        },
-                        user_id=user_id,
-                        idempotency_key=idempotency_key,
-                        timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
-                        budget_limit_cny=budget_limit_cny,
-                    )
+                    if admission:
+                        # P0-3：准入检查与插入同一事务（advisory lock 串行化）
+                        row, created = self._store.create_run_admitted(
+                            run_id, topic, request_payload,
+                            user_id=user_id,
+                            idempotency_key=idempotency_key,
+                            timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
+                            budget_limit_cny=budget_limit_cny,
+                            **admission)
+                    else:
+                        row, created = self._store.create_run(
+                            run_id, topic, request_payload,
+                            user_id=user_id,
+                            idempotency_key=idempotency_key,
+                            timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
+                            budget_limit_cny=budget_limit_cny,
+                        )
+                except QuotaExceeded as exc:
+                    code = ("concurrency_limit" if exc.kind == "global_concurrency"
+                            else "quota_exceeded")
+                    raise ApiError(code, exc.detail) from exc
                 except Exception as exc:  # noqa: BLE001 —— 持久化是硬前提，失败即明确报错
                     raise ApiError(
                         "persistence_unavailable",
