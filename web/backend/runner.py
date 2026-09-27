@@ -52,6 +52,7 @@ from .agui import (
     STEP_FINISHED,
     sse_frame,
 )
+from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
 from .moderation import apply_output_gate, flag_report
@@ -190,6 +191,8 @@ class RunManager:
                     "instructions": instructions,
                     "profile": profile.snapshot() if profile is not None else None,
                     "ignored_overrides": ignored_overrides or None,
+                    # P1-9：数据流向快照（谁收到了什么；不含密钥）
+                    "egress": build_egress_snapshot(profile),
                 }
                 try:
                     if admission:
@@ -249,6 +252,8 @@ class RunManager:
                 "event_count": 0,
                 "last_event_type": None,
                 "has_report": False,
+                # P1-9：导出载荷随附数据流向快照
+                "egress": build_egress_snapshot(profile),
             }
             if self._store is not None:
                 try:
@@ -411,14 +416,15 @@ class RunManager:
         return run_id in self._results
 
     def export_payload(self, run_id: str) -> Optional[Dict[str, Any]]:
-        """导出的结构化载荷（元数据 + result），没有终局结果时返回 ``None``。"""
+        """导出的结构化载荷（元数据 + result + 数据流向快照），没有终局结果时返回 ``None``。"""
         with self._lock:
             result = self._results.get(run_id)
             meta = self._meta.get(run_id)
             st = self._status.get(run_id)
         if result is None or meta is None or st is None:
             return None
-        return build_export_payload(run_id=run_id, topic=st["topic"], meta=meta, result=result)
+        return build_export_payload(run_id=run_id, topic=st["topic"], meta=meta, result=result,
+                                    egress=st.get("egress"))
 
     def export_markdown(self, run_id: str) -> Optional[str]:
         payload = self.export_payload(run_id)
@@ -522,9 +528,10 @@ class RunManager:
         try:
             with self._lock:
                 topic = (self._status.get(run_id) or {}).get("topic", "")
+                egress = (self._status.get(run_id) or {}).get("egress")
             finalized = persist_terminal(store, run_id, seq, event_type, payload,
                                          result=result, report=report, meta=meta, topic=topic,
-                                         moderation_status=moderation_status)
+                                         moderation_status=moderation_status, egress=egress)
             if not finalized:
                 # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
                 self._set_persistence_error(run_id, RuntimeError("terminal_conflict"))

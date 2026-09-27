@@ -43,6 +43,7 @@ from .auth import (
     token_hash,
     verify_password,
 )
+from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload, http_error
 from .metrics import METRICS
 from .moderation import (
@@ -528,6 +529,8 @@ def _snapshot_from_store(run_id: str) -> Optional[dict]:
         "remaining_seconds": round(max(0.0, timeout_seconds - elapsed), 1),
         "worker_status": row.get("worker_status"),
         "moderation_status": row.get("moderation_status"),
+        # P1-9：数据流向快照（创建时固化；历史任务可解释「当时发给了谁」）
+        "egress": (row.get("request") or {}).get("egress"),
     }
 
 
@@ -816,6 +819,8 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
                 "instructions": req.instructions,
                 "profile": profile.snapshot(),
                 "ignored_overrides": ignored or None,
+                # P1-9：数据流向快照（谁收到了什么；不含密钥）
+                "egress": build_egress_snapshot(profile),
             },
             user_id=user_id,
             idempotency_key=req.idempotency_key,
