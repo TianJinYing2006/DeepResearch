@@ -41,7 +41,7 @@
 - [x] `docker-compose.staging.yml`（api / worker / PostgreSQL / Redis；反向代理待 P8）
 - [ ] 数据库迁移工具与迁移脚本（**只前向 + `schema_migrations` 幂等**；回退走备份恢复，见 §7.3）
 - [ ] `/api/health` 拆分为 readiness / liveness，并接反向代理探针
-- [ ] 配置分层：开发 / staging / 生产，敏感项全部走环境变量或密钥服务
+- [x] 配置分层：开发 / staging / 生产，敏感项全部走环境变量或密钥服务；**P0-9 起 `DR_ENV=staging|production` 启动自检 fail fast**（`DR_AUTH_REQUIRED` / `DR_COOKIE_SECURE` / `DR_CORS_ORIGINS` / `DASHSCOPE_API_KEY`），production 另拒明文 HTTP（`X-Forwarded-Proto`）
 - [ ] **CORS 环境变量化**（禁止生产继续固定 localhost，`main.py:47-52`）
 - [ ] 反向代理 SSE 专项配置：
   - [ ] `proxy_buffering off;`
@@ -88,7 +88,7 @@
 
 - [x] 注册 / 登录 / 登出 / 会话过期 / 用户封禁（CLI）/ 邀请码（一次性、可过期、可撤销）—— P4-A
 - [ ] 密码重置（邮件通道）—— P4-B / P7
-- [x] 密码哈希 Argon2id；会话 httpOnly + SameSite；`DR_COOKIE_SECURE=true` 时加 Secure
+- [x] 密码哈希 Argon2id；会话 httpOnly + SameSite；`DR_COOKIE_SECURE=true` 时加 Secure（**P0-9：staging/生产启动硬校验要求为 true**，不允许带 `Secure=false` 启动）
 - [x] CSRF 防护：双提交 Cookie（写操作校验 `X-CSRF-Token`）—— P4-A
 - [x] 登录与提交接口限流（进程内固定窗口，P4-B；⚠️ 多实例部署前必须迁移 Redis —— 否则各实例各算一份）
 - [x] 运行类接口归属校验：鉴权开启时非本人一律 404；管理层走 CLI（不暴露 HTTP 管理面）
@@ -308,3 +308,4 @@ location /api/ {
 | 2026-09-27 | P0-5 申诉校验同步：§3.5 处置链路勾选归属 / 状态 / 防重复（带 `run_id` 的申诉）；新增错误码 `appeal_not_applicable` / `appeal_duplicate` 与 `store.has_appeal`（本机 588 收集 = 562 通过 + 26 跳过，ruff 全过） |
 | 2026-09-27 | P0-3 准入原子化同步：§3.3 并发与预算闸改为同事务原子判定（`RunStore.create_run_admitted` + `pg_advisory_xact_lock`）；真实 PG 并发竞争测试接入 CI `infra`（本机 589 收集 = 562 通过 + 27 跳过，ruff 全过） |
 | 2026-09-27 | P0-2 队列可靠性同步：§3.2/§3.3 —— 派发权威迁到 PostgreSQL（`claim_next_queued` + `FOR UPDATE SKIP LOCKED`），Redis 降级为可选唤醒信号；排队超时收口 `TIMED_OUT`；队列深度以 `count_queued` 为准；真实 PG 并发领取测试接入 CI `infra`（本机 593 收集 = 565 通过 + 28 跳过，ruff 全过） |
+| 2026-09-27 | P0-9 启动硬校验同步：§3.1 配置分层勾选（`DR_ENV` fail fast）、§3.4 Cookie 行更新；compose staging 默认 `DR_COOKIE_SECURE=true` 并在文件头注明自检要求；production 拒明文 HTTP（400 `https_required`）；新增 `tests/test_startup_validation.py`（本机 599 收集 = 571 通过 + 28 跳过，ruff 全过） |
