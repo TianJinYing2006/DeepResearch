@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import sys
 import threading
 import time
@@ -110,49 +111,102 @@ class Worker:
             else _env_int("DR_WORKER_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS)
         )
         self._stop = threading.Event()
+        # P1-3：worker registry（心跳 best-effort；draining → stopped 由 stop()/run_forever 收口）
+        self.version = (os.getenv("DR_WORKER_VERSION") or "dev").strip()[:64]
+        self.hostname = socket.gethostname()[:128]
+        self.registry_heartbeat_seconds = _env_int(
+            "DR_WORKER_REGISTRY_HEARTBEAT_SECONDS", 15)
+        self._current_run_id: Optional[str] = None
 
     # ------------------------------------------------------------------ 主循环
 
     def stop(self) -> None:
+        """停止信号：先标记 draining（不再领新任务），当前任务自然收口。"""
+        if not self._stop.is_set():
+            _log("停止信号：进入 draining（不再领取新任务，等待当前任务收口）")
+            self._mark_status("draining")
         self._stop.set()
 
+    def register(self) -> None:
+        """注册 / 复活本 worker（best-effort：注册表是运维元数据，绝不打断主循环）。"""
+        try:
+            self._store.register_worker(self.worker_id, version=self.version,
+                                        hostname=self.hostname)
+        except Exception as exc:  # noqa: BLE001
+            _log(f"register failed (best-effort): {type(exc).__name__}: {exc}")
+
+    def _registry_beat(self) -> None:
+        try:
+            alive = self._store.heartbeat_worker(
+                self.worker_id,
+                in_flight=1 if self._current_run_id else 0,
+                current_run_id=self._current_run_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log(f"registry heartbeat failed: {type(exc).__name__}: {exc}")
+            return
+        if not alive:
+            _log("worker row missing; re-registering")
+            self.register()
+
+    def _registry_loop(self, stop: threading.Event) -> None:
+        while not stop.wait(self.registry_heartbeat_seconds):
+            self._registry_beat()
+
+    def _mark_status(self, status: str) -> None:
+        try:
+            self._store.mark_worker_status(self.worker_id, status)
+        except Exception as exc:  # noqa: BLE001
+            _log(f"mark_worker_status({status}) failed: {type(exc).__name__}: {exc}")
+
     def run_forever(self) -> None:
+        self.register()
+        registry_stop = threading.Event()
+        registry_thread = threading.Thread(
+            target=self._registry_loop, args=(registry_stop,),
+            name="worker-registry", daemon=True,
+        )
+        registry_thread.start()
         next_sweep = 0.0  # 启动即清扫一次：接管上次进程崩溃留下的过期租约
         next_retention = 0.0  # P0-8b：保留期清理（默认每日一次）
-        while not self._stop.is_set():
-            if time.monotonic() >= next_sweep:
-                try:
-                    swept = self.sweep_and_requeue()
-                    if swept:
-                        _log(f"sweep: {swept}")
-                except Exception as exc:  # noqa: BLE001 —— 清扫失败不拖垮消费循环
-                    _log(f"sweep failed: {type(exc).__name__}: {exc}")
-                try:
-                    # P0-7：注销 outbox（Qdrant 清理 + 验证）随清扫周期推进
-                    deletions = process_deletions_once(self._store)
-                    if deletions["claimed"]:
-                        _log(f"deletions: {deletions}")
-                except Exception as exc:  # noqa: BLE001 —— 注销清理失败不拖垮消费循环
-                    _log(f"deletion outbox failed: {type(exc).__name__}: {exc}")
-                try:
-                    # P0-8b：异步摄取（隔离区 → 解析/embedding/Qdrant）
-                    ingestions = process_ingestions_once(self._store)
-                    if ingestions["claimed"]:
-                        _log(f"ingestions: {ingestions}")
-                except Exception as exc:  # noqa: BLE001 —— 摄取失败不拖垮消费循环
-                    _log(f"ingestion worker failed: {type(exc).__name__}: {exc}")
-                if time.monotonic() >= next_retention:
+        try:
+            while not self._stop.is_set():
+                if time.monotonic() >= next_sweep:
                     try:
-                        purged = purge_expired_documents(self._store)
-                        if purged["expired"]:
-                            _log(f"retention: {purged}")
-                    except Exception as exc:  # noqa: BLE001
-                        _log(f"retention purge failed: {type(exc).__name__}: {exc}")
-                    next_retention = time.monotonic() + 24 * 3600
-                next_sweep = time.monotonic() + self.sweep_seconds
-            if self.claim_next():
-                continue
-            self._wait_for_signal()
+                        swept = self.sweep_and_requeue()
+                        if swept:
+                            _log(f"sweep: {swept}")
+                    except Exception as exc:  # noqa: BLE001 —— 清扫失败不拖垮消费循环
+                        _log(f"sweep failed: {type(exc).__name__}: {exc}")
+                    try:
+                        # P0-7：注销 outbox（Qdrant 清理 + 验证）随清扫周期推进
+                        deletions = process_deletions_once(self._store)
+                        if deletions["claimed"]:
+                            _log(f"deletions: {deletions}")
+                    except Exception as exc:  # noqa: BLE001 —— 注销清理失败不拖垮消费循环
+                        _log(f"deletion outbox failed: {type(exc).__name__}: {exc}")
+                    try:
+                        # P0-8b：异步摄取（隔离区 → 解析/embedding/Qdrant）
+                        ingestions = process_ingestions_once(self._store)
+                        if ingestions["claimed"]:
+                            _log(f"ingestions: {ingestions}")
+                    except Exception as exc:  # noqa: BLE001 —— 摄取失败不拖垮消费循环
+                        _log(f"ingestion worker failed: {type(exc).__name__}: {exc}")
+                    if time.monotonic() >= next_retention:
+                        try:
+                            purged = purge_expired_documents(self._store)
+                            if purged["expired"]:
+                                _log(f"retention: {purged}")
+                        except Exception as exc:  # noqa: BLE001
+                            _log(f"retention purge failed: {type(exc).__name__}: {exc}")
+                        next_retention = time.monotonic() + 24 * 3600
+                    next_sweep = time.monotonic() + self.sweep_seconds
+                if self.claim_next():
+                    continue
+                self._wait_for_signal()
+        finally:
+            registry_stop.set()
+            self._mark_status("stopped")
 
     def claim_next(self) -> bool:
         """从任务库原子领取下一条 QUEUED 并执行（P0-2 派发权威）。
@@ -202,6 +256,7 @@ class Worker:
     def _run_claimed(self, row: dict[str, Any]) -> None:
         """执行已认领的任务（心跳 + 执行 + 崩溃兜底）。"""
         run_id = row["run_id"]
+        self._current_run_id = run_id
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
             target=self._heartbeat_loop, args=(run_id, hb_stop),
@@ -215,6 +270,7 @@ class Worker:
         finally:
             hb_stop.set()
             heartbeat.join(timeout=1.0)
+            self._current_run_id = None
 
     def _heartbeat_loop(self, run_id: str, stop: threading.Event) -> None:
         while not stop.wait(self.heartbeat_seconds):

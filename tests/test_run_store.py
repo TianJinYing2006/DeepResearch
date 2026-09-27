@@ -608,6 +608,27 @@ def test_audit_log_contract(store: RunStore):
         cur.execute("DELETE FROM audit_logs")
 
 
+def test_worker_registry_contract(store: RunStore):
+    """P1-3：注册 / 心跳 / 存活计数 / draining→stopped / 过期清理（真实 PG）。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM workers")
+    store.register_worker("w-test", version="v1", hostname="h1")
+    assert store.count_live_workers(within_seconds=90) == 1
+
+    assert store.heartbeat_worker("w-test", in_flight=1, current_run_id="r1") is True
+    row = store.list_workers()[0]
+    assert row["in_flight"] == 1 and row["current_run_id"] == "r1"
+
+    store.mark_worker_status("w-test", "draining")
+    assert store.count_live_workers(within_seconds=90) == 0
+    store.mark_worker_status("w-test", "stopped")
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE workers SET last_heartbeat_at = now() - interval '10 days' "
+                    "WHERE worker_id = 'w-test'")
+    assert store.purge_stale_workers(days=7) == 1
+    assert store.list_workers() == []
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")
