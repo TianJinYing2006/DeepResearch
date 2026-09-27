@@ -52,6 +52,7 @@ from .moderation import (
     MAX_TOPIC_LENGTH,
     scan,
 )
+from .objectstore import get_object_store
 from .otel import (
     PROMETHEUS_ENABLED,
     instrument_fastapi,
@@ -292,6 +293,10 @@ store = None if DEMO_MODE else _make_store()
 if store is not None:
     try:
         _startup_store_maintenance(store, EXECUTION_MODE)
+        # P1-6：对象存储桶 + 生命周期（best-effort；未配置则为 None 直接跳过）
+        _object_store = get_object_store()
+        if _object_store is not None:
+            _object_store.ensure_bucket()
     except Exception:  # noqa: BLE001 —— 库不可用时由 readiness 与请求侧结构化错误表达
         pass
 
@@ -485,6 +490,16 @@ def health_ready(response: Response) -> dict:
                 "live": live,
                 "max_age_seconds": WORKER_HEARTBEAT_MAX_AGE_SECONDS,
             }
+    object_store = get_object_store()
+    if object_store is not None:
+        # P1-6：配置了对象存储才探针（未配置 = 双轨回落 PG，不判失败）
+        try:
+            object_store.ping()
+        except Exception as exc:  # noqa: BLE001
+            checks["object_storage"] = {"status": "unreachable",
+                                        "target": f"{type(exc).__name__}"}
+        else:
+            checks["object_storage"] = {"status": "ok", "target": object_store.endpoint}
     failed = [item for item in checks.values()
               if item["status"] in {"unreachable", "invalid_url", "unavailable"}]
     if failed:
@@ -1574,17 +1589,34 @@ def cancel(run_id: str, request: Request) -> dict:
 
 
 def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:
-    """任务库导出回落（P2-C）：进程重启后仍可下载历史报告。"""
+    """任务库导出回落（P2-C）：进程重启后仍可下载历史报告。
+
+    P1-6：产物可能存对象存储（`storage='s3'`）—— 读取前已过鉴权与 flagged 闸，
+    不暴露对象直链；S3 读取失败如实报 `report_unavailable`。
+    """
     if not row.get("finished_at"):
         raise http_error("report_not_ready", "研究尚未结束，暂无报告可导出")
-    if fmt == "json":
-        body = _store_call(store.get_artifact, run_id, "export_json")
-        if not body:
-            raise http_error("report_unavailable", "本次运行没有产出报告")
-        return JSONResponse(json.loads(body))
-    body = _store_call(store.get_artifact, run_id, "report_md")
+    kind = "export_json" if fmt == "json" else "report_md"
+    artifact = _store_call(store.get_artifact_row, run_id, kind)
+    if not artifact:
+        raise http_error("report_unavailable", "本次运行没有产出报告")
+    if artifact.get("storage") == "s3" and artifact.get("object_key"):
+        object_store = get_object_store()
+        if object_store is None:
+            raise http_error("report_unavailable", "报告在对象存储中，但对象存储未配置")
+        try:
+            body = object_store.get_text(artifact["object_key"])
+        except Exception as exc:  # noqa: BLE001
+            raise http_error(
+                "report_unavailable",
+                f"对象存储读取失败：{type(exc).__name__}: {exc}"[:200],
+            ) from exc
+    else:
+        body = artifact.get("body") or ""
     if not body:
         raise http_error("report_unavailable", "本次运行没有产出报告")
+    if fmt == "json":
+        return JSONResponse(json.loads(body))
     return Response(
         content=body,
         media_type="text/markdown; charset=utf-8",

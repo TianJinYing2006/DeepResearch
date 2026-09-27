@@ -634,14 +634,16 @@ class RunStore:
         new_status: str,
         allowed_from: Iterable[str],
         fields: Optional[dict[str, Any]] = None,
-        artifacts: Optional[dict[str, str]] = None,
+        artifacts: Optional[dict[str, dict[str, Any]]] = None,
     ) -> bool:
         """终局原子落库（P0-6）：状态迁移 + 终局事件 + 产物在**同一事务**提交。
 
         - 状态迁移失败（已被清扫 / 强制收口抢先）⇒ 整体回滚并返回 ``False``，
           不产生「状态未迁移但事件/产物已写」的半成品（完成先落终局，之后不得改判）；
         - `sequence=None`（Worker 单写者）由数据库分配 ``MAX(sequence)+1``，
-          冲突时整体重试；显式序号按幂等处理（``ON CONFLICT DO NOTHING``）。
+          冲突时整体重试；显式序号按幂等处理（``ON CONFLICT DO NOTHING``）；
+        - `artifacts`（P1-6）：`{kind: {body, storage, object_key, sha256, size_bytes}}`，
+          `storage='s3'` 时正文在对象存储、本表只留元数据。
         """
         fields = fields or {}
         unknown = set(fields) - _UPDATABLE_FIELDS
@@ -686,14 +688,22 @@ class RunStore:
                             (run_id, sequence, event_type, Jsonb(payload or {})),
                         )
                     cur.fetchone()
-                    for kind, body in (artifacts or {}).items():
+                    for kind, meta in (artifacts or {}).items():
                         cur.execute(
                             """
-                            INSERT INTO run_artifacts (run_id, kind, body) VALUES (%s, %s, %s)
+                            INSERT INTO run_artifacts (run_id, kind, body, storage, object_key,
+                                                       sha256, size_bytes)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (run_id, kind)
-                            DO UPDATE SET body = EXCLUDED.body, updated_at = now()
+                            DO UPDATE SET body = EXCLUDED.body, storage = EXCLUDED.storage,
+                                          object_key = EXCLUDED.object_key,
+                                          sha256 = EXCLUDED.sha256,
+                                          size_bytes = EXCLUDED.size_bytes,
+                                          updated_at = now()
                             """,
-                            (run_id, kind, body),
+                            (run_id, kind, meta.get("body", ""), meta.get("storage", "db"),
+                             meta.get("object_key"), meta.get("sha256"),
+                             meta.get("size_bytes")),
                         )
                 return True
             except psycopg.errors.UniqueViolation:
@@ -708,6 +718,15 @@ class RunStore:
             )
             row = cur.fetchone()
             return row["body"] if row else None
+
+    def get_artifact_row(self, run_id: str, kind: str) -> Optional[dict[str, Any]]:
+        """产物完整行（P1-6：读取侧据 `storage` 决定走 PG body 还是对象存储）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM run_artifacts WHERE run_id = %s AND kind = %s",
+                (run_id, kind),
+            )
+            return cur.fetchone()
 
     def has_artifact(self, run_id: str, kind: str) -> bool:
         with self._connect() as conn, conn.cursor() as cur:

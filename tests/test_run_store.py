@@ -692,18 +692,19 @@ def test_finalize_run_atomic_contract(store: RunStore):
         sequence=None, new_status="SUCCEEDED",
         allowed_from=("RUNNING", "CANCEL_REQUESTED"),
         fields={"stop_reason": "completed", "finished_at": _now()},
-        artifacts={"report_md": "# 正文", "export_json": "{}"},
+        artifacts={"report_md": {"body": "# 正文"}, "export_json": {"body": "{}"}},
     )
     assert ok is True
     assert store.get_run(run_id)["status"] == "SUCCEEDED"
-    assert store.get_artifact(run_id, "report_md") == "# 正文"
+    artifact = store.get_artifact_row(run_id, "report_md")
+    assert artifact["storage"] == "db" and artifact["body"] == "# 正文"
     assert [e["event_type"] for e in store.get_events(run_id)] == ["RUN_FINISHED"]
 
     # 已终局的任务再次终局：整体回滚（事件不追加、产物不覆盖、状态不改判）
     assert store.finalize_run(
         run_id, event_type="RUN_FINISHED", payload={}, sequence=None,
         new_status="FAILED", allowed_from=("RUNNING",),
-        fields={"stop_reason": "error"}, artifacts={"report_md": "# 迟到报告"},
+        fields={"stop_reason": "error"}, artifacts={"report_md": {"body": "# 迟到报告"}},
     ) is False
     assert store.get_run(run_id)["status"] == "SUCCEEDED"
     assert store.get_artifact(run_id, "report_md") == "# 正文"

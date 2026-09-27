@@ -58,7 +58,7 @@
 - [ ] `run_events` 单调 `sequence` 约束（唯一索引，防重放）
 - [ ] 连接池与慢查询监控接入
 - [ ] Redis：队列 / 租约 / 限流键的过期策略；**不得作为唯一事实来源**（P0-2 起任务派发已完全离开 Redis，仅剩可选唤醒信号）
-- [ ] 对象存储：报告与导出文件的生命周期规则（与「数据保存期限」拍板值一致）
+- [x] 对象存储：报告与导出文件的生命周期规则（与「数据保存期限」拍板值一致）。**P1-6**：MinIO（compose 服务，私有桶）+ `runs/` 前缀 **90 天**生命周期（`DR_S3_REPORT_RETENTION_DAYS`，与隐私政策「报告与运行元数据 90 天」对齐）；`run_artifacts` 只存元数据（storage/object_key/sha256/size）；未配置 `DR_S3_ENDPOINT` 回落 PostgreSQL（双轨可切换）；S3 写入失败自动回落 db；读取经应用鉴权（flagged 闸在前，不暴露直链）；readiness 含对象存储探针
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
 - [ ] 恢复演练（见 §5）
 - [x] RAG 检索按作用域强制过滤（P5：payload `user_id`/`tenant_id`/`visibility`；owner 只见本人 private，历史无主块向后兼容）；**P1-7 起为过滤字段建 payload index**（`user_id` 启用 `is_tenant=true`；幂等补齐，索引失败不阻断且留 `last_error`）
@@ -336,3 +336,4 @@ location /api/ {
 | 2026-09-27 | P1-9 provider/egress 快照同步：§4 数据流向登记表增「run 级快照」说明；`web/backend/egress.py` + 快照接口/导出展示；新增 `tests/test_egress_snapshot.py`（本机 664 收集 = 629 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-7 Qdrant payload index 同步：§3.2 检索过滤行更新（`is_tenant` 索引 + 幂等补齐）；新增 `tests/test_qdrant_indexes.py`（本机 667 收集 = 632 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-8 OTel 同步：§3.6 中心化观测勾选（OTLP/Prometheus 双路径 + GenAI 指标 + 后台任务 span，默认关）；compose 增 OTLP/Prometheus 透传；依赖入 lock；新增 `tests/test_otel.py`（本机 672 收集 = 637 通过 + 35 跳过，ruff 全过） |
+| 2026-09-27 | P1-6 对象存储同步：§3.2 对象存储项勾选（MinIO 私有桶 + 90 天生命周期 + 元数据化 + PG 双轨回落 + S3 失败兜底 + readiness 探针）；迁移 0012 + 结构断言接入 CI `infra`；依赖 boto3 入 lock；新增 `tests/test_object_storage.py`（本机 678 收集 = 643 通过 + 35 跳过，ruff / compose config 全过） |

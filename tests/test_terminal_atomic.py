@@ -23,7 +23,7 @@ def test_finalize_run_writes_status_event_and_artifacts():
     ok = store.finalize_run(
         run_id, event_type="RUN_FINISHED", payload={"stop_reason": "completed"},
         sequence=None, new_status="SUCCEEDED", allowed_from=ACTIVE_STATUSES,
-        fields={"stop_reason": "completed"}, artifacts={"report_md": "# 正文"})
+        fields={"stop_reason": "completed"}, artifacts={"report_md": {"body": "# 正文"}})
     assert ok is True
     assert store.get_run(run_id)["status"] == "SUCCEEDED"
     assert store.get_artifact(run_id, "report_md") == "# 正文"
@@ -39,7 +39,7 @@ def test_finalize_run_rolls_back_when_status_already_terminal():
     ok = store.finalize_run(
         run_id, event_type="RUN_FINISHED", payload={}, sequence=None,
         new_status="SUCCEEDED", allowed_from=ACTIVE_STATUSES,
-        fields={"stop_reason": "completed"}, artifacts={"report_md": "# 迟到报告"})
+        fields={"stop_reason": "completed"}, artifacts={"report_md": {"body": "# 迟到报告"}})
 
     assert ok is False
     assert store.get_run(run_id)["status"] == "LOST"        # 完成先落终局，不得改判

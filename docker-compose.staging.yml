@@ -38,6 +38,12 @@ x-app-environment: &app-environment
   # P1-8：OpenTelemetry（默认关闭；设置 OTLP 端点或打开 Prometheus 抓取才启用）
   OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
   DR_METRICS_PROMETHEUS: "${DR_METRICS_PROMETHEUS:-false}"
+  # P1-6：对象存储（默认指向 compose 内 MinIO；置空则回落 PostgreSQL）
+  DR_S3_ENDPOINT: "${DR_S3_ENDPOINT:-http://minio:9000}"
+  DR_S3_ACCESS_KEY: "${DR_S3_ACCESS_KEY:-deepresearch}"
+  DR_S3_SECRET_KEY: "${DR_S3_SECRET_KEY:-deepresearch-local}"
+  DR_S3_BUCKET: "${DR_S3_BUCKET:-deepresearch}"
+  DR_S3_REPORT_RETENTION_DAYS: "${DR_S3_REPORT_RETENTION_DAYS:-90}"
 
 services:
   postgres:
@@ -84,6 +90,25 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/migrate.sh"]
     restart: "no"
 
+  # P1-6：S3 兼容对象存储（报告 / 导出；私有桶 + runs/ 前缀生命周期）
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${DR_S3_ACCESS_KEY:-deepresearch}"
+      MINIO_ROOT_PASSWORD: "${DR_S3_SECRET_KEY:-deepresearch-local}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:${DR_MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${DR_MINIO_CONSOLE_PORT:-9001}:9001"
+
   api:
     build:
       context: .
@@ -93,6 +118,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -136,6 +163,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     environment: *app-environment
@@ -148,3 +177,4 @@ volumes:
   pg_data:
   redis_data:
   rag_quarantine:
+  minio_data:

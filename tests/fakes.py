@@ -149,8 +149,13 @@ class FakeStore:
             self.events[run_id].sort(key=lambda item: item["sequence"])
         row["status"] = new_status
         row.update(fields or {})
-        for kind, body in (artifacts or {}).items():
-            self.artifacts.setdefault(run_id, {})[kind] = body
+        for kind, meta in (artifacts or {}).items():
+            self.artifacts.setdefault(run_id, {})[kind] = {
+                "run_id": run_id, "kind": kind, "body": meta.get("body", ""),
+                "storage": meta.get("storage", "db"),
+                "object_key": meta.get("object_key"), "sha256": meta.get("sha256"),
+                "size_bytes": meta.get("size_bytes"),
+            }
         return True
 
     def get_run(self, run_id):
@@ -345,9 +350,16 @@ class FakeStore:
         return items[-1]["event_type"] if items else None
 
     def put_artifact(self, run_id, kind, body):
-        self.artifacts.setdefault(run_id, {})[kind] = body
+        self.artifacts.setdefault(run_id, {})[kind] = {
+            "run_id": run_id, "kind": kind, "body": body, "storage": "db",
+            "object_key": None, "sha256": None, "size_bytes": None,
+        }
 
     def get_artifact(self, run_id, kind):
+        row = self.artifacts.get(run_id, {}).get(kind)
+        return row["body"] if row else None
+
+    def get_artifact_row(self, run_id, kind):
         return self.artifacts.get(run_id, {}).get(kind)
 
     def has_artifact(self, run_id, kind):

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -69,13 +70,15 @@ def persist_terminal(
         fields["budget_used_cny"] = meta.get("budget_used_cny")
     if moderation_status:
         fields["moderation_status"] = moderation_status
-    artifacts: dict[str, str] = {}
+    artifacts: dict[str, dict[str, Any]] = {}
     if report:
-        artifacts["report_md"] = report
+        artifacts["report_md"] = _artifact_payload(
+            run_id, "report_md", report, "text/markdown; charset=utf-8")
     if result is not None and meta is not None:
         export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result,
                                       egress=egress)
-        artifacts["export_json"] = json.dumps(export, ensure_ascii=False)
+        artifacts["export_json"] = _artifact_payload(
+            run_id, "export_json", json.dumps(export, ensure_ascii=False), "application/json")
     return store.finalize_run(
         run_id,
         event_type=event_type,
@@ -86,6 +89,24 @@ def persist_terminal(
         fields={key: value for key, value in fields.items() if value is not None},
         artifacts=artifacts,
     )
+
+
+def _artifact_payload(run_id: str, kind: str, body: str,
+                      content_type: str) -> dict[str, Any]:
+    """P1-6：配置对象存储时先写 S3（元数据随终局事务落库）；失败回落 PG（报告仍可用）。"""
+    from .objectstore import get_object_store
+
+    object_store = get_object_store()
+    if object_store is not None:
+        try:
+            info = object_store.put_text(f"runs/{run_id}/{kind}", body,
+                                         content_type=content_type)
+            return {"body": "", "storage": "s3", "object_key": info["key"],
+                    "sha256": info["sha256"], "size_bytes": info["size_bytes"]}
+        except Exception as exc:  # noqa: BLE001 —— 对象存储抖动不丢报告
+            print(f"[objectstore] put failed, fallback to db: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+    return {"body": body, "storage": "db"}
 
 
 def persist_forced(store, run_id: str, seq: Optional[int], payload: dict[str, Any],
