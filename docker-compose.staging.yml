@@ -35,6 +35,9 @@ x-app-environment: &app-environment
   LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
   LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
   LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+  # P1-8：OpenTelemetry（默认关闭；设置 OTLP 端点或打开 Prometheus 抓取才启用）
+  OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+  DR_METRICS_PROMETHEUS: "${DR_METRICS_PROMETHEUS:-false}"
 
 services:
   postgres:

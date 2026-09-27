@@ -52,6 +52,13 @@ from .moderation import (
     MAX_TOPIC_LENGTH,
     scan,
 )
+from .otel import (
+    PROMETHEUS_ENABLED,
+    instrument_fastapi,
+    instrument_httpx,
+    prometheus_asgi_app,
+    setup_otel,
+)
 from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profile
 from .queue import RunQueue
 from .ratelimit import make_limiter
@@ -67,6 +74,11 @@ from .upload_guard import (
 )
 
 app = FastAPI(title="DeepResearch", version="w9")
+
+# P1-8：OpenTelemetry（默认关闭；OTLP 端点 / Prometheus 开关任一存在才启用）
+OTEL_ENABLED = setup_otel("deepresearch-api")
+instrument_httpx()
+instrument_fastapi(app)
 
 
 @app.exception_handler(RequestValidationError)
@@ -1730,6 +1742,10 @@ async def _event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncIterator
     finally:
         METRICS.sse_close()
 
+
+if OTEL_ENABLED and PROMETHEUS_ENABLED:
+    # P1-8：Prometheus 抓取端点（仅显式开启时挂载；生产应由反代限制来源）
+    app.mount("/metrics", prometheus_asgi_app())
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 if FRONTEND_DIST.is_dir():

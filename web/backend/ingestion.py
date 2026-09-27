@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional
 
 from research_engine.usage import use_usage_sink
 
+from .otel import run_span
 from .store import RunStore
 from .usage import make_store_sink
 
@@ -99,7 +100,10 @@ def process_ingestions_once(
         if item is None:
             break
         summary["claimed"] += 1
-        _process_item(store, item, ingester_factory, max_attempts, summary)
+        # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
+        with run_span("dr.ingest", **{"dr.ingestion_id": item["ingestion_id"],
+                                      "dr.doc_id": item["doc_id"]}):
+            _process_item(store, item, ingester_factory, max_attempts, summary)
     return summary
 
 

@@ -18,6 +18,7 @@ import os
 import sys
 from typing import Any, Optional
 
+from .otel import run_span
 from .store import RunStore
 
 DEFAULT_LEASE_SECONDS = 120
@@ -48,7 +49,10 @@ def process_deletions_once(
     summary = {"claimed": len(claimed), "done": 0, "retried": 0, "abandoned": 0}
     for item in claimed:
         try:
-            _execute_target(item, vector_store, store)
+            # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
+            with run_span("dr.deletion", **{"dr.outbox_id": int(item["id"]),
+                                            "dr.target": item["target"]}):
+                _execute_target(item, vector_store, store)
         except Exception as exc:  # noqa: BLE001 —— 失败必须进入退避/放弃流程
             error = f"{type(exc).__name__}: {exc}"[:300]
             backoff = min(

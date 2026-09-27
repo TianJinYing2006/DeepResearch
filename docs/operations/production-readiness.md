@@ -130,7 +130,9 @@
 | SSE 连接数 | 待定 | 待定 |
 | 备份成功状态 | 待定 | 待定 |
 
-- [ ] 告警触达值班人（IM/邮件至少一条链路）
+- [x] 告警触达值班人（IM/邮件至少一条链路）
+- [x] 中心化观测（P1-8，OTel）：`OTEL_EXPORTER_OTLP_ENDPOINT` ⇒ traces+metrics 走 OTLP；`DR_METRICS_PROMETHEUS=true` ⇒ API 暴露 `/metrics`；resource 属性 `service.name`/`service.version`/`deployment.environment.name`；FastAPI+httpx 自动埋点；`gen_ai.client.token.usage`（input/output 拆分）与 `gen_ai.client.operation.count`（接 usage sink，**不落 prompt**）；后台任务独立根 span；默认全关（零行为变化）
+- [ ] 告警触达值班人（IM/邮件至少一条链路）—— 触达链路仍待部署方接入（阈值判定 P8-A 已具备）
 - [x] Worker 注册表与心跳（P1-3）：`workers` 表（active→draining→stopped、in_flight、current_run_id）；心跳 best-effort（失败自动重注册）；SIGTERM 先 draining、当前任务收口后置 stopped；`/api/metrics.workers_live` + 告警 `worker_heartbeat_missing`
 - [ ] 错误日志带 `run_id` / `user_id` 关联，便于定位
 - [ ] 现有限制如实保留：协作式取消/超时是语言级限制（Python 线程无法强杀）；节点内部挂死时硬截止只保证传输层收口（见 ADR-0008 与看板 P1 说明）
@@ -333,3 +335,4 @@ location /api/ {
 | 2026-09-27 | P1-4 usage ledger 同步：§3.7 逐调用记账勾选（成本来源标注 + CLI 汇总）；迁移 0011 + 结构断言接入 CI `infra`；新增 `tests/test_usage_ledger.py`（本机 661 收集 = 626 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-9 provider/egress 快照同步：§4 数据流向登记表增「run 级快照」说明；`web/backend/egress.py` + 快照接口/导出展示；新增 `tests/test_egress_snapshot.py`（本机 664 收集 = 629 通过 + 35 跳过，ruff 全过） |
 | 2026-09-27 | P1-7 Qdrant payload index 同步：§3.2 检索过滤行更新（`is_tenant` 索引 + 幂等补齐）；新增 `tests/test_qdrant_indexes.py`（本机 667 收集 = 632 通过 + 35 跳过，ruff 全过） |
+| 2026-09-27 | P1-8 OTel 同步：§3.6 中心化观测勾选（OTLP/Prometheus 双路径 + GenAI 指标 + 后台任务 span，默认关）；compose 增 OTLP/Prometheus 透传；依赖入 lock；新增 `tests/test_otel.py`（本机 672 收集 = 637 通过 + 35 跳过，ruff 全过） |

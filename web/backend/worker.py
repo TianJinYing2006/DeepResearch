@@ -59,6 +59,7 @@ from .deletion import process_deletions_once
 from .errors import error_payload
 from .ingestion import process_ingestions_once, purge_expired_documents
 from .moderation import apply_output_gate, flag_report
+from .otel import run_span, setup_otel
 from .persistence import persist_terminal
 from .queue import RunQueue
 from .runner import _env_int, _estimate_cost_cny
@@ -269,7 +270,10 @@ class Worker:
         )
         heartbeat.start()
         try:
-            self._execute(run_id, row)
+            # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
+            with run_span("dr.run", **{"dr.run_id": run_id,
+                                       "dr.attempt": int(row.get("attempt") or 1)}):
+                self._execute(run_id, row)
         except Exception as exc:  # noqa: BLE001 —— 兜底：任务必须落到终局或留给租约清扫
             self._mark_crashed(run_id, exc)
         finally:
@@ -483,6 +487,7 @@ def main() -> int:
         return 2
     redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
     queue = RunQueue(redis_url) if redis_url else None
+    setup_otel("deepresearch-worker")  # P1-8：默认关闭，配置导出端点才启用
     worker = Worker(RunStore(dsn), queue)
     if queue is None:
         _log("未配置 DR_REDIS_URL：仅按任务库轮询领取（唤醒信号降级）")
