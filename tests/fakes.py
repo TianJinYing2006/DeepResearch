@@ -96,6 +96,9 @@ class FakeStore:
         self.workers: dict[str, dict] = {}
         self.password_resets: dict[str, dict] = {}
         self.usage: list[dict] = []
+        self.alert_states: dict[str, dict] = {}
+        self.alert_deliveries: list[dict] = []
+        self._alert_delivery_seq = 0
         self.fail_events = False
 
     def ping(self) -> None:
@@ -788,6 +791,95 @@ class FakeStore:
                 and (actor_user_id is None or row["actor_user_id"] == actor_user_id)]
         rows.sort(key=lambda row: row["at"], reverse=True)
         return [dict(row) for row in rows[:limit]]
+
+    # ---- 告警状态与外部交付（P2-6）----
+
+    def get_alert_state(self, fingerprint):
+        row = self.alert_states.get(fingerprint)
+        return dict(row) if row else None
+
+    def list_alert_states(self, *, status=None, limit=200):
+        rows = [dict(row) for row in self.alert_states.values()
+                if status is None or row["status"] == status]
+        rows.sort(key=lambda row: row["last_seen_at"], reverse=True)
+        return rows[:limit]
+
+    def upsert_alert_state(self, fingerprint, *, severity, status, detail=None,
+                           notified_at=None):
+        now = datetime.now(UTC)
+        row = self.alert_states.get(fingerprint)
+        if row is None:
+            row = {
+                "fingerprint": fingerprint, "severity": severity, "status": status,
+                "detail": detail or {}, "first_seen_at": now, "last_seen_at": now,
+                "last_notified_at": notified_at, "updated_at": now,
+            }
+            self.alert_states[fingerprint] = row
+        else:
+            row["severity"] = severity
+            row["status"] = status
+            row["detail"] = detail or {}
+            row["last_seen_at"] = now
+            if notified_at is not None:
+                row["last_notified_at"] = notified_at
+            row["updated_at"] = now
+        return dict(row)
+
+    def enqueue_alert_delivery(self, fingerprint, kind, severity, *, payload=None,
+                               max_attempts=5):
+        self._alert_delivery_seq += 1
+        self.alert_deliveries.append({
+            "delivery_id": self._alert_delivery_seq, "fingerprint": fingerprint,
+            "kind": kind, "severity": severity, "payload": payload or {},
+            "attempts": 0, "max_attempts": max(1, max_attempts),
+            "next_attempt_at": datetime.now(UTC), "delivered_at": None,
+            "last_error": None, "created_at": datetime.now(UTC),
+        })
+        return self._alert_delivery_seq
+
+    def claim_due_alert_deliveries(self, *, limit=20, lease_seconds=120):
+        now = datetime.now(UTC)
+        due = [row for row in self.alert_deliveries
+               if row["delivered_at"] is None and row["next_attempt_at"] <= now][:limit]
+        for row in due:
+            row["attempts"] += 1
+            row["next_attempt_at"] = now + timedelta(seconds=max(1, lease_seconds))
+        return [dict(row) for row in due]
+
+    def finish_alert_delivery(self, delivery_id):
+        for row in self.alert_deliveries:
+            if row["delivery_id"] == delivery_id and row["delivered_at"] is None:
+                row["delivered_at"] = datetime.now(UTC)
+                row["last_error"] = None
+                return True
+        return False
+
+    def fail_alert_delivery(self, delivery_id, *, delay_seconds, error=None):
+        for row in self.alert_deliveries:
+            if row["delivery_id"] == delivery_id and row["delivered_at"] is None:
+                row["last_error"] = error
+                if row["attempts"] >= row["max_attempts"]:
+                    row["next_attempt_at"] = datetime.max.replace(tzinfo=UTC)
+                else:
+                    row["next_attempt_at"] = (
+                        datetime.now(UTC) + timedelta(seconds=max(0, delay_seconds)))
+                return True
+        return False
+
+    def retry_alert_delivery(self, delivery_id, *, delay_seconds=0):
+        for row in self.alert_deliveries:
+            if row["delivery_id"] == delivery_id and row["delivered_at"] is None:
+                row["attempts"] = 0
+                row["last_error"] = None
+                row["next_attempt_at"] = (
+                    datetime.now(UTC) + timedelta(seconds=max(0, delay_seconds)))
+                return True
+        return False
+
+    def list_alert_deliveries(self, *, undelivered_only=False, limit=100):
+        rows = [dict(row) for row in self.alert_deliveries
+                if not undelivered_only or row["delivered_at"] is None]
+        return rows[::-1][:limit]
 
     # ---- 保留期清理（P2-2）----
 

@@ -31,6 +31,7 @@ from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 
 from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, sse_frame
+from .alerts import alert_webhook_url, collect_alerts
 from .auth import (
     CSRF_COOKIE,
     CSRF_HEADER,
@@ -1317,43 +1318,34 @@ def metrics_endpoint() -> dict:
 
 @app.get("/api/ops/alerts")
 def ops_alerts() -> dict:
-    """告警判定（P8-A）：按阈值评估当前指标；**触达**由部署方接 IM/邮件（P8-B）。"""
-    http = METRICS.snapshot()["http"]
-    total_http = http["2xx"] + http["4xx"] + http["5xx"]
-    rate_5xx = (http["5xx"] / total_http * 100) if total_http else 0.0
+    """告警判定（P8-A / P2-6）：按阈值评估当前指标；**外送**由 Worker 统一走 webhook（见 alerts.py）。"""
     queue_depth = _queue_depth()
     stale = _store_call(store.count_stale_leases) if store is not None else 0
     monthly = _store_call(store.month_cost_cny) if store is not None else 0.0
-    monthly_pct = (monthly / MONTHLY_BUDGET_CNY * 100) if MONTHLY_BUDGET_CNY else 0.0
     deletions = _store_call(store.count_deletions_by_status) if store is not None else {}
-
-    alerts: list[dict] = []
-
-    def _check(code: str, severity: str, value: float, threshold: float, message: str) -> None:
-        if value >= threshold:
-            alerts.append({
-                "code": code, "severity": severity,
-                "value": round(value, 4), "threshold": threshold, "message": message,
-            })
-
-    _check("http_5xx_rate", "high", rate_5xx, ALERT_5XX_RATE_PCT, "5xx 比例超过阈值")
-    if queue_depth is not None:
-        _check("queue_depth", "medium", queue_depth, ALERT_QUEUE_DEPTH, "队列积压超过阈值")
-    _check("stale_leases", "high", stale, ALERT_STALE_RUNS, "存在租约过期未被接管的任务")
-    _check("deletion_abandoned", "high", int(deletions.get("abandoned", 0)), 1,
-           "存在被放弃的注销清理（外部数据可能残留，需人工介入）")
-    if EXECUTION_MODE == "queue" and store is not None:
-        live = _store_call(store.count_live_workers,
-                           within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS)
-        if int(live) < 1:
-            alerts.append({
-                "code": "worker_heartbeat_missing", "severity": "high",
-                "value": int(live), "threshold": 1,
-                "message": "队列模式无活跃 worker（心跳过期），任务不会被执行",
-            })
-    if MONTHLY_BUDGET_CNY:
-        _check("monthly_budget", "high", monthly_pct, ALERT_MONTHLY_PCT, "月度预算消耗达到阈值")
-    return {"ok": True, "alert_count": len(alerts), "alerts": alerts}
+    workers_live = (
+        _store_call(store.count_live_workers,
+                    within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS)
+        if store is not None else None
+    )
+    alerts = collect_alerts(
+        thresholds={
+            "http_5xx_rate_pct": ALERT_5XX_RATE_PCT,
+            "queue_depth": ALERT_QUEUE_DEPTH,
+            "stale_runs": ALERT_STALE_RUNS,
+            "monthly_pct": ALERT_MONTHLY_PCT,
+        },
+        http=METRICS.snapshot()["http"],
+        queue_depth=queue_depth,
+        stale_leases=stale,
+        deletions=deletions,
+        month_cost=monthly,
+        month_budget=MONTHLY_BUDGET_CNY,
+        workers_live=workers_live,
+        execution_mode=EXECUTION_MODE,
+    )
+    return {"ok": True, "alert_count": len(alerts), "alerts": alerts,
+            "webhook_configured": bool(alert_webhook_url())}
 
 
 # ------------------------------------------------------------------ 内容安全与合规文本（P7-A）

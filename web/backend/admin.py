@@ -19,6 +19,9 @@
     python -m web.backend.admin create-reset-token --email a@b.c [--expires-minutes 30]
     python -m web.backend.admin usage-summary [--run-id r] [--days 30]
     python -m web.backend.admin retention-run [--dry-run]  # 数据保留期清理（P2-2）
+    python -m web.backend.admin alerts-list [--status firing] [--limit 100]
+    python -m web.backend.admin alert-deliveries [--undelivered] [--limit 50]
+    python -m web.backend.admin retry-alert --delivery-id 3 [--delay-seconds 0]
 
 需要 `DR_DATABASE_URL`。邀请码 / 临时密码**只在创建时打印一次**（库内只存摘要）。
 """
@@ -108,6 +111,19 @@ def _build_parser() -> argparse.ArgumentParser:
     retention = sub.add_parser("retention-run",
                                help="执行数据保留期清理（P2-2；默认真删，--dry-run 演练）")
     retention.add_argument("--dry-run", action="store_true")
+
+    alerts_list = sub.add_parser("alerts-list", help="查看告警状态（P2-6；firing/resolved）")
+    alerts_list.add_argument("--status", default="", help="firing / resolved")
+    alerts_list.add_argument("--limit", type=int, default=100)
+
+    deliveries = sub.add_parser("alert-deliveries",
+                                help="查看告警外送记录（P2-6；未送达含重试状态）")
+    deliveries.add_argument("--undelivered", action="store_true")
+    deliveries.add_argument("--limit", type=int, default=50)
+
+    retry_alert = sub.add_parser("retry-alert", help="人工重试告警外送（P2-6；重置 attempts）")
+    retry_alert.add_argument("--delivery-id", type=int, required=True)
+    retry_alert.add_argument("--delay-seconds", type=int, default=0)
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
@@ -290,6 +306,32 @@ def main(argv: list[str] | None = None) -> int:
                   f"{flag}")
         print(f"deleted_total={summary['deleted_total']} dry_run={summary['dry_run']}")
         return 0
+
+    if args.command == "alerts-list":
+        rows = store.list_alert_states(status=args.status or None, limit=args.limit)
+        for row in rows:
+            print(f"{row['fingerprint']:<28} {row['status']:<8} {row['severity']:<6} "
+                  f"last_seen={row['last_seen_at']:%Y-%m-%d %H:%M} "
+                  f"last_notified={row['last_notified_at'] or '-'} detail={row['detail']}")
+        return 0
+
+    if args.command == "alert-deliveries":
+        rows = store.list_alert_deliveries(undelivered_only=args.undelivered,
+                                           limit=args.limit)
+        for row in rows:
+            status = "delivered" if row["delivered_at"] else "pending"
+            print(f"#{row['delivery_id']} {row['fingerprint']:<24} {row['kind']:<8} "
+                  f"{status:<9} attempts={row['attempts']}/{row['max_attempts']} "
+                  f"next={row['next_attempt_at']:%Y-%m-%d %H:%M} "
+                  f"error={row['last_error'] or '-'}")
+        return 0
+
+    if args.command == "retry-alert":
+        ok = store.retry_alert_delivery(args.delivery_id, delay_seconds=args.delay_seconds)
+        if ok:
+            _audit(store, "admin_retry_alert", target_id=str(args.delivery_id))
+        print("requeued" if ok else "not found / already delivered")
+        return 0 if ok else 1
 
     if args.command == "delete-user":
         user = store.get_user_by_email(normalize_email(args.email))

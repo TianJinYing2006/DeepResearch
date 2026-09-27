@@ -135,7 +135,7 @@
 
 - [x] 告警触达值班人（IM/邮件至少一条链路）
 - [x] 中心化观测（P1-8，OTel）：`OTEL_EXPORTER_OTLP_ENDPOINT` ⇒ traces+metrics 走 OTLP；`DR_METRICS_PROMETHEUS=true` ⇒ API 暴露 `/metrics`；resource 属性 `service.name`/`service.version`/`deployment.environment.name`；FastAPI+httpx 自动埋点；`gen_ai.client.token.usage`（input/output 拆分）与 `gen_ai.client.operation.count`（接 usage sink，**不落 prompt**）；后台任务独立根 span；默认全关（零行为变化）
-- [ ] 告警触达值班人（IM/邮件至少一条链路）—— 触达链路仍待部署方接入（阈值判定 P8-A 已具备）
+- [x] 告警外送（P2-6）：Worker 每 `DR_ALERT_CHECK_SECONDS`（默认 60s）判定 store/queue 侧告警（5xx 属 API 进程指标，仅 API 展示）→ `alert_states` 指纹收敛（firing 首次即发 / 冷却 `DR_ALERT_REPEAT_MINUTES` 默认 30min 内不重发 / 消失必发 resolved）→ `alert_deliveries` 外送队列；`DR_ALERT_WEBHOOK_URL` 支持飞书 / 钉钉 / 企业微信 / 通用 JSON（未配置时只维护状态，零外呼）；失败指数退避（30s×2ⁿ，上限 30min），`DR_ALERT_MAX_ATTEMPTS`（默认 5）次放弃（CLI `retry-alert` 可手动重试）；payload 只带告警元数据（不含用户内容）；CLI `alerts-list` / `alert-deliveries`
 - [x] Worker 注册表与心跳（P1-3）：`workers` 表（active→draining→stopped、in_flight、current_run_id）；心跳 best-effort（失败自动重注册）；SIGTERM 先 draining、当前任务收口后置 stopped；`/api/metrics.workers_live` + 告警 `worker_heartbeat_missing`
 - [ ] 错误日志带 `run_id` / `user_id` 关联，便于定位
 - [ ] 现有限制如实保留：协作式取消/超时是语言级限制（Python 线程无法强杀）；节点内部挂死时硬截止只保证传输层收口（见 ADR-0008 与看板 P1 说明）
@@ -344,3 +344,4 @@ location /api/ {
 | 2026-09-27 | P2-2 数据保留自动清理同步：§3.7 报告到期自动清理项勾选（政策表 + Worker 每日 + CLI + dry-run + 误删护栏 + 审计留痕）；新增 `tests/test_retention.py`（FakeStore 政策用例 + 真实 PG `purge_before` 批量子句/级联契约，已加入 CI `infra` job）；本机 698 收集 = 662 通过 + 36 跳过，ruff 全过 |
 | 2026-09-27 | P2-3 连接池与慢查询同步：§3.2 连接池项勾选（`psycopg_pool` + `statement_timeout` + `_TimedCursor` 慢查询 WARNING（不含参数）+ `DR_PG_*` 可调 + `RunStore.close()`）；依赖 `psycopg-pool` 入 lock；新增 `tests/test_pg_pool.py`（配置解析 + 真实 PG 连接复用/超时生效/慢查询告警，已加入 CI `infra` job）；本机 702 收集 = 664 通过 + 38 跳过，ruff 全过 |
 | 2026-09-27 | P2-4 SSE LISTEN/NOTIFY 同步：§3.2 增补 SSE 完成通知项勾选（同事务 `pg_notify` + 专连接 LISTEN 自动重连 + 轮询兜底 + shutdown 收口）；新增 `tests/test_notify.py`（纯逻辑 + 真实 PG 通知/回滚语义，已加入 CI `infra` job）；本机 706 收集 = 667 通过 + 39 跳过，ruff 全过 |
+| 2026-09-27 | P2-6 告警外送同步：§3.7 告警触达项勾选（迁移 0013 `alert_states`/`alert_deliveries` + 指纹去重状态机 + webhook 退避重试 + CLI 三命令）；新增 `tests/test_alert_delivery.py`（状态机/退避/平台体格式/Worker 集成 + 真实 PG 契约，已加入 CI `infra` job）；本机 714 收集 = 674 通过 + 40 跳过，ruff 全过 |

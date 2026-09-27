@@ -167,7 +167,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      # P2-6：告警外送（未配置 webhook 时只维护 alert_states，零外呼）
+      DR_ALERT_WEBHOOK_URL: "${DR_ALERT_WEBHOOK_URL:-}"
+      DR_ALERT_REPEAT_MINUTES: "${DR_ALERT_REPEAT_MINUTES:-30}"
+      DR_ALERT_MAX_ATTEMPTS: "${DR_ALERT_MAX_ATTEMPTS:-5}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
