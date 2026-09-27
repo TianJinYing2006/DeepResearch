@@ -152,24 +152,39 @@ ALERT_MONTHLY_PCT = _env_number("DR_ALERT_MONTHLY_PCT", 80.0)
 LEGAL_DIR = Path(__file__).resolve().parents[2] / "docs" / "legal"
 
 
-# P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
-store = None if DEMO_MODE else _make_store()
-if store is not None:
-    try:
-        # 单实例内存态执行的既有事实：进程重启后，库里非终局的任务已无人执行 ⇒ 标记 LOST。
-        store.mark_stale_as_lost()
-        # 顺手清理过期会话（读取侧已按 expires_at 校验，此处只是存储卫生）。
-        store.purge_expired_sessions()
-    except Exception:  # noqa: BLE001 —— 库不可用时由 readiness 与请求侧结构化错误表达
-        pass
-
 # P3：执行模式。`inprocess` = 请求进程内线程执行（P1/P2 行为，默认，本地开发）；
 # `queue` = 创建 QUEUED 任务入 Redis 队列，由独立 Worker 执行（staging/生产）。
 # 队列模式要求同时配置任务库与 Redis —— 配错直接启动失败，不做静默回退。
+# ⚠️ 必须先于任务库启动维护解析：维护语义取决于「谁在执行」（见 _startup_store_maintenance）。
 _EXECUTION_MODE = (os.getenv("DR_EXECUTION_MODE") or "inprocess").strip().lower()
 if _EXECUTION_MODE not in {"inprocess", "queue"}:
     raise RuntimeError(f"DR_EXECUTION_MODE 仅支持 inprocess|queue，收到：{_EXECUTION_MODE!r}")
 EXECUTION_MODE = "inprocess" if DEMO_MODE else _EXECUTION_MODE
+
+
+def _startup_store_maintenance(run_store: RunStore, execution_mode: str) -> None:
+    """启动时的任务库维护（P2-C / P3-B）。
+
+    - `inprocess`：执行器就是本进程的线程，进程重启后库里非终局任务已无人执行
+      ⇒ 标记 `LOST`（否则会永远停在 RUNNING/QUEUED 无人接管）；
+    - `queue`：执行权在独立 Worker（租约 + 心跳 + 清扫），API 重启**不得**触碰
+      活跃任务 —— 否则会把 Worker 正在执行的 RUNNING 与仍在 Redis 里的 QUEUED
+      误判为 `LOST`；接管只属于 Worker 的租约清扫（`sweep_stale_runs`）。
+    - 过期会话清理与执行模式无关，两种模式都做（读取侧已按 `expires_at` 校验，
+      这里只是存储卫生）。
+    """
+    if execution_mode == "inprocess":
+        run_store.mark_stale_as_lost()
+    run_store.purge_expired_sessions()
+
+
+# P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
+store = None if DEMO_MODE else _make_store()
+if store is not None:
+    try:
+        _startup_store_maintenance(store, EXECUTION_MODE)
+    except Exception:  # noqa: BLE001 —— 库不可用时由 readiness 与请求侧结构化错误表达
+        pass
 
 queue: Optional[RunQueue] = None
 if EXECUTION_MODE == "queue":

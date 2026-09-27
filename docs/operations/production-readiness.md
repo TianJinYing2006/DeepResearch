@@ -73,6 +73,7 @@
 - [x] 取消：`CANCEL_REQUESTED` 落库，Worker 在节点边界停止且不产生新 LLM 调用（迁移现契约 C1~C7）
 - [x] 租约超时清扫与接管：取消意图 → `CANCELLED`（不重跑）；可重试 → `QUEUED`（`attempt+1`）并重新入队；重试耗尽 → `LOST`（`FOR UPDATE SKIP LOCKED` 原子接管，Worker 每 30s 清扫）
 - [x] 崩溃接管：Worker 进程崩溃后由租约清扫接管；图内异常 → `FAILED`（P3-A 已覆盖）
+- [x] 启动维护按执行模式分流（P3-B 补丁）：`inprocess` 启动才标记失联任务 `LOST`；`queue` 模式下 API 重启不触碰活跃任务（RUNNING 归 Worker 心跳/租约、QUEUED 归 Redis 队列，接管只走 `sweep_stale_runs`）
 - [x] 并发限制：全局闸（API 配置上限）+ 单用户并发闸（`DR_MAX_USER_CONCURRENT`，P4-B）
 - [x] 单 run 预算闸在 Worker 节点边界生效（`budget_limit_cny` → `budget_used_cny` 每步回写；超限 `stop_reason=budget_exceeded`）
 - [x] 用户级每日次数与全局月度预算闸（P4-B：429 `quota_exceeded`；查询 / 导出不受影响）
@@ -296,3 +297,4 @@ location /api/ {
 | 2026-09-26 | P6-A 前端产品化同步：§3.2 勾选「RAG 上传面」（类型白名单 + 大小上限 + 按用户打标）；前端账号壳/历史/配额/上传已落地，内容安全链路仍待 P7 |
 | 2026-09-26 | P7-A 内容安全与隐私同步：§3.5 勾选输入预检/长度限制/审核记录/申诉/注销/脱敏/上传隔离；**输出自动拦截、Prompt Injection 深度防护、审核服务接入、期限到期清理**明确留 P7-B/P8（已含隐私政策草案，法务确认待 L3-C） |
 | 2026-09-26 | P8-A 可观测与恢复演练同步：§3.6 增加「可判定已落地」说明（`/api/metrics`、`/api/ops/alerts`；触达与中心化留 P8-B）；§3.8 勾选备份脚本化与恢复演练（CI 每次 PR 真实执行） |
+| 2026-09-27 | P3-B 补丁：API 启动维护按执行模式分流（`main.py::_startup_store_maintenance`）—— 修复 queue 模式下 API 重启误将 Worker 的 RUNNING/QUEUED 标记为 `LOST` 的跨服务破坏；§3.3 增补对应勾选；新增 `tests/test_startup_maintenance.py`（本机 568 收集 = 543 通过 + 25 跳过，ruff 全过） |
