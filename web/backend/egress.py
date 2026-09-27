@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 from config import config
 from research_engine.runtime_profile import RuntimeProfile
 
+from .moderation_providers import active_provider
+
 
 def _host(url: str) -> str:
     try:
@@ -42,7 +44,7 @@ def build_egress_snapshot(profile: Optional[RuntimeProfile]) -> dict:
         "vector_store": {
             "provider": "qdrant", "endpoint_host": _host(config.rag.qdrant_url),
         },
-        "moderation": {"provider": "local_rules"},
+        "moderation": {"provider": active_provider().name},
         "egress": {
             "user_content_to_llm": True,
             "rag_chunks_to_llm": True,
