@@ -16,7 +16,7 @@
 | 状态 | 草稿 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | [#56](https://github.com/TianJinYing2006/DeepResearch/issues/56)（GitHub；PR 与 Issue 共用编号空间，故 Issue 号与需求编号不一致，映射以本行为准） |
-| 关联 PR |  |
+| 关联 PR | [#58](https://github.com/TianJinYing2006/DeepResearch/pull/58)（分支 `feat/11-tailwind-token-fix`，已开未合） |
 | 关联文档 | `docs/decisions/0010-tailwind-color-token-naming.md`（ADR-0010） |
 | 创建 / 更新 | 2026-09-29 |
 
@@ -159,3 +159,4 @@ brand: { 200: '#a5f3fc', 300: '#66e3ff', 400: '#22d3ee' }
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-09-29 | bug | 需求立项 | 结构盘点发现 cyan 色阶静默失效（7 处 / 15 个类名） | — |
+| 2026-09-29 | bug | 实施 | config 改名 brand + 7 处类名 + 守卫脚本 + CI 门禁 + ADR-0010 | [PR #58](https://github.com/TianJinYing2006/DeepResearch/pull/58) |
