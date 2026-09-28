@@ -175,7 +175,11 @@ export default function App() {
   const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
   const findingsCount = lastDelta?.findings_count ?? 0
   const verifiedCitations = result?.citations.filter((citation) => citation.verified).length ?? 0
-  const ragSourceCount = result?.visited_sources.filter(isKnowledgeBaseSource).length ?? 0
+  const ragSources = useMemo(
+    () => Array.from(new Set((result?.visited_sources ?? []).filter(isKnowledgeBaseSource))),
+    [result],
+  )
+  const ragSourceCount = ragSources.length
   const currentActivity = latestActivity(events)
   const statusInfo = statusPresentation(status)
   const connectionInfo = connectionPresentation(connectionStatus)
@@ -267,7 +271,7 @@ export default function App() {
       </header>
 
       <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
+        <aside className="space-y-5 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
           <form className="surface-card p-5" onSubmit={handleSubmit}>
             <div className="mb-6 flex items-start justify-between gap-3">
               <div>
@@ -383,13 +387,29 @@ export default function App() {
               </div>
               <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-xs text-slate-300">{ragSourceCount}</span>
             </div>
-            <p className="mt-4 text-xs leading-5 text-slate-400">
-              {result
-                ? ragSourceCount > 0
-                  ? `本轮命中 ${ragSourceCount} 个本地知识库来源。`
-                  : '本轮结果未命中本地知识库来源。'
-                : '研究完成后显示 RAG 文档命中情况；当前协议不伪造摄取进度。'}
-            </p>
+            {result ? (
+              ragSources.length > 0 ? (
+                <div className="mt-4">
+                  <p className="text-xs leading-5 text-slate-400">
+                    本轮命中 {ragSources.length} 个本地知识库文件：
+                  </p>
+                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1" data-testid="rag-hit-list">
+                    {ragSources.map((source) => (
+                      <li key={source} title={source} data-testid="rag-hit-item"
+                          className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-xs text-emerald-50/90">
+                        <span className="min-w-0 flex-1 truncate">{knowledgeBaseName(source)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="mt-4 text-xs leading-5 text-slate-400">本轮结果未命中本地知识库文件。</p>
+              )
+            ) : (
+              <p className="mt-4 text-xs leading-5 text-slate-400">
+                研究完成后显示 RAG 文档命中情况；当前协议不伪造摄取进度。
+              </p>
+            )}
           </section>
         </aside>
 
@@ -889,6 +909,15 @@ function formatDuration(milliseconds: number): string {
 
 function isKnowledgeBaseSource(source: string): boolean {
   return source.startsWith('rag:') || source.startsWith('local://')
+}
+
+/** 命中来源 → 文件名（`rag:<filename>` / `local://<path>`；去掉分块锚点）。 */
+function knowledgeBaseName(source: string): string {
+  const stripped = source.startsWith('rag:')
+    ? source.slice(4)
+    : source.replace(/^local:\/\//, '')
+  const withoutChunk = stripped.split('#')[0]
+  return withoutChunk || source
 }
 
 function sourceType(source: string): string {

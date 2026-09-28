@@ -24,7 +24,20 @@ type RunBrief = {
   moderation_status?: string | null
 }
 
-type RagDoc = { source: string; chunks: number }
+type RagDoc = { doc_id?: string; source: string; chunks: number }
+
+type UploadStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error'
+
+type UploadItem = {
+  id: string
+  name: string
+  size: number
+  status: UploadStatus
+  percent: number
+  chunks?: number
+  error?: string
+  note?: string
+}
 
 function csrfHeaders(): Record<string, string> {
   const match = document.cookie.match(/(?:^|;\s*)dr_csrf=([^;]+)/)
@@ -43,6 +56,72 @@ async function readError(response: Response): Promise<string> {
     /* 非 JSON 响应 */
   }
   return `HTTP ${response.status}`
+}
+
+type UploadHttpResult = { status: number; body: unknown }
+
+/** 上传字节进度只有 XHR 能拿到（fetch 不暴露 upload progress）。 */
+function xhrUpload(file: File, onProgress: (percent: number) => void): Promise<UploadHttpResult> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/rag/ingest')
+    for (const [key, value] of Object.entries(csrfHeaders())) {
+      xhr.setRequestHeader(key, value)
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      }
+    }
+    xhr.onload = () => {
+      let body: unknown = null
+      try {
+        body = JSON.parse(xhr.responseText)
+      } catch {
+        body = null
+      }
+      resolve({ status: xhr.status, body })
+    }
+    xhr.onerror = () => resolve({ status: 0, body: null })
+    xhr.onabort = () => resolve({ status: 0, body: null })
+    const form = new FormData()
+    form.append('file', file)
+    xhr.send(form)
+  })
+}
+
+function errorFromBody(body: unknown, status: number): string {
+  if (body && typeof body === 'object' && 'detail' in body) {
+    const detail = (body as { detail?: unknown }).detail
+    if (detail && typeof detail === 'object' && 'message' in detail) {
+      return String((detail as { message?: string }).message ?? '')
+    }
+    if (typeof detail === 'string') return detail
+  }
+  return status ? `HTTP ${status}` : '网络错误，请重试'
+}
+
+function formatBytes(size: number): string {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+  if (size >= 1024) return `${(size / 1024).toFixed(0)} KB`
+  return `${size} B`
+}
+
+function uploadLabel(item: UploadItem): string {
+  switch (item.status) {
+    case 'queued':
+      return '排队中'
+    case 'uploading':
+      return `上传中 ${item.percent}%`
+    case 'processing':
+      return item.note ?? '处理中…'
+    case 'done':
+      return item.chunks ? `已入库（${item.chunks} 块）` : '已入库'
+    case 'error':
+      return `失败：${item.error ?? '未知错误'}`
+    default:
+      return item.status
+  }
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -92,6 +171,9 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [preview, setPreview] = useState<{ runId: string; markdown: string } | null>(null)
   const [previewError, setPreviewError] = useState('')
   const [uploadState, setUploadState] = useState('')
+  const [uploads, setUploads] = useState<UploadItem[]>([])
+  const [kbOpen, setKbOpen] = useState(false)
+  const uploadFilesRef = useRef<Map<string, File>>(new Map())
   const [busy, setBusy] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [mode, setMode] = useState<'login' | 'register'>(inviteFromUrl ? 'register' : 'login')
@@ -287,40 +369,71 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     return { status: 'timeout', chunks: 0, source: '', error: null }
   }
 
-  async function uploadFile(file: File) {
-    setUploadState('上传中…')
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const response = await fetch('/api/rag/ingest', {
-        method: 'POST',
-        headers: csrfHeaders(),
-        body: form,
-      })
-      if (!response.ok) {
-        setUploadState(await readError(response))
-        return
-      }
-      const body = (await response.json()) as {
-        source: string; chunks?: number; ingestion_id?: string
-      }
-      if (body.ingestion_id) {
-        setUploadState(`${body.source} 处理中…`)
-        const final = await pollIngestion(body.ingestion_id)
-        if (final.status === 'ready') {
-          setUploadState(`已摄取 ${final.source || body.source}（${final.chunks} 块）`)
-        } else if (final.status === 'rejected') {
-          setUploadState(`${final.source || body.source} 处理失败：${final.error ?? '已拒绝'}`)
-        } else {
-          setUploadState(`${body.source} 仍在处理中，稍后刷新查看`)
-        }
-      } else {
-        setUploadState(`已摄取 ${body.source}（${body.chunks ?? 0} 块）`)
-      }
-      void refreshSideData()
-    } catch {
+  function updateUpload(id: string, patch: Partial<UploadItem>) {
+    setUploads((previous) => previous.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  async function processUpload(item: UploadItem) {
+    const file = uploadFilesRef.current.get(item.id)
+    if (!file) return
+    updateUpload(item.id, { status: 'uploading', percent: 0 })
+    const { status, body } = await xhrUpload(file, (percent) => updateUpload(item.id, { percent }))
+    if (status === 0) {
+      updateUpload(item.id, { status: 'error', error: '网络错误，请重试' })
       setUploadState('网络错误，请重试')
+      return
     }
+    if (status < 200 || status >= 300) {
+      const message = errorFromBody(body, status)
+      updateUpload(item.id, { status: 'error', error: message })
+      setUploadState(message)
+      return
+    }
+    const parsed = (body ?? {}) as { source?: string; chunks?: number; ingestion_id?: string }
+    if (parsed.ingestion_id) {
+      // P0-8b：异步摄取协议只有粗粒度状态 ⇒ 不显示百分比，只做不确定态动画
+      updateUpload(item.id, { status: 'processing', percent: 100, chunks: undefined })
+      const final = await pollIngestion(parsed.ingestion_id)
+      if (final.status === 'ready') {
+        updateUpload(item.id, { status: 'done', chunks: final.chunks })
+        setUploadState(`已摄取 ${final.source || item.name}（${final.chunks} 块）`)
+      } else if (final.status === 'rejected') {
+        updateUpload(item.id, { status: 'error', error: final.error ?? '已拒绝' })
+        setUploadState(`${final.source || item.name} 处理失败：${final.error ?? '已拒绝'}`)
+      } else {
+        updateUpload(item.id, { status: 'processing', note: '仍在处理中，稍后刷新查看' })
+      }
+    } else {
+      updateUpload(item.id, { status: 'done', percent: 100, chunks: parsed.chunks ?? 0 })
+      setUploadState(`已摄取 ${parsed.source ?? item.name}（${parsed.chunks ?? 0} 块）`)
+    }
+    uploadFilesRef.current.delete(item.id)
+  }
+
+  async function handleFiles(fileList: FileList) {
+    const files = Array.from(fileList)
+    if (!files.length) return
+    setKbOpen(true)
+    const items: UploadItem[] = files.map((file) => ({
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name: file.name,
+      size: file.size,
+      status: 'queued',
+      percent: 0,
+    }))
+    items.forEach((item, index) => uploadFilesRef.current.set(item.id, files[index]))
+    setUploads((previous) => [...previous, ...items])
+    setUploadState('')
+    for (const item of items) {
+      await processUpload(item)
+    }
+    await refreshSideData()
+  }
+
+  async function toggleKnowledgeBase() {
+    const next = !kbOpen
+    setKbOpen(next)
+    if (next) await refreshSideData()
   }
 
   const quotaLine = quota
@@ -431,16 +544,17 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       </button>
       <label className="cursor-pointer rounded-full border border-white/10 px-3 py-1 text-emerald-100/80 hover:border-emerald-300/40">
         上传文档
-        <input type="file" accept=".pdf,.docx,.md,.markdown,.txt" className="hidden"
+        <input type="file" accept=".pdf,.docx,.md,.markdown,.txt" multiple className="hidden"
                data-testid="rag-upload-input"
                onChange={(event) => {
-                 const file = event.target.files?.[0]
-                 if (file) void uploadFile(file)
+                 if (event.target.files?.length) void handleFiles(event.target.files)
                  event.target.value = ''
                }} />
       </label>
-      {docs && <span className="text-emerald-100/60">知识库 {docs.length} 篇</span>}
-      {!docs && docsError && <span className="text-amber-200/70">知识库不可用</span>}
+      <button type="button" className="rounded-full border border-white/10 px-3 py-1 text-emerald-100/80 hover:border-emerald-300/40"
+              onClick={() => void toggleKnowledgeBase()} data-testid="kb-toggle">
+        知识库 {docs ? `${docs.length} 篇` : docsError ? '不可用' : '…'}
+      </button>
       {uploadState && <span className="text-emerald-100/70" data-testid="upload-state">{uploadState}</span>}
       {user ? (
         <>
@@ -514,6 +628,84 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                     onClick={() => void loadHistory(false)}>
               {historyLoadingMore ? '加载中…' : '加载更多'}
             </button>
+          )}
+        </div>
+      )}
+
+      {kbOpen && (
+        <div className="surface-card-muted mt-2 w-full max-w-sm p-3 sm:ml-auto" data-testid="kb-panel">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100/50">知识库</span>
+            <button type="button" className="text-[11px] text-emerald-200/70 underline hover:text-emerald-100"
+                    data-testid="kb-refresh" onClick={() => void refreshSideData()}>
+              刷新
+            </button>
+          </div>
+
+          {uploads.length > 0 && (
+            <div className="mb-3" data-testid="upload-queue">
+              <p className="mb-1 text-[11px] text-emerald-100/50">上传队列</p>
+              <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                {uploads.map((item) => {
+                  const width =
+                    item.status === 'uploading' ? item.percent : item.status === 'queued' ? 0 : 100
+                  const barClass =
+                    item.status === 'error'
+                      ? 'bg-gradient-to-r from-rose-500 to-rose-300'
+                      : item.status === 'done'
+                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-300'
+                        : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-cyan-300'
+                  return (
+                    <li key={item.id} data-testid="upload-item"
+                        className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <span className="min-w-0 flex-1 truncate text-emerald-50/90" title={item.name}>
+                          {item.name}
+                        </span>
+                        <span className="text-emerald-100/50">{formatBytes(item.size)}</span>
+                        <span className={item.status === 'error' ? 'text-rose-300' : 'text-emerald-100/70'}>
+                          {uploadLabel(item)}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/25" role="progressbar"
+                           data-testid="upload-progress"
+                           aria-valuenow={item.status === 'uploading' ? item.percent : undefined}
+                           aria-valuemin={0} aria-valuemax={100}>
+                        <div
+                          className={`relative h-full overflow-hidden rounded-full transition-[width] duration-300 ${barClass}`}
+                          style={{ width: `${width}%` }}
+                        >
+                          {(item.status === 'processing' || (item.status === 'uploading' && item.percent < 100)) && (
+                            <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+                              <span className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          <p className="mb-1 text-[11px] text-emerald-100/50">已上传文件</p>
+          {docsError && <p className="text-amber-200/80" data-testid="kb-error">知识库不可用：{docsError}</p>}
+          {!docsError && docs === null && <p className="text-emerald-100/60">加载中…</p>}
+          {!docsError && docs && docs.length === 0 && <p className="text-emerald-100/60">还没有上传文档</p>}
+          {!docsError && docs && docs.length > 0 && (
+            <ul className="max-h-56 space-y-2 overflow-y-auto pr-1">
+              {docs.map((doc) => (
+                <li key={doc.doc_id || doc.source} data-testid="kb-doc-item"
+                    className="flex flex-wrap items-center justify-between gap-2 text-emerald-50/90">
+                  <span className="min-w-0 flex-1 truncate" title={doc.source}>{doc.source}</span>
+                  <span className="text-[11px] text-emerald-100/60">{doc.chunks} 块</span>
+                  {doc.doc_id && (
+                    <code className="text-[11px] text-emerald-200/60">{doc.doc_id.split(':').pop()}</code>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}

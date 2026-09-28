@@ -15,6 +15,7 @@ test.describe('账号与知识库入口（桌面端）', () => {
   test('账号条与上传入口可用，且不影响主流程', async ({ page }) => {
     await expect(page.getByTestId('account-panel')).toBeVisible()
     await expect(page.getByTestId('rag-upload-input')).toBeAttached()
+    await expect(page.getByTestId('kb-toggle')).toBeVisible()
     await expect(page.getByRole('button', { name: /开始研究/ })).toBeVisible()
   })
 
@@ -25,6 +26,58 @@ test.describe('账号与知识库入口（桌面端）', () => {
       buffer: Buffer.from('not-a-document'),
     })
     await expect(page.getByTestId('upload-state')).toContainText('不支持的文件类型')
+  })
+
+  // ---- P6-A 增量：知识库列表 + 上传进度（mock 后端，UI 行为可重复） ----
+
+  test('知识库面板列出已上传文件', async ({ page }) => {
+    await page.route('**/api/rag/docs', (route) =>
+      route.fulfill({
+        json: {
+          docs: [
+            { doc_id: 'local:aaaa1111', source: '行业报告.pdf', chunks: 12 },
+            { doc_id: 'local:bbbb2222', source: 'notes.md', chunks: 3 },
+          ],
+        },
+      }),
+    )
+    await page.getByTestId('kb-toggle').click()
+    await expect(page.getByTestId('kb-panel')).toBeVisible()
+    const rows = page.getByTestId('kb-doc-item')
+    await expect(rows).toHaveCount(2)
+    await expect(rows.filter({ hasText: '行业报告.pdf' })).toContainText('12 块')
+    await expect(rows.filter({ hasText: 'notes.md' })).toContainText('3 块')
+  })
+
+  test('上传文件逐行展示进度条与状态', async ({ page }) => {
+    await page.route('**/api/rag/ingest', (route) =>
+      route.fulfill({ status: 200, json: { source: 'notes.md', chunks: 3, doc_id: 'local:abc' } }),
+    )
+    await page.route('**/api/rag/docs', (route) =>
+      route.fulfill({ json: { docs: [{ doc_id: 'local:abc', source: 'notes.md', chunks: 3 }] } }),
+    )
+    await page.getByTestId('rag-upload-input').setInputFiles({
+      name: 'notes.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# hello'),
+    })
+    const row = page.getByTestId('upload-item').filter({ hasText: 'notes.md' })
+    await expect(row).toBeVisible()
+    await expect(row.getByTestId('upload-progress')).toBeAttached()
+    await expect(row).toContainText('已入库（3 块）')
+  })
+
+  test('多文件选择逐行展示上传队列', async ({ page }) => {
+    await page.route('**/api/rag/ingest', (route) =>
+      route.fulfill({ status: 200, json: { source: 'a.md', chunks: 1, doc_id: 'local:a' } }),
+    )
+    await page.route('**/api/rag/docs', (route) => route.fulfill({ json: { docs: [] } }))
+    await page.getByTestId('rag-upload-input').setInputFiles([
+      { name: 'a.md', mimeType: 'text/markdown', buffer: Buffer.from('# a') },
+      { name: 'b.md', mimeType: 'text/markdown', buffer: Buffer.from('# b') },
+    ])
+    await expect(page.getByTestId('upload-item').filter({ hasText: 'a.md' })).toBeVisible()
+    await expect(page.getByTestId('upload-item').filter({ hasText: 'b.md' })).toBeVisible()
   })
 
   // ---- P6-B：邀请链接 / 历史筛选与分页 ----
