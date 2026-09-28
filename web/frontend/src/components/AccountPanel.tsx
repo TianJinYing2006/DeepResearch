@@ -654,7 +654,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                       ? 'bg-gradient-to-r from-rose-500 to-rose-300'
                       : item.status === 'done'
                         ? 'bg-gradient-to-r from-emerald-500 to-emerald-300'
-                        : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-cyan-300'
+                        : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
                   return (
                     <li key={item.id} data-testid="upload-item"
                         className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">

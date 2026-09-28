@@ -532,7 +532,7 @@ export default function App() {
 
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard label="已完成节点" value={String(steps.length)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
-            <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="cyan" />
+            <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="brand" />
             <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
             <MetricCard
               label="运行时长"
@@ -699,10 +699,10 @@ function BoundaryItem({ title, text }: { title: string; text: string }) {
   )
 }
 
-function MetricCard({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: 'emerald' | 'cyan' | 'violet' | 'amber' }) {
+function MetricCard({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: 'emerald' | 'brand' | 'violet' | 'amber' }) {
   const accentClass = {
     emerald: 'from-emerald-400/20 text-emerald-200',
-    cyan: 'from-cyan-400/20 text-cyan-200',
+    brand: 'from-brand-400/20 text-brand-200',
     violet: 'from-violet-400/20 text-violet-200',
     amber: 'from-amber-400/20 text-amber-200',
   }[accent]
@@ -833,7 +833,7 @@ function latestActivity(events: AguiEvent[]): string {
 function statusPresentation(status: StreamStatus) {
   return {
     idle: { label: '等待任务', className: 'border-white/10 bg-white/[0.03] text-slate-400' },
-    starting: { label: '正在启动', className: 'border-cyan-300/20 bg-cyan-300/[0.08] text-cyan-200' },
+    starting: { label: '正在启动', className: 'border-brand-300/20 bg-brand-300/[0.08] text-brand-200' },
     running: { label: '研究进行中', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
     stopping: { label: '正在安全停止', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
     done: { label: '研究完成', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
@@ -846,7 +846,7 @@ function statusPresentation(status: StreamStatus) {
 function connectionPresentation(status: ConnectionStatus) {
   return {
     idle: { label: '等待实时流', className: 'border-white/10 bg-white/[0.03] text-slate-500', dotClass: 'bg-slate-600' },
-    connecting: { label: '连接中', className: 'border-cyan-300/15 bg-cyan-300/[0.05] text-cyan-200', dotClass: 'animate-pulse bg-cyan-300' },
+    connecting: { label: '连接中', className: 'border-brand-300/15 bg-brand-300/[0.05] text-brand-200', dotClass: 'animate-pulse bg-brand-300' },
     live: { label: '实时连接', className: 'border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200', dotClass: 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,0.7)]' },
     reconnecting: { label: '正在重连', className: 'border-amber-300/15 bg-amber-300/[0.05] text-amber-200', dotClass: 'animate-pulse bg-amber-300' },
     closed: { label: '连接已关闭', className: 'border-white/10 bg-white/[0.03] text-slate-500', dotClass: 'bg-slate-600' },
@@ -856,7 +856,7 @@ function connectionPresentation(status: ConnectionStatus) {
 function eventPresentation(event: AguiEvent) {
   switch (event.type) {
     case 'RUN_STARTED':
-      return { icon: '▶', iconClass: 'border-cyan-300/15 bg-cyan-300/[0.07] text-cyan-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
+      return { icon: '▶', iconClass: 'border-brand-300/15 bg-brand-300/[0.07] text-brand-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
     case 'STEP_FINISHED': {
       const step = event as StepFinishedEvent
       return { icon: '✓', iconClass: 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: nodeLabel(step.node), detail: `${formatDuration(step.duration_ms)} · 深度 ${step.depth} · ${formatNumber(step.token_used)} token` }
