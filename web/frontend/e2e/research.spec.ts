@@ -103,6 +103,16 @@ test.describe('研究主流程（桌面端）', () => {
     expect(body).toContain('run_status')
   })
 
+  test('文档摄取状态列出命中的知识库文件', async ({ page }) => {
+    await page.fill('#topic', '知识库命中展示')
+    await page.click('button[type="submit"]')
+    await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 90_000 })
+
+    // 演示图固定命中 local://knowledge-base/market-notes ⇒ 面板要列出文件名，而不是只给计数
+    await expect(page.getByTestId('rag-hit-list').getByTestId('rag-hit-item'))
+      .toContainText('knowledge-base/market-notes')
+  })
+
   test('运行中可停止，且不会被记成失败', async ({ page }) => {
     await page.fill('#topic', '取消语义')
     await page.click('button[type="submit"]')
