@@ -71,7 +71,7 @@ export function ReportView({ report }: { report: string }) {
       </article>
       {remaining > 0 && (
         <div className="mx-auto mt-6 max-w-4xl rounded-xl border border-white/10 bg-white/[0.03] p-4 text-center">
-          <p className="text-xs leading-5 text-slate-500">
+          <p className="text-xs leading-5 text-slate-400">
             为避免一次性解析超长 Markdown 卡住页面，已按段落分段渲染（已显示 {visible.length.toLocaleString('zh-CN')} / {report.length.toLocaleString('zh-CN')} 字符）。
           </p>
           <button

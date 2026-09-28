@@ -20,7 +20,7 @@ test.describe('研究主流程（桌面端）', () => {
 
     await Promise.all([
       // 后端是前台模型：点提交后立刻进入 running，状态徽标先变，再等报告
-      expect(page.getByText('研究进行中')).toBeVisible(),
+      expect(page.getByTestId('status-badge')).toContainText('研究进行中'),
       page.click('button[type="submit"]'),
     ])
 
@@ -31,7 +31,7 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 90_000 })
     const report = page.locator('article.report-prose')
     await expect(report).toContainText('演示研究报告')
-    await expect(page.getByText('研究完成')).toBeVisible()
+    await expect(page.getByTestId('status-badge')).toContainText('研究完成')
 
     // #14 运行摘要：总耗时 / 节点数 / 检索跳数 / 降级条目 / 报告字数 / 成本估算
     const summary = page.locator('[data-testid="run-summary"]')
@@ -43,7 +43,7 @@ test.describe('研究主流程（桌面端）', () => {
   test('刷新页面后恢复当前运行并继续到报告', async ({ page }) => {
     await page.fill('#topic', '刷新恢复')
     await page.click('button[type="submit"]')
-    await expect(page.getByText('研究进行中')).toBeVisible()
+    await expect(page.getByTestId('status-badge')).toContainText('研究进行中')
     // 先让回放里有真实内容（至少一个节点完成）
     await expect(page.getByText('规划问题').first()).toBeVisible({ timeout: 60_000 })
 
@@ -54,20 +54,20 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.locator('text=/RUN [a-f0-9]{12}/')).toBeVisible({ timeout: 30_000 })
     // 回放重建活动流并继续消费后续事件，最终走到报告
     await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByText('研究完成')).toBeVisible()
+    await expect(page.getByTestId('status-badge')).toContainText('研究完成')
   })
 
   test('完成后刷新仍能回看最终报告', async ({ page }) => {
     await page.fill('#topic', '完成后续看')
     await page.click('button[type="submit"]')
     await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByText('研究完成')).toBeVisible()
+    await expect(page.getByTestId('status-badge')).toContainText('研究完成')
 
     await page.reload()
 
     // 终局后保留 run_id（#12）⇒ 回放重建最终态，刷新不丢报告
     await expect(page.locator('[data-testid="report-heading"]')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByText('研究完成')).toBeVisible()
+    await expect(page.getByTestId('status-badge')).toContainText('研究完成')
     await expect(page.locator('article.report-prose')).toContainText('演示研究报告')
   })
 
@@ -116,10 +116,10 @@ test.describe('研究主流程（桌面端）', () => {
   test('运行中可停止，且不会被记成失败', async ({ page }) => {
     await page.fill('#topic', '取消语义')
     await page.click('button[type="submit"]')
-    await expect(page.getByText('研究进行中')).toBeVisible()
+    await expect(page.getByTestId('status-badge')).toContainText('研究进行中')
 
     await page.click('button:has-text("停止研究")')
-    await expect(page.getByText('已取消')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId('status-badge')).toContainText('已取消', { timeout: 60_000 })
     // 取消不是故障 ⇒ 不得出现错误卡、不得显示「运行失败」
     await expect(page.locator('[data-testid="error-card"]')).toHaveCount(0)
     await expect(page.getByText('运行失败')).toHaveCount(0)

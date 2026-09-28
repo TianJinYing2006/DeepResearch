@@ -50,7 +50,7 @@ test.describe('错误呈现与重试', () => {
 
     // 重试：第二次请求放行 ⇒ 应真的跑起来（不是断点续跑，D-19 没有可续跑的中间态）
     await page.click('[data-testid="retry-button"]')
-    await expect(page.getByText('研究进行中')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByTestId('status-badge')).toContainText('研究进行中', { timeout: 30_000 })
     await expect(card).toHaveCount(0)
   })
 
