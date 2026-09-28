@@ -177,8 +177,8 @@ jobs:
       # 需求 11 防复发：色板 token 守卫。用字符串覆盖内置色板名（如 `cyan: '#66e3ff'`）
       # 会整体替换 {50..950} 色阶，使 text-cyan-200 / bg-cyan-300 等带档位的类静默失效；
       # tsc / vite build / Playwright E2E 均不报错，只能靠比对 dist CSS 发现。零 LLM、零网络。
-      - name: Guard: Tailwind 色板 token
-        run: python tools/check_tailwind_tokens.py
+      - name: "Guard: Tailwind 色板 token"
+        run: python3 tools/check_tailwind_tokens.py
 
       - name: Build (vite production)
         working-directory: web/frontend
