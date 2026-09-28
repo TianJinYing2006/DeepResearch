@@ -31,7 +31,7 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
               />
               <div
                 className={`truncate text-center text-[11px] font-medium ${
-                  completed || active ? 'text-slate-200' : 'text-slate-600'
+                  completed || active ? 'text-slate-200' : 'text-slate-400'
                 }`}
               >
                 {stage.name}
@@ -43,14 +43,14 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
 
       <div className="mt-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">当前阶段</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">当前阶段</p>
           <p className="mt-1 text-xl font-semibold text-white">
             {cancelling ? '正在安全停止' : progress.stageName}
           </p>
         </div>
         <div className="text-right">
           <p className="font-mono text-2xl font-semibold tabular-nums text-emerald-300">{percent}%</p>
-          <p className="mt-1 text-xs text-slate-500">{etaLabel(progress, cancelling)}</p>
+          <p className="mt-1 text-xs text-slate-400">{etaLabel(progress, cancelling)}</p>
         </div>
       </div>
 
@@ -75,7 +75,7 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
       </div>
 
       {progress.stageName === '检索' && (
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-slate-400">
           检索跳数进度 <span className="font-mono text-slate-300">{progress.innerPercent}%</span>；总流程百分比只使用可确认的数据。
         </p>
       )}

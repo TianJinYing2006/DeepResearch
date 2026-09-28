@@ -82,6 +82,26 @@ test.describe('账号与知识库入口（桌面端）', () => {
 
   // ---- P6-B：邀请链接 / 历史筛选与分页 ----
 
+  test('弹窗支持 Escape 关闭且焦点不逃逸', async ({ page }) => {
+    await page.goto('/?invite=invite-abc')
+    await page.getByTestId('invite-register').getByRole('button', { name: '隐私政策' }).click()
+    await expect(page.getByTestId('legal-modal')).toBeVisible()
+
+    // R1：焦点陷阱 —— 连续 Tab 后焦点仍在弹窗内
+    for (let index = 0; index < 12; index += 1) {
+      await page.keyboard.press('Tab')
+    }
+    const trapped = await page.evaluate(
+      () => document.activeElement?.closest('[data-testid="legal-modal"]') !== null,
+    )
+    expect(trapped).toBe(true)
+
+    // R1：Escape 关闭并归还焦点（回到打开它的按钮所在弹窗）
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('legal-modal')).toHaveCount(0)
+    await expect(page.getByTestId('invite-register')).toBeVisible()
+  })
+
   test('邀请链接打开注册弹窗并预填邀请码', async ({ page }) => {
     await page.goto('/?invite=invite-abc')
     await expect(page.getByTestId('invite-register')).toBeVisible()

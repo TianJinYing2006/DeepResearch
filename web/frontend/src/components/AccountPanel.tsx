@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import Modal from './Modal'
 import { ReportView } from './ReportView'
 
 type SessionUser = { user_id: string; email: string }
@@ -450,63 +450,72 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         .join(' · ')
     : ''
 
-  const legalModal = legal
-    ? createPortal(
-        <div className="fixed inset-0 z-[60] flex justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
-             data-testid="legal-modal">
-          <div className="surface-card my-6 w-full max-w-3xl p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-emerald-50">
-                {legal.doc === 'privacy' ? '隐私政策' : '用户协议'}
-              </h3>
-              <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
-                      data-testid="legal-close"
-                      onClick={() => { setLegal(null); setLegalError('') }}>关闭</button>
-            </div>
-            {legalError && <p className="mt-3 text-sm text-rose-300">{legalError}</p>}
-            {!legalError && !legal.markdown && <p className="mt-3 text-sm text-emerald-100/60">加载中…</p>}
-            {!legalError && legal.markdown && (
-              <div className="mt-4">
-                <ReportView report={legal.markdown} />
-              </div>
-            )}
-          </div>
-        </div>,
-        document.body,
-      )
-    : null
+  const legalModal = legal ? (
+    <Modal
+      onClose={() => { setLegal(null); setLegalError('') }}
+      labelledBy="legal-title"
+      testId="legal-modal"
+      overlayClassName="z-[60] flex justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
+      panelClassName="surface-card my-6 w-full max-w-3xl p-6"
+    >
+      <div className="flex items-center justify-between">
+        <h3 id="legal-title" className="text-sm font-semibold text-emerald-50">
+          {legal.doc === 'privacy' ? '隐私政策' : '用户协议'}
+        </h3>
+        <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
+                data-testid="legal-close"
+                onClick={() => { setLegal(null); setLegalError('') }}>关闭</button>
+      </div>
+      {legalError && <p role="alert" className="mt-3 text-sm text-rose-300">{legalError}</p>}
+      {!legalError && !legal.markdown && <p className="mt-3 text-sm text-emerald-100/60">加载中…</p>}
+      {!legalError && legal.markdown && (
+        <div className="mt-4">
+          <ReportView report={legal.markdown} />
+        </div>
+      )}
+    </Modal>
+  ) : null
 
   if (authRequired && checked && !user) {
-    // 用 Portal 挂到 body：header 的 backdrop-filter 会把 position:fixed 约束在 header 内
-    return createPortal(
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-        data-testid="auth-gate"
+    // 登录门不可关闭（dismissible=false）：只保留 dialog 语义与焦点管理
+    return (
+      <Modal
+        onClose={() => {}}
+        labelledBy="auth-title"
+        testId="auth-gate"
+        dismissible={false}
+        overlayClassName="z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        panelClassName="surface-card w-full max-w-md p-6"
       >
-        <form onSubmit={(event) => void submitAuth(event)} className="surface-card w-full max-w-md p-6">
-          <h2 className="text-lg font-semibold text-emerald-50">
+        <form onSubmit={(event) => void submitAuth(event)}>
+          <h2 id="auth-title" className="text-lg font-semibold text-emerald-50">
             {mode === 'login' ? '登录 DeepResearch' : '邀请制注册'}
           </h2>
           <p className="mt-1 text-xs text-emerald-100/60">
             {mode === 'login' ? '使用邮箱与密码登录' : '需要一次性邀请码（管理员通过 CLI 生成）'}
           </p>
           <label className="field-label mt-5" htmlFor="auth-email">邮箱</label>
-          <input id="auth-email" className="field-control" type="email" autoComplete="email"
+          <input id="auth-email" name="email" className="field-control" type="email" autoComplete="email"
+                 aria-invalid={authError ? true : undefined}
+                 aria-describedby={authError ? 'auth-error' : undefined}
                  value={email} onChange={(event) => setEmail(event.target.value)} required />
           <label className="field-label mt-4" htmlFor="auth-password">密码</label>
-          <input id="auth-password" className="field-control" type="password"
+          <input id="auth-password" name="password" className="field-control" type="password"
                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                 aria-invalid={authError ? true : undefined}
+                 aria-describedby={authError ? 'auth-error' : undefined}
                  value={password} onChange={(event) => setPassword(event.target.value)}
                  minLength={10} required />
           {mode === 'register' && (
             <>
               <label className="field-label mt-4" htmlFor="auth-invite">邀请码</label>
-              <input id="auth-invite" className="field-control" value={inviteCode}
+              <input id="auth-invite" name="invite_code" className="field-control" value={inviteCode}
                      onChange={(event) => setInviteCode(event.target.value)} required />
             </>
           )}
           {authError && (
-            <p className="mt-4 text-sm text-rose-300" data-testid="auth-error">{authError}</p>
+            <p id="auth-error" role="alert" className="mt-4 text-sm text-rose-300"
+               data-testid="auth-error">{authError}</p>
           )}
           <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
             {busy ? '提交中…' : mode === 'login' ? '登录' : '注册并登录'}
@@ -525,8 +534,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           </p>
           {legalModal}
         </form>
-      </div>,
-      document.body,
+      </Modal>
     )
   }
 
@@ -555,7 +563,10 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               onClick={() => void toggleKnowledgeBase()} data-testid="kb-toggle">
         知识库 {docs ? `${docs.length} 篇` : docsError ? '不可用' : '…'}
       </button>
-      {uploadState && <span className="text-emerald-100/70" data-testid="upload-state">{uploadState}</span>}
+      {uploadState && (
+        <span className="text-emerald-100/70" role="status" aria-live="polite"
+              data-testid="upload-state">{uploadState}</span>
+      )}
       {user ? (
         <>
           <span className="text-emerald-100/70" data-testid="account-email">{user.email}</span>
@@ -643,7 +654,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           </div>
 
           {uploads.length > 0 && (
-            <div className="mb-3" data-testid="upload-queue">
+            <div className="mb-3" data-testid="upload-queue" aria-live="polite">
               <p className="mb-1 text-[11px] text-emerald-100/50">上传队列</p>
               <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
                 {uploads.map((item) => {
@@ -690,7 +701,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           )}
 
           <p className="mb-1 text-[11px] text-emerald-100/50">已上传文件</p>
-          {docsError && <p className="text-amber-200/80" data-testid="kb-error">知识库不可用：{docsError}</p>}
+          {docsError && <p role="alert" className="text-amber-200/80" data-testid="kb-error">知识库不可用：{docsError}</p>}
           {!docsError && docs === null && <p className="text-emerald-100/60">加载中…</p>}
           {!docsError && docs && docs.length === 0 && <p className="text-emerald-100/60">还没有上传文档</p>}
           {!docsError && docs && docs.length > 0 && (
@@ -710,28 +721,41 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         </div>
       )}
 
-      {inviteOpen && !authRequired && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-             data-testid="invite-register">
-          <form onSubmit={(event) => void submitAuth(event)} className="surface-card w-full max-w-md p-6">
+      {inviteOpen && !authRequired && (
+        <Modal
+          onClose={() => setInviteOpen(false)}
+          labelledBy="invite-title"
+          testId="invite-register"
+          overlayClassName="z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          panelClassName="surface-card w-full max-w-md p-6"
+        >
+          <form onSubmit={(event) => void submitAuth(event)}>
             <div className="flex items-start justify-between gap-3">
-              <h2 className="text-lg font-semibold text-emerald-50">邀请制注册</h2>
+              <h2 id="invite-title" className="text-lg font-semibold text-emerald-50">邀请制注册</h2>
               <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
                       data-testid="invite-close"
                       onClick={() => setInviteOpen(false)}>关闭</button>
             </div>
             <p className="mt-1 text-xs text-emerald-100/60">邀请码已从链接预填；注册成功后自动登录。</p>
             <label className="field-label mt-5" htmlFor="invite-email">邮箱</label>
-            <input id="invite-email" className="field-control" type="email" autoComplete="email"
+            <input id="invite-email" name="email" className="field-control" type="email" autoComplete="email"
+                   aria-invalid={authError ? true : undefined}
+                   aria-describedby={authError ? 'auth-error' : undefined}
                    value={email} onChange={(event) => setEmail(event.target.value)} required />
             <label className="field-label mt-4" htmlFor="invite-password">密码（至少 10 位）</label>
-            <input id="invite-password" className="field-control" type="password"
+            <input id="invite-password" name="password" className="field-control" type="password"
                    autoComplete="new-password" value={password} minLength={10}
+                   aria-invalid={authError ? true : undefined}
+                   aria-describedby={authError ? 'auth-error' : undefined}
                    onChange={(event) => setPassword(event.target.value)} required />
             <label className="field-label mt-4" htmlFor="invite-code">邀请码</label>
-            <input id="invite-code" className="field-control" data-testid="invite-code-input"
+            <input id="invite-code" name="invite_code" className="field-control" data-testid="invite-code-input"
+                   autoComplete="off" spellCheck={false}
                    value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
-            {authError && <p className="mt-4 text-sm text-rose-300" data-testid="auth-error">{authError}</p>}
+            {authError && (
+              <p id="auth-error" role="alert" className="mt-4 text-sm text-rose-300"
+                 data-testid="auth-error">{authError}</p>
+            )}
             <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
               {busy ? '提交中…' : '注册并登录'}
             </button>
@@ -744,29 +768,32 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                       onClick={() => void openLegal('privacy')}>隐私政策</button>
             </p>
           </form>
-        </div>,
-        document.body,
+        </Modal>
       )}
       {legalModal}
 
-      {(preview || previewError) && createPortal(
-        <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
-             data-testid="history-preview">
-          <div className="surface-card my-6 w-full max-w-3xl p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-emerald-50">历史报告 {preview?.runId}</h3>
-              <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
-                      onClick={() => { setPreview(null); setPreviewError('') }}>关闭</button>
-            </div>
-            {previewError && <p className="mt-3 text-sm text-rose-300">{previewError}</p>}
-            {preview && (
-              <div className="mt-4">
-                <ReportView report={preview.markdown} />
-              </div>
-            )}
+      {(preview || previewError) && (
+        <Modal
+          onClose={() => { setPreview(null); setPreviewError('') }}
+          labelledBy="preview-title"
+          testId="history-preview"
+          overlayClassName="z-50 flex justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
+          panelClassName="surface-card my-6 w-full max-w-3xl p-6"
+        >
+          <div className="flex items-center justify-between">
+            <h3 id="preview-title" className="text-sm font-semibold text-emerald-50">
+              历史报告 {preview?.runId}
+            </h3>
+            <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
+                    onClick={() => { setPreview(null); setPreviewError('') }}>关闭</button>
           </div>
-        </div>,
-        document.body,
+          {previewError && <p role="alert" className="mt-3 text-sm text-rose-300">{previewError}</p>}
+          {preview && (
+            <div className="mt-4">
+              <ReportView report={preview.markdown} />
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   )

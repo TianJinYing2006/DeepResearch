@@ -38,6 +38,17 @@ interface LaunchParams {
 /** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
 const LAST_REQUEST_KEY = 'dr.lastRequest'
 
+/** R1（审计 U3）：运行状态 → 读屏播报文案（idle 不播报）。 */
+const STATUS_ANNOUNCEMENTS: Partial<Record<StreamStatus, string>> = {
+  starting: '正在启动研究…',
+  running: '研究进行中',
+  stopping: '正在停止研究…',
+  done: '研究完成',
+  cancelled: '研究已取消',
+  timeout: '研究已超时停止',
+  error: '研究出错，请查看错误信息',
+}
+
 function readStoredLaunchParams(): LaunchParams | null {
   try {
     const raw = sessionStorage.getItem(LAST_REQUEST_KEY)
@@ -70,6 +81,8 @@ export default function App() {
   // 用户可能在运行期间改了滑块，重试必须重跑原来那次，否则「重试」名不副实。
   const [lastRequest, setLastRequest] = useState<LaunchParams | null>(null)
   const [exportState, setExportState] = useState<'idle' | 'exported' | 'failed'>('idle')
+  // R1（审计 U3）：读屏播报 —— 状态迁移 / 复制 / 导出结果写进隐藏 live region
+  const [announcement, setAnnouncement] = useState('')
   // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
   // 原来是累加各节点 duration_ms ⇒ 只有节点完成才会跳变，等待 LLM 时看起来卡住。
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
@@ -184,6 +197,20 @@ export default function App() {
   const statusInfo = statusPresentation(status)
   const connectionInfo = connectionPresentation(connectionStatus)
 
+  useEffect(() => {
+    const message = STATUS_ANNOUNCEMENTS[status]
+    if (message) setAnnouncement(message)
+  }, [status])
+
+  useEffect(() => {
+    if (copyState === 'copied') setAnnouncement('报告正文已复制到剪贴板')
+  }, [copyState])
+
+  useEffect(() => {
+    if (exportState === 'exported') setAnnouncement('报告已开始下载')
+    else if (exportState === 'failed') setAnnouncement('导出失败，请重试')
+  }, [exportState])
+
   const launch = (params: LaunchParams) => {
     // 从发起时刻开始计时（不是等第一个节点完成）
     setRunStartedAt(Date.now())
@@ -244,6 +271,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
+      {/* R1（审计 U3）：状态 / 复制 / 导出的读屏播报通道（视觉隐藏） */}
+      <div className="sr-only" role="status" aria-live="polite" data-testid="live-region">
+        {announcement}
+      </div>
       <header className="border-b border-white/[0.07] bg-[#07100f]/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
@@ -252,7 +283,7 @@ export default function App() {
             </div>
             <div>
               <p className="font-semibold tracking-tight text-white">DeepResearch</p>
-              <p className="text-xs text-slate-500">可审计研究工作台</p>
+              <p className="text-xs text-slate-400">可审计研究工作台</p>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -260,7 +291,7 @@ export default function App() {
               <span className={`h-1.5 w-1.5 rounded-full ${connectionInfo.dotClass}`} />
               {connectionInfo.label}
             </span>
-            <span className="hidden rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-500 sm:inline-flex">
+            <span className="hidden rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-400 sm:inline-flex">
               AG-UI 事件语义
             </span>
           </div>
@@ -276,7 +307,7 @@ export default function App() {
             <div className="mb-6 flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-white">新研究</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">描述问题，研究过程会实时推送到右侧。</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">描述问题，研究过程会实时推送到右侧。</p>
               </div>
               <span className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.07] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200/80">
                 Live
@@ -295,7 +326,7 @@ export default function App() {
               required
             />
 
-            <label className="field-label mt-5" htmlFor="instructions">附加要求 <span className="normal-case tracking-normal text-slate-600">（可选）</span></label>
+            <label className="field-label mt-5" htmlFor="instructions">附加要求 <span className="normal-case tracking-normal text-slate-400">（可选）</span></label>
             <textarea
               id="instructions"
               className="field-control min-h-24 resize-y"
@@ -340,10 +371,10 @@ export default function App() {
                   </button>
                 ))
               ) : (
-                <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-600">加载中…</span>
+                <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-400">加载中…</span>
               )}
             </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-slate-600">
+            <p className="mt-1.5 text-[10px] leading-4 text-slate-400">
               档位由服务端固定底层参数（跳数 / 子问题 / 预算 / 时限），客户端不可覆盖。
               {activeProfile
                 ? `当前：≤${activeProfile.max_total_hops} 跳 · ≤${activeProfile.max_subquestions} 个子问题 · ${Math.round(activeProfile.timeout_seconds / 60)} 分钟`
@@ -371,7 +402,7 @@ export default function App() {
           </form>
 
           <section className="surface-card p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">运行边界</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">运行边界</p>
             <div className="mt-4 space-y-3 text-xs leading-5 text-slate-400">
               <BoundaryItem title="核心逻辑" text="研究判断全部留在 Python 后端" />
               <BoundaryItem title="费用口径" text="只展示后端实值，缺失时不做估算" />
@@ -383,7 +414,7 @@ export default function App() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-white">文档摄取状态</p>
-                <p className="mt-1 text-xs text-slate-500">本轮知识库参与情况</p>
+                <p className="mt-1 text-xs text-slate-400">本轮知识库参与情况</p>
               </div>
               <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-xs text-slate-300">{ragSourceCount}</span>
             </div>
@@ -425,12 +456,12 @@ export default function App() {
                     >
                       {statusInfo.label}
                     </span>
-                    {runId && <span className="font-mono text-[11px] text-slate-600">RUN {runId}</span>}
+                    {runId && <span className="font-mono text-[11px] text-slate-400">RUN {runId}</span>}
                   </div>
                   <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-tight text-white sm:text-3xl">
                     {topic.trim() || '把复杂问题变成可追溯的研究结论'}
                   </h1>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
                     {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
                   </p>
                 </div>
@@ -444,6 +475,7 @@ export default function App() {
 
           {error && (
             <section
+              role="alert"
               className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-5 py-4 text-sm text-rose-100"
               data-testid="error-card"
             >
@@ -522,10 +554,10 @@ export default function App() {
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
                 <SummaryItem label="总耗时" value={formatDuration((finished.elapsed_seconds ?? elapsedMs / 1000) * 1000)} />
                 <SummaryItem label="完成节点" value={String(steps.length)} />
-                <SummaryItem label="检索跳数" value={String(finished.result.depth)} />
-                <SummaryItem label="降级条目" value={String(finished.degradation_count)} />
-                <SummaryItem label="报告字数" value={outputUnderReview ? '待复核' : formatNumber(finished.result.report.length)} />
-                <SummaryItem label="成本估算" value={`≈ ¥${formatCost(finished.cost_estimate_cny)}`} />
+                <SummaryItem label="检索跳数" value={String(finished.result?.depth ?? 0)} />
+                <SummaryItem label="降级条目" value={String(finished.degradation_count ?? 0)} />
+                <SummaryItem label="报告字数" value={outputUnderReview ? '待复核' : finished.result?.report ? formatNumber(finished.result.report.length) : '—'} />
+                <SummaryItem label="成本估算" value={finished.cost_estimate_cny == null ? '—' : `≈ ¥${formatCost(finished.cost_estimate_cny)}`} />
               </div>
             </section>
           )}
@@ -591,7 +623,7 @@ export default function App() {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Research report</p>
                     <h2 className="mt-1 text-xl font-semibold text-white" data-testid="report-heading">研究报告</h2>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-slate-400">
                       {outputUnderReview
                         ? '报告命中内容安全预检，正在等待人工复核'
                         : `Markdown 安全渲染 · ${result.report.length.toLocaleString('zh-CN')} 字符`}
@@ -662,7 +694,7 @@ export default function App() {
                           <span className="text-xs font-semibold text-slate-200">第 {String(entry.depth ?? index + 1)} 轮判断</span>
                           {entry.decision != null && <span className="rounded-md bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">{String(entry.decision)}</span>}
                         </div>
-                        <p className="text-xs leading-5 text-slate-500">{reflectionSummary(entry)}</p>
+                        <p className="text-xs leading-5 text-slate-400">{reflectionSummary(entry)}</p>
                       </div>
                     )) : <EmptyState icon="∅" title="暂无决策轨迹" text="本轮没有可展示的 critic 记录。" />}
                   </div>
@@ -675,7 +707,7 @@ export default function App() {
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     {Object.entries(result.validator_stats).map(([key, value]) => (
                       <div key={key} className="surface-card-muted p-4">
-                        <p className="truncate text-[11px] uppercase tracking-[0.1em] text-slate-600">{humanizeKey(key)}</p>
+                        <p className="truncate text-[11px] uppercase tracking-[0.1em] text-slate-400">{humanizeKey(key)}</p>
                         <p className="mt-2 font-mono text-lg font-semibold text-slate-200">{formatUnknown(value)}</p>
                       </div>
                     ))}
@@ -708,9 +740,9 @@ function MetricCard({ label, value, detail, accent }: { label: string; value: st
   }[accent]
   return (
     <div className={`surface-card bg-gradient-to-br ${accentClass} to-transparent p-4`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
       <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-1 truncate text-xs text-slate-500">{detail}</p>
+      <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
     </div>
   )
 }
@@ -718,7 +750,7 @@ function MetricCard({ label, value, detail, accent }: { label: string; value: st
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] text-slate-500">{label}</p>
+      <p className="text-[11px] text-slate-400">{label}</p>
       <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-slate-200">{value}</p>
     </div>
   )
@@ -731,7 +763,7 @@ function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: st
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300/55">{eyebrow}</p>
         <h2 className="mt-1 text-lg font-semibold text-white">{title}</h2>
       </div>
-      <p className="text-xs text-slate-600">{detail}</p>
+      <p className="text-xs text-slate-400">{detail}</p>
     </div>
   )
 }
@@ -740,9 +772,9 @@ function EmptyState({ icon, title, text }: { icon: string; title: string; text: 
   return (
     <div className="grid min-h-48 place-items-center text-center">
       <div className="max-w-xs">
-        <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-500">{icon}</div>
+        <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400">{icon}</div>
         <p className="mt-3 text-sm font-medium text-slate-300">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-600">{text}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-400">{text}</p>
       </div>
     </div>
   )
@@ -756,9 +788,9 @@ function TimelineItem({ event }: { event: AguiEvent }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-3">
           <p className="truncate text-xs font-semibold text-slate-300">{view.title}</p>
-          <span className="shrink-0 font-mono text-[10px] text-slate-700">{event.type}</span>
+          <span className="shrink-0 font-mono text-[10px] text-slate-400">{event.type}</span>
         </div>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{view.detail}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-400">{view.detail}</p>
       </div>
     </div>
   )
@@ -770,17 +802,17 @@ function CitationCard({ citation, index }: { citation: CitationResult; index: nu
     <article className={`rounded-xl border p-4 ${verified ? 'border-emerald-300/15 bg-emerald-300/[0.04]' : 'border-amber-300/15 bg-amber-300/[0.04]'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-slate-600">#{index + 1}</span>
+          <span className="font-mono text-[10px] text-slate-400">#{index + 1}</span>
           <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${verified ? 'bg-emerald-300/10 text-emerald-200' : 'bg-amber-300/10 text-amber-200'}`}>
             {verified ? '严格通过' : citation.verified_relaxed ? '宽松通过' : '待复核'}
           </span>
         </div>
-        <span className="font-mono text-xs text-slate-500">{Math.round(citation.confidence * 100)}%</span>
+        <span className="font-mono text-xs text-slate-400">{Math.round(citation.confidence * 100)}%</span>
       </div>
       <p className="mt-3 text-sm leading-6 text-slate-300">{citation.claim}</p>
       <div className="mt-3 border-t border-white/[0.06] pt-3">
         <SourceLink source={citation.source} />
-        {citation.note && <p className="mt-2 text-xs leading-5 text-slate-600">{citation.note}</p>}
+        {citation.note && <p className="mt-2 text-xs leading-5 text-slate-400">{citation.note}</p>}
       </div>
     </article>
   )
@@ -789,9 +821,9 @@ function CitationCard({ citation, index }: { citation: CitationResult; index: nu
 function SourceRow({ source, index }: { source: string; index: number }) {
   return (
     <div className="surface-card-muted flex items-center gap-3 p-3">
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-black/20 font-mono text-[10px] text-slate-600">{index + 1}</span>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-black/20 font-mono text-[10px] text-slate-400">{index + 1}</span>
       <div className="min-w-0 flex-1"><SourceLink source={source} /></div>
-      <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-slate-600">{sourceType(source)}</span>
+      <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-slate-400">{sourceType(source)}</span>
     </div>
   )
 }
@@ -845,11 +877,11 @@ function statusPresentation(status: StreamStatus) {
 
 function connectionPresentation(status: ConnectionStatus) {
   return {
-    idle: { label: '等待实时流', className: 'border-white/10 bg-white/[0.03] text-slate-500', dotClass: 'bg-slate-600' },
+    idle: { label: '等待实时流', className: 'border-white/10 bg-white/[0.03] text-slate-400', dotClass: 'bg-slate-600' },
     connecting: { label: '连接中', className: 'border-brand-300/15 bg-brand-300/[0.05] text-brand-200', dotClass: 'animate-pulse bg-brand-300' },
     live: { label: '实时连接', className: 'border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200', dotClass: 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,0.7)]' },
     reconnecting: { label: '正在重连', className: 'border-amber-300/15 bg-amber-300/[0.05] text-amber-200', dotClass: 'animate-pulse bg-amber-300' },
-    closed: { label: '连接已关闭', className: 'border-white/10 bg-white/[0.03] text-slate-500', dotClass: 'bg-slate-600' },
+    closed: { label: '连接已关闭', className: 'border-white/10 bg-white/[0.03] text-slate-400', dotClass: 'bg-slate-600' },
   }[status]
 }
 
@@ -880,7 +912,7 @@ function eventPresentation(event: AguiEvent) {
     case 'RUN_ERROR':
       return { icon: '×', iconClass: 'border-rose-300/15 bg-rose-300/[0.07] text-rose-200', title: '研究运行失败', detail: String(event.message ?? '未知错误') }
     default:
-      return { icon: '·', iconClass: 'border-white/10 bg-white/[0.03] text-slate-500', title: event.type, detail: '事件已接收' }
+      return { icon: '·', iconClass: 'border-white/10 bg-white/[0.03] text-slate-400', title: event.type, detail: '事件已接收' }
   }
 }
 
@@ -892,7 +924,9 @@ function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toLocaleString('zh-CN') : '0'
 }
 
-function formatCost(cny: number): string {
+function formatCost(cny: number | null | undefined): string {
+  // R1（审计 U2）：畸形/缺失终局帧不得让渲染崩溃 —— 非有限值显示占位
+  if (typeof cny !== 'number' || !Number.isFinite(cny)) return '—'
   // 研究单跑常在几分钱量级，固定两位会把 0.004 显示成 0.00 ⇒ 小额度多留两位
   if (cny === 0) return '0'
   return cny < 0.01 ? cny.toFixed(4) : cny.toFixed(2)
