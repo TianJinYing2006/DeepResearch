@@ -110,6 +110,68 @@ test.describe('账号与知识库入口（桌面端）', () => {
     await expect(page.getByTestId('invite-register')).toHaveCount(0)
   })
 
+  test('上传失败可重试，成功后入库', async ({ page }) => {
+    let calls = 0
+    await page.route('**/api/rag/ingest', (route) => {
+      calls += 1
+      if (calls === 1) {
+        return route.fulfill({ status: 500, json: { detail: { code: 'x', message: '服务器繁忙' } } })
+      }
+      return route.fulfill({ status: 200, json: { source: 'retry.md', chunks: 2, doc_id: 'local:r' } })
+    })
+    await page.route('**/api/rag/docs', (route) => route.fulfill({ json: { docs: [] } }))
+
+    await page.getByTestId('rag-upload-input').setInputFiles({
+      name: 'retry.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# retry'),
+    })
+    const row = page.getByTestId('upload-item').filter({ hasText: 'retry.md' })
+    await expect(row).toContainText('失败')
+
+    await row.getByTestId('upload-retry').click()
+    await expect(row).toContainText('已入库（2 块）')
+  })
+
+  test('历史分页失败保留已加载列表并可重试', async ({ page }) => {
+    let failNextPage = true
+    await page.route('**/api/runs*', async (route) => {
+      const url = new URL(route.request().url())
+      const offset = Number(url.searchParams.get('offset') ?? '0')
+      if (offset > 0 && failNextPage) {
+        failNextPage = false
+        return route.fulfill({ status: 500, json: { detail: { code: 'x', message: '服务器繁忙' } } })
+      }
+      const runs = Array.from({ length: 10 }, (_, index) => ({
+        run_id: `run${String(offset + index).padStart(10, '0')}`,
+        topic: `任务 ${offset + index}`,
+        status: 'SUCCEEDED',
+        stop_reason: 'completed',
+        created_at: null,
+        has_report: false,
+      }))
+      return route.fulfill({ json: { runs, limit: 10, offset } })
+    })
+
+    await page.getByTestId('history-toggle').click()
+    await expect(page.getByTestId('history-panel').getByText('任务 0')).toBeVisible()
+    await page.getByTestId('history-load-more').click()
+
+    // R3：翻页失败不清空已加载列表，给出内联重试
+    await expect(page.getByTestId('history-append-error')).toBeVisible()
+    await expect(page.getByTestId('history-panel').getByText('任务 0')).toBeVisible()
+    await page.getByTestId('history-retry').click()
+    await expect(page.getByTestId('history-panel').getByText('任务 10')).toBeVisible()
+  })
+
+  test('邀请参数一次性消费，刷新不再重开注册弹窗', async ({ page }) => {
+    await page.goto('/?invite=invite-abc')
+    await expect(page.getByTestId('invite-register')).toBeVisible()
+    await page.getByTestId('invite-close').click()
+    await page.reload()
+    await expect(page.getByTestId('invite-register')).toHaveCount(0)
+  })
+
   test('历史列表支持状态筛选、分页与报告预览（mock 后端）', async ({ page }) => {
     const calls: string[] = []
     await page.route('**/api/runs*', async (route) => {
