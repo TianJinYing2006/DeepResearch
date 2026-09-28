@@ -55,7 +55,7 @@ from .agui import (
 from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
-from .moderation import apply_output_gate, flag_report
+from .moderation import ModerationDecision, apply_output_gate, evaluate_output
 from .persistence import persist_forced, persist_terminal
 from .store import QuotaExceeded, RunStore
 from .usage import make_store_sink
@@ -515,8 +515,11 @@ class RunManager:
                           result: Optional[Dict[str, Any]] = None,
                           report: Optional[str] = None,
                           meta: Optional[Dict[str, Any]] = None,
-                          moderation_status: Optional[str] = None) -> None:
+                          moderation: Optional[ModerationDecision] = None) -> None:
         """终局落库（P3 起实现抽到 `persistence.persist_terminal`；失败只留痕）。
+
+        P0-4：`moderation` 是本次运行唯一一次审核决定的不可变结果，随终局同事务
+        写入状态与 `moderation_records` 证据；不再有独立的事后 `flag_report` 扫描。
 
         ⚠️ 时序：本方法在**内存终局之后**执行（不在 condition 锁内做 DB I/O，避免
         持久化抖动拖住传输层）。因此同一进程内，内存已 `finished` 与库中已终局之间
@@ -531,13 +534,10 @@ class RunManager:
                 egress = (self._status.get(run_id) or {}).get("egress")
             finalized = persist_terminal(store, run_id, seq, event_type, payload,
                                          result=result, report=report, meta=meta, topic=topic,
-                                         moderation_status=moderation_status, egress=egress)
+                                         moderation=moderation, egress=egress)
             if not finalized:
                 # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
                 self._set_persistence_error(run_id, RuntimeError("terminal_conflict"))
-                return
-            # P7-A：输出侧内容标记（命中词表 ⇒ flagged + 审核记录；不删除正文）
-            flag_report(store, run_id, self.owner(run_id), report)
         except Exception as exc:  # noqa: BLE001
             self._set_persistence_error(run_id, exc)
 
@@ -734,8 +734,10 @@ class RunManager:
             "degradation_count": len(step.state.degradation_log),
             "depth": step.state.depth,
         }
-        # P0-4：输出侧统一闸 —— 命中词表则**发帧与落库前**脱敏（正文只留产物）。
-        matches = apply_output_gate(payload, report)
+        # P0-4：输出侧统一闸 —— **唯一一次**审核调用（不可变决定），
+        # 事件流 / 传输层按决定脱敏后再发帧；正文只留产物，供审核/管理员复核。
+        decision = evaluate_output(report)
+        apply_output_gate(payload, decision)
         seq = self._emit_terminal_frame(
             run_id, RUN_FINISHED, payload,
             status_fields={
@@ -751,4 +753,4 @@ class RunManager:
         if seq is not None:
             self._persist_terminal(run_id, seq, RUN_FINISHED, payload,
                                    result=result, report=report, meta=meta,
-                                   moderation_status="flagged" if matches else None)
+                                   moderation=decision)

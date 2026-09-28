@@ -2,6 +2,9 @@
 
 - `0001_runs_and_events.sql`（P2-A）：任务持久化第一批 —— `runs`（9 态状态机 + 创建幂等 + 租约/预算/超时字段）与 `run_events`（单调 `sequence` + 级联删除）；
 - `0002_run_artifacts.sql`（P2-B）：终局产物表（报告正文 / 导出载荷，一 run 一 kind 一行，覆盖更新）；
+- `0015_moderation_lifecycle.sql`（P0-1）：审核生命周期取值补齐（+`cleared`/`under_review`）与 `moderation_records.kind` 扩展（申诉决策 / `output_decision` 不可变决定）；
+- `0016_quota_reservations.sql`（P0-2）：预留式月度预算（准入 hold `reserved_cny` / 终局结算 `actual`+`released`）；
+- `0017_rag_active_unique.sql`（P0-11）：同一用户同一 `doc_id` 活跃摄取唯一（并发上传去重；`ON CONFLICT` 目标；`deleted` 后可重传）；
 - `checks/*.sql`：结构自检（关键列 / 约束 / 级联 / upsert），**不由执行器自动跑**，由 CI `infra` job 与本地验证显式执行。
 
 ## 规则

@@ -59,7 +59,7 @@ from .alerts import collect_alerts, default_thresholds, process_deliveries_once,
 from .deletion import process_deletions_once
 from .errors import error_payload
 from .ingestion import process_ingestions_once, purge_expired_documents
-from .moderation import apply_output_gate, flag_report
+from .moderation import apply_output_gate, evaluate_output
 from .otel import run_span, setup_otel
 from .persistence import persist_terminal
 from .queue import RunQueue
@@ -523,20 +523,20 @@ class Worker:
             "degradation_count": len(state.degradation_log),
             "depth": state.depth,
         }
-        # P0-4：输出侧统一闸 —— 命中词表则**发帧与落库前**脱敏（正文只留产物）。
-        matches = apply_output_gate(payload, report)
+        # P0-4：输出侧统一闸 —— **唯一一次**审核调用（不可变决定），
+        # 事件流 / 传输层按决定脱敏后再落库；正文只留产物，供审核/管理员复核。
+        decision = evaluate_output(report)
+        apply_output_gate(payload, decision)
         # P1-9：导出载荷随附 run 创建时固化的数据流向快照
         egress = (row.get("request") or {}).get("egress")
         finalized = persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
                                      result=result, report=report, meta=meta, topic=topic,
-                                     moderation_status="flagged" if matches else None,
+                                     moderation=decision,
                                      egress=egress)
         if not finalized:
             # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
             _log(f"finalize {run_id}: terminal_conflict，终局写入整体回滚")
             return
-        # P7-A：输出侧内容标记（命中词表 ⇒ flagged + 审核记录；不删除正文）
-        flag_report(self._store, run_id, row.get("user_id"), report)
 
     def _mark_crashed(self, run_id: str, exc: Exception) -> None:
         payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])

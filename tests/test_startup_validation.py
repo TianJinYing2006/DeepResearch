@@ -64,5 +64,11 @@ def test_production_rejects_plain_http(monkeypatch):
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "https_required"
 
-    forwarded = client.get("/api/health/live", headers={"X-Forwarded-Proto": "https"})
-    assert forwarded.status_code == 200
+    # P0-10：不可信来源伪造的 X-Forwarded-Proto 不再被采信
+    spoofed = client.get("/api/health/live", headers={"X-Forwarded-Proto": "https"})
+    assert spoofed.status_code == 400
+
+    # 只有来自可信代理（CIDR 内的直连对端）的 X-Forwarded-Proto 才放行
+    monkeypatch.setattr(api, "_is_trusted_proxy", lambda host: True)
+    trusted = client.get("/api/health/live", headers={"X-Forwarded-Proto": "https"})
+    assert trusted.status_code == 200

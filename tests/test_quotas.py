@@ -15,6 +15,7 @@ from web.backend import main as api
 from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
 from web.backend.ratelimit import FixedWindowLimiter
 from web.backend.runner import RunManager
+from web.backend.store import QuotaExceeded
 
 PASSWORD = "password-123456"
 
@@ -134,6 +135,42 @@ def test_quota_endpoint_reports_usage(monkeypatch, store: FakeStore):
     assert body["user_concurrent_limit"] == 1
     assert body["run_budget_cny"] == 1.5
     assert body["monthly_budget_cny"] == 1500.0
+
+
+def test_monthly_budget_reservations_block_concurrency():
+    """P0-2：并发任务各自预留 hold，第三个任务被预算闸拒绝；终局释放后恢复。"""
+    store = FakeStore()
+    limits = dict(monthly_budget_cny=3.0, reserve_cny=1.5)
+
+    a, _ = store.create_run_admitted("resv-a", "t", {}, **limits)
+    b, _ = store.create_run_admitted("resv-b", "t", {}, **limits)
+    assert a["run_id"] == "resv-a" and b["run_id"] == "resv-b"
+
+    with pytest.raises(QuotaExceeded) as exc:
+        store.create_run_admitted("resv-c", "t", {}, **limits)
+    assert exc.value.kind == "monthly_budget"
+
+    assert store.finalize_run("resv-a", event_type="RUN_FINISHED", payload={},
+                              sequence=0, new_status="SUCCEEDED",
+                              allowed_from=("CREATED",)) is True
+    assert store.quota_reservations["resv-a"]["status"] == "settled"
+
+    c, _ = store.create_run_admitted("resv-c", "t", {}, **limits)
+    assert c["run_id"] == "resv-c"
+
+
+def test_reservation_settles_actual_and_releases_remainder():
+    """P0-2：终局结算 actual=已记成本，释放剩余 hold。"""
+    store = FakeStore()
+    store.create_run_admitted("resv-d", "t", {}, monthly_budget_cny=10.0,
+                              reserve_cny=2.0)
+    assert store.finalize_run("resv-d", event_type="RUN_FINISHED", payload={},
+                              sequence=0, new_status="SUCCEEDED",
+                              allowed_from=("CREATED",),
+                              fields={"cost_estimate_cny": 0.7}) is True
+    reservation = store.quota_reservations["resv-d"]
+    assert reservation["actual_cny"] == 0.7
+    assert reservation["released_cny"] == pytest.approx(1.3)
 
 
 def test_login_rate_limit(monkeypatch, store: FakeStore):

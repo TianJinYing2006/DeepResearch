@@ -349,6 +349,92 @@ def test_manager_write_through_end_to_end(store: RunStore):
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
 
+
+def test_quota_reservation_and_moderation_atomic_contract(store: RunStore):
+    """P0-2 / P0-4：预留式预算、终局结算与审核决定同事务（真实 PG SQL 契约）。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COALESCE((
+                       SELECT SUM(r.cost_estimate_cny) FROM runs r
+                        WHERE r.created_at >= date_trunc('month', now())
+                   ), 0)
+                 + COALESCE((
+                       SELECT SUM(GREATEST(qr.reserved_cny
+                                           - COALESCE(r.cost_estimate_cny, 0), 0))
+                         FROM quota_reservations qr
+                         LEFT JOIN runs r ON r.run_id = qr.run_id
+                        WHERE qr.status = 'reserved'
+                          AND qr.period = date_trunc('month', now())::date
+                   ), 0)
+            """
+        )
+        committed = float(cur.fetchone()[0])
+    budget = committed + 1.5
+
+    run_id = f"test-store-resv-{uuid.uuid4().hex[:6]}"
+    store.create_run_admitted(run_id, "预留", {}, user_id=TEST_USER, status="QUEUED",
+                              monthly_budget_cny=budget, reserve_cny=1.5)
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT status, reserved_cny FROM quota_reservations WHERE run_id = %s",
+                    (run_id,))
+        hold = cur.fetchone()
+        assert hold[0] == "reserved" and float(hold[1]) == 1.5
+
+    # 已预留 → 第二个任务看到 committed=budget ⇒ 拒绝（旧实现会一起放行）
+    with pytest.raises(QuotaExceeded) as exc:
+        store.create_run_admitted(f"test-store-resv-{uuid.uuid4().hex[:6]}", "预留2", {},
+                                  user_id=TEST_USER, status="QUEUED",
+                                  monthly_budget_cny=budget, reserve_cny=1.5)
+    assert exc.value.kind == "monthly_budget"
+
+    # 终局：审核决定 + 预留结算同事务
+    assert store.finalize_run(
+        run_id, event_type="RUN_FINISHED", payload={"stop_reason": "completed"},
+        sequence=0, new_status="SUCCEEDED", allowed_from=("QUEUED",),
+        fields={"stop_reason": "completed", "cost_estimate_cny": 0.4},
+        moderation={"kind": "output_decision",
+                    "detail": {"decision": "allow", "decision_id": "dec-pg-1"}},
+    ) is True
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT status, actual_cny, released_cny FROM quota_reservations "
+                    "WHERE run_id = %s", (run_id,))
+        settled = cur.fetchone()
+        assert settled[0] == "settled"
+        assert float(settled[1]) == 0.4 and float(settled[2]) == 1.1
+        cur.execute("SELECT detail FROM moderation_records "
+                    "WHERE run_id = %s AND kind = 'output_decision'", (run_id,))
+        record = cur.fetchone()
+        assert record is not None and record[0]["decision_id"] == "dec-pg-1"
+        cur.execute("DELETE FROM moderation_records WHERE run_id = %s", (run_id,))
+        cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+def test_rag_ingestion_active_unique_contract(store: RunStore):
+    """P0-11：活跃 doc_id 唯一 + ON CONFLICT DO NOTHING 的真实 PG 语义。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM rag_ingestions WHERE doc_id LIKE 'test-store:%'")
+    doc_id = f"{TEST_USER}:dedupe"
+    first = store.create_ingestion(f"ing{uuid.uuid4().hex[:8]}", doc_id,
+                                   user_id=TEST_USER, source="a.md", sha256="dedupe",
+                                   size_bytes=1, stored_name="a.md")
+    assert first is not None
+    second = store.create_ingestion(f"ing{uuid.uuid4().hex[:8]}", doc_id,
+                                    user_id=TEST_USER, source="b.md", sha256="dedupe",
+                                    size_bytes=1, stored_name="b.md")
+    assert second is None  # 冲突：调用方回查既有记录
+    found = store.find_ingestion_by_doc(TEST_USER, doc_id)
+    assert found["ingestion_id"] == first["ingestion_id"]
+
+    store.mark_ingestion_deleted(first["ingestion_id"])
+    third = store.create_ingestion(f"ing{uuid.uuid4().hex[:8]}", doc_id,
+                                   user_id=TEST_USER, source="c.md", sha256="dedupe",
+                                   size_bytes=1, stored_name="c.md")
+    assert third is not None  # deleted 后可重传
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM rag_ingestions WHERE doc_id LIKE 'test-store:%'")
+
 def test_users_sessions_invites_contract(store: RunStore):
     """P4-A 账号契约（真实 PG）：邮箱唯一（大小写不敏感）/ 邀请码一次性 / 会话有效期与封禁。"""
     suffix = uuid.uuid4().hex[:8]

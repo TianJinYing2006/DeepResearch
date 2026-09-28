@@ -83,6 +83,35 @@ def test_output_gate_and_flag_report_record_provider(monkeypatch):
     assert record["detail"]["provider"] == "test_flag_all"
 
 
+def test_broken_provider_marks_degraded_with_default_quarantine(monkeypatch):
+    """P0-3：provider 失败不再等于放行 —— 结果带 degraded + 生效策略。"""
+    monkeypatch.setenv("DR_MODERATION_BLOCKLIST", "badword")
+    monkeypatch.delenv("DR_MODERATION_DEGRADED_POLICY", raising=False)
+    providers.set_provider(BrokenProvider())
+
+    result = scan_text("contains badword")
+
+    assert result.degraded is True
+    assert result.policy == "quarantine"
+    assert result.failure_reason
+    assert result.provider == "local_rules" and result.matches == ["badword"]
+
+
+def test_unknown_provider_is_degraded_too(monkeypatch):
+    monkeypatch.setenv("DR_MODERATION_PROVIDER", "aliyun")
+    monkeypatch.setenv("DR_MODERATION_DEGRADED_POLICY", "fail_closed")
+
+    result = scan_text("clean text")
+
+    assert result.degraded is True and result.policy == "fail_closed"
+    assert result.requested_provider == "aliyun"
+
+
+def test_invalid_degraded_policy_falls_back_to_quarantine(monkeypatch):
+    monkeypatch.setenv("DR_MODERATION_DEGRADED_POLICY", "nonsense")
+    assert providers.degraded_policy() == "quarantine"
+
+
 def test_scan_legacy_signature_still_supports_explicit_blocklist():
     assert scan("ABc badword", blocklist=["badword", "abc"]) == ["badword", "abc"]
     assert scan("") == []
