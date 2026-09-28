@@ -257,27 +257,61 @@ class RunStore:
         user_active_limit: Optional[int] = None,
         daily_limit: Optional[int] = None,
         monthly_budget_cny: Optional[float] = None,
+        reserve_cny: Optional[float] = None,
         daily_since: Optional[datetime] = None,
     ) -> tuple[dict[str, Any], bool]:
-        """原子准入 + 创建（P0-3）：检查与插入在**同一事务**，多 API 实例并发安全。
+        """原子准入 + 创建（P0-3 / P0-2）：检查与插入在**同一事务**，多 API 实例并发安全。
 
         串行化手段：`pg_advisory_xact_lock`（全局配额一把、用户配额一把），
         锁随事务提交/回滚自动释放；检查失败抛 :class:`QuotaExceeded`（事务回滚，
         不插入半成品）。
+
+        月度预算（P0-2）：按「已发生成本 + 未结算预留」计算 committed（见
+        `quota_reservations`），并在同一事务内为本次任务**预留** `reserve_cny`
+        （通常 = 单 run 预算上界）⇒ 并发新任务无法一起越过预算闸；
+        `finalize_run` 结算预留（actual / released）。
 
         与 :meth:`create_run` 的幂等语义一致：幂等命中返回既有行（`created=False`）。
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("dr:quota:global",))
             if monthly_budget_cny is not None and monthly_budget_cny > 0:
+                # P0-2：先结清「已终局但未结算」的预留（崩溃/清扫等未走 finalize 的兜底），
+                # 再按「已发生成本 + 未决 hold」计算 committed —— 并发新任务无法一起越闸。
                 cur.execute(
-                    "SELECT COALESCE(SUM(cost_estimate_cny), 0) AS total FROM runs "
-                    "WHERE created_at >= date_trunc('month', now())"
+                    """
+                    UPDATE quota_reservations qr
+                       SET actual_cny = COALESCE(r.cost_estimate_cny, 0),
+                           released_cny = GREATEST(qr.reserved_cny
+                                                   - COALESCE(r.cost_estimate_cny, 0), 0),
+                           status = 'settled', updated_at = now()
+                      FROM runs r
+                     WHERE qr.run_id = r.run_id AND qr.status = 'reserved'
+                       AND r.status = ANY(%s)
+                    """,
+                    (list(TERMINAL_STATUSES),),
                 )
-                spent = float(cur.fetchone()["total"])
-                if spent >= monthly_budget_cny:
+                cur.execute(
+                    """
+                    SELECT COALESCE((
+                               SELECT SUM(r.cost_estimate_cny) FROM runs r
+                                WHERE r.created_at >= date_trunc('month', now())
+                           ), 0)
+                         + COALESCE((
+                               SELECT SUM(GREATEST(qr.reserved_cny
+                                                   - COALESCE(r.cost_estimate_cny, 0), 0))
+                                 FROM quota_reservations qr
+                                 LEFT JOIN runs r ON r.run_id = qr.run_id
+                                WHERE qr.status = 'reserved'
+                                  AND qr.period = date_trunc('month', now())::date
+                           ), 0) AS total
+                    """
+                )
+                committed = float(cur.fetchone()["total"])
+                if committed >= monthly_budget_cny:
                     raise QuotaExceeded(
-                        "monthly_budget", f"spent={spent:.4f}; limit={monthly_budget_cny}")
+                        "monthly_budget",
+                        f"committed={committed:.4f}; limit={monthly_budget_cny}")
             if global_active_limit is not None and global_active_limit > 0:
                 cur.execute("SELECT count(*) AS n FROM runs WHERE status = ANY(%s)",
                             (list(ACTIVE_STATUSES),))
@@ -341,6 +375,17 @@ class RunStore:
                 if existing is None:
                     raise
                 return existing, False
+            if reserve_cny is not None and reserve_cny > 0:
+                # P0-2：同一事务内预留预计成本（hold）；结算见 finalize_run
+                cur.execute(
+                    """
+                    INSERT INTO quota_reservations (reservation_id, run_id, user_id, period,
+                                                    reserved_cny)
+                    VALUES (%s, %s, %s, date_trunc('month', now())::date, %s)
+                    ON CONFLICT (run_id) DO NOTHING
+                    """,
+                    (f"qr_{run_id}", run_id, user_id, reserve_cny),
+                )
             return row, True
 
     def get_run_by_idempotency(
@@ -760,15 +805,21 @@ class RunStore:
         allowed_from: Iterable[str],
         fields: Optional[dict[str, Any]] = None,
         artifacts: Optional[dict[str, dict[str, Any]]] = None,
+        moderation: Optional[dict[str, Any]] = None,
     ) -> bool:
-        """终局原子落库（P0-6）：状态迁移 + 终局事件 + 产物在**同一事务**提交。
+        """终局原子落库（P0-6 / P0-2 / P0-4）：状态迁移 + 终局事件 + 产物 +
+        审核证据（`moderation`）+ 预算预留结算在**同一事务**提交。
 
         - 状态迁移失败（已被清扫 / 强制收口抢先）⇒ 整体回滚并返回 ``False``，
           不产生「状态未迁移但事件/产物已写」的半成品（完成先落终局，之后不得改判）；
         - `sequence=None`（Worker 单写者）由数据库分配 ``MAX(sequence)+1``，
           冲突时整体重试；显式序号按幂等处理（``ON CONFLICT DO NOTHING``）；
         - `artifacts`（P1-6）：`{kind: {body, storage, object_key, sha256, size_bytes}}`，
-          `storage='s3'` 时正文在对象存储、本表只留元数据。
+          `storage='s3'` 时正文在对象存储、本表只留元数据；
+        - `moderation`（P0-4）：不可变审核决定的落库载荷
+          `{kind, detail}`（`moderation_records` append-only，与终局同生共死）；
+        - 预算预留结算（P0-2）：`quota_reservations` reserved → settled，
+          `actual_cny = runs.cost_estimate_cny`、释放剩余 hold。
         """
         fields = fields or {}
         unknown = set(fields) - _UPDATABLE_FIELDS
@@ -781,7 +832,7 @@ class RunStore:
             values.append(fields[key])
         update_sql = (
             f"UPDATE runs SET {', '.join(assignments)} "
-            "WHERE run_id = %s AND status = ANY(%s) RETURNING run_id"
+            "WHERE run_id = %s AND status = ANY(%s) RETURNING run_id, user_id"
         )
         update_values = [*values, run_id, list(allowed_from)]
         attempts = 3 if sequence is None else 1
@@ -789,7 +840,8 @@ class RunStore:
             try:
                 with self._connect() as conn, conn.cursor() as cur:
                     cur.execute(update_sql, update_values)
-                    if cur.fetchone() is None:
+                    run_row = cur.fetchone()
+                    if run_row is None:
                         conn.rollback()
                         return False
                     if sequence is None:
@@ -831,6 +883,31 @@ class RunStore:
                              meta.get("object_key"), meta.get("sha256"),
                              meta.get("size_bytes")),
                         )
+                    if moderation:
+                        # P0-4：不可变审核决定（append-only 证据，与终局同事务）
+                        cur.execute(
+                            """
+                            INSERT INTO moderation_records (user_id, run_id, kind, detail)
+                            VALUES (%s, %s, %s, %s)
+                            """,
+                            (run_row.get("user_id"), run_id,
+                             str(moderation.get("kind") or "output_decision"),
+                             Jsonb(moderation.get("detail") or {})),
+                        )
+                    # P0-2：预算预留结算（reserved → settled；actual=本 run 已记成本）
+                    cur.execute(
+                        """
+                        UPDATE quota_reservations qr
+                           SET actual_cny = COALESCE(r.cost_estimate_cny, 0),
+                               released_cny = GREATEST(qr.reserved_cny
+                                                       - COALESCE(r.cost_estimate_cny, 0), 0),
+                               status = 'settled', updated_at = now()
+                          FROM runs r
+                         WHERE qr.run_id = r.run_id AND qr.run_id = %s
+                           AND qr.status = 'reserved'
+                        """,
+                        (run_id,),
+                    )
                 return True
             except psycopg.errors.UniqueViolation:
                 continue  # 序号竞争：整体重试（事务已回滚）
@@ -1245,6 +1322,8 @@ class RunStore:
     def create_appeal(self, appeal_id: str, *, message: str,
                       run_id: Optional[str] = None, user_id: Optional[str] = None,
                       sla_due_at: Optional[datetime] = None) -> dict[str, Any]:
+        """创建申诉（P0-5）：状态行 + append-only 证据（`moderation_records.kind='appeal'`）
+        **同一事务**提交，杜绝「申诉行存在但申诉证据缺失」。"""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -1255,7 +1334,14 @@ class RunStore:
                 """,
                 (appeal_id, run_id, user_id, message, sla_due_at),
             )
-            return cur.fetchone()
+            row = cur.fetchone()
+            cur.execute(
+                "INSERT INTO moderation_records (user_id, run_id, kind, detail) "
+                "VALUES (%s, %s, %s, %s)",
+                (user_id, run_id, "appeal",
+                 Jsonb({"message": message, "appeal_id": appeal_id})),
+            )
+            return row
 
     def get_appeal(self, appeal_id: str) -> Optional[dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
@@ -1301,22 +1387,60 @@ class RunStore:
     def decide_appeal(self, appeal_id: str, *, decision: str,
                       note: Optional[str] = None,
                       reviewer: Optional[str] = None) -> Optional[dict]:
-        """决策：pending / reviewing → accepted / rejected（已决策不再变更）。"""
+        """原子决策（P0-5）：**单事务**完成申诉状态、run 状态、审核证据与审计。
+
+        约束（修复「B 可覆盖 A 的领取」竞态）：
+        - 必须先经 :meth:`claim_appeal` 进入 `reviewing`；
+        - 决策者必须是领取者（`reviewed_by IS NOT DISTINCT FROM reviewer`；
+          双方都为 NULL 的 CLI 场景允许）；
+        - accepted 时同事务置 `runs.moderation_status='cleared'`（0015 起合法）；
+        - 同事务写 `moderation_records`（`appeal_accepted` / `appeal_rejected`）
+          与 `audit_logs`，任一失败整体回滚。
+
+        返回更新后的申诉行；不存在 / 未领取 / 已被他人领取 / 已决策 ⇒ ``None``。
+        """
         if decision not in ("accepted", "rejected"):
             raise ValueError(f"invalid decision: {decision}")
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM moderation_appeals WHERE appeal_id = %s FOR UPDATE",
+                (appeal_id,),
+            )
+            row = cur.fetchone()
+            if row is None or row.get("status") != "reviewing":
+                return None
+            if row.get("reviewed_by") != reviewer:
+                return None
             cur.execute(
                 """
                 UPDATE moderation_appeals
                    SET status = %s, decision_note = %s,
                        reviewed_by = COALESCE(%s, reviewed_by),
                        decided_at = now(), updated_at = now()
-                 WHERE appeal_id = %s AND status IN ('pending', 'reviewing')
+                 WHERE appeal_id = %s
                 RETURNING *
                 """,
                 (decision, note, reviewer, appeal_id),
             )
-            return cur.fetchone()
+            updated = cur.fetchone()
+            if decision == "accepted" and updated.get("run_id"):
+                cur.execute(
+                    "UPDATE runs SET moderation_status = 'cleared' WHERE run_id = %s",
+                    (updated["run_id"],),
+                )
+            cur.execute(
+                "INSERT INTO moderation_records (user_id, run_id, kind, detail) "
+                "VALUES (%s, %s, %s, %s)",
+                (updated.get("user_id"), updated.get("run_id"), f"appeal_{decision}",
+                 Jsonb({"appeal_id": appeal_id, "note": note, "reviewed_by": reviewer})),
+            )
+            cur.execute(
+                "INSERT INTO audit_logs (action, target_type, target_id, detail) "
+                "VALUES (%s, %s, %s, %s)",
+                (f"appeal_{decision}", "moderation_appeal", appeal_id,
+                 Jsonb({"run_id": updated.get("run_id"), "reviewed_by": reviewer})),
+            )
+            return updated
 
     def count_appeals_overdue(self, before: datetime) -> int:
         """未决（pending/reviewing）且 SLA 已过期的申诉数（运维告警用）。"""
@@ -1518,13 +1642,21 @@ class RunStore:
 
     def create_ingestion(self, ingestion_id: str, doc_id: str, *, user_id: Optional[str] = None,
                          source: str, sha256: str, size_bytes: int,
-                         stored_name: str) -> dict[str, Any]:
+                         stored_name: str) -> Optional[dict[str, Any]]:
+        """登记摄取（P0-11）：数据库级去重，冲突时返回 ``None``（调用方回查既有记录）。
+
+        唯一约束：`(COALESCE(user_id,''), doc_id) WHERE status <> 'deleted'`（0017）；
+        并发上传不会产生重复解析 / 重复 embedding 计费。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO rag_ingestions (ingestion_id, doc_id, user_id, source, sha256,
                                             size_bytes, stored_name)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (COALESCE(user_id, ''), doc_id)
+                    WHERE status <> 'deleted'
+                DO NOTHING
                 RETURNING *
                 """,
                 (ingestion_id, doc_id, user_id, source, sha256, size_bytes, stored_name),

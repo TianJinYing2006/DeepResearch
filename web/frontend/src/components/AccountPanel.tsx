@@ -492,9 +492,11 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                   </span>
                   <span className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-100/60">
                     {STATUS_LABELS[item.status] ?? item.status}
-                    {item.moderation_status === 'flagged' && (
+                    {item.moderation_status && item.moderation_status !== 'cleared' && (
                       <span className="rounded border border-amber-300/40 px-1 text-amber-200"
-                            data-testid="flagged-badge">已标记</span>
+                            data-testid="flagged-badge">
+                        {item.moderation_status === 'under_review' ? '审核中' : '已标记'}
+                      </span>
                     )}
                     {item.created_at && <span>{item.created_at.replace('T', ' ').slice(0, 16)}</span>}
                     {item.has_report && (

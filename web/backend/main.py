@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -53,7 +55,8 @@ from .moderation import (
     MAX_APPEAL_LENGTH,
     MAX_INSTRUCTIONS_LENGTH,
     MAX_TOPIC_LENGTH,
-    scan_text,
+    evaluate_input,
+    redact_public_payload,
 )
 from .notify import RunEventNotifier
 from .objectstore import get_object_store
@@ -149,8 +152,8 @@ async def _https_enforcement(request: Request, call_next):
     本地 / staging 不拦（staging 由启动硬校验保证 Cookie Secure 等配置）。
     """
     if ENV == "production":
-        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-        if proto.split(",")[0].strip().lower() != "https":
+        proto = _effective_proto(request)
+        if proto != "https":
             return JSONResponse(
                 status_code=400,
                 content={"detail": error_payload(
@@ -243,8 +246,49 @@ LOGIN_ACCOUNT_LIMITER = make_limiter(
 SUBMIT_LIMITER = make_limiter(
     "submit", int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
-# P1-2：仅当部署方显式声明信任反代时，限流/审计才采用 X-Forwarded-For 首跳
+# P1-2 / P0-10：可信反向代理。生产口径：显式配置代理 CIDR（反向代理必须清理
+# 外部传入的 X-Forwarded-* 头），应用只信任来自可信 hop 的 XFF / X-Forwarded-Proto。
+# `DR_TRUST_PROXY=true` 是历史布尔开关（信任任意来源的 XFF 首跳），仅在未配置
+# CIDR 时保留兼容；staging/生产应改用 CIDR 白名单。
+def _parse_trusted_proxy_cidrs(raw: str) -> tuple:
+    networks = []
+    for item in (raw or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            print(f"[trusted-proxy] 非法 CIDR 已忽略：{item!r}", flush=True)
+    return tuple(networks)
+
+
+TRUSTED_PROXY_CIDRS = _parse_trusted_proxy_cidrs(os.getenv("DR_TRUSTED_PROXY_CIDRS", ""))
+PROXY_HOPS = max(1, int(_env_number("DR_PROXY_HOPS", 1)))
 TRUST_PROXY = _env_flag("DR_TRUST_PROXY", "false")
+
+
+def _is_trusted_proxy(host: Optional[str]) -> bool:
+    """直连对端是否在可信代理 CIDR 内（未配置 CIDR 时恒 False）。"""
+    if not TRUSTED_PROXY_CIDRS or not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(ip in network for network in TRUSTED_PROXY_CIDRS)
+
+
+def _effective_proto(request: Request) -> str:
+    """P0-10：仅当对端是可信代理时才采信 X-Forwarded-Proto（否则用直连 scheme）。"""
+    if _is_trusted_proxy(request.client.host if request.client else None):
+        forwarded = request.headers.get("x-forwarded-proto")
+        if forwarded:
+            return forwarded.split(",")[0].strip().lower()
+    return request.url.scheme.lower()
+# P0-9：运维接口（/api/metrics、/api/ops/*）应用层鉴权。配置 DR_OPS_TOKEN 后
+# 必须携带 `X-Ops-Token`；staging/生产未配置 token 时运维接口一律 401（fail-closed）。
+OPS_TOKEN = (os.getenv("DR_OPS_TOKEN") or "").strip()
 
 # P6-A / P0-8a：RAG 上传限制（流式落盘 + magic bytes 三重校验 + 解析限额）
 RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
@@ -627,6 +671,22 @@ def _require_user(request: Request) -> Optional[str]:
     return user["user_id"]
 
 
+def _require_ops(request: Request) -> None:
+    """运维接口应用层鉴权（P0-9）：反代限制来源是纵深，不是唯一边界。
+
+    - 配置 `DR_OPS_TOKEN` ⇒ 必须携带匹配的 `X-Ops-Token`（常量时间比较）；
+    - 未配置且 `DR_ENV` 为 staging/production ⇒ 401（fail-closed，禁止裸奔）；
+    - 未配置且本地开发 ⇒ 放行（与历史行为一致）。
+    """
+    if OPS_TOKEN:
+        provided = request.headers.get("x-ops-token", "")
+        if provided and hmac.compare_digest(provided, OPS_TOKEN):
+            return
+        raise http_error("unauthenticated", "运维接口需要有效的 X-Ops-Token")
+    if ENV in ("staging", "production"):
+        raise http_error("unauthenticated", "运维接口未配置 DR_OPS_TOKEN（fail-closed）")
+
+
 def _check_csrf(request: Request) -> None:
     """双提交 Cookie 校验（仅在启用鉴权后生效；登录/注册除外）。"""
     if not AUTH_REQUIRED:
@@ -665,28 +725,29 @@ def _authorize_run(request: Request, run_id: str) -> Optional[str]:
 
 
 def _enforce_output_policy(run_id: str) -> None:
-    """P0-4 统一输出闸：`flagged` / `blocked` 的报告不向普通用户开放查看与导出。
+    """P0-4 统一输出闸：**除 NULL 与 cleared 外**的报告不向普通用户开放查看与导出。
 
+    覆盖 `flagged` / `under_review`（provider 降级隔离）/ `blocked`（fail-closed）。
     原文仍保留在 `run_artifacts`，管理员经 CLI（`admin run-report`）复核。
     """
     if store is None:
         return
     row = _store_call(store.get_run, run_id)
     status = row.get("moderation_status") if row else None
-    if status in ("flagged", "blocked"):
-        raise http_error(
-            "output_under_review",
-            "报告命中内容安全预检，正在等待人工复核",
-            detail=f"moderation_status={status}",
-        )
+    if status and status != "cleared":
+        message = ("报告命中内容安全预检，正在等待人工复核"
+                   if status in ("flagged", "blocked")
+                   else "审核服务不可用，报告已隔离待审")
+        raise http_error("output_under_review", message,
+                         detail=f"moderation_status={status}")
 
 
 def _redact_report_payload(payload: dict) -> dict:
-    """P0-4：修复前落库的终局事件可能带完整正文 —— 回放前强制脱敏。"""
-    result = payload.get("result")
-    if not isinstance(result, dict) or not result.get("report"):
+    """P0-4 / P0-12：回放前递归脱敏 —— 任何正文键（含历史新增字段）都不得外泄。"""
+    sanitized = redact_public_payload(payload)
+    if isinstance(payload, dict) and sanitized == payload:
         return payload
-    return {**payload, "result": {**result, "report": ""}, "output_under_review": True}
+    return {**sanitized, "output_under_review": True}
 
 
 def _public_user(user: dict) -> dict:
@@ -713,12 +774,26 @@ def _set_session_cookies(response: Response, user_id: str, request: Optional[Req
 
 
 def _client_key(request: Request) -> str:
-    """客户端标识：默认 `request.client.host`；显式 `DR_TRUST_PROXY=true` 时取 XFF 首跳。"""
+    """客户端标识（P0-10）：仅当直连对端属于**可信代理 CIDR** 时采信 XFF。
+
+    取 XFF 倒数第 `DR_PROXY_HOPS` 跳（默认 1 = 可信代理写入的最后一跳；
+    代理必须清理外部传入的 X-Forwarded-* 头）。未配置 CIDR 时兼容旧
+    `DR_TRUST_PROXY=true`（取首跳）；否则一律使用直连对端地址。
+    """
+    peer = request.client.host if request.client else None
+    if _is_trusted_proxy(peer):
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            parts = [part.strip() for part in forwarded.split(",") if part.strip()]
+            if parts:
+                index = len(parts) - PROXY_HOPS
+                return (parts[index] if index >= 0 else parts[0])[:64] or "unknown"
+        return (peer or "unknown")[:64]
     if TRUST_PROXY:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             return forwarded.split(",")[0].strip()[:64] or "unknown"
-    return request.client.host if request.client else "unknown"
+    return peer or "unknown"
 
 
 def _audit(action: str, *, request: Optional[Request] = None,
@@ -835,13 +910,18 @@ def _quota_api_error(exc: QuotaExceeded) -> ApiError:
     return ApiError("quota_exceeded", "今日运行次数已达上限", detail=exc.detail)
 
 
-def _admission_limits() -> dict:
-    """当前生效的准入闸（P0-3：由 store 在同一事务内原子执行）。"""
+def _admission_limits(reserve_cny: Optional[float] = None) -> dict:
+    """当前生效的准入闸（P0-3 / P0-2：由 store 在同一事务内原子执行）。
+
+    `reserve_cny`：本次任务的预算预留（hold，通常 = 单 run 预算上界）；
+    仅当配置了月度预算闸时生效。
+    """
     return {
         "global_active_limit": manager.max_concurrent_runs,
         "user_active_limit": MAX_USER_CONCURRENT,
         "daily_limit": DAILY_RUNS_PER_USER or None,
         "monthly_budget_cny": MONTHLY_BUDGET_CNY or None,
+        "reserve_cny": reserve_cny if (MONTHLY_BUDGET_CNY or 0) > 0 else None,
         "daily_since": _day_start_utc(),
     }
 
@@ -876,7 +956,7 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
             status="QUEUED",
             timeout_at=datetime.now(UTC) + timedelta(seconds=profile.timeout_seconds),
             budget_limit_cny=_effective_run_budget(profile),
-            **_admission_limits(),
+            **_admission_limits(_effective_run_budget(profile)),
         )
     except QuotaExceeded as exc:  # P0-3：准入闸在同一事务内判定
         raise _quota_api_error(exc) from exc
@@ -1168,19 +1248,36 @@ def start(req: StartRequest, request: Request) -> StartResponse:
     _enforce_quotas(user_id)
     if not req.topic.strip():
         raise http_error("empty_topic", "topic 不能为空")
-    # P7-A / P2-5a：输入侧预检（provider 化；命中即拒绝并留审核记录，不进入队列/执行）
-    moderation_result = scan_text(f"{req.topic}\n{req.instructions}")
-    blocked_terms = moderation_result.matches
+    # P7-A / P2-5a / P0-3：输入侧预检（provider 化；命中即拒绝并留审核记录，
+    # provider 不可用时按降级策略 fail-closed，不再静默放行）
+    input_decision = evaluate_input(f"{req.topic}\n{req.instructions}")
+    blocked_terms = list(input_decision.matches)
     if blocked_terms:
         if store is not None:
             _store_call(store.record_moderation, "input_blocked", user_id=user_id,
                         detail={"matches": blocked_terms[:10],
-                                "provider": moderation_result.provider})
+                                "provider": input_decision.provider,
+                                "decision_id": input_decision.decision_id})
         _audit("input_blocked", request=request, actor_user_id=user_id,
-               detail={"matches": blocked_terms[:5], "provider": moderation_result.provider})
+               detail={"matches": blocked_terms[:5], "provider": input_decision.provider})
         raise http_error(
             "content_blocked", "输入包含不允许的内容",
             detail=f"matches={blocked_terms[:5]}",
+        )
+    if input_decision.degraded and input_decision.decision != "allow":
+        if store is not None:
+            _store_call(store.record_moderation, "input_blocked", user_id=user_id,
+                        detail={"moderation_degraded": True,
+                                "policy": input_decision.policy,
+                                "failure_reason": input_decision.failure_reason,
+                                "decision_id": input_decision.decision_id})
+        _audit("moderation_unavailable", request=request, actor_user_id=user_id,
+               detail={"policy": input_decision.policy,
+                       "failure_reason": input_decision.failure_reason})
+        raise http_error(
+            "moderation_unavailable",
+            "内容安全服务暂不可用，请稍后再试",
+            detail=f"policy={input_decision.policy}",
         )
     # P2-1a：注入模式预检（窄口径：显式指令覆盖 / 系统提示索取；命中即拒绝并留痕）
     injection_hits = scan_injection(f"{req.topic}\n{req.instructions}")
@@ -1204,7 +1301,7 @@ def start(req: StartRequest, request: Request) -> StartResponse:
                 req.idempotency_key, user_id=user_id,
                 budget_limit_cny=_effective_run_budget(profile),
                 ignored_overrides=ignored,
-                admission=_admission_limits(),
+                admission=_admission_limits(_effective_run_budget(profile)),
                 request_hash=fingerprint)
     except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
         raise exc.to_http() from exc
@@ -1293,12 +1390,13 @@ def _runs_metrics_24h() -> dict:
 
 
 @app.get("/api/metrics")
-def metrics_endpoint() -> dict:
+def metrics_endpoint(request: Request) -> dict:
     """运行指标（P8-A）：进程内计数 + 任务库实时聚合；**不含任何用户内容 / PII**。
 
-    ⚠️ 生产部署时应由反向代理限制来源（或经统一网关鉴权）；多实例下进程内计数
-    只代表单实例（见上线清单 §3.6）。
+    P0-9：应用层鉴权 —— 配置 `DR_OPS_TOKEN` 时要求 `X-Ops-Token`；staging/生产
+    未配置 token 一律 401（反代限制来源只作纵深）。多实例下进程内计数只代表单实例。
     """
+    _require_ops(request)
     snapshot = METRICS.snapshot()
     snapshot.update({
         "persistence": store is not None,
@@ -1320,8 +1418,12 @@ def metrics_endpoint() -> dict:
 
 
 @app.get("/api/ops/alerts")
-def ops_alerts() -> dict:
-    """告警判定（P8-A / P2-6）：按阈值评估当前指标；**外送**由 Worker 统一走 webhook（见 alerts.py）。"""
+def ops_alerts(request: Request) -> dict:
+    """告警判定（P8-A / P2-6）：按阈值评估当前指标；**外送**由 Worker 统一走 webhook（见 alerts.py）。
+
+    P0-9：与 `/api/metrics` 同一应用层鉴权（DR_OPS_TOKEN / fail-closed）。
+    """
+    _require_ops(request)
     queue_depth = _queue_depth()
     stale = _store_call(store.count_stale_leases) if store is not None else 0
     monthly = _store_call(store.month_cost_cny) if store is not None else 0.0
@@ -1381,7 +1483,7 @@ def moderation_appeal(req: AppealRequest, request: Request) -> dict:
     if req.run_id:
         _authorize_run(request, req.run_id)
         row = _store_call(store.get_run, req.run_id)
-        if (row or {}).get("moderation_status") not in ("flagged", "blocked"):
+        if (row or {}).get("moderation_status") not in ("flagged", "blocked", "under_review"):
             raise http_error(
                 "appeal_not_applicable",
                 "该任务未被标记，无需申诉",
@@ -1483,17 +1585,12 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
 
         doc_id = f"{user_id or 'local'}:{digest[:16]}"
         if store is not None:
-            # P0-8b：登记后由 Worker 异步处理；重复内容直接返回既有记录
-            existing = _store_call(store.find_ingestion_by_doc, user_id, doc_id)
-            if existing is not None:
-                os.remove(path)
-                return JSONResponse(status_code=202, content={
-                    "ingestion_id": existing["ingestion_id"], "doc_id": doc_id,
-                    "source": existing["source"], "status": existing["status"],
-                })
+            # P0-8b / P0-11：登记后由 Worker 异步处理。去重走**数据库唯一索引**
+            # （`ON CONFLICT ... DO NOTHING`，见 store.create_ingestion + 0017）：
+            # 并发上传不可能重复插入，冲突方回查既有记录并删除自己的隔离区文件。
             ingestion_id = uuid.uuid4().hex[:12]
             try:
-                store.create_ingestion(
+                created = store.create_ingestion(
                     ingestion_id, doc_id, user_id=user_id, source=filename,
                     sha256=digest, size_bytes=size, stored_name=stored_name)
             except Exception as exc:  # noqa: BLE001
@@ -1502,6 +1599,15 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
                     "persistence_unavailable",
                     f"摄取登记失败：{type(exc).__name__}: {exc}"[:200],
                 ) from exc
+            if created is None:
+                existing = _store_call(store.find_ingestion_by_doc, user_id, doc_id)
+                os.remove(path)
+                if existing is None:
+                    raise http_error("persistence_unavailable", "摄取登记冲突，请重试")
+                return JSONResponse(status_code=202, content={
+                    "ingestion_id": existing["ingestion_id"], "doc_id": doc_id,
+                    "source": existing["source"], "status": existing["status"],
+                })
             return JSONResponse(status_code=202, content={
                 "ingestion_id": ingestion_id, "doc_id": doc_id,
                 "source": filename, "status": "pending",
@@ -1771,7 +1877,7 @@ async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncI
                 return
             if row is None:
                 return
-            flagged = row.get("moderation_status") in ("flagged", "blocked")
+            flagged = bool(row.get("moderation_status")) and row["moderation_status"] != "cleared"
             for event in events:
                 cursor = event["sequence"]
                 payload = event["payload"] or {}

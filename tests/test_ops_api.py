@@ -19,7 +19,35 @@ def client(monkeypatch) -> TestClient:
     store = FakeStore()
     monkeypatch.setattr(api, "store", store)
     monkeypatch.setattr(api, "AUTH_REQUIRED", False)
+    # P0-9：隔离宿主环境；默认 local + 无 token（历史行为）
+    monkeypatch.setattr(api, "OPS_TOKEN", "")
+    monkeypatch.setattr(api, "ENV", "local")
     return TestClient(api.app)
+
+
+def test_ops_endpoints_require_token_when_configured(monkeypatch, client: TestClient):
+    """P0-9：配置 DR_OPS_TOKEN 后，metrics / alerts 必须携带匹配 X-Ops-Token。"""
+    monkeypatch.setattr(api, "OPS_TOKEN", "ops-secret")
+
+    assert client.get("/api/metrics").status_code == 401
+    assert client.get("/api/metrics", headers={"X-Ops-Token": "wrong"}).status_code == 401
+    ok = client.get("/api/metrics", headers={"X-Ops-Token": "ops-secret"})
+    assert ok.status_code == 200 and ok.json()["persistence"] is True
+
+    assert client.get("/api/ops/alerts").status_code == 401
+    assert client.get("/api/ops/alerts",
+                      headers={"X-Ops-Token": "ops-secret"}).status_code == 200
+
+
+def test_ops_endpoints_fail_closed_in_staging_without_token(monkeypatch, client: TestClient):
+    """P0-9：staging/production 未配置 token 一律 401，不能只靠反代。"""
+    monkeypatch.setattr(api, "OPS_TOKEN", "")
+    monkeypatch.setattr(api, "ENV", "staging")
+
+    response = client.get("/api/metrics")
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unauthenticated"
+    assert client.get("/api/ops/alerts").status_code == 401
 
 
 def test_metrics_with_store(client: TestClient):

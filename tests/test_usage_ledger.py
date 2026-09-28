@@ -7,10 +7,17 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from fakes import FakeQueue, FakeStore
 
 from research_engine.llm.client import LLMClient
-from research_engine.usage import UsageRecord, emit_usage, use_usage_sink
+from research_engine.usage import (
+    UsageRecord,
+    UsageSinkError,
+    emit_usage,
+    sink_failure_count,
+    use_usage_sink,
+)
 from web.backend.runner import RunManager
 from web.backend.usage import make_store_sink
 from web.backend.worker import Worker
@@ -99,6 +106,30 @@ def test_worker_wires_usage_sink_with_attempt():
     assert worker.run_once("usage-run-1") is True
     rows = store.list_usage(run_id="usage-run-1")
     assert rows and rows[0]["kind"] == "llm" and rows[0]["attempt"] == 1
+
+
+def test_usage_sink_failure_is_visible_and_strict_raises(monkeypatch, caplog):
+    """P0-8：落账失败不再静默 —— 计数 + ERROR 日志 + 审计；strict 模式上抛。"""
+
+    class _FailingStore(FakeStore):
+        def record_usage(self, **kwargs):
+            raise RuntimeError("ledger down")
+
+    store = _FailingStore()
+    sink = make_store_sink(store, run_id="r-fail", attempt=1)
+
+    before = sink_failure_count()
+    with use_usage_sink(sink), caplog.at_level("ERROR", logger="deepresearch.usage"):
+        emit_usage(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus"))
+
+    assert sink_failure_count() == before + 1
+    assert "usage sink failed" in caplog.text
+    assert store.list_audit(action="usage_sink_failed")
+
+    monkeypatch.setenv("DR_USAGE_STRICT", "true")
+    with use_usage_sink(sink):
+        with pytest.raises(UsageSinkError):
+            emit_usage(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus"))
 
 
 def test_ingestion_worker_wires_usage_sink(monkeypatch, tmp_path):

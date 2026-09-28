@@ -97,6 +97,7 @@ class FakeStore:
         self.workers: dict[str, dict] = {}
         self.password_resets: dict[str, dict] = {}
         self.usage: list[dict] = []
+        self.quota_reservations: dict[str, dict] = {}
         self.alert_states: dict[str, dict] = {}
         self.alert_deliveries: list[dict] = []
         self._alert_delivery_seq = 0
@@ -139,8 +140,12 @@ class FakeStore:
         return True
 
     def finalize_run(self, run_id, *, event_type, payload, sequence, new_status,
-                     allowed_from, fields=None, artifacts=None):
-        """与 RunStore.finalize_run 同语义：迁移失败 ⇒ 不写事件 / 产物（P0-6）。"""
+                     allowed_from, fields=None, artifacts=None, moderation=None):
+        """与 RunStore.finalize_run 同语义：迁移失败 ⇒ 不写事件 / 产物（P0-6）。
+
+        P0-4：`moderation`（{kind, detail}）与终局同事务写审核证据；
+        P0-2：同事务结算 `quota_reservations`（reserved → settled）。
+        """
         row = self.runs.get(run_id)
         if row is None or row["status"] not in tuple(allowed_from):
             return False
@@ -160,6 +165,16 @@ class FakeStore:
                 "object_key": meta.get("object_key"), "sha256": meta.get("sha256"),
                 "size_bytes": meta.get("size_bytes"),
             }
+        if moderation:
+            self.record_moderation(str(moderation.get("kind") or "output_decision"),
+                                   user_id=row.get("user_id"), run_id=run_id,
+                                   detail=moderation.get("detail") or {})
+        res = self.quota_reservations.get(run_id)
+        if res is not None and res["status"] == "reserved":
+            actual = float(row.get("cost_estimate_cny") or 0.0)
+            res["actual_cny"] = actual
+            res["released_cny"] = max(res["reserved_cny"] - actual, 0.0)
+            res["status"] = "settled"
         return True
 
     def get_run(self, run_id):
@@ -169,16 +184,18 @@ class FakeStore:
                             idempotency_key=None, request_hash=None, status="CREATED",
                             timeout_at=None, budget_limit_cny=None, global_active_limit=None,
                             user_active_limit=None, daily_limit=None,
-                            monthly_budget_cny=None, daily_since=None):
-        """与 RunStore.create_run_admitted 同语义（P0-3；内存版无并发竞争）。"""
+                            monthly_budget_cny=None, reserve_cny=None, daily_since=None):
+        """与 RunStore.create_run_admitted 同语义（P0-3 / P0-2；内存版无并发竞争）。"""
         if idempotency_key is not None:
             existing = self.get_run_by_idempotency(user_id, idempotency_key)
             if existing is not None:
                 return existing, False
         if monthly_budget_cny is not None and monthly_budget_cny > 0:
-            spent = self.month_cost_cny()
-            if spent >= monthly_budget_cny:
-                raise QuotaExceeded("monthly_budget", f"spent={spent:.4f}; limit={monthly_budget_cny}")
+            committed = self._month_committed()
+            if committed >= monthly_budget_cny:
+                raise QuotaExceeded(
+                    "monthly_budget",
+                    f"committed={committed:.4f}; limit={monthly_budget_cny}")
         if global_active_limit is not None and global_active_limit > 0:
             active = self.count_active()
             if active >= global_active_limit:
@@ -192,10 +209,30 @@ class FakeStore:
                 used = self.count_user_runs_since(user_id, daily_since)
                 if used >= daily_limit:
                     raise QuotaExceeded("daily_runs", f"used={used}; limit={daily_limit}")
-        return self.create_run(run_id, topic, request, user_id=user_id, tenant_id=tenant_id,
-                               idempotency_key=idempotency_key, request_hash=request_hash,
-                               status=status, timeout_at=timeout_at,
-                               budget_limit_cny=budget_limit_cny)
+        row, created = self.create_run(run_id, topic, request, user_id=user_id, tenant_id=tenant_id,
+                                       idempotency_key=idempotency_key, request_hash=request_hash,
+                                       status=status, timeout_at=timeout_at,
+                                       budget_limit_cny=budget_limit_cny)
+        if created and reserve_cny is not None and reserve_cny > 0:
+            self.quota_reservations[run_id] = {
+                "reservation_id": f"qr_{run_id}", "run_id": run_id, "user_id": user_id,
+                "reserved_cny": float(reserve_cny), "actual_cny": 0.0, "released_cny": 0.0,
+                "status": "reserved", "created_at": datetime.now(UTC),
+            }
+        return row, created
+
+    def _month_committed(self) -> float:
+        """P0-2：已发生成本 + 未决预留（hold - 已记成本，不双重计数）。"""
+        committed = 0.0
+        for row in self.runs.values():
+            committed += float(row.get("cost_estimate_cny") or 0.0)
+        for res in self.quota_reservations.values():
+            if res["status"] != "reserved":
+                continue
+            run = self.runs.get(res["run_id"]) or {}
+            committed += max(res["reserved_cny"]
+                             - float(run.get("cost_estimate_cny") or 0.0), 0.0)
+        return round(committed, 6)
 
     def get_run_by_idempotency(self, user_id, idempotency_key):
         for row in self.runs.values():
@@ -542,6 +579,9 @@ class FakeStore:
             "created_at": now, "updated_at": now,
         }
         self.appeals[appeal_id] = row
+        # P0-5：证据与状态行同一入口（真实实现是同一事务）
+        self.record_moderation("appeal", user_id=user_id, run_id=run_id,
+                               detail={"message": message, "appeal_id": appeal_id})
         return dict(row)
 
     def get_appeal(self, appeal_id):
@@ -565,10 +605,13 @@ class FakeStore:
         return dict(row)
 
     def decide_appeal(self, appeal_id, *, decision, note=None, reviewer=None):
+        """原子决策（P0-5）：必须先领取（reviewing）且决策者 = 领取者。"""
         if decision not in ("accepted", "rejected"):
             raise ValueError(f"invalid decision: {decision}")
         row = self.appeals.get(appeal_id)
-        if row is None or row["status"] not in ("pending", "reviewing"):
+        if row is None or row["status"] != "reviewing":
+            return None
+        if row.get("reviewed_by") != reviewer:
             return None
         now = datetime.now(UTC)
         row["status"] = decision
@@ -577,6 +620,17 @@ class FakeStore:
             row["reviewed_by"] = reviewer
         row["decided_at"] = now
         row["updated_at"] = now
+        if decision == "accepted" and row.get("run_id"):
+            run = self.runs.get(row["run_id"])
+            if run is not None:
+                run["moderation_status"] = "cleared"
+        self.record_moderation(f"appeal_{decision}", user_id=row.get("user_id"),
+                               run_id=row.get("run_id"),
+                               detail={"appeal_id": appeal_id, "note": note,
+                                       "reviewed_by": reviewer})
+        self.record_audit(f"appeal_{decision}", target_type="moderation_appeal",
+                          target_id=appeal_id,
+                          detail={"run_id": row.get("run_id"), "reviewed_by": reviewer})
         return dict(row)
 
     def count_appeals_overdue(self, before):
@@ -717,6 +771,9 @@ class FakeStore:
 
     def create_ingestion(self, ingestion_id, doc_id, *, user_id=None, source, sha256,
                          size_bytes, stored_name):
+        # P0-11：同一 (user, doc_id) 活跃记录唯一；冲突返回 None（调用方回查既有）
+        if self.find_ingestion_by_doc(user_id, doc_id) is not None:
+            return None
         now = datetime.now(UTC)
         row = {
             "ingestion_id": ingestion_id, "doc_id": doc_id, "user_id": user_id,

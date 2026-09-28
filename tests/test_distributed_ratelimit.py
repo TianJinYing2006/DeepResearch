@@ -40,11 +40,32 @@ def test_make_limiter_uses_redis_when_configured():
 def test_client_key_trusts_forwarded_header_only_when_enabled(monkeypatch):
     request = _request_with({"X-Forwarded-For": "203.0.113.7, 10.0.0.1"})
 
+    monkeypatch.setattr(api, "TRUSTED_PROXY_CIDRS", ())
     monkeypatch.setattr(api, "TRUST_PROXY", False)
     assert api._client_key(request) == "127.0.0.1"
 
     monkeypatch.setattr(api, "TRUST_PROXY", True)
     assert api._client_key(request) == "203.0.113.7"
+
+
+def test_client_key_trusted_proxy_cidr_and_hops(monkeypatch):
+    """P0-10：只有可信代理 CIDR 内的对端才采信 XFF；按 hops 取跳数。"""
+    import ipaddress
+
+    monkeypatch.setattr(api, "TRUSTED_PROXY_CIDRS",
+                        (ipaddress.ip_network("10.0.0.0/8"),))
+    monkeypatch.setattr(api, "TRUST_PROXY", False)
+    # 客户端伪造首跳 + 代理追加真实客户端：取倒数第 1 跳
+    request = _request_with({"X-Forwarded-For": "1.2.3.4, 203.0.113.7"},
+                            host="10.0.0.5")
+    monkeypatch.setattr(api, "PROXY_HOPS", 1)
+    assert api._client_key(request) == "203.0.113.7"
+    monkeypatch.setattr(api, "PROXY_HOPS", 2)
+    assert api._client_key(request) == "1.2.3.4"
+
+    # 非可信对端即使配置了 CIDR 也不采信 XFF
+    untrusted = _request_with({"X-Forwarded-For": "203.0.113.7"}, host="127.0.0.1")
+    assert api._client_key(untrusted) == "127.0.0.1"
 
 
 def _client(monkeypatch, store: FakeStore, *, ip_limit: int, account_limit: int) -> TestClient:

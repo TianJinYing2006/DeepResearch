@@ -74,6 +74,20 @@ def test_ingest_success_with_anonymous_scope(client: TestClient):
     assert _FakeIngester.calls[0]["user_id"] is None
 
 
+def test_async_ingest_registration_dedupes_with_store(monkeypatch, tmp_path, client):
+    """P0-11：登记型上传的去重走 DB 唯一约束（ON CONFLICT），不重复登记。"""
+    monkeypatch.setenv("DR_RAG_QUARANTINE_DIR", str(tmp_path))
+    store = FakeStore()
+    monkeypatch.setattr(api, "store", store)
+
+    first = _upload(client, "a.md", b"# same content")
+    second = _upload(client, "b.md", b"# same content")
+
+    assert first.status_code == 202 and second.status_code == 202
+    assert first.json()["ingestion_id"] == second.json()["ingestion_id"]
+    assert len(store.ingestions) == 1
+
+
 def test_ingest_rejects_bad_type_and_oversize(client: TestClient, monkeypatch):
     bad = _upload(client, name="evil.exe")
     assert bad.status_code == 400

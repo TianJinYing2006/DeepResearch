@@ -136,8 +136,17 @@ services:
       DR_ENV: "${DR_ENV:-staging}"
       DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-true}"
       DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
-      # P1-2：部署在反向代理后时显式声明（限流/审计才采用 X-Forwarded-For 首跳）
+      # P1-2 / P0-10：反代信任。优先 DR_TRUSTED_PROXY_CIDRS（只信任可信 hop 的
+      # X-Forwarded-*）；DR_TRUST_PROXY=true 为历史兼容（无 CIDR 时取 XFF 首跳）。
       DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"
+      DR_TRUSTED_PROXY_CIDRS: "${DR_TRUSTED_PROXY_CIDRS:-}"
+      DR_PROXY_HOPS: "${DR_PROXY_HOPS:-1}"
+      # P0-9：运维接口（/api/metrics、/api/ops/*）应用层鉴权；staging/生产未配置即 401
+      DR_OPS_TOKEN: "${DR_OPS_TOKEN:-}"
+      # P0-3：审核 provider 降级策略（quarantine 默认 / fail_closed / allow）
+      DR_MODERATION_DEGRADED_POLICY: "${DR_MODERATION_DEGRADED_POLICY:-quarantine}"
+      # P0-8：usage 落账失败严格模式（true 时中断主链路；默认记录 + 告警不静默）
+      DR_USAGE_STRICT: "${DR_USAGE_STRICT:-false}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -173,6 +182,9 @@ services:
       DR_ALERT_WEBHOOK_URL: "${DR_ALERT_WEBHOOK_URL:-}"
       DR_ALERT_REPEAT_MINUTES: "${DR_ALERT_REPEAT_MINUTES:-30}"
       DR_ALERT_MAX_ATTEMPTS: "${DR_ALERT_MAX_ATTEMPTS:-5}"
+      # P0-3 / P0-8：与 API 同一策略口径（Worker 也会触发审核与记账）
+      DR_MODERATION_DEGRADED_POLICY: "${DR_MODERATION_DEGRADED_POLICY:-quarantine}"
+      DR_USAGE_STRICT: "${DR_USAGE_STRICT:-false}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

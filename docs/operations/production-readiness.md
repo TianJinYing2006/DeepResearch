@@ -91,7 +91,7 @@
 - [x] 密码重置（P1-10，管理员协助形态）：`password_reset_tokens` 只存 SHA-256、单次原子消费、30 分钟过期、兄弟 token 互斥；`POST /api/auth/reset` 同事务完成「消费 + 改密 + 吊销全部会话 + 清理 token」；管理员 CLI `create-reset-token --email`；⚠️ 邮件自助通道待有 SMTP/SMS 后接入（接口已按该形态设计）
 - [x] 密码哈希 Argon2id；会话 httpOnly + SameSite；`DR_COOKIE_SECURE=true` 时加 Secure（**P0-9：staging/生产启动硬校验要求为 true**，不允许带 `Secure=false` 启动）
 - [x] CSRF 防护：双提交 Cookie（写操作校验 `X-CSRF-Token`）—— P4-A
-- [x] 登录与提交接口限流：**P1-2 起配置 Redis 时为滑动窗口（Lua 原子、多实例共享）**，未配置回落进程内固定窗口；登录双维度（IP + 账号哈希，防定向撞库）；`DR_TRUST_PROXY=true` 时才采用 `X-Forwarded-For` 首跳；Redis 抖动 **fail-open** 并记 `ratelimit_redis_error`（限流是纵深，非唯一安全边界）
+- [x] 登录与提交接口限流：**P1-2 起配置 Redis 时为滑动窗口（Lua 原子、多实例共享）**，未配置回落进程内固定窗口；登录双维度（IP + 账号哈希，防定向撞库）；**P0-10 起优先 `DR_TRUSTED_PROXY_CIDRS` / `DR_PROXY_HOPS`：仅可信代理 CIDR 内的直连对端才采信 XFF / `X-Forwarded-Proto`（`DR_TRUST_PROXY=true` 仅作无 CIDR 时的历史兼容，不再用于生产）**；Redis 抖动 **fail-open** 并记 `ratelimit_redis_error`（限流是纵深，非唯一安全边界）
 - [x] 运行类接口归属校验：鉴权开启时非本人一律 404；管理层走 CLI（不暴露 HTTP 管理面）
 - [x] 越权负向测试：查询 / 取消 / 导出 / SSE 订阅他人 `run_id` 全部 404 且不泄露存在性
 - [x] 密钥与账号不进日志（错误载荷不回显 password / token；FastAPI 默认不记录请求体）
@@ -104,9 +104,9 @@
 - [x] 注入确定性防护（P2-1a，OWASP LLM01:2026 口径）：外部内容统一剥离不可见 Unicode（搜索/arXiv/RAG 摄入与检索两侧）；输入显式注入模式预检（中英文窄口径）；**输出泄漏过滤**（系统提示有限标记集合，命中按 P0-4 脱敏 + flagged）；`research_engine/net/safe_fetch.py`（resolve→全地址公网校验→禁重定向→pin IP→限时限量）作为未来 URL 抓取的唯一入口；prompts 未改动（W8 基线不受影响）
 - [ ] 注入深度防护（P2-1b，另行评估）：spotlighting 提示词标注、guardrail 模型、Rule of Two 人工确认 —— 涉及核链提示词变更，需先评测基线影响
 - [ ] 恶意 URL / 文件处理（P7-B）：与审核 provider / 文件扫描联动
-- [x] 审核 provider 抽象（P2-5a）：`web/backend/moderation_providers.py` 统一接口 `ModerationProvider.scan(text) -> ModerationResult`；默认 `local_rules`（`DR_MODERATION_BLOCKLIST`）；`DR_MODERATION_PROVIDER` 选择实现，**未知/未实现（如 `aliyun`）或 provider 异常一律记 WARNING 回退 `local_rules`**（fail-safe：宁可多拦不乱放行、请求不 5xx）；留痕 `moderation_records.detail.provider` 供审计/申诉溯源；egress 快照动态记录当前 provider；**本 PR 不引入任何外部 SDK / 网络调用**（阿里云等实现留待接入阶段）
-- [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前脱敏、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核
-- [x] 申诉/复核状态机（P2-5b）：迁移 0014 `moderation_appeals`（同一 run+用户唯一；`pending→reviewing→accepted/rejected`；`sla_due_at` 由 `DR_APPEAL_SLA_HOURS` 默认 72h 生成）；API `POST /api/moderation/appeal` 建单 + `GET /api/moderation/appeals` 查本人状态；**accepted ⇒ run 置 `cleared`（导出闸放行）、rejected 维持 `flagged`**；决策同时写 `moderation_records`（append-only 证据）与 `audit_logs`；超期未决进入 `appeal_sla_overdue` 告警；CLI `appeal-list` / `appeal-claim` / `appeal-decide`；`moderation_appeals` 纳入 180 天保留期清理
+- [x] 审核 provider 抽象（P2-5a）：`web/backend/moderation_providers.py` 统一接口 `ModerationProvider.scan(text) -> ModerationResult`；默认 `local_rules`（`DR_MODERATION_BLOCKLIST`）；`DR_MODERATION_PROVIDER` 选择实现，未知/未实现（如 `aliyun`）或 provider 异常记 WARNING 回退 `local_rules`；**P0-3 起降级不再等于放行**：结果带 `degraded` / `failure_reason` / `policy`，按 `DR_MODERATION_DEGRADED_POLICY`（默认 `quarantine`）隔离待审 / `fail_closed` 阻断 / `allow`（仅内测且必须留痕告警）；留痕 `moderation_records.detail.provider` 供审计/申诉溯源；egress 快照动态记录当前 provider；**本 PR 不引入任何外部 SDK / 网络调用**（阿里云等实现留待接入阶段）
+- [x] 输出侧（P7-A 部分）：命中词表 ⇒ `moderation_status=flagged` + 审核记录；**P0-4 起自动拦截**：事件流 / 落库前按**唯一一次不可变决定**（`evaluate_output` → `output_decision` 记录）递归脱敏全部正文键、导出 403 `output_under_review`、原文只留 `run_artifacts` 供 CLI `run-report` 复核；终局、审核状态与决定证据**同事务**落库（关闭「终局已落但审核未落」窗口）
+- [x] 申诉/复核状态机（P2-5b）：迁移 0014 `moderation_appeals`（同一 run+用户唯一；`pending→reviewing→accepted/rejected`；`sla_due_at` 由 `DR_APPEAL_SLA_HOURS` 默认 72h 生成）；API `POST /api/moderation/appeal` 建单 + `GET /api/moderation/appeals` 查本人状态；**accepted ⇒ run 置 `cleared`（迁移 0015 补齐 CHECK 取值，导出闸放行）、rejected 维持 `flagged`**；**P0-5 起决策为单事务**：必须由领取者决策（他人 claim 后不可越权），申诉行 / run 状态 / `moderation_records`（append-only 证据）/ `audit_logs` 同生共死；超期未决进入 `appeal_sla_overdue` 告警；CLI `appeal-list` / `appeal-claim` / `appeal-decide`；`moderation_appeals` 纳入 180 天保留期清理
 - [ ] 敏感结果拦截与模型输出标识 —— P7-B（含接入有资质的审核服务）
 - [x] 审核记录留存与管理侧入口（P7-A：`moderation_records` + CLI `moderation-list` / `delete-user`）
 - [x] 处置链路：申诉入口（`POST /api/moderation/appeal`）已可用；**P0-5 起带 `run_id` 的申诉校验归属 / 标记状态 / 防重复**（非本人 404、未标记 409 `appeal_not_applicable`、重复 409 `appeal_duplicate`）；封禁（CLI `ban-user`）与账号删除（API/CLI）可演练
@@ -119,8 +119,10 @@
 ### 3.6 可观测性与告警
 
 > P8-A 已落地「可判定」：`GET /api/metrics`（进程内 HTTP/SSE 计量 + 任务库聚合，无 PII）
-> 与 `GET /api/ops/alerts`（`DR_ALERT_*` 阈值）。**触达**（IM/邮件）与中心化指标（Prometheus/多实例）
-> 属 P8-B；部署时应用反向代理限制 `/api/metrics` 来源。
+> 与 `GET /api/ops/alerts`（`DR_ALERT_*` 阈值）。**P0-9 起两者均有应用层鉴权**：
+> 配置 `DR_OPS_TOKEN` 后必须携带 `X-Ops-Token`（常量时间比较）；staging/生产未配置
+> 一律 401（fail-closed）—— 反向代理限制来源只作纵深，不再是唯一边界。
+> **触达**（IM/邮件）与中心化指标（Prometheus/多实例）属 P8-B。
 
 | 指标 | 阈值（待定） | 告警触达 |
 |------|-------------|---------|
