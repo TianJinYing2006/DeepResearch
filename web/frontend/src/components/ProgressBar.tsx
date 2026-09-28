@@ -25,7 +25,7 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
                     : active
                       ? cancelling
                         ? 'bg-amber-300'
-                        : 'bg-cyan-300'
+                        : 'bg-brand-300'
                       : 'bg-white/10'
                 }`}
               />
@@ -59,7 +59,7 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
           className={`relative h-full overflow-hidden rounded-full transition-[width] duration-500 ${
             cancelling
               ? 'bg-gradient-to-r from-amber-400 to-orange-300'
-              : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-cyan-300'
+              : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
           }`}
           style={{ width: `${percent}%` }}
         >
