@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { csrfHeaders, httpError, toStructuredError } from '../lib/api'
 import { computeProgress, summarize } from '../lib/progress'
 import {
   AGUI_EVENT_TYPES,
@@ -8,15 +9,6 @@ import {
   type RunFinishedEvent,
   type StructuredError,
 } from '../types/agui'
-
-/**
- * P6-A：登录态下的写操作需要 CSRF 双提交头（与后端 dr_csrf Cookie 一致）。
- * 未登录 / 未开启鉴权时 Cookie 不存在，返回空对象，行为与 P4 之前完全一致。
- */
-function csrfHeaders(): Record<string, string> {
-  const match = document.cookie.match(/(?:^|;\s*)dr_csrf=([^;]+)/)
-  return match ? { 'X-CSRF-Token': decodeURIComponent(match[1]) } : {}
-}
 
 export type StreamStatus =
   | 'idle'
@@ -58,55 +50,6 @@ function clearStoredRun(): void {
   } catch {
     /* 同上 */
   }
-}
-
-/** 把任意来源的错误归一成 `StructuredError`（P1-5）。
-
- 后端已统一返回 `{code, message, component, node, detail, retryable, hint}`；
- 但网络中断、JSON 解析失败这类**前端侧**错误没有后端载荷 ⇒ 在这里补齐同构字段，
- 让错误卡片只需处理一种形状，不必到处判断「这次有没有 code」。 */
-function toStructuredError(value: unknown, code: string, hint: string): StructuredError {
-  const message = value instanceof Error ? value.message : typeof value === 'string' ? value : ''
-  if (value && typeof value === 'object' && 'code' in value) {
-    const parsed = value as Partial<StructuredError>
-    return {
-      code: parsed.code ?? code,
-      message: parsed.message ?? message,
-      component: parsed.component ?? null,
-      node: parsed.node ?? null,
-      detail: parsed.detail ?? null,
-      retryable: parsed.retryable ?? false,
-      hint: parsed.hint ?? hint,
-    }
-  }
-  return {
-    code,
-    message: message || hint,
-    component: null,
-    node: null,
-    detail: null,
-    retryable: false,
-    hint,
-  }
-}
-
-async function httpError(response: Response, code: string, hint: string): Promise<StructuredError> {
-  let body: { detail?: unknown } | null = null
-  try {
-    body = (await response.json()) as { detail?: unknown }
-  } catch {
-    body = null
-  }
-  // FastAPI 的结构化 `detail` 是**对象**；历史版本 / 第三方中间件可能是字符串。
-  const detail = body?.detail
-  if (detail && typeof detail === 'object') {
-    return toStructuredError(detail, code, hint)
-  }
-  return toStructuredError(
-    typeof detail === 'string' ? new Error(detail) : new Error(`${hint}（HTTP ${response.status}）`),
-    code,
-    hint,
-  )
 }
 
 export function useResearchStream() {

@@ -8,14 +8,14 @@ import remarkGfm from 'remark-gfm'
  需要整篇 parse + 建 AST 再渲染，**同步**占用主线程。一次性喂进去几万字时，
  页面会在这段时间里完全无响应（点不动停止按钮）。分段 + `useDeferredValue`
  让首屏先出、后续按需追加，把一次长任务拆成几次短任务。 */
-export const CHUNK_CHARS = 20_000
+const CHUNK_CHARS = 20_000
 
 /** 在**安全边界**处切分：优先空行，且绝不切在围栏代码块内部。
 
  直接按字符数硬切会把 ``` 代码块拦腰截断 ⇒ 后半段被当成普通段落渲染出来，
  报告看起来「格式崩了」。这里扫一遍行，跟踪围栏开关，只在围栏外取最后一个
  不超过 limit 的空行位置。 */
-export function sliceAtSafeBoundary(text: string, limit: number): number {
+function sliceAtSafeBoundary(text: string, limit: number): number {
   if (text.length <= limit) return text.length
   let inFence = false
   let blankCut = 0

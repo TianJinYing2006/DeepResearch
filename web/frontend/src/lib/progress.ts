@@ -25,7 +25,7 @@ export const STAGES = [
  *  出处：docs/requirements/9-web-ui-rewrite.md §5.4.1。仅用于 ETA，不参与百分比。 */
 const EST_TOTAL_NODES = 24
 
-export interface ProgressInput {
+interface ProgressInput {
   /** 最近完成的节点名 */
   currentNode: string | null
   depth: number
@@ -47,7 +47,7 @@ export interface Progress {
   etaIsEstimate: boolean
 }
 
-export function stageOf(node: string | null): number {
+function stageOf(node: string | null): number {
   if (!node) return -1
   return STAGES.findIndex((s) => (s.nodes as readonly string[]).includes(node))
 }
