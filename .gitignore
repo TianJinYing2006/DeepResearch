@@ -78,3 +78,7 @@ web/frontend/tsconfig.tsbuildinfo
 web/frontend/test-results/
 web/frontend/playwright-report/
 web/frontend/.playwright/
+
+# 第三方审计 skills（前端重构辅助，来源见 docs/web-frontend-audit.md）：
+# 部分上游仓库未声明 LICENSE ⇒ 只在本机使用，不随公开仓库分发
+.opencode/skills/
