@@ -151,10 +151,6 @@ export interface RunFinishedEvent extends AguiEvent {
   result: ResearchResult
 }
 
-export interface RunErrorEvent extends StructuredError {
-  type: 'RUN_ERROR'
-}
-
 export function isAguiEvent(value: unknown): value is AguiEvent {
   if (!value || typeof value !== 'object') return false
   const type = (value as { type?: unknown }).type

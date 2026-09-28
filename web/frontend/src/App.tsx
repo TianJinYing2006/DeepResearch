@@ -7,6 +7,8 @@ import {
   type StreamStatus,
   useResearchStream,
 } from './hooks/useResearchStream'
+import { formatCost, formatDuration, formatNumber } from './lib/format'
+import type { LaunchParams } from './types/api'
 import type {
   AguiEvent,
   CitationResult,
@@ -26,13 +28,6 @@ const NODE_LABELS: Record<string, string> = {
   write: '撰写报告',
   validate: '校验引用',
   render: '渲染结果',
-}
-
-interface LaunchParams {
-  topic: string
-  instructions: string
-  /** P0 profile 固化：只提交档位名，底层参数由服务端固定 */
-  profile: string
 }
 
 /** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
@@ -918,27 +913,6 @@ function eventPresentation(event: AguiEvent) {
 
 function nodeLabel(node: string): string {
   return NODE_LABELS[node] ?? node
-}
-
-function formatNumber(value: number): string {
-  return Number.isFinite(value) ? value.toLocaleString('zh-CN') : '0'
-}
-
-function formatCost(cny: number | null | undefined): string {
-  // R1（审计 U2）：畸形/缺失终局帧不得让渲染崩溃 —— 非有限值显示占位
-  if (typeof cny !== 'number' || !Number.isFinite(cny)) return '—'
-  // 研究单跑常在几分钱量级，固定两位会把 0.004 显示成 0.00 ⇒ 小额度多留两位
-  if (cny === 0) return '0'
-  return cny < 0.01 ? cny.toFixed(4) : cny.toFixed(2)
-}
-
-function formatDuration(milliseconds: number): string {
-  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return '0s'
-  const seconds = Math.round(milliseconds / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainder = seconds % 60
-  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
 }
 
 function isKnowledgeBaseSource(source: string): boolean {

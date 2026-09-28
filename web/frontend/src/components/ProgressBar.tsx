@@ -1,3 +1,4 @@
+import { formatDuration } from '../lib/format'
 import type { Progress } from '../lib/progress'
 import { STAGES } from '../lib/progress'
 
@@ -88,12 +89,5 @@ function etaLabel(progress: Progress, cancelling: boolean): string {
   if (progress.stageIndex >= STAGES.length) return '已完成'
   if (progress.etaSeconds === null) return progress.stageIndex === 0 ? '等待首个节点' : '剩余时间估算中'
   if (progress.etaSeconds <= 0) return '即将完成'
-  return `约剩 ${formatEta(progress.etaSeconds)}`
-}
-
-function formatEta(seconds: number): string {
-  if (seconds < 60) return `${seconds} 秒`
-  const minutes = Math.floor(seconds / 60)
-  const remainder = seconds % 60
-  return remainder === 0 ? `${minutes} 分钟` : `${minutes} 分 ${remainder} 秒`
+  return `约剩 ${formatDuration(progress.etaSeconds * 1000)}`
 }

@@ -1,62 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { csrfHeaders, errorMessageFromBody, readErrorMessage } from '../lib/api'
+import { formatBytes, formatCny, formatDateTime } from '../lib/format'
+import type { Quota, RagDoc, RunBrief, SessionUser, UploadItem } from '../types/api'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
-
-type SessionUser = { user_id: string; email: string }
-
-type Quota = {
-  daily_runs_used: number | null
-  daily_runs_limit: number | null
-  user_active_runs: number | null
-  user_concurrent_limit: number
-  run_budget_cny: number | null
-  monthly_cost_cny: number
-  monthly_budget_cny: number | null
-}
-
-type RunBrief = {
-  run_id: string
-  topic: string
-  status: string
-  stop_reason: string | null
-  created_at: string | null
-  has_report: boolean
-  moderation_status?: string | null
-}
-
-type RagDoc = { doc_id?: string; source: string; chunks: number }
-
-type UploadStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error'
-
-type UploadItem = {
-  id: string
-  name: string
-  size: number
-  status: UploadStatus
-  percent: number
-  chunks?: number
-  error?: string
-  note?: string
-}
-
-function csrfHeaders(): Record<string, string> {
-  const match = document.cookie.match(/(?:^|;\s*)dr_csrf=([^;]+)/)
-  return match ? { 'X-CSRF-Token': decodeURIComponent(match[1]) } : {}
-}
-
-async function readError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: unknown }
-    const detail = body.detail
-    if (detail && typeof detail === 'object' && 'message' in detail) {
-      return String((detail as { message?: string }).message ?? '')
-    }
-    if (typeof detail === 'string') return detail
-  } catch {
-    /* 非 JSON 响应 */
-  }
-  return `HTTP ${response.status}`
-}
 
 type UploadHttpResult = { status: number; body: unknown }
 
@@ -88,23 +35,6 @@ function xhrUpload(file: File, onProgress: (percent: number) => void): Promise<U
     form.append('file', file)
     xhr.send(form)
   })
-}
-
-function errorFromBody(body: unknown, status: number): string {
-  if (body && typeof body === 'object' && 'detail' in body) {
-    const detail = (body as { detail?: unknown }).detail
-    if (detail && typeof detail === 'object' && 'message' in detail) {
-      return String((detail as { message?: string }).message ?? '')
-    }
-    if (typeof detail === 'string') return detail
-  }
-  return status ? `HTTP ${status}` : '网络错误，请重试'
-}
-
-function formatBytes(size: number): string {
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
-  if (size >= 1024) return `${(size / 1024).toFixed(0)} KB`
-  return `${size} B`
 }
 
 function uploadLabel(item: UploadItem): string {
@@ -215,7 +145,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       setDocsError('')
     } else {
       setDocs(null)
-      setDocsError(await readError(docsResp))
+      setDocsError(await readErrorMessage(docsResp))
     }
   }, [])
 
@@ -243,7 +173,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        setAuthError(await readError(response))
+        setAuthError(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { user: SessionUser }
@@ -276,7 +206,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     try {
       const response = await fetch(`/api/runs?${params.toString()}`)
       if (!response.ok) {
-        setHistoryError(await readError(response))
+        setHistoryError(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { runs: RunBrief[] }
@@ -304,7 +234,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setPreview(null)
     const response = await fetch(`/api/research/${runId}/report?format=md`)
     if (!response.ok) {
-      setPreviewError(await readError(response))
+      setPreviewError(await readErrorMessage(response))
       return
     }
     setPreview({ runId, markdown: await response.text() })
@@ -316,7 +246,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     try {
       const response = await fetch(`/api/legal/${doc}`)
       if (!response.ok) {
-        setLegalError(await readError(response))
+        setLegalError(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { markdown: string }
@@ -336,7 +266,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         body: JSON.stringify({ password }),
       })
       if (!response.ok) {
-        setUploadState(await readError(response))
+        setUploadState(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { rag_cleanup: string }
@@ -384,7 +314,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       return
     }
     if (status < 200 || status >= 300) {
-      const message = errorFromBody(body, status)
+      const message = errorMessageFromBody(body, status)
       updateUpload(item.id, { status: 'error', error: message })
       setUploadState(message)
       return
@@ -443,7 +373,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           : null,
         quota.user_active_runs !== null ? `并发 ${quota.user_active_runs}/${quota.user_concurrent_limit}` : null,
         quota.monthly_budget_cny
-          ? `本月 ¥${quota.monthly_cost_cny.toFixed(2)}/¥${quota.monthly_budget_cny}`
+          ? `本月 ${formatCny(quota.monthly_cost_cny)}/${formatCny(quota.monthly_budget_cny)}`
           : null,
       ]
         .filter(Boolean)
@@ -541,7 +471,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   return (
     <div className="flex flex-wrap items-center justify-start gap-2 text-xs sm:justify-end" data-testid="account-panel">
       {quotaLine && (
-        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-emerald-100/70"
+        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 tabular-nums text-emerald-100/70"
               data-testid="quota-chip">
           {quotaLine}
         </span>
@@ -623,7 +553,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                         {item.moderation_status === 'under_review' ? '审核中' : '已标记'}
                       </span>
                     )}
-                    {item.created_at && <span>{item.created_at.replace('T', ' ').slice(0, 16)}</span>}
+                    {item.created_at && <time dateTime={item.created_at}>{formatDateTime(item.created_at)}</time>}
                     {item.has_report && (
                       <button type="button" className="underline hover:text-emerald-100"
                               onClick={() => void openReport(item.run_id)}>查看报告</button>
@@ -673,7 +603,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                         <span className="min-w-0 flex-1 truncate text-emerald-50/90" title={item.name}>
                           {item.name}
                         </span>
-                        <span className="text-emerald-100/50">{formatBytes(item.size)}</span>
+                        <span className="tabular-nums text-emerald-100/50">{formatBytes(item.size)}</span>
                         <span className={item.status === 'error' ? 'text-rose-300' : 'text-emerald-100/70'}>
                           {uploadLabel(item)}
                         </span>
@@ -710,7 +640,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                 <li key={doc.doc_id || doc.source} data-testid="kb-doc-item"
                     className="flex flex-wrap items-center justify-between gap-2 text-emerald-50/90">
                   <span className="min-w-0 flex-1 truncate" title={doc.source}>{doc.source}</span>
-                  <span className="text-[11px] text-emerald-100/60">{doc.chunks} 块</span>
+                  <span className="text-[11px] tabular-nums text-emerald-100/60">{doc.chunks} 块</span>
                   {doc.doc_id && (
                     <code className="text-[11px] text-emerald-200/60">{doc.doc_id.split(':').pop()}</code>
                   )}
