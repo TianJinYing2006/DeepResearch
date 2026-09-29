@@ -218,6 +218,12 @@
     text-wrap: pretty;
   }
 
+  /* 方向 B：无引用支撑的实质段落 → 点状下划线示警（不改写正文） */
+  .report-prose p.claim-unsourced {
+    text-decoration: underline dotted rgba(154, 107, 31, 0.45);
+    text-underline-offset: 4px;
+  }
+
   .report-prose th {
     @apply border border-rule bg-rule/40 px-3 py-2 font-semibold text-ink;
   }

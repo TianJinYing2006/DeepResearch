@@ -19,14 +19,35 @@ type LaunchFormProps = {
   onProfileChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onCancel: () => void
+  /** 方向 B：报告完成后自动折叠为摘要条，把首屏让给报告；可手动展开/收起。 */
+  collapsed: boolean
+  onToggle: () => void
 }
 
 export function LaunchForm({
   topic, instructions, profile, profileOptions, activeProfile, activeProfileIndex,
   running, status, onTopicChange, onInstructionsChange, onProfileChange, onSubmit, onCancel,
+  collapsed, onToggle,
 }: LaunchFormProps) {
   // R4b（审计 U37）：停止为不可逆操作 —— 两步确认，避免误点丢失长任务剩余工作
   const [confirmingStop, setConfirmingStop] = useState(false)
+
+  if (collapsed) {
+    return (
+      <section className="surface-card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-ink">{topic.trim() || '新研究'}</p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            {activeProfile?.label ?? '默认档位'} · 参数已折叠，优先阅读报告
+          </p>
+        </div>
+        <button type="button" className="secondary-button shrink-0 !px-3 !py-2"
+                data-testid="launch-expand" onClick={onToggle}>
+          修改参数
+        </button>
+      </section>
+    )
+  }
 
   // R4a（审计 U17）：radiogroup 键盘语义（方向键/Home/End + roving tabindex）
   function handleProfileKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -54,9 +75,13 @@ export function LaunchForm({
           <p className="text-sm font-semibold text-ink">新研究</p>
           <p className="mt-1 text-xs leading-5 text-ink-muted">描述问题，研究过程会实时推送到右侧。</p>
         </div>
-        <span className="rounded-lg border border-stamp-green/30 bg-stamp-green/10 px-2 py-1 text-[10px] font-bold tracking-[0.16em] text-stamp-blue">
-          Live
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-lg border border-stamp-blue/20 bg-stamp-blue/10 px-2 py-1 text-[10px] font-bold tracking-[0.16em] text-stamp-blue">
+            Live
+          </span>
+          <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+                  data-testid="launch-collapse" onClick={onToggle}>收起</button>
+        </div>
       </div>
 
       <label className="field-label" htmlFor="topic">研究主题</label>

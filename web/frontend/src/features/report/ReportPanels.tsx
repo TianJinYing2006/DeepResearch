@@ -61,20 +61,46 @@ type CitationsCardProps = {
   verifiedCitations: number
 }
 
-export function CitationsCard({ citations, verifiedCitations }: CitationsCardProps) {
+/** 方向 B 签名：引用证据挂在**页边栏**（与报告并排、可滚动、可聚焦），
+ *  阅读时视线不离开正文；窄屏自动落到报告下方。 */
+export function EvidenceMargin({ citations, verifiedCitations }: CitationsCardProps) {
   return (
-    <section className="surface-card p-5 sm:p-6">
+    <section className="surface-card p-4" aria-label="引用证据">
       <SectionHeading
         eyebrow="证据"
         title="引用校验"
         detail={`${verifiedCitations} / ${citations.length} 严格通过`}
       />
       {citations.length === 0 ? (
-        <EmptyState icon="∅" title="没有引用记录" text="报告可能在引用校验前停止，或本轮未生成可校验引用。" />
+        <p className="mt-3 text-xs leading-5 text-ink-muted">
+          没有引用记录：报告可能在引用校验前停止，或本轮未生成可校验引用。
+        </p>
       ) : (
-        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <ol className="mt-4 max-h-[58vh] space-y-2 overflow-y-auto pr-1" tabIndex={0}
+            role="region" aria-label="引用列表">
           {citations.map((citation, index) => (
-            <CitationCard key={`${citation.source}-${index}`} citation={citation} index={index} />
+            <li key={`${citation.source}-${index}`}>
+              <CitationCard citation={citation} index={index} />
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
+/** 页边栏的来源清单（紧凑版）。 */
+export function SourcesList({ sources }: { sources: string[] }) {
+  return (
+    <section className="surface-card p-4" aria-label="访问来源">
+      <SectionHeading eyebrow="来源" title="访问来源" detail={`${sources.length} 个`} />
+      {sources.length === 0 ? (
+        <p className="mt-3 text-xs leading-5 text-ink-muted">没有可展示的来源记录。</p>
+      ) : (
+        <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1" tabIndex={0}
+             role="region" aria-label="来源列表">
+          {sources.map((source, index) => (
+            <SourceRow key={`${source}-${index}`} source={source} index={index} />
           ))}
         </div>
       )}
@@ -82,33 +108,21 @@ export function CitationsCard({ citations, verifiedCitations }: CitationsCardPro
   )
 }
 
-export function SourcesReflection({ result }: { result: ResearchResult }) {
+/** 主列：决策轨迹（critic 记录）。 */
+export function ReflectionList({ log }: { log: Array<Record<string, unknown>> }) {
   return (
-    <section className="grid gap-6 lg:grid-cols-2">
-      {/* P1-7 移动端：`min-w-0` 必须有 —— grid 子项默认 `min-width:auto`，
-          长 URL / 长单词会把列撑得比容器宽，整页出现横向滚动条。 */}
-      <div className="surface-card min-w-0 p-5 sm:p-6">
-        <SectionHeading eyebrow="来源" title="访问来源" detail={`${result.visited_sources.length} 个`} />
-        <div className="mt-5 space-y-2">
-          {result.visited_sources.length ? result.visited_sources.map((source, index) => (
-            <SourceRow key={`${source}-${index}`} source={source} index={index} />
-          )) : <EmptyState icon="∅" title="暂无来源" text="没有可展示的来源记录。" />}
-        </div>
-      </div>
-
-      <div className="surface-card min-w-0 p-5 sm:p-6">
-        <SectionHeading eyebrow="反思" title="决策轨迹" detail={`${result.reflection_log.length} 轮`} />
-        <div className="mt-5 space-y-3">
-          {result.reflection_log.length ? result.reflection_log.map((entry, index) => (
-            <div key={index} className="surface-card-muted p-4">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-ink">第 {String(entry.depth ?? index + 1)} 轮判断</span>
-                {entry.decision != null && <span className="rounded-md bg-stamp-green/10 px-2 py-1 text-[10px] font-semibold text-stamp-green">{String(entry.decision)}</span>}
-              </div>
-              <p className="text-xs leading-5 text-ink-muted">{reflectionSummary(entry)}</p>
+    <section className="surface-card p-5 sm:p-6">
+      <SectionHeading eyebrow="反思" title="决策轨迹" detail={`${log.length} 轮`} />
+      <div className="mt-5 space-y-3">
+        {log.length ? log.map((entry, index) => (
+          <div key={index} className="surface-card-muted p-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-ink">第 {String(entry.depth ?? index + 1)} 轮判断</span>
+              {entry.decision != null && <span className="rounded-md bg-stamp-green/10 px-2 py-1 text-[10px] font-semibold text-stamp-green">{String(entry.decision)}</span>}
             </div>
-          )) : <EmptyState icon="∅" title="暂无决策轨迹" text="本轮没有可展示的 critic 记录。" />}
-        </div>
+            <p className="text-pretty text-xs leading-5 text-ink-muted">{reflectionSummary(entry)}</p>
+          </div>
+        )) : <EmptyState icon="∅" title="暂无决策轨迹" text="本轮没有可展示的 critic 记录。" />}
       </div>
     </section>
   )
