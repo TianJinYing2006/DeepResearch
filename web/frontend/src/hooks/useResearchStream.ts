@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { csrfHeaders, httpError, toStructuredError } from '../lib/api'
-import { computeProgress, summarize } from '../lib/progress'
+import { applyEvent, computeProgress, emptySummary, type ProgressSummary } from '../lib/progress'
 import {
   AGUI_EVENT_TYPES,
   isAguiEvent,
@@ -59,7 +59,10 @@ export function useResearchStream() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [error, setError] = useState<StructuredError | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
+  // R5（审计 U50）：进度增量累加（每事件 O(1)），不再每次全量重扫事件流
+  const [summary, setSummary] = useState<ProgressSummary>(emptySummary)
   const sourceRef = useRef<EventSource | null>(null)
+  const summaryRef = useRef<ProgressSummary>(emptySummary())
   const terminalRef = useRef(false)
   const seenEventIdsRef = useRef(new Set<string>())
   // 本页是否手动发起过研究：防止「恢复上一场运行」的异步请求抢在手动发起之后回填
@@ -74,6 +77,9 @@ export function useResearchStream() {
 
   const attachStream = useCallback((nextRunId: string) => {
     closeSource()
+    // 新流（含刷新回放）从头累加：清空旧运行的进度摘要
+    summaryRef.current = emptySummary()
+    setSummary(summaryRef.current)
     const source = new EventSource(`/api/research/${nextRunId}/stream`)
     sourceRef.current = source
 
@@ -88,6 +94,8 @@ export function useResearchStream() {
         const parsed: unknown = JSON.parse(message.data)
         if (!isAguiEvent(parsed)) throw new Error('未知事件类型')
         setEvents((previous) => [...previous, parsed])
+        summaryRef.current = applyEvent(summaryRef.current, parsed)
+        setSummary(summaryRef.current)
 
         if (parsed.type === 'RUN_FINISHED') {
           const finished = parsed as RunFinishedEvent
@@ -223,7 +231,7 @@ export function useResearchStream() {
     }
   }, [runId])
 
-  const progress = useMemo(() => computeProgress(summarize(events)), [events])
+  const progress = useMemo(() => computeProgress(summary), [summary])
 
   return {
     runId,

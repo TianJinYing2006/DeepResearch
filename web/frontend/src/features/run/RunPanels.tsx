@@ -1,4 +1,5 @@
-/** 右栏运行看板（R4a）：状态 / 错误 / 超时 / 摘要 / 指标 / 活动与降级。 */
+/** 右栏运行看板（R4a/R5）：状态 / 错误 / 超时 / 摘要 / 指标 / 活动与降级。 */
+import { useEffect, useRef, useState } from 'react'
 import { ProgressBar } from '../../components/ProgressBar'
 import { EmptyState, MetricCard, SectionHeading, SummaryItem, TimelineItem } from '../../components/ui'
 import { formatCost, formatDuration, formatNumber } from '../../lib/format'
@@ -171,31 +172,84 @@ type MetricsGridProps = {
   costLabel: string
   findingsCount: number
   sourceCount: number
-  elapsedMs: number
-  remainingMs: number | null
+  startedAt: number | null
+  timeoutSeconds: number | null
   running: boolean
+}
+
+/** R5（审计 U50）：运行时长时钟下沉到本卡片 —— 每 250ms 只重渲染这一张卡；
+ *  页面隐藏（切标签/最小化）时暂停计时，避免无谓渲染。 */
+function DurationCard({ startedAt, running, timeoutSeconds, lastDepth }: {
+  startedAt: number | null
+  running: boolean
+  timeoutSeconds: number | null
+  lastDepth: number | null
+}) {
+  const [now, setNow] = useState(() => Date.now())
+  const stoppedAtRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!running) {
+      if (stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
+      return
+    }
+    stoppedAtRef.current = null
+    let id: number | null = null
+    const start = () => {
+      if (id !== null) return
+      setNow(Date.now())
+      id = window.setInterval(() => setNow(Date.now()), 250)
+    }
+    const stop = () => {
+      if (id !== null) {
+        window.clearInterval(id)
+        id = null
+      }
+    }
+    const onVisibility = () => {
+      if (document.hidden) stop()
+      else start()
+    }
+    start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [running])
+
+  const elapsedMs = startedAt ? Math.max(0, (stoppedAtRef.current ?? now) - startedAt) : 0
+  const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - elapsedMs)
+  return (
+    <MetricCard
+      label="运行时长"
+      value={formatDuration(elapsedMs)}
+      detail={
+        running && remainingMs !== null
+          ? `剩余约 ${formatDuration(remainingMs)}`
+          : lastDepth !== null
+            ? `深度 ${lastDepth}`
+            : '自发起时刻起'
+      }
+      accent="amber"
+    />
+  )
 }
 
 export function MetricsGrid({
   stepsCount, lastStep, tokenUsed, costLabel, findingsCount, sourceCount,
-  elapsedMs, remainingMs, running,
+  startedAt, timeoutSeconds, running,
 }: MetricsGridProps) {
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <MetricCard label="已完成节点" value={String(stepsCount)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
       <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="brand" />
       <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
-      <MetricCard
-        label="运行时长"
-        value={formatDuration(elapsedMs)}
-        detail={
-          running && remainingMs !== null
-            ? `剩余约 ${formatDuration(remainingMs)}`
-            : lastStep
-              ? `深度 ${lastStep.depth}`
-              : '自发起时刻起'
-        }
-        accent="amber"
+      <DurationCard
+        startedAt={startedAt}
+        running={running}
+        timeoutSeconds={timeoutSeconds}
+        lastDepth={lastStep?.depth ?? null}
       />
     </section>
   )

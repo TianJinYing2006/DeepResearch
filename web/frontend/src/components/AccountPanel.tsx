@@ -393,20 +393,19 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                           {uploadLabel(item)}
                         </span>
                       </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/25" role="progressbar"
-                           data-testid="upload-progress"
+                      <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-black/25" role="progressbar"
+                           data-testid="upload-progress" aria-label={`${item.name} 上传进度`}
                            aria-valuenow={item.status === 'uploading' ? item.percent : undefined}
                            aria-valuemin={0} aria-valuemax={100}>
                         <div
-                          className={`relative h-full overflow-hidden rounded-full transition-[width] duration-300 ${barClass}`}
-                          style={{ width: `${width}%` }}
-                        >
-                          {(item.status === 'processing' || (item.status === 'uploading' && item.percent < 100)) && (
-                            <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
-                              <span className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/45 to-transparent" />
-                            </span>
-                          )}
-                        </div>
+                          className={`h-full w-full origin-left rounded-full transition-transform duration-300 ${barClass}`}
+                          style={{ transform: `scaleX(${width / 100})` }}
+                        />
+                        {(item.status === 'processing' || (item.status === 'uploading' && item.percent < 100)) && (
+                          <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+                            <span className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+                          </span>
+                        )}
                       </div>
                       <div className="mt-2 flex items-center justify-end gap-3 text-[11px]">
                         {(item.status === 'error' || item.status === 'cancelled') && (

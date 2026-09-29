@@ -1,4 +1,7 @@
-/** 通用展示原语（R4a：从 App.tsx 迁出；纯展示，无业务状态）。 */
+/** 通用展示原语（R4a：从 App.tsx 迁出；纯展示，无业务状态）。
+ *  R5：高频列表行（时间线/引用/来源/指标卡）用 memo 收敛重渲染；
+ *  长列表用 CSS `content-visibility:auto` 跳过屏外布局（无需引入虚拟列表依赖）。 */
+import { memo } from 'react'
 import { eventPresentation, sourceType } from '../lib/presentation'
 import type { AguiEvent, CitationResult } from '../types/agui'
 
@@ -11,7 +14,7 @@ export function BoundaryItem({ title, text }: { title: string; text: string }) {
   )
 }
 
-export function MetricCard({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: 'emerald' | 'brand' | 'violet' | 'amber' }) {
+export const MetricCard = memo(function MetricCard({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: 'emerald' | 'brand' | 'violet' | 'amber' }) {
   const accentClass = {
     emerald: 'from-emerald-400/20 text-emerald-200',
     brand: 'from-brand-400/20 text-brand-200',
@@ -25,7 +28,7 @@ export function MetricCard({ label, value, detail, accent }: { label: string; va
       <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
     </div>
   )
-}
+})
 
 export function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
@@ -60,10 +63,10 @@ export function EmptyState({ icon, title, text }: { icon: string; title: string;
   )
 }
 
-export function TimelineItem({ event }: { event: AguiEvent }) {
+export const TimelineItem = memo(function TimelineItem({ event }: { event: AguiEvent }) {
   const view = eventPresentation(event)
   return (
-    <div className="group flex gap-3 rounded-xl px-2 py-3">
+    <div className="group flex gap-3 rounded-xl px-2 py-3 [content-visibility:auto] [contain-intrinsic-size:auto_72px]">
       <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border text-xs ${view.iconClass}`} aria-hidden="true">{view.icon}</div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-3">
@@ -74,12 +77,12 @@ export function TimelineItem({ event }: { event: AguiEvent }) {
       </div>
     </div>
   )
-}
+})
 
-export function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
+export const CitationCard = memo(function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
   const verified = citation.verified
   return (
-    <article className={`rounded-xl border p-4 ${verified ? 'border-emerald-300/15 bg-emerald-300/[0.04]' : 'border-amber-300/15 bg-amber-300/[0.04]'}`}>
+    <article className={`rounded-xl border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_200px] ${verified ? 'border-emerald-300/15 bg-emerald-300/[0.04]' : 'border-amber-300/15 bg-amber-300/[0.04]'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] text-slate-400">#{index + 1}</span>
@@ -96,17 +99,17 @@ export function CitationCard({ citation, index }: { citation: CitationResult; in
       </div>
     </article>
   )
-}
+})
 
-export function SourceRow({ source, index }: { source: string; index: number }) {
+export const SourceRow = memo(function SourceRow({ source, index }: { source: string; index: number }) {
   return (
-    <div className="surface-card-muted flex items-center gap-3 p-3">
+    <div className="surface-card-muted flex items-center gap-3 p-3 [content-visibility:auto] [contain-intrinsic-size:auto_56px]">
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-black/20 font-mono text-[10px] text-slate-400">{index + 1}</span>
       <div className="min-w-0 flex-1"><SourceLink source={source} /></div>
       <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-slate-400">{sourceType(source)}</span>
     </div>
   )
-}
+})
 
 export function SourceLink({ source }: { source: string }) {
   if (/^https?:\/\//i.test(source)) {
