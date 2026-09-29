@@ -133,12 +133,11 @@ export function useResearchStream() {
     profile: string,
   ) => {
     manualStartRef.current = true
-    closeSource()
-    terminalRef.current = false
-    seenEventIdsRef.current.clear()
-    setEvents([])
-    setRunId(null)
-    setResult(null)
+    // R3（审计 U11）：启动失败不得摧毁上一份报告 —— 先记录当前视图，
+    // 只有 POST 成功才清空并挂新流；失败时保留原状态与 sessionStorage 恢复点。
+    const hadPrevious = runId !== null
+    const previousStatus = status
+    const previousConnection = connectionStatus
     setError(null)
     setStatus('starting')
     setConnectionStatus('connecting')
@@ -156,18 +155,22 @@ export function useResearchStream() {
       if (!response.ok) throw await httpError(response, 'start_failed', '启动研究失败')
       const { run_id: nextRunId } = (await response.json()) as { run_id: string }
 
+      closeSource()
+      terminalRef.current = false
+      seenEventIdsRef.current.clear()
+      setEvents([])
+      setResult(null)
       setRunId(nextRunId)
       setStatus('running')
       storeRun(nextRunId)
       attachStream(nextRunId)
     } catch (startError) {
-      closeSource()
-      clearStoredRun()
-      setStatus('error')
-      setConnectionStatus('closed')
+      if (!hadPrevious) closeSource()
+      setConnectionStatus(hadPrevious ? previousConnection : 'closed')
+      setStatus(hadPrevious ? previousStatus : 'error')
       setError(toStructuredError(startError, 'start_failed', '启动研究失败'))
     }
-  }, [attachStream, closeSource])
+  }, [attachStream, closeSource, connectionStatus, runId, status])
 
   /** 刷新后恢复：读 sessionStorage 的 run_id → 快照确认存在 → 从 0 回放全部帧。
 

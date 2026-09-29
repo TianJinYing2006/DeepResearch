@@ -33,6 +33,23 @@ const NODE_LABELS: Record<string, string> = {
 /** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
 const LAST_REQUEST_KEY = 'dr.lastRequest'
 
+/** R3（审计 U43）：表单草稿 —— 刷新/误关页面不丢正在写的研究主题。 */
+const DRAFT_KEY = 'dr.draft'
+
+function readStoredDraft(): { topic: string; instructions: string } | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { topic?: unknown; instructions?: unknown }
+    return {
+      topic: typeof parsed?.topic === 'string' ? parsed.topic : '',
+      instructions: typeof parsed?.instructions === 'string' ? parsed.instructions : '',
+    }
+  } catch {
+    return null
+  }
+}
+
 /** R1（审计 U3）：运行状态 → 读屏播报文案（idle 不播报）。 */
 const STATUS_ANNOUNCEMENTS: Partial<Record<StreamStatus, string>> = {
   starting: '正在启动研究…',
@@ -64,8 +81,9 @@ function storeLaunchParams(params: LaunchParams): void {
 }
 
 export default function App() {
-  const [topic, setTopic] = useState('')
-  const [instructions, setInstructions] = useState('')
+  const [storedDraft] = useState(readStoredDraft)
+  const [topic, setTopic] = useState(storedDraft?.topic ?? '')
+  const [instructions, setInstructions] = useState(storedDraft?.instructions ?? '')
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   // P0 profile 固化：前端只选档位（quick / standard），底层参数由服务端固定。
   const [profile, setProfile] = useState('quick')
@@ -205,6 +223,36 @@ export default function App() {
     if (exportState === 'exported') setAnnouncement('报告已开始下载')
     else if (exportState === 'failed') setAnnouncement('导出失败，请重试')
   }, [exportState])
+
+  // R3（审计 U43）：草稿防抖落 sessionStorage + 离页强制 flush（刷新/关标签不丢）
+  const draftRef = useRef({ topic, instructions })
+  useEffect(() => {
+    draftRef.current = { topic, instructions }
+    const handle = window.setTimeout(() => {
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draftRef.current))
+      } catch {
+        /* 只影响「刷新后保留草稿」，不影响本次输入 */
+      }
+    }, 500)
+    return () => window.clearTimeout(handle)
+  }, [topic, instructions])
+
+  useEffect(() => {
+    const flush = () => {
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draftRef.current))
+      } catch {
+        /* 隐私模式禁用 storage 时静默降级 */
+      }
+    }
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+    }
+  }, [])
 
   const launch = (params: LaunchParams) => {
     // 从发起时刻开始计时（不是等第一个节点完成）

@@ -7,8 +7,14 @@ import { ReportView } from './ReportView'
 
 type UploadHttpResult = { status: number; body: unknown }
 
-/** 上传字节进度只有 XHR 能拿到（fetch 不暴露 upload progress）。 */
-function xhrUpload(file: File, onProgress: (percent: number) => void): Promise<UploadHttpResult> {
+/** 上传字节进度只有 XHR 能拿到（fetch 不暴露 upload progress）。
+ *
+ * `onCreated` 把 xhr 暴露给调用方，用户可「取消」或组件卸载时 abort（R3/U40）。 */
+function xhrUpload(
+  file: File,
+  onProgress: (percent: number) => void,
+  onCreated?: (xhr: XMLHttpRequest) => void,
+): Promise<UploadHttpResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/rag/ingest')
@@ -33,6 +39,7 @@ function xhrUpload(file: File, onProgress: (percent: number) => void): Promise<U
     xhr.onabort = () => resolve({ status: 0, body: null })
     const form = new FormData()
     form.append('file', file)
+    onCreated?.(xhr)
     xhr.send(form)
   })
 }
@@ -49,6 +56,8 @@ function uploadLabel(item: UploadItem): string {
       return item.chunks ? `已入库（${item.chunks} 块）` : '已入库'
     case 'error':
       return `失败：${item.error ?? '未知错误'}`
+    case 'cancelled':
+      return '已取消'
     default:
       return item.status
   }
@@ -104,6 +113,13 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const [kbOpen, setKbOpen] = useState(false)
   const uploadFilesRef = useRef<Map<string, File>>(new Map())
+  // R3（审计 U39/U40）：上传 xhr 句柄（可取消/卸载 abort）与取消标记；失败条目保留 File 供重试
+  const uploadXhrRef = useRef<Map<string, XMLHttpRequest>>(new Map())
+  const uploadCancelledRef = useRef<Set<string>>(new Set())
+  const mountedRef = useRef(true)
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null)
+  const [historyAppendError, setHistoryAppendError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [mode, setMode] = useState<'login' | 'register'>(inviteFromUrl ? 'register' : 'login')
@@ -149,9 +165,44 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     }
   }, [])
 
+  /** R3（审计 U41）：登出/注销后清空本人可见的本地状态，避免上一账号数据闪现。 */
+  const resetLocalData = useCallback(() => {
+    setQuota(null)
+    setDocs(null)
+    setDocsError('')
+    setUploads([])
+    setHistory(null)
+    setHistoryError('')
+    setHistoryAppendError('')
+    setHistoryOpen(false)
+    setHistoryOffset(0)
+    setHistoryHasMore(false)
+    uploadFilesRef.current.clear()
+    uploadXhrRef.current.clear()
+    uploadCancelledRef.current.clear()
+  }, [])
+
   useEffect(() => {
     void loadSession()
   }, [loadSession])
+
+  // R3（审计 U40）：卸载时中止在途上传，避免离开页面后继续跑与 File 引用滞留
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      for (const xhr of uploadXhrRef.current.values()) xhr.abort()
+      uploadXhrRef.current.clear()
+    }
+  }, [])
+
+  // R3（审计 U42）：邀请参数一次性消费 —— 之后刷新/前进后退不再重开注册弹窗
+  useEffect(() => {
+    if (!inviteFromUrl) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('invite')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [inviteFromUrl])
 
   useEffect(() => {
     if (checked && user) void refreshSideData()
@@ -181,6 +232,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       setPassword('')
       setInviteCode('')
       setInviteOpen(false)
+      setAuthNotice('')
       void refreshSideData()
     } catch {
       setAuthError('网络错误，请重试')
@@ -190,11 +242,18 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   }
 
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST' })
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      if (!response.ok) {
+        setUploadState('退出失败，请重试')
+        return
+      }
+    } catch {
+      setUploadState('网络错误，请重试')
+      return
+    }
     setUser(null)
-    setQuota(null)
-    setHistory(null)
-    setHistoryOpen(false)
+    resetLocalData()
   }
 
   async function loadHistory(reset: boolean, statusOverride?: string) {
@@ -206,16 +265,21 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     try {
       const response = await fetch(`/api/runs?${params.toString()}`)
       if (!response.ok) {
-        setHistoryError(await readErrorMessage(response))
+        const message = await readErrorMessage(response)
+        // R3（审计 U12）：翻页失败只提示，不清掉已加载列表
+        if (reset) setHistoryError(message)
+        else setHistoryAppendError(message)
         return
       }
       const body = (await response.json()) as { runs: RunBrief[] }
       setHistoryError('')
+      setHistoryAppendError('')
       setHistory((previous) => (reset ? body.runs : [...(previous ?? []), ...body.runs]))
       setHistoryOffset(nextOffset + body.runs.length)
       setHistoryHasMore(body.runs.length === HISTORY_PAGE_SIZE)
     } catch {
-      setHistoryError('网络错误，请重试')
+      if (reset) setHistoryError('网络错误，请重试')
+      else setHistoryAppendError('网络错误，请重试')
     } finally {
       setHistoryLoadingMore(false)
     }
@@ -226,18 +290,28 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setHistoryOpen(next)
     if (!next) return
     setHistory(null)
+    setHistoryAppendError('')
     await loadHistory(true)
   }
 
   async function openReport(runId: string) {
+    // R3（审计 U13/U38）：加载态 + 异常兜底 + 防并发重复请求
+    if (previewLoadingId !== null) return
     setPreviewError('')
     setPreview(null)
-    const response = await fetch(`/api/research/${runId}/report?format=md`)
-    if (!response.ok) {
-      setPreviewError(await readErrorMessage(response))
-      return
+    setPreviewLoadingId(runId)
+    try {
+      const response = await fetch(`/api/research/${runId}/report?format=md`)
+      if (!response.ok) {
+        setPreviewError(await readErrorMessage(response))
+        return
+      }
+      setPreview({ runId, markdown: await response.text() })
+    } catch {
+      setPreviewError('网络错误，请重试')
+    } finally {
+      setPreviewLoadingId(null)
     }
-    setPreview({ runId, markdown: await response.text() })
   }
 
   async function openLegal(doc: 'privacy' | 'terms') {
@@ -271,20 +345,22 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       }
       const body = (await response.json()) as { rag_cleanup: string }
       setUser(null)
-      setQuota(null)
-      setHistory(null)
+      resetLocalData()
+      setAuthNotice(`账号已注销（知识库清理：${body.rag_cleanup}）`)
       setUploadState(`账号已注销（知识库清理：${body.rag_cleanup}）`)
     } catch {
       setUploadState('网络错误，请重试')
     }
   }
 
-  async function pollIngestion(ingestionId: string, attempts = 30): Promise<{
+  async function pollIngestion(ingestionId: string, shouldStop: () => boolean, attempts = 30): Promise<{
     status: string; chunks: number; source: string; error: string | null
   }> {
-    // P0-8b：异步摄取 —— 每秒轮询直到终态（最长约 30s，之后提示稍后刷新）
+    // P0-8b：异步摄取 —— 每秒轮询直到终态（最长约 30s，之后提示稍后刷新）；
+    // R3：用户取消或组件卸载时立即停止（shouldStop）
     for (let index = 0; index < attempts; index += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (shouldStop()) return { status: 'cancelled', chunks: 0, source: '', error: null }
       try {
         const response = await fetch(`/api/rag/ingestions/${ingestionId}`)
         if (!response.ok) continue
@@ -303,12 +379,46 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setUploads((previous) => previous.map((item) => (item.id === id ? { ...item, ...patch } : item)))
   }
 
+  function cancelUpload(id: string) {
+    uploadCancelledRef.current.add(id)
+    uploadXhrRef.current.get(id)?.abort()
+    uploadXhrRef.current.delete(id)
+    updateUpload(id, { status: 'cancelled', percent: 0, chunks: undefined, note: undefined })
+  }
+
+  function removeUpload(id: string) {
+    uploadCancelledRef.current.add(id)
+    uploadXhrRef.current.get(id)?.abort()
+    uploadXhrRef.current.delete(id)
+    uploadFilesRef.current.delete(id)
+    setUploads((previous) => previous.filter((item) => item.id !== id))
+  }
+
+  function retryUpload(item: UploadItem) {
+    uploadCancelledRef.current.delete(item.id)
+    void processUpload(item)
+  }
+
   async function processUpload(item: UploadItem) {
+    if (uploadCancelledRef.current.has(item.id)) return
     const file = uploadFilesRef.current.get(item.id)
     if (!file) return
-    updateUpload(item.id, { status: 'uploading', percent: 0 })
-    const { status, body } = await xhrUpload(file, (percent) => updateUpload(item.id, { percent }))
+    updateUpload(item.id, { status: 'uploading', percent: 0, error: undefined, note: undefined })
+    const { status, body } = await xhrUpload(
+      file,
+      (percent) => {
+        if (!uploadCancelledRef.current.has(item.id)) updateUpload(item.id, { percent })
+      },
+      (xhr) => uploadXhrRef.current.set(item.id, xhr),
+    )
+    uploadXhrRef.current.delete(item.id)
+    if (!mountedRef.current) return
+    if (uploadCancelledRef.current.has(item.id)) {
+      updateUpload(item.id, { status: 'cancelled', percent: 0, chunks: undefined })
+      return
+    }
     if (status === 0) {
+      // 失败条目保留 File：用户可「重试」，或「移除」释放引用（R3/U39/U40）
       updateUpload(item.id, { status: 'error', error: '网络错误，请重试' })
       setUploadState('网络错误，请重试')
       return
@@ -323,20 +433,31 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     if (parsed.ingestion_id) {
       // P0-8b：异步摄取协议只有粗粒度状态 ⇒ 不显示百分比，只做不确定态动画
       updateUpload(item.id, { status: 'processing', percent: 100, chunks: undefined })
-      const final = await pollIngestion(parsed.ingestion_id)
+      const final = await pollIngestion(
+        parsed.ingestion_id,
+        () => uploadCancelledRef.current.has(item.id) || !mountedRef.current,
+      )
+      if (!mountedRef.current) return
+      if (final.status === 'cancelled') {
+        updateUpload(item.id, { status: 'cancelled', percent: 0 })
+        return
+      }
       if (final.status === 'ready') {
         updateUpload(item.id, { status: 'done', chunks: final.chunks })
         setUploadState(`已摄取 ${final.source || item.name}（${final.chunks} 块）`)
-      } else if (final.status === 'rejected') {
+        uploadFilesRef.current.delete(item.id)
+        return
+      }
+      if (final.status === 'rejected') {
         updateUpload(item.id, { status: 'error', error: final.error ?? '已拒绝' })
         setUploadState(`${final.source || item.name} 处理失败：${final.error ?? '已拒绝'}`)
-      } else {
-        updateUpload(item.id, { status: 'processing', note: '仍在处理中，稍后刷新查看' })
+        return
       }
-    } else {
-      updateUpload(item.id, { status: 'done', percent: 100, chunks: parsed.chunks ?? 0 })
-      setUploadState(`已摄取 ${parsed.source ?? item.name}（${parsed.chunks ?? 0} 块）`)
+      updateUpload(item.id, { status: 'processing', note: '仍在处理中，稍后刷新查看' })
+      return
     }
+    updateUpload(item.id, { status: 'done', percent: 100, chunks: parsed.chunks ?? 0 })
+    setUploadState(`已摄取 ${parsed.source ?? item.name}（${parsed.chunks ?? 0} 块）`)
     uploadFilesRef.current.delete(item.id)
   }
 
@@ -424,6 +545,10 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           <p className="mt-1 text-xs text-emerald-100/60">
             {mode === 'login' ? '使用邮箱与密码登录' : '需要一次性邀请码（管理员通过 CLI 生成）'}
           </p>
+          {authNotice && (
+            <p role="status" className="mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-2 text-xs text-emerald-100/90"
+               data-testid="auth-notice">{authNotice}</p>
+          )}
           <label className="field-label mt-5" htmlFor="auth-email">邮箱</label>
           <input id="auth-email" name="email" className="field-control" type="email" autoComplete="email"
                  aria-invalid={authError ? true : undefined}
@@ -535,9 +660,16 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             </label>
           </div>
           {historyError && <p className="text-amber-200/80" data-testid="history-error">{historyError}</p>}
+          {historyAppendError && (
+            <p className="flex items-center gap-2 text-amber-200/80" data-testid="history-append-error">
+              {historyAppendError}
+              <button type="button" className="underline hover:text-amber-100"
+                      data-testid="history-retry" onClick={() => void loadHistory(false)}>重试</button>
+            </p>
+          )}
           {!historyError && history === null && <p className="text-emerald-100/60">加载中…</p>}
-          {!historyError && history && history.length === 0 && <p className="text-emerald-100/60">暂无历史任务</p>}
-          {!historyError && history && history.length > 0 && (
+          {history && history.length === 0 && !historyError && <p className="text-emerald-100/60">暂无历史任务</p>}
+          {history && history.length > 0 && (
             <ul className="space-y-2">
               {history.map((item) => (
                 <li key={item.run_id} className="flex flex-wrap items-center justify-between gap-2 text-emerald-50/90">
@@ -556,14 +688,17 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                     {item.created_at && <time dateTime={item.created_at}>{formatDateTime(item.created_at)}</time>}
                     {item.has_report && (
                       <button type="button" className="underline hover:text-emerald-100"
-                              onClick={() => void openReport(item.run_id)}>查看报告</button>
+                              disabled={previewLoadingId !== null}
+                              onClick={() => void openReport(item.run_id)}>
+                        {previewLoadingId === item.run_id ? '加载中…' : '查看报告'}
+                      </button>
                     )}
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          {!historyError && historyHasMore && (
+          {!historyError && history && history.length > 0 && historyHasMore && !historyAppendError && (
             <button type="button" className="mt-3 text-[11px] text-emerald-200/70 underline hover:text-emerald-100"
                     data-testid="history-load-more" disabled={historyLoadingMore}
                     onClick={() => void loadHistory(false)}>
@@ -589,13 +724,19 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
                 {uploads.map((item) => {
                   const width =
-                    item.status === 'uploading' ? item.percent : item.status === 'queued' ? 0 : 100
+                    item.status === 'uploading'
+                      ? item.percent
+                      : item.status === 'queued' || item.status === 'cancelled'
+                        ? 0
+                        : 100
                   const barClass =
                     item.status === 'error'
                       ? 'bg-gradient-to-r from-rose-500 to-rose-300'
-                      : item.status === 'done'
-                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-300'
-                        : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
+                      : item.status === 'cancelled'
+                        ? 'bg-white/20'
+                        : item.status === 'done'
+                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-300'
+                          : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
                   return (
                     <li key={item.id} data-testid="upload-item"
                         className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
@@ -622,6 +763,18 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                             </span>
                           )}
                         </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-end gap-3 text-[11px]">
+                        {(item.status === 'error' || item.status === 'cancelled') && (
+                          <button type="button" className="underline text-emerald-200/80 hover:text-emerald-100"
+                                  data-testid="upload-retry" onClick={() => retryUpload(item)}>重试</button>
+                        )}
+                        {(item.status === 'queued' || item.status === 'uploading' || item.status === 'processing') && (
+                          <button type="button" className="text-amber-200/80 hover:text-amber-100"
+                                  data-testid="upload-cancel" onClick={() => cancelUpload(item.id)}>取消</button>
+                        )}
+                        <button type="button" className="text-emerald-100/50 hover:text-emerald-100"
+                                data-testid="upload-remove" onClick={() => removeUpload(item.id)}>移除</button>
                       </div>
                     </li>
                   )
@@ -651,7 +804,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         </div>
       )}
 
-      {inviteOpen && !authRequired && (
+      {inviteOpen && !authRequired && !user && (
         <Modal
           onClose={() => setInviteOpen(false)}
           labelledBy="invite-title"

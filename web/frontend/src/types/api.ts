@@ -24,7 +24,7 @@ export type RunBrief = {
 
 export type RagDoc = { doc_id?: string; source: string; chunks: number }
 
-export type UploadStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error'
+export type UploadStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error' | 'cancelled'
 
 export type UploadItem = {
   id: string

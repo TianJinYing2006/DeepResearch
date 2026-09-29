@@ -113,6 +113,15 @@ test.describe('研究主流程（桌面端）', () => {
       .toContainText('knowledge-base/market-notes')
   })
 
+  test('草稿在刷新后保留', async ({ page }) => {
+    await page.fill('#topic', '草稿保留验证')
+    await page.fill('#instructions', '附加要求也要保留')
+    await page.reload()
+
+    await expect(page.locator('#topic')).toHaveValue('草稿保留验证')
+    await expect(page.locator('#instructions')).toHaveValue('附加要求也要保留')
+  })
+
   test('运行中可停止，且不会被记成失败', async ({ page }) => {
     await page.fill('#topic', '取消语义')
     await page.click('button[type="submit"]')
