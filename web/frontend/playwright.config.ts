@@ -64,6 +64,12 @@ export default defineConfig({
       DR_DEMO: '1',
       // 演示单节点耗时压到 0.4s ⇒ 一场演示 ~4.5s，而不是默认的 ~20s
       DR_DEMO_STEP_SECONDS: process.env.DR_DEMO_STEP_SECONDS ?? '0.4',
+      // 关掉登录/提交限流（与 tests/conftest.py 同口径）：29 条用例串行跑，默认
+      // 10 次/分钟的提交闸会跨用例累计，把后面的用例假性拒成 rate_limited；
+      // 限流语义本身由 tests/test_ratelimit.py 与 test_quotas.py 覆盖。
+      DR_SUBMIT_RATE_PER_MINUTE: '0',
+      DR_LOGIN_RATE_PER_MINUTE: '0',
+      DR_LOGIN_ACCOUNT_RATE_PER_MINUTE: '0',
       OTEL_SDK_DISABLED: 'true',
       PYTHONIOENCODING: 'utf-8',
     },
