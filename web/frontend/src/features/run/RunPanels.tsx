@@ -38,7 +38,7 @@ export function StatusCard({ statusInfo, runId, topic, currentActivity, progress
               </span>
               {runId && <span className="font-mono text-[11px] text-ink-muted">RUN {runId}</span>}
             </div>
-            <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            <h1 className="mt-3 max-w-4xl font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
               {topic.trim() || '把复杂问题变成可追溯的研究结论'}
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
@@ -66,14 +66,14 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
   return (
     <section
       role="alert"
-      className="rounded-lg border border-stamp-red/30 bg-stamp-red/10 px-5 py-4 text-sm text-ink"
+      className="rounded-lg border border-stamp-red/30 bg-stamp-red/10 px-5 py-4 text-sm text-ink animate-rise"
       data-testid="error-card"
     >
       <div className="flex gap-3">
         <span aria-hidden="true">!</span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold">需要注意</p>
+            <p className="font-semibold text-ink">需要注意</p>
             {/* P1-5 结构化错误：把 code / 归因组件 / 节点摆到台面上，
                 用户不用从 message 文本里猜「这是谁的锅」 */}
             <span className="rounded-md bg-rule/40 px-2 py-0.5 font-mono text-[10px] text-stamp-red" data-testid="error-code">
@@ -126,7 +126,7 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
 export function TimeoutCard({ timeoutSeconds }: { timeoutSeconds: number | null }) {
   return (
     <section
-      className="rounded-lg border border-stamp-amber/30 bg-stamp-amber/10 px-5 py-4 text-sm text-stamp-amber"
+      className="rounded-lg border border-stamp-amber/30 bg-stamp-amber/10 px-5 py-4 text-sm text-stamp-amber animate-rise"
       data-testid="timeout-card"
       role="status"
     >

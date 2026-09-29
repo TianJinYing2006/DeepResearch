@@ -88,7 +88,7 @@ export default function Modal({
 
   return createPortal(
     <div
-      className={`fixed inset-0 overscroll-contain ${overlayClassName}`}
+      className={`fixed inset-0 overscroll-contain animate-fade-in ${overlayClassName}`}
       data-testid={testId}
       onMouseDown={(event) => {
         if (dismissible && event.target === event.currentTarget) onClose()
@@ -100,7 +100,7 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={panelClassName}
+        className={`animate-scale-in ${panelClassName}`}
         onKeyDown={handleKeyDown}
       >
         {children}

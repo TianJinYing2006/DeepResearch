@@ -95,7 +95,7 @@ export default function HistoryPanel({ open }: { open: boolean }) {
 
   return (
     <>
-      <div className="surface-card-muted mt-2 w-full p-3" data-testid="history-panel">
+      <div className="surface-card-muted mt-2 w-full p-3 animate-rise" data-testid="history-panel">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[11px] font-medium text-ink-muted">历史任务</h3>
           <label className="flex items-center gap-1 text-[11px] text-ink-muted">

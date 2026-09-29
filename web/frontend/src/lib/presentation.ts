@@ -50,7 +50,7 @@ export function statusPresentation(status: StreamStatus) {
   return {
     idle: { label: '等待任务', className: 'border-rule bg-rule/30 text-ink-muted' },
     starting: { label: '正在启动', className: 'border-stamp-blue/30 bg-stamp-blue/10 text-stamp-blue' },
-    running: { label: '研究进行中', className: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green' },
+    running: { label: '研究进行中', className: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green badge-live' },
     stopping: { label: '正在安全停止', className: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber' },
     done: { label: '研究完成', className: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green' },
     cancelled: { label: '已取消', className: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber' },

@@ -310,10 +310,10 @@ export default function App() {
       <div className="sr-only" role="status" aria-live="polite" data-testid="live-region">
         {announcement}
       </div>
-      <header className="border-b border-rule bg-paper/95 ">
+      <header className="border-b border-t-2 border-b-rule border-t-stamp-blue bg-paper/95 backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg border border-stamp-green/30 bg-stamp-green/10 text-lg text-stamp-green "
+            <div className="grid h-10 w-10 place-items-center rounded-lg border border-stamp-blue/30 bg-stamp-blue/10 text-lg text-stamp-blue shadow-[inset_0_0_0_3px_rgba(30,90,216,0.07)]"
                  aria-hidden="true">
               ◈
             </div>
