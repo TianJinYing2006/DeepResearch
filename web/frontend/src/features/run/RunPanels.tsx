@@ -1,56 +1,119 @@
 /** 右栏运行看板（R4a/R5）：状态 / 错误 / 超时 / 摘要 / 指标 / 活动与降级。 */
 import { useEffect, useRef, useState } from 'react'
 import { ProgressBar } from '../../components/ProgressBar'
-import { EmptyState, MetricCard, SectionHeading, SummaryItem, TimelineItem } from '../../components/ui'
+import { EmptyState, SectionHeading, SummaryItem, TimelineItem } from '../../components/ui'
 import { formatCost, formatDuration, formatNumber } from '../../lib/format'
-import { nodeLabel } from '../../lib/presentation'
 import type { Progress } from '../../lib/progress'
 import type { LaunchParams } from '../../types/api'
 import type {
   AguiEvent,
   DegradationEvent,
   RunFinishedEvent,
-  StepFinishedEvent,
   StructuredError,
 } from '../../types/agui'
 
-type StatusCardProps = {
+/** R5（审计 U50）：运行时长时钟下沉 —— 每 250ms 只重渲染用到它的组件；
+ *  页面隐藏（切标签/最小化）时暂停计时。 */
+function useElapsedClock(startedAt: number | null, running: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  const stoppedAtRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!running) {
+      if (stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
+      return
+    }
+    stoppedAtRef.current = null
+    let id: number | null = null
+    const start = () => {
+      if (id !== null) return
+      setNow(Date.now())
+      id = window.setInterval(() => setNow(Date.now()), 250)
+    }
+    const stop = () => {
+      if (id !== null) {
+        window.clearInterval(id)
+        id = null
+      }
+    }
+    const onVisibility = () => {
+      if (document.hidden) stop()
+      else start()
+    }
+    start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [running])
+
+  return startedAt ? Math.max(0, (stoppedAtRef.current ?? now) - startedAt) : 0
+}
+
+type RunStripProps = {
   statusInfo: { label: string; className: string }
   runId: string | null
-  topic: string
   currentActivity: string
   progress: Progress
   cancelling: boolean
+  running: boolean
+  startedAt: number | null
+  timeoutSeconds: number | null
+  stepsCount: number
+  tokenUsed: number
+  costLabel: string
+  findingsCount: number
+  sourceCount: number
+  finished: RunFinishedEvent | undefined
+  elapsedMs: number
+  outputUnderReview: boolean
 }
 
-export function StatusCard({ statusInfo, runId, topic, currentActivity, progress, cancelling }: StatusCardProps) {
+/** 方向 B：运行状态压缩为一条横带（状态 + 实时进度 + 指标 + 终局摘要），
+ *  让报告成为首屏主角；时间线/降级等过程细节下沉到报告之后。 */
+export function RunStrip({
+  statusInfo, runId, currentActivity, progress, cancelling, running, startedAt,
+  timeoutSeconds, stepsCount, tokenUsed, costLabel, findingsCount, sourceCount,
+  finished, elapsedMs, outputUnderReview,
+}: RunStripProps) {
+  const liveElapsedMs = useElapsedClock(startedAt, running)
+  const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - liveElapsedMs)
+
   return (
-    <section className="surface-card overflow-hidden">
-      <div className="border-b border-rule px-5 py-5 sm:px-6">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}
-                data-testid="status-badge"
-              >
-                {statusInfo.label}
-              </span>
-              {runId && <span className="font-mono text-[11px] text-ink-muted">RUN {runId}</span>}
-            </div>
-            <h1 className="mt-3 max-w-4xl text-balance font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-              {topic.trim() || '把复杂问题变成可追溯的研究结论'}
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
-              {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
-            </p>
-          </div>
-        </div>
+    <section className="surface-card p-4 sm:p-5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span
+          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}
+          data-testid="status-badge"
+        >
+          {statusInfo.label}
+        </span>
+        {runId && <span className="font-mono text-[11px] text-ink-muted">RUN {runId}</span>}
+        <p className="min-w-0 flex-1 truncate text-sm text-ink-muted">
+          {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
+        </p>
+        <span className="font-mono text-xs tabular-nums text-ink">用时 {formatDuration(liveElapsedMs)}</span>
+        {running && remainingMs !== null && (
+          <span className="font-mono text-xs tabular-nums text-ink-muted">剩余约 {formatDuration(remainingMs)}</span>
+        )}
       </div>
 
-      <div className="p-5 sm:p-6">
+      <div className="mt-4">
         <ProgressBar progress={progress} cancelling={cancelling} />
       </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-rule pt-3 text-xs text-ink-muted">
+        <span>节点 <span className="font-mono font-semibold tabular-nums text-ink">{stepsCount}</span></span>
+        <span>Token <span className="font-mono font-semibold tabular-nums text-ink">{formatNumber(tokenUsed)}</span></span>
+        <span>发现/来源 <span className="font-mono font-semibold tabular-nums text-ink">{formatNumber(findingsCount)}/{formatNumber(sourceCount)}</span></span>
+        <span>{costLabel}</span>
+      </div>
+
+      {finished && (
+        <RunSummary finished={finished} elapsedMs={elapsedMs} stepsCount={stepsCount}
+                    outputUnderReview={outputUnderReview} />
+      )}
     </section>
   )
 }
@@ -151,9 +214,8 @@ type RunSummaryProps = {
 
 export function RunSummary({ finished, elapsedMs, stepsCount, outputUnderReview }: RunSummaryProps) {
   return (
-    <section className="surface-card p-4 sm:p-5" data-testid="run-summary">
-      <h2 className="text-xs font-medium text-stamp-blue">运行摘要</h2>
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+    <div className="mt-4 border-t border-rule pt-3" data-testid="run-summary">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
         <SummaryItem label="总耗时" value={formatDuration((finished.elapsed_seconds ?? elapsedMs / 1000) * 1000)} />
         <SummaryItem label="完成节点" value={String(stepsCount)} />
         <SummaryItem label="检索跳数" value={String(finished.result?.depth ?? 0)} />
@@ -161,97 +223,7 @@ export function RunSummary({ finished, elapsedMs, stepsCount, outputUnderReview 
         <SummaryItem label="报告字数" value={outputUnderReview ? '待复核' : finished.result?.report ? formatNumber(finished.result.report.length) : '—'} />
         <SummaryItem label="成本估算" value={finished.cost_estimate_cny == null ? '—' : `≈ ¥${formatCost(finished.cost_estimate_cny)}`} />
       </div>
-    </section>
-  )
-}
-
-type MetricsGridProps = {
-  stepsCount: number
-  lastStep: StepFinishedEvent | undefined
-  tokenUsed: number
-  costLabel: string
-  findingsCount: number
-  sourceCount: number
-  startedAt: number | null
-  timeoutSeconds: number | null
-  running: boolean
-}
-
-/** R5（审计 U50）：运行时长时钟下沉到本卡片 —— 每 250ms 只重渲染这一张卡；
- *  页面隐藏（切标签/最小化）时暂停计时，避免无谓渲染。 */
-function DurationCard({ startedAt, running, timeoutSeconds, lastDepth }: {
-  startedAt: number | null
-  running: boolean
-  timeoutSeconds: number | null
-  lastDepth: number | null
-}) {
-  const [now, setNow] = useState(() => Date.now())
-  const stoppedAtRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (!running) {
-      if (stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
-      return
-    }
-    stoppedAtRef.current = null
-    let id: number | null = null
-    const start = () => {
-      if (id !== null) return
-      setNow(Date.now())
-      id = window.setInterval(() => setNow(Date.now()), 250)
-    }
-    const stop = () => {
-      if (id !== null) {
-        window.clearInterval(id)
-        id = null
-      }
-    }
-    const onVisibility = () => {
-      if (document.hidden) stop()
-      else start()
-    }
-    start()
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      stop()
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [running])
-
-  const elapsedMs = startedAt ? Math.max(0, (stoppedAtRef.current ?? now) - startedAt) : 0
-  const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - elapsedMs)
-  return (
-    <MetricCard
-      label="运行时长"
-      value={formatDuration(elapsedMs)}
-      detail={
-        running && remainingMs !== null
-          ? `剩余约 ${formatDuration(remainingMs)}`
-          : lastDepth !== null
-            ? `深度 ${lastDepth}`
-            : '自发起时刻起'
-      }
-      accent="amber"
-    />
-  )
-}
-
-export function MetricsGrid({
-  stepsCount, lastStep, tokenUsed, costLabel, findingsCount, sourceCount,
-  startedAt, timeoutSeconds, running,
-}: MetricsGridProps) {
-  return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <MetricCard label="已完成节点" value={String(stepsCount)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
-      <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="brand" />
-      <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
-      <DurationCard
-        startedAt={startedAt}
-        running={running}
-        timeoutSeconds={timeoutSeconds}
-        lastDepth={lastStep?.depth ?? null}
-      />
-    </section>
+    </div>
   )
 }
 

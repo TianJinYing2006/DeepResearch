@@ -1,8 +1,14 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import AccountPanel from './components/AccountPanel'
 import { BoundaryCard, LaunchForm, RagStatusCard } from './features/launch/LaunchPanels'
-import { CitationsCard, ReportCard, SourcesReflection, ValidatorStats } from './features/report/ReportPanels'
-import { ErrorCard, MetricsGrid, RunSummary, StatusCard, TimeoutCard, TracePanels } from './features/run/RunPanels'
+import {
+  EvidenceMargin,
+  ReflectionList,
+  ReportCard,
+  SourcesList,
+  ValidatorStats,
+} from './features/report/ReportPanels'
+import { ErrorCard, RunStrip, TimeoutCard, TracePanels } from './features/run/RunPanels'
 import {
   type StreamStatus,
   useResearchStream,
@@ -95,6 +101,8 @@ export default function App() {
   // 原来是累加各节点 duration_ms ⇒ 只有节点完成才会跳变，等待 LLM 时看起来卡住。
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
   const stoppedAtRef = useRef<number | null>(null)
+  // 方向 B（R6b-2）：报告完成后自动折叠启动表单，把首屏让给报告
+  const [launchOpen, setLaunchOpen] = useState(true)
   const {
     runId,
     events,
@@ -145,9 +153,14 @@ export default function App() {
     })()
   }, [resume])
 
+  // 报告完成 ⇒ 折叠启动表单（用户手动展开后不再强制折叠）
+  useEffect(() => {
+    if (result) setLaunchOpen(false)
+  }, [result])
+
   const running = status === 'starting' || status === 'running' || status === 'stopping'
 
-  // R5（审计 U50）：250ms 时钟已下沉到 DurationCard（局部渲染，页面隐藏时暂停）；
+  // R5（审计 U50）：250ms 时钟已下沉到 RunStrip（局部渲染，页面隐藏时暂停）；
   // 这里只负责在停止时冻结一次结束时刻，供「总耗时」在终局缺少后端耗时字段时兜底。
   useEffect(() => {
     if (!runStartedAt) return
@@ -173,7 +186,7 @@ export default function App() {
     [events],
   )
 
-  // 实时运行时长（终局兜底用；R5 起不再驱动全局重渲染 —— 时钟在 DurationCard 内部）
+  // 实时运行时长（终局兜底用；R5 起不再驱动全局重渲染 —— 时钟在 RunStrip 内部）
   const elapsedMs = runStartedAt ? Math.max(0, (stoppedAtRef.current ?? Date.now()) - runStartedAt) : 0
   // 成本估算由后端按 config.llm.pricing 计算（前端没有定价表，不能自己拍单价）
   const costLabel = finished?.cost_estimate_cny === undefined
@@ -337,90 +350,97 @@ export default function App() {
         </div>
       </header>
 
+      {/* 方向 B（R6b-2）：报告优先 —— 页题 + 顶部状态横带 + 主列（报告）/ 页边证据栏 */}
       <main id="main"
-            className="mx-auto grid max-w-[1600px] gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
-        {/* R4a（审计 U16）：左栏自滚动，键盘可直接聚焦滚动 */}
-        <aside className="space-y-5 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto xl:pr-1"
-               tabIndex={0} role="region" aria-label="研究导航">
-          <LaunchForm
-            topic={topic}
-            instructions={instructions}
-            profile={profile}
-            profileOptions={profileOptions}
-            activeProfile={activeProfile}
-            activeProfileIndex={activeProfileIndex}
-            running={running}
-            status={status}
-            onTopicChange={setTopic}
-            onInstructionsChange={setInstructions}
-            onProfileChange={setProfile}
-            onSubmit={handleSubmit}
-            onCancel={() => void cancel()}
-          />
-          <BoundaryCard />
-          <RagStatusCard result={result} ragSources={ragSources} />
-        </aside>
+            className="mx-auto max-w-[1600px] space-y-5 px-4 py-5 sm:space-y-6 sm:px-6 sm:py-6 lg:px-8">
+        <h1 className="text-balance font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          {topic.trim() || '把复杂问题变成可追溯的研究结论'}
+        </h1>
 
-        <div className="min-w-0 space-y-6">
-          <StatusCard
-            statusInfo={statusInfo}
-            runId={runId}
-            topic={topic}
-            currentActivity={currentActivity}
-            progress={progress}
-            cancelling={status === 'stopping'}
-          />
+        <RunStrip
+          statusInfo={statusInfo}
+          runId={runId}
+          currentActivity={currentActivity}
+          progress={progress}
+          cancelling={status === 'stopping'}
+          running={running}
+          startedAt={runStartedAt}
+          timeoutSeconds={timeoutSeconds}
+          stepsCount={steps.length}
+          tokenUsed={tokenUsed}
+          costLabel={costLabel}
+          findingsCount={findingsCount}
+          sourceCount={sourceCount}
+          finished={finished}
+          elapsedMs={elapsedMs}
+          outputUnderReview={outputUnderReview}
+        />
 
-          {error && (
-            <ErrorCard error={error} lastRequest={lastRequest} running={running} onRetry={handleRetry} />
-          )}
+        {error && (
+          <ErrorCard error={error} lastRequest={lastRequest} running={running} onRetry={handleRetry} />
+        )}
 
-          {status === 'timeout' && <TimeoutCard timeoutSeconds={timeoutSeconds} />}
+        {status === 'timeout' && <TimeoutCard timeoutSeconds={timeoutSeconds} />}
 
-          {finished && (
-            <RunSummary
-              finished={finished}
-              elapsedMs={elapsedMs}
-              stepsCount={steps.length}
-              outputUnderReview={outputUnderReview}
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="min-w-0 space-y-6">
+            <LaunchForm
+              topic={topic}
+              instructions={instructions}
+              profile={profile}
+              profileOptions={profileOptions}
+              activeProfile={activeProfile}
+              activeProfileIndex={activeProfileIndex}
+              running={running}
+              status={status}
+              onTopicChange={setTopic}
+              onInstructionsChange={setInstructions}
+              onProfileChange={setProfile}
+              onSubmit={handleSubmit}
+              onCancel={() => void cancel()}
+              collapsed={!launchOpen}
+              onToggle={() => setLaunchOpen((open) => !open)}
             />
-          )}
+            {launchOpen && <BoundaryCard />}
 
-          <MetricsGrid
-            stepsCount={steps.length}
-            lastStep={lastStep}
-            tokenUsed={tokenUsed}
-            costLabel={costLabel}
-            findingsCount={findingsCount}
-            sourceCount={sourceCount}
-            startedAt={runStartedAt}
-            timeoutSeconds={timeoutSeconds}
-            running={running}
-          />
+            {result && (
+              <>
+                <ReportCard
+                  result={result}
+                  runId={runId}
+                  outputUnderReview={outputUnderReview}
+                  copyState={copyState}
+                  exportState={exportState}
+                  onCopy={() => void copyReport()}
+                  onExport={() => void exportReport()}
+                />
+                <ReflectionList log={result.reflection_log} />
+                <ValidatorStats stats={result.validator_stats} depth={result.depth} />
+              </>
+            )}
 
-          <TracePanels
-            timeline={timeline}
-            degradations={degradations}
-            eventsCount={events.length}
-            running={running}
-          />
+            <TracePanels
+              timeline={timeline}
+              degradations={degradations}
+              eventsCount={events.length}
+              running={running}
+            />
+          </div>
 
-          {result && (
-            <>
-              <ReportCard
-                result={result}
-                runId={runId}
-                outputUnderReview={outputUnderReview}
-                copyState={copyState}
-                exportState={exportState}
-                onCopy={() => void copyReport()}
-                onExport={() => void exportReport()}
-              />
-              <CitationsCard citations={result.citations} verifiedCitations={verifiedCitations} />
-              <SourcesReflection result={result} />
-              <ValidatorStats stats={result.validator_stats} depth={result.depth} />
-            </>
-          )}
+          <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:self-start xl:overflow-y-auto xl:pr-1"
+                 tabIndex={0} role="region" aria-label="证据边栏">
+            <RagStatusCard result={result} ragSources={ragSources} />
+            {result ? (
+              <>
+                <EvidenceMargin citations={result.citations} verifiedCitations={verifiedCitations} />
+                <SourcesList sources={result.visited_sources} />
+              </>
+            ) : (
+              <section className="surface-card p-4 text-xs leading-5 text-ink-muted">
+                证据边栏：报告完成后显示引用校验与来源清单。
+              </section>
+            )}
+          </aside>
         </div>
       </main>
     </div>

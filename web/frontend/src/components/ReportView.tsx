@@ -37,6 +37,17 @@ function sliceAtSafeBoundary(text: string, limit: number): number {
   return Math.min(limit, text.length)
 }
 
+/** 取 React 节点的纯文本（用于「无引用段落」示警判定）。 */
+function nodeText(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join('')
+  if (typeof node === 'object' && 'props' in node) {
+    return nodeText((node as { props?: { children?: ReactNode } }).props?.children)
+  }
+  return ''
+}
+
 export function ReportView({ report }: { report: string }) {
   const [chunks, setChunks] = useState(1)
 
@@ -64,6 +75,12 @@ export function ReportView({ report }: { report: string }) {
                 <table>{children}</table>
               </div>
             ),
+            // 方向 B 签名：无引用支撑的实质段落用点状下划线示警（不改写正文、不伪造结论）
+            p: ({ children }: { children?: ReactNode }) => {
+              const text = nodeText(children).trim()
+              const unsourced = text.length >= 30 && !text.includes('[来源:')
+              return <p className={unsourced ? 'claim-unsourced' : undefined}>{children}</p>
+            },
           }}
         >
           {deferred}

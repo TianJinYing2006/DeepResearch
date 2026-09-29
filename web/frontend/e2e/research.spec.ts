@@ -122,6 +122,30 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.locator('#instructions')).toHaveValue('附加要求也要保留')
   })
 
+  test('报告完成后启动表单折叠，可展开修改', async ({ page }) => {
+    await page.fill('#topic', '折叠验证')
+    await page.click('button[type="submit"]')
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+
+    // R6b-2：报告成为主角 ⇒ 启动表单自动折叠为摘要条
+    await expect(page.getByTestId('launch-expand')).toBeVisible()
+    await expect(page.locator('#topic')).toHaveCount(0)
+
+    await page.getByTestId('launch-expand').click()
+    await expect(page.locator('#topic')).toBeVisible()
+    await expect(page.locator('#topic')).toHaveValue('折叠验证')
+  })
+
+  test('引用证据显示在页边栏', async ({ page }) => {
+    await page.fill('#topic', '页边证据')
+    await page.click('button[type="submit"]')
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+
+    const margin = page.locator('aside[aria-label="证据边栏"]')
+    await expect(margin).toBeVisible()
+    await expect(margin.getByText('引用校验')).toBeVisible()
+  })
+
   test('运行中可停止，且不会被记成失败', async ({ page }) => {
     await page.fill('#topic', '取消语义')
     await page.click('button[type="submit"]')
