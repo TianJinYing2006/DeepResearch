@@ -128,6 +128,8 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.getByTestId('status-badge')).toContainText('研究进行中')
 
     await page.click('button:has-text("停止研究")')
+    // R4b：停止需二次确认
+    await page.getByTestId('stop-confirm').click()
     await expect(page.getByTestId('status-badge')).toContainText('已取消', { timeout: 60_000 })
     // 取消不是故障 ⇒ 不得出现错误卡、不得显示「运行失败」
     await expect(page.locator('[data-testid="error-card"]')).toHaveCount(0)
