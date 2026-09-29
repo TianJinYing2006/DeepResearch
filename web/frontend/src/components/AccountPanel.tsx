@@ -40,6 +40,9 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [historyEpoch, setHistoryEpoch] = useState(0)
   const [kbOpen, setKbOpen] = useState(false)
   const [barMessage, setBarMessage] = useState('')
+  // R7：KB 文档删除（两步内联确认 —— 不用 window.confirm 反模式）
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
+  const [deletingDoc, setDeletingDoc] = useState(false)
   const [authNotice, setAuthNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
@@ -173,6 +176,27 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       setLegal({ doc, markdown: body.markdown })
     } catch {
       setLegalError('网络错误，请重试')
+    }
+  }
+
+  /** R7：删除知识库文档 —— 后端同步删向量并验证归零（失败 503，可稍后重试）。 */
+  async function deleteDoc(docId: string) {
+    setDeletingDoc(true)
+    try {
+      const response = await fetch(`/api/rag/docs?doc_id=${encodeURIComponent(docId)}`, {
+        method: 'DELETE',
+        headers: csrfHeaders(),
+      })
+      if (!response.ok) {
+        setBarMessage(await readErrorMessage(response))
+        return
+      }
+      setDeleteDocId(null)
+      await refreshSideData()
+    } catch {
+      setBarMessage('网络错误，请重试')
+    } finally {
+      setDeletingDoc(false)
     }
   }
 
@@ -316,9 +340,11 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               onClick={() => setHistoryOpen((open) => !open)} data-testid="history-toggle">
         历史任务
       </button>
-      <label className="cursor-pointer rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50">
+      {/* R7（审计 U1）：输入框改 sr-only —— 视觉隐藏但**可 Tab 聚焦、可键盘激活**；
+          焦点环画在 label 上（focus-within），鼠标点击路径不变。 */}
+      <label className="cursor-pointer rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50 focus-within:ring-2 focus-within:ring-stamp-blue/40">
         上传文档
-        <input type="file" accept=".pdf,.docx,.md,.markdown,.txt" multiple className="hidden"
+        <input type="file" accept=".pdf,.docx,.md,.markdown,.txt" multiple className="sr-only"
                data-testid="rag-upload-input"
                onChange={(event) => {
                  if (event.target.files?.length) {
@@ -446,6 +472,24 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                   <span className="text-[11px] tabular-nums text-ink-muted">{doc.chunks} 块</span>
                   {doc.doc_id && (
                     <code className="text-[11px] text-ink-muted">{doc.doc_id.split(':').pop()}</code>
+                  )}
+                  {doc.doc_id && (
+                    deleteDocId === doc.doc_id ? (
+                      <span className="flex items-center gap-2 text-[11px]">
+                        <button type="button" className="text-stamp-red hover:text-ink disabled:opacity-60"
+                                data-testid="kb-delete-confirm" disabled={deletingDoc}
+                                onClick={() => void deleteDoc(doc.doc_id!)}>
+                          {deletingDoc ? '删除中…' : '确认删除'}
+                        </button>
+                        <button type="button" className="text-ink-muted hover:text-ink"
+                                data-testid="kb-delete-cancel" disabled={deletingDoc}
+                                onClick={() => setDeleteDocId(null)}>取消</button>
+                      </span>
+                    ) : (
+                      <button type="button" className="text-[11px] text-ink-muted hover:text-stamp-red"
+                              data-testid="kb-delete"
+                              onClick={() => setDeleteDocId(doc.doc_id ?? null)}>删除</button>
+                    )
                   )}
                 </li>
               ))}

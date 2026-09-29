@@ -202,6 +202,6 @@
 | R4（结构拆分 PR） | 按盘点 §7 拆 App/AccountPanel；拆分同时落 a11y（radiogroup、面板标题层级、skip link、滚动区可聚焦） | U15–U20,U37,U47–U49 |
 | R5（性能 PR） | 增量进度、行 memo、虚拟化、时钟下沉、`transform: scaleX` 进度动画 | U50–U52 |
 | R6（视觉重设计） | `frontend-design` 定方向 + `baseline-ui` 落地 + 文案/术语统一 | U55–U58,U61 + S1 视觉项 |
-| R7（收口） | 补 e2e：登录门/超时/注销/配额/键盘上传/KB 删除；可选截图基线；回填需求 12 DoD | §7 测试缺口 |
+| R7（收口，**已实施**） | 补 e2e 6 条（`closure.spec.ts`：登录门/超时/配额/键盘上传/KB 删除/注销）；修复 U1（上传输入 `sr-only` 键盘可达）；新增 KB 文档删除 UI（两步内联确认 + `DELETE /api/rag/docs`）；回填需求 12 DoD。截图基线**不做**（中文字体/渲染跨环境不稳定，另行提案） | §7 测试缺口 |
 
 > 每个批次独立 PR，过 `tsc`+`build`+Playwright 全绿；`data-testid` 与中文文案契约（盘点 §6）不得破坏。
