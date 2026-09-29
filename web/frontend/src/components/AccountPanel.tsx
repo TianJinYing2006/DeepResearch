@@ -216,19 +216,19 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       onClose={() => { setLegal(null); setLegalError('') }}
       labelledBy="legal-title"
       testId="legal-modal"
-      overlayClassName="z-[60] flex justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
+      overlayClassName="z-[60] flex justify-center overflow-y-auto bg-ink/35 p-4 "
       panelClassName="surface-card my-6 w-full max-w-3xl p-6"
     >
       <div className="flex items-center justify-between">
-        <h3 id="legal-title" className="text-sm font-semibold text-emerald-50">
+        <h3 id="legal-title" className="text-sm font-semibold text-ink">
           {legal.doc === 'privacy' ? '隐私政策' : '用户协议'}
         </h3>
-        <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
+        <button type="button" className="text-xs text-ink-muted hover:text-ink"
                 data-testid="legal-close"
                 onClick={() => { setLegal(null); setLegalError('') }}>关闭</button>
       </div>
-      {legalError && <p role="alert" className="mt-3 text-sm text-rose-300">{legalError}</p>}
-      {!legalError && !legal.markdown && <p className="mt-3 text-sm text-emerald-100/60">加载中…</p>}
+      {legalError && <p role="alert" className="mt-3 text-sm text-stamp-red">{legalError}</p>}
+      {!legalError && !legal.markdown && <p className="mt-3 text-sm text-ink-muted">加载中…</p>}
       {!legalError && legal.markdown && (
         <div className="mt-4">
           <ReportView report={legal.markdown} />
@@ -245,18 +245,18 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         labelledBy="auth-title"
         testId="auth-gate"
         dismissible={false}
-        overlayClassName="z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+        overlayClassName="z-50 flex items-center justify-center bg-ink/35 p-4 "
         panelClassName="surface-card w-full max-w-md p-6"
       >
         <form onSubmit={(event) => void submitAuth(event)}>
-          <h2 id="auth-title" className="text-lg font-semibold text-emerald-50">
+          <h2 id="auth-title" className="text-lg font-semibold text-ink">
             {mode === 'login' ? '登录 DeepResearch' : '邀请制注册'}
           </h2>
-          <p className="mt-1 text-xs text-emerald-100/60">
+          <p className="mt-1 text-xs text-ink-muted">
             {mode === 'login' ? '使用邮箱与密码登录' : '需要一次性邀请码（管理员通过 CLI 生成）'}
           </p>
           {authNotice && (
-            <p role="status" className="mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.08] px-3 py-2 text-xs text-emerald-100/90"
+            <p role="status" className="mt-3 rounded-lg border border-stamp-green/30 bg-stamp-green/10 px-3 py-2 text-xs text-ink"
                data-testid="auth-notice">{authNotice}</p>
           )}
           <label className="field-label mt-5" htmlFor="auth-email">邮箱</label>
@@ -279,22 +279,22 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             </>
           )}
           {authError && (
-            <p id="auth-error" role="alert" className="mt-4 text-sm text-rose-300"
+            <p id="auth-error" role="alert" className="mt-4 text-sm text-stamp-red"
                data-testid="auth-error">{authError}</p>
           )}
           <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
             {busy ? '提交中…' : mode === 'login' ? '登录' : '注册并登录'}
           </button>
-          <button type="button" className="mt-3 w-full text-xs text-emerald-200/70 hover:text-emerald-100"
+          <button type="button" className="mt-3 w-full text-xs text-ink-muted hover:text-ink"
                   onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setAuthError('') }}>
             {mode === 'login' ? '有邀请码？去注册' : '已有账号？去登录'}
           </button>
-          <p className="mt-3 text-center text-[11px] text-emerald-100/50">
+          <p className="mt-3 text-center text-[11px] text-ink-muted">
             注册即表示同意
-            <button type="button" className="mx-1 underline hover:text-emerald-100"
+            <button type="button" className="mx-1 underline hover:text-ink"
                     onClick={() => void openLegal('terms')}>用户协议</button>
             与
-            <button type="button" className="mx-1 underline hover:text-emerald-100"
+            <button type="button" className="mx-1 underline hover:text-ink"
                     onClick={() => void openLegal('privacy')}>隐私政策</button>
           </p>
           {legalModal}
@@ -306,16 +306,16 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   return (
     <div className="flex flex-wrap items-center justify-start gap-2 text-xs sm:justify-end" data-testid="account-panel">
       {quotaLine && (
-        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 tabular-nums text-emerald-100/70"
+        <span className="rounded-full border border-rule bg-rule/30 px-3 py-1.5 tabular-nums text-ink-muted"
               data-testid="quota-chip">
           {quotaLine}
         </span>
       )}
-      <button type="button" className="rounded-full border border-white/10 px-3 py-1.5 text-emerald-100/80 hover:border-emerald-300/40"
+      <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
               onClick={() => setHistoryOpen((open) => !open)} data-testid="history-toggle">
         历史任务
       </button>
-      <label className="cursor-pointer rounded-full border border-white/10 px-3 py-1.5 text-emerald-100/80 hover:border-emerald-300/40">
+      <label className="cursor-pointer rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50">
         上传文档
         <input type="file" accept=".pdf,.docx,.md,.markdown,.txt" multiple className="hidden"
                data-testid="rag-upload-input"
@@ -327,27 +327,27 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                  event.target.value = ''
                }} />
       </label>
-      <button type="button" className="rounded-full border border-white/10 px-3 py-1.5 text-emerald-100/80 hover:border-emerald-300/40"
+      <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
               onClick={() => { setKbOpen((open) => !open); void refreshSideData() }} data-testid="kb-toggle">
         知识库 {docs ? `${docs.length} 篇` : docsError ? '不可用' : '…'}
       </button>
       {uploadState && (
-        <span className="text-emerald-100/70" role="status" aria-live="polite"
+        <span className="text-ink-muted" role="status" aria-live="polite"
               data-testid="upload-state">{uploadState}</span>
       )}
       {barMessage && (
-        <span className="text-amber-200/80" role="status" aria-live="polite">{barMessage}</span>
+        <span className="text-stamp-amber" role="status" aria-live="polite">{barMessage}</span>
       )}
       {user ? (
         <>
-          <span className="text-emerald-100/70" data-testid="account-email">{user.email}</span>
-          <button type="button" className="text-emerald-100/60 hover:text-emerald-100"
+          <span className="text-ink-muted" data-testid="account-email">{user.email}</span>
+          <button type="button" className="text-ink-muted hover:text-ink"
                   onClick={() => void logout()} data-testid="logout-button">退出</button>
-          <button type="button" className="text-rose-300/70 hover:text-rose-200"
+          <button type="button" className="text-stamp-red/80 hover:text-stamp-red"
                   onClick={() => void deleteAccount()} data-testid="delete-account">注销</button>
         </>
       ) : (
-        <span className="text-emerald-100/50">未登录（本地模式）</span>
+        <span className="text-ink-muted">未登录（本地模式）</span>
       )}
 
       <HistoryPanel key={historyEpoch} open={historyOpen} />
@@ -355,8 +355,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       {kbOpen && (
         <div className="surface-card-muted mt-2 w-full max-w-sm p-3 sm:ml-auto" data-testid="kb-panel">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100/50">知识库</h3>
-            <button type="button" className="text-[11px] text-emerald-200/70 underline hover:text-emerald-100"
+            <h3 className="text-[11px] font-medium text-ink-muted">知识库</h3>
+            <button type="button" className="text-[11px] text-ink-muted underline hover:text-ink"
                     data-testid="kb-refresh" onClick={() => void refreshSideData()}>
               刷新
             </button>
@@ -364,7 +364,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
 
           {uploads.length > 0 && (
             <div className="mb-3" data-testid="upload-queue" aria-live="polite">
-              <p className="mb-1 text-[11px] text-emerald-100/50">上传队列</p>
+              <p className="mb-1 text-[11px] text-ink-muted">上传队列</p>
               <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
                 {uploads.map((item) => {
                   const width =
@@ -375,25 +375,25 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                         : 100
                   const barClass =
                     item.status === 'error'
-                      ? 'bg-gradient-to-r from-rose-500 to-rose-300'
+                      ? 'bg-stamp-red'
                       : item.status === 'cancelled'
-                        ? 'bg-white/20'
+                        ? 'bg-ink-muted/30'
                         : item.status === 'done'
-                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-300'
-                          : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
+                          ? 'bg-stamp-green'
+                          : 'bg-stamp-blue'
                   return (
                     <li key={item.id} data-testid="upload-item"
-                        className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
+                        className="rounded-lg border border-rule bg-rule/40 px-3 py-2">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                        <span className="min-w-0 flex-1 truncate text-emerald-50/90" title={item.name}>
+                        <span className="min-w-0 flex-1 truncate text-ink" title={item.name}>
                           {item.name}
                         </span>
-                        <span className="tabular-nums text-emerald-100/50">{formatBytes(item.size)}</span>
-                        <span className={item.status === 'error' ? 'text-rose-300' : 'text-emerald-100/70'}>
+                        <span className="tabular-nums text-ink-muted">{formatBytes(item.size)}</span>
+                        <span className={item.status === 'error' ? 'text-stamp-red' : 'text-ink-muted'}>
                           {uploadLabel(item)}
                         </span>
                       </div>
-                      <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-black/25" role="progressbar"
+                      <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-rule/40" role="progressbar"
                            data-testid="upload-progress" aria-label={`${item.name} 上传进度`}
                            aria-valuenow={item.status === 'uploading' ? item.percent : undefined}
                            aria-valuemin={0} aria-valuemax={100}>
@@ -409,14 +409,14 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                       </div>
                       <div className="mt-2 flex items-center justify-end gap-3 text-[11px]">
                         {(item.status === 'error' || item.status === 'cancelled') && (
-                          <button type="button" className="underline text-emerald-200/80 hover:text-emerald-100"
+                          <button type="button" className="underline text-stamp-blue hover:text-ink"
                                   data-testid="upload-retry" onClick={() => retryUpload(item)}>重试</button>
                         )}
                         {(item.status === 'queued' || item.status === 'uploading' || item.status === 'processing') && (
-                          <button type="button" className="text-amber-200/80 hover:text-amber-100"
+                          <button type="button" className="text-stamp-amber hover:text-stamp-amber"
                                   data-testid="upload-cancel" onClick={() => cancelUpload(item.id)}>取消</button>
                         )}
-                        <button type="button" className="text-emerald-100/50 hover:text-emerald-100"
+                        <button type="button" className="text-ink-muted hover:text-ink"
                                 data-testid="upload-remove" onClick={() => removeUpload(item.id)}>移除</button>
                       </div>
                     </li>
@@ -426,20 +426,20 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             </div>
           )}
 
-          <p className="mb-1 text-[11px] text-emerald-100/50">已上传文件</p>
-          {docsError && <p role="alert" className="text-amber-200/80" data-testid="kb-error">知识库不可用：{docsError}</p>}
-          {!docsError && docs === null && <p className="text-emerald-100/60">加载中…</p>}
-          {!docsError && docs && docs.length === 0 && <p className="text-emerald-100/60">还没有上传文档</p>}
+          <p className="mb-1 text-[11px] text-ink-muted">已上传文件</p>
+          {docsError && <p role="alert" className="text-stamp-amber" data-testid="kb-error">知识库不可用：{docsError}</p>}
+          {!docsError && docs === null && <p className="text-ink-muted">加载中…</p>}
+          {!docsError && docs && docs.length === 0 && <p className="text-ink-muted">还没有上传文档</p>}
           {!docsError && docs && docs.length > 0 && (
             <ul className="max-h-56 space-y-2 overflow-y-auto pr-1"
                 tabIndex={0} role="region" aria-label="已上传文件列表">
               {docs.map((doc) => (
                 <li key={doc.doc_id || doc.source} data-testid="kb-doc-item"
-                    className="flex flex-wrap items-center justify-between gap-2 text-emerald-50/90">
+                    className="flex flex-wrap items-center justify-between gap-2 text-ink">
                   <span className="min-w-0 flex-1 truncate" title={doc.source}>{doc.source}</span>
-                  <span className="text-[11px] tabular-nums text-emerald-100/60">{doc.chunks} 块</span>
+                  <span className="text-[11px] tabular-nums text-ink-muted">{doc.chunks} 块</span>
                   {doc.doc_id && (
-                    <code className="text-[11px] text-emerald-200/60">{doc.doc_id.split(':').pop()}</code>
+                    <code className="text-[11px] text-ink-muted">{doc.doc_id.split(':').pop()}</code>
                   )}
                 </li>
               ))}
@@ -453,17 +453,17 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           onClose={() => setInviteOpen(false)}
           labelledBy="invite-title"
           testId="invite-register"
-          overlayClassName="z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          overlayClassName="z-50 flex items-center justify-center bg-ink/35 p-4 "
           panelClassName="surface-card w-full max-w-md p-6"
         >
           <form onSubmit={(event) => void submitAuth(event)}>
             <div className="flex items-start justify-between gap-3">
-              <h2 id="invite-title" className="text-lg font-semibold text-emerald-50">邀请制注册</h2>
-              <button type="button" className="text-xs text-emerald-200/70 hover:text-emerald-100"
+              <h2 id="invite-title" className="text-lg font-semibold text-ink">邀请制注册</h2>
+              <button type="button" className="text-xs text-ink-muted hover:text-ink"
                       data-testid="invite-close"
                       onClick={() => setInviteOpen(false)}>关闭</button>
             </div>
-            <p className="mt-1 text-xs text-emerald-100/60">邀请码已从链接预填；注册成功后自动登录。</p>
+            <p className="mt-1 text-xs text-ink-muted">邀请码已从链接预填；注册成功后自动登录。</p>
             <label className="field-label mt-5" htmlFor="invite-email">邮箱</label>
             <input id="invite-email" name="email" className="field-control" type="email" autoComplete="email"
                    aria-invalid={authError ? true : undefined}
@@ -480,18 +480,18 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                    autoComplete="off" spellCheck={false}
                    value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
             {authError && (
-              <p id="auth-error" role="alert" className="mt-4 text-sm text-rose-300"
+              <p id="auth-error" role="alert" className="mt-4 text-sm text-stamp-red"
                  data-testid="auth-error">{authError}</p>
             )}
             <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
               {busy ? '提交中…' : '注册并登录'}
             </button>
-            <p className="mt-3 text-center text-[11px] text-emerald-100/50">
+            <p className="mt-3 text-center text-[11px] text-ink-muted">
               注册即表示同意
-              <button type="button" className="mx-1 underline hover:text-emerald-100"
+              <button type="button" className="mx-1 underline hover:text-ink"
                       onClick={() => void openLegal('terms')}>用户协议</button>
               与
-              <button type="button" className="mx-1 underline hover:text-emerald-100"
+              <button type="button" className="mx-1 underline hover:text-ink"
                       onClick={() => void openLegal('privacy')}>隐私政策</button>
             </p>
           </form>

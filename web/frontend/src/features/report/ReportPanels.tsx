@@ -17,11 +17,11 @@ type ReportCardProps = {
 export function ReportCard({ result, runId, outputUnderReview, copyState, exportState, onCopy, onExport }: ReportCardProps) {
   return (
     <section className="surface-card overflow-hidden">
-      <div className="flex flex-col justify-between gap-4 border-b border-white/[0.07] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+      <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">报告</p>
-          <h2 className="mt-1 text-xl font-semibold text-white" data-testid="report-heading">研究报告</h2>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="text-xs font-medium text-stamp-blue">报告</p>
+          <h2 className="mt-1 text-xl font-semibold text-ink" data-testid="report-heading">研究报告</h2>
+          <p className="mt-1 text-xs text-ink-muted">
             {outputUnderReview
               ? '报告命中内容安全预检，正在等待人工复核'
               : `Markdown 安全渲染 · ${result.report.length.toLocaleString('zh-CN')} 字符`}
@@ -102,10 +102,10 @@ export function SourcesReflection({ result }: { result: ResearchResult }) {
           {result.reflection_log.length ? result.reflection_log.map((entry, index) => (
             <div key={index} className="surface-card-muted p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-200">第 {String(entry.depth ?? index + 1)} 轮判断</span>
-                {entry.decision != null && <span className="rounded-md bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">{String(entry.decision)}</span>}
+                <span className="text-xs font-semibold text-ink">第 {String(entry.depth ?? index + 1)} 轮判断</span>
+                {entry.decision != null && <span className="rounded-md bg-stamp-green/10 px-2 py-1 text-[10px] font-semibold text-stamp-green">{String(entry.decision)}</span>}
               </div>
-              <p className="text-xs leading-5 text-slate-400">{reflectionSummary(entry)}</p>
+              <p className="text-xs leading-5 text-ink-muted">{reflectionSummary(entry)}</p>
             </div>
           )) : <EmptyState icon="∅" title="暂无决策轨迹" text="本轮没有可展示的 critic 记录。" />}
         </div>
@@ -122,8 +122,8 @@ export function ValidatorStats({ stats, depth }: { stats: Record<string, unknown
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Object.entries(stats).map(([key, value]) => (
           <div key={key} className="surface-card-muted p-4">
-            <p className="truncate text-[11px] uppercase tracking-[0.1em] text-slate-400">{humanizeKey(key)}</p>
-            <p className="mt-2 font-mono text-lg font-semibold text-slate-200">{formatUnknown(value)}</p>
+            <p className="truncate text-[11px] text-ink-muted">{humanizeKey(key)}</p>
+            <p className="mt-2 font-mono text-lg font-semibold text-ink">{formatUnknown(value)}</p>
           </div>
         ))}
       </div>

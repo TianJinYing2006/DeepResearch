@@ -26,7 +26,7 @@ type StatusCardProps = {
 export function StatusCard({ statusInfo, runId, topic, currentActivity, progress, cancelling }: StatusCardProps) {
   return (
     <section className="surface-card overflow-hidden">
-      <div className="border-b border-white/[0.07] px-5 py-5 sm:px-6">
+      <div className="border-b border-rule px-5 py-5 sm:px-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -36,12 +36,12 @@ export function StatusCard({ statusInfo, runId, topic, currentActivity, progress
               >
                 {statusInfo.label}
               </span>
-              {runId && <span className="font-mono text-[11px] text-slate-400">RUN {runId}</span>}
+              {runId && <span className="font-mono text-[11px] text-ink-muted">RUN {runId}</span>}
             </div>
-            <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+            <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
               {topic.trim() || '把复杂问题变成可追溯的研究结论'}
             </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
               {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
             </p>
           </div>
@@ -66,7 +66,7 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
   return (
     <section
       role="alert"
-      className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-5 py-4 text-sm text-rose-100"
+      className="rounded-lg border border-stamp-red/30 bg-stamp-red/10 px-5 py-4 text-sm text-ink"
       data-testid="error-card"
     >
       <div className="flex gap-3">
@@ -76,33 +76,33 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
             <p className="font-semibold">需要注意</p>
             {/* P1-5 结构化错误：把 code / 归因组件 / 节点摆到台面上，
                 用户不用从 message 文本里猜「这是谁的锅」 */}
-            <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/80" data-testid="error-code">
+            <span className="rounded-md bg-rule/40 px-2 py-0.5 font-mono text-[10px] text-stamp-red" data-testid="error-code">
               {error.code}
             </span>
             {error.component && (
-              <span className="rounded-md bg-black/25 px-2 py-0.5 text-[10px] text-rose-200/70">
+              <span className="rounded-md bg-rule/40 px-2 py-0.5 text-[10px] text-stamp-red">
                 {error.component}
               </span>
             )}
             {error.node && (
-              <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/70">
+              <span className="rounded-md bg-rule/40 px-2 py-0.5 font-mono text-[10px] text-stamp-red">
                 节点 {error.node}
               </span>
             )}
           </div>
-          <p className="mt-1 text-rose-100/80">{error.message}</p>
+          <p className="mt-1 text-ink">{error.message}</p>
           {error.detail && (
             <details className="mt-2" data-testid="error-detail">
-              <summary className="cursor-pointer text-xs text-rose-200/60 hover:text-rose-100/80">
+              <summary className="cursor-pointer text-xs text-stamp-red hover:text-ink">
                 错误详情
               </summary>
-              <p className="mt-1 break-all font-mono text-[11px] leading-5 text-rose-200/55">
+              <p className="mt-1 break-all font-mono text-[11px] leading-5 text-stamp-red">
                 {error.detail}
               </p>
             </details>
           )}
           {error.hint && (
-            <p className="mt-2 text-xs leading-5 text-rose-100/70" data-testid="error-hint">
+            <p className="mt-2 text-xs leading-5 text-ink" data-testid="error-hint">
               {error.hint}
             </p>
           )}
@@ -126,12 +126,12 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
 export function TimeoutCard({ timeoutSeconds }: { timeoutSeconds: number | null }) {
   return (
     <section
-      className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-4 text-sm text-amber-100"
+      className="rounded-lg border border-stamp-amber/30 bg-stamp-amber/10 px-5 py-4 text-sm text-stamp-amber"
       data-testid="timeout-card"
       role="status"
     >
       <p className="font-semibold">研究已在时限处停止</p>
-      <p className="mt-1 text-xs leading-5 text-amber-100/75">
+      <p className="mt-1 text-xs leading-5 text-stamp-amber">
         {timeoutSeconds === null
           ? '单次运行有墙钟时限，到点后在节点边界停止。'
           : `本次时限 ${formatDuration(timeoutSeconds * 1000)}（后端 DR_RUN_TIMEOUT_SECONDS）。`}
@@ -152,7 +152,7 @@ type RunSummaryProps = {
 export function RunSummary({ finished, elapsedMs, stepsCount, outputUnderReview }: RunSummaryProps) {
   return (
     <section className="surface-card p-4 sm:p-5" data-testid="run-summary">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">运行摘要</h2>
+      <h2 className="text-xs font-medium text-stamp-blue">运行摘要</h2>
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
         <SummaryItem label="总耗时" value={formatDuration((finished.elapsed_seconds ?? elapsedMs / 1000) * 1000)} />
         <SummaryItem label="完成节点" value={String(stepsCount)} />
@@ -287,13 +287,13 @@ export function TracePanels({ timeline, degradations, eventsCount, running }: Tr
         ) : (
           <div className="mt-5 space-y-3">
             {degradations.map((event, index) => (
-              <div key={`${event.component}-${index}`} className="rounded-xl border border-amber-300/15 bg-amber-300/[0.06] p-4">
+              <div key={`${event.component}-${index}`} className="rounded-lg border border-stamp-amber/30 bg-stamp-amber/10 p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-amber-100">{event.component}</span>
-                  <span className="rounded-md bg-black/20 px-2 py-1 text-[10px] text-amber-200/70">{event.reason}</span>
+                  <span className="text-xs font-semibold text-stamp-amber">{event.component}</span>
+                  <span className="rounded-md bg-rule/40 px-2 py-1 text-[10px] text-stamp-amber">{event.reason}</span>
                 </div>
-                <p className="mt-2 text-xs leading-5 text-slate-400">{event.detail || '未提供详情'}</p>
-                <p className="mt-2 text-[11px] text-amber-200/60">回退：{event.fallback_action || '已由后端处理'}</p>
+                <p className="mt-2 text-xs leading-5 text-ink-muted">{event.detail || '未提供详情'}</p>
+                <p className="mt-2 text-[11px] text-stamp-amber">回退：{event.fallback_action || '已由后端处理'}</p>
               </div>
             ))}
           </div>
