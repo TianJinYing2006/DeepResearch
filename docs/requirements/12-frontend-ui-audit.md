@@ -1,6 +1,6 @@
 # 需求 12：前端 UI 合规审计（web-design-guidelines 全量审查）
 
-> 状态：**草稿**。本文件是审计需求载体；实施进度以 `docs/project-status.md` 为唯一看板（D-01）。
+> 状态：**已合**（审计批次 PR #60；R1~R7 改造批次全部收口，R7 已回填本 DoD）。本文件是审计需求载体；实施进度以 `docs/project-status.md` 为唯一看板（D-01）。
 > 前置事实（2026-09-29 实测）：前端 `src/` 共 9 个文件 / 2,707 行；pytest 455 全绿、Playwright E2E 10/10；
 > 但**无任何 a11y / 设计规范审计手段**（无 ESLint、无 Prettier、无 axe、无设计系统文档）。
 > 需求 11 已暴露「静默失效」这类缺陷——根子在**没有审计机制**，缺陷只能靠偶然发现。
@@ -13,10 +13,10 @@
 | 编号 | 12 |
 | 标题 | 前端 UI 合规审计（web-design-guidelines 全量审查） |
 | 优先级 | P2 |
-| 状态 | 草稿 |
+| 状态 | 已合 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | [#57](https://github.com/TianJinYing2006/DeepResearch/issues/57)（GitHub；PR 与 Issue 共用编号空间，故 Issue 号与需求编号不一致，映射以本行为准） |
-| 关联 PR |  |
+| 关联 PR | [#60](https://github.com/TianJinYing2006/DeepResearch/pull/60)（审计报告落库）；R1~R7 改造批次见 `docs/web-frontend-audit.md` §8 |
 | 创建 / 更新 | 2026-09-29 |
 
 ## 2. 问题背景
@@ -45,7 +45,7 @@
 ### 3.1 目标
 
 在**不改一行源码**的前提下，产出一份可核对、带 `file:line` 的 UI 问题清单，
-作为需求 13（视觉改造）的**输入证据**。
+作为后续视觉改造的**输入证据**（实际以 R1~R7 批次落地，见 `docs/web-frontend-audit.md` §8；未另立需求 13）。
 
 ### 3.2 量化成功定义
 
@@ -90,7 +90,7 @@ reduced-motion、触摸目标尺寸、表单标签关联、错误提示可感知
 
 ### 5.3 产出物
 
-`docs/frontend-ui-audit.md`：按 **P0 / P1 / P2** 分级，每条含 `file:line` + 问题描述 + 建议动作。
+`docs/web-frontend-audit.md`（实际文件名）：按 **P0 / P1 / P2** 分级，每条含 `file:line` + 问题描述 + 建议动作。
 
 ## 6. 设计策略
 
@@ -105,17 +105,17 @@ reduced-motion、触摸目标尺寸、表单标签关联、错误提示可感知
 
 ## 7. 验收标准（DoD）
 
-- [ ] skill 安装前已人工审读 `SKILL.md` 及附带文件（若无脚本则记录为「纯指令包」）
-- [ ] 9 个源文件全部审过，产出 `docs/frontend-ui-audit.md`
-- [ ] 每条问题含 `file:line` + 严重度（P0/P1/P2）+ 建议动作
-- [ ] 源码 diff 为 0（本需求仅新增 docs，不改 `src/`）
-- [ ] CI 仍绿：`frontend` job（tsc + build）与 `e2e` job（10/10）
+- [x] skill 安装前已人工审读 `SKILL.md` 及附带文件（复核记录见 `docs/web-frontend-redesign-directions.md` §R6b-1.5）
+- [x] 9 个源文件全部审过，产出 `docs/web-frontend-audit.md`（79 项发现）
+- [x] 每条问题含 `file:line` + 严重度（P0/P1/P2）+ 建议动作
+- [x] 源码 diff 为 0（审计批次 PR #60 仅新增 docs；R1~R7 改造为独立批次，各自独立验证）
+- [x] CI 仍绿：`frontend` job（tsc + build）与 `e2e` job（审计时 10/10；R7 收口后全量 35 条）
 
 ## 8. 影响范围与风险
 
 | 项 | 说明 |
 |---|---|
-| 动到文件 | 仅新增 `docs/frontend-ui-audit.md`；skill 落在用户级目录，不进仓库 |
+| 动到文件 | 仅新增 `docs/web-frontend-audit.md`；skill 落在用户级目录，不进仓库 |
 | 主要风险 | skill 需 fetch 远端规则 ⇒ 依赖网络。断网则降级为人工按已知清单审，并在报告中标注降级 |
 | 次级风险 | 审计结论可能与现有 E2E 断言或既定布局冲突 ⇒ 由 §6 两条裁断规则兜底 |
 | 供应链 | 该 skill 无脚本、纯指令包，风险面小；仍执行安装前审读 |
@@ -130,3 +130,4 @@ reduced-motion、触摸目标尺寸、表单标签关联、错误提示可感知
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-09-29 | 优化 | 需求立项 | 建立前端 UI 审计基线（只出报告，不改代码） | — |
+| 2026-09-29 | 收口 | R7 回填 DoD | 状态转「已合」；DoD 5 项勾选；文件名引用统一为 `docs/web-frontend-audit.md`；明确视觉改造以 R1~R7 批次落地、未另立需求 13 | R7（本批次） |

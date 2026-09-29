@@ -84,7 +84,7 @@
 
 ## 6. 重构硬边界（行为契约，不得破坏）
 
-- **`data-testid` 全套**（39 个，e2e 依赖；清单见下述关键项）：`status-badge`、`error-card`/`error-code`/`error-detail`/`error-hint`/`retry-button`、`run-summary`、`report-heading`、`export-button`、`rag-hit-list`/`rag-hit-item`、`account-panel`、`history-toggle`、`rag-upload-input`、`kb-toggle`、`upload-state`、`history-panel`、`history-status-filter`、`history-error`、`flagged-badge`、`history-load-more`、`kb-panel`、`kb-refresh`、`upload-queue`、`upload-item`、`upload-progress`、`kb-error`、`kb-doc-item`、`invite-register`、`invite-close`、`invite-code-input`、`legal-modal`、`legal-close`、`history-preview`。
+- **`data-testid` 全套**（审计时 39 个，e2e 依赖；后续批次持续增补，R7 新增 `kb-delete`/`kb-delete-confirm`/`kb-delete-cancel`；清单见下述关键项）：`status-badge`、`error-card`/`error-code`/`error-detail`/`error-hint`/`retry-button`、`run-summary`、`report-heading`、`export-button`、`rag-hit-list`/`rag-hit-item`、`account-panel`、`history-toggle`、`rag-upload-input`、`kb-toggle`、`upload-state`、`history-panel`、`history-status-filter`、`history-error`、`flagged-badge`、`history-load-more`、`kb-panel`、`kb-refresh`、`upload-queue`、`upload-item`、`upload-progress`、`kb-error`、`kb-doc-item`、`invite-register`、`invite-close`、`invite-code-input`、`legal-modal`、`legal-close`、`history-preview`。
 - **中文文案**：「研究进行中 / 研究完成 / 已取消 / 停止研究」等被 e2e 与 `settleRun` 依赖；
 - **选择器**：`#topic`、`button[type="submit"]`、`article.report-prose`；
 - **协议**：SSE 事件类型 / 字段、API 路径与响应结构、进度语义（不伪造摄取百分比）。
