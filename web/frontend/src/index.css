@@ -42,6 +42,16 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* R4b（审计 U47）：触控设备去掉双击缩放等待，交互响应更跟手 */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+  }
+
   ::selection {
     color: #f3fffa;
     background: rgba(52, 211, 153, 0.34);

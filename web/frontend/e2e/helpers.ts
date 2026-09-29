@@ -27,6 +27,11 @@ export async function settleRun(page: Page, timeoutMs = 20_000): Promise<void> {
       const stop = page.locator('button:has-text("停止研究")')
       if ((await stop.count()) > 0 && (await stop.first().isEnabled())) {
         await stop.first().click({ timeout: 2_000 }).catch(() => {})
+        // R4b：停止为两步确认（stop-confirm）；未出现说明状态已终局
+        const confirm = page.locator('[data-testid="stop-confirm"]')
+        if ((await confirm.count()) > 0) {
+          await confirm.first().click({ timeout: 2_000 }).catch(() => {})
+        }
       }
     } catch {
       return

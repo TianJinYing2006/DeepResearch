@@ -1,5 +1,5 @@
 /** 左栏板块（R4a）：新研究表单 / 运行边界 / 文档摄取状态。 */
-import type { FormEvent, KeyboardEvent } from 'react'
+import { useState, type FormEvent, type KeyboardEvent } from 'react'
 import { BoundaryItem } from '../../components/ui'
 import type { StreamStatus } from '../../hooks/useResearchStream'
 import { knowledgeBaseName } from '../../lib/presentation'
@@ -25,6 +25,9 @@ export function LaunchForm({
   topic, instructions, profile, profileOptions, activeProfile, activeProfileIndex,
   running, status, onTopicChange, onInstructionsChange, onProfileChange, onSubmit, onCancel,
 }: LaunchFormProps) {
+  // R4b（审计 U37）：停止为不可逆操作 —— 两步确认，避免误点丢失长任务剩余工作
+  const [confirmingStop, setConfirmingStop] = useState(false)
+
   // R4a（审计 U17）：radiogroup 键盘语义（方向键/Home/End + roving tabindex）
   function handleProfileKey(event: KeyboardEvent<HTMLDivElement>) {
     if (running || profileOptions.length === 0) return
@@ -131,9 +134,23 @@ export function LaunchForm({
       </button>
 
       {(status === 'running' || status === 'stopping') && (
-        <button className="danger-button mt-3 w-full" type="button" onClick={onCancel} disabled={status === 'stopping'}>
-          <span>{status === 'stopping' ? '正在安全停止' : '停止研究'}</span>
-        </button>
+        confirmingStop && status === 'running' ? (
+          <div className="mt-3 flex gap-2">
+            <button className="danger-button flex-1" type="button" data-testid="stop-confirm"
+                    onClick={() => { setConfirmingStop(false); onCancel() }}>
+              确认停止
+            </button>
+            <button className="secondary-button flex-1" type="button" data-testid="stop-resume"
+                    onClick={() => setConfirmingStop(false)}>
+              继续研究
+            </button>
+          </div>
+        ) : (
+          <button className="danger-button mt-3 w-full" type="button" data-testid="stop-button"
+                  onClick={() => setConfirmingStop(true)} disabled={status === 'stopping'}>
+            <span>{status === 'stopping' ? '正在安全停止' : '停止研究'}</span>
+          </button>
+        )
       )}
 
       {status === 'stopping' && (
