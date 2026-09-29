@@ -1,34 +1,29 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ProgressBar } from './components/ProgressBar'
-import { ReportView } from './components/ReportView'
 import AccountPanel from './components/AccountPanel'
+import { BoundaryCard, LaunchForm, RagStatusCard } from './features/launch/LaunchPanels'
+import { CitationsCard, ReportCard, SourcesReflection, ValidatorStats } from './features/report/ReportPanels'
+import { ErrorCard, MetricsGrid, RunSummary, StatusCard, TimeoutCard, TracePanels } from './features/run/RunPanels'
 import {
-  type ConnectionStatus,
   type StreamStatus,
   useResearchStream,
 } from './hooks/useResearchStream'
-import { formatCost, formatDuration, formatNumber } from './lib/format'
+import { formatCost } from './lib/format'
+import {
+  connectionPresentation,
+  isDegradation,
+  isKnowledgeBaseSource,
+  isStepFinished,
+  lastEventOfType,
+  latestActivity,
+  statusPresentation,
+} from './lib/presentation'
 import type { LaunchParams } from './types/api'
 import type {
-  AguiEvent,
-  CitationResult,
-  DegradationEvent,
   RunFinishedEvent,
   RunOptions,
   RunStartedEvent,
   StateDeltaEvent,
-  StepFinishedEvent,
 } from './types/agui'
-
-const NODE_LABELS: Record<string, string> = {
-  plan: '规划问题',
-  research: '检索证据',
-  critic: '评估缺口',
-  revise: '修订查询',
-  write: '撰写报告',
-  validate: '校验引用',
-  render: '渲染结果',
-}
 
 /** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
 const LAST_REQUEST_KEY = 'dr.lastRequest'
@@ -205,7 +200,6 @@ export default function App() {
     () => Array.from(new Set((result?.visited_sources ?? []).filter(isKnowledgeBaseSource))),
     [result],
   )
-  const ragSourceCount = ragSources.length
   const currentActivity = latestActivity(events)
   const statusInfo = statusPresentation(status)
   const connectionInfo = connectionPresentation(connectionStatus)
@@ -314,6 +308,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
+      {/* R4a（审计 U20）：跳过导航直达主内容（键盘/读屏） */}
+      <a href="#main"
+         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[70] focus:rounded-lg focus:bg-emerald-400 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-emerald-950">
+        跳到主内容
+      </a>
       {/* R1（审计 U3）：状态 / 复制 / 导出的读屏播报通道（视觉隐藏） */}
       <div className="sr-only" role="status" aria-live="polite" data-testid="live-region">
         {announcement}
@@ -321,7 +320,8 @@ export default function App() {
       <header className="border-b border-white/[0.07] bg-[#07100f]/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-lg text-emerald-200 shadow-[inset_0_0_20px_rgba(52,211,153,0.08)]">
+            <div className="grid h-10 w-10 place-items-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-lg text-emerald-200 shadow-[inset_0_0_20px_rgba(52,211,153,0.08)]"
+                 aria-hidden="true">
               ◈
             </div>
             <div>
@@ -331,7 +331,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${connectionInfo.className}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${connectionInfo.dotClass}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${connectionInfo.dotClass}`} aria-hidden="true" />
               {connectionInfo.label}
             </span>
             <span className="hidden rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-400 sm:inline-flex">
@@ -344,665 +344,92 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="space-y-5 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto xl:pr-1">
-          <form className="surface-card p-5" onSubmit={handleSubmit}>
-            <div className="mb-6 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-white">新研究</p>
-                <p className="mt-1 text-xs leading-5 text-slate-400">描述问题，研究过程会实时推送到右侧。</p>
-              </div>
-              <span className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.07] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200/80">
-                Live
-              </span>
-            </div>
-
-            <label className="field-label" htmlFor="topic">研究主题</label>
-            <textarea
-              id="topic"
-              className="field-control min-h-28 resize-y"
-              value={topic}
-              onChange={(event) => setTopic(event.target.value)}
-              placeholder="例如：生成式 AI 对企业知识管理的实际影响"
-              disabled={running}
-              maxLength={1000}
-              required
-            />
-
-            <label className="field-label mt-5" htmlFor="instructions">附加要求 <span className="normal-case tracking-normal text-slate-400">（可选）</span></label>
-            <textarea
-              id="instructions"
-              className="field-control min-h-24 resize-y"
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
-              placeholder="指定时间范围、关注维度、报告风格等"
-              disabled={running}
-              maxLength={2000}
-            />
-
-            <p className="field-label mt-5 mb-0" id="profile-label">运行档位</p>
-            <div
-              role="radiogroup"
-              aria-labelledby="profile-label"
-              className="relative mt-2 flex overflow-hidden rounded-xl border border-white/10 bg-black/20 transition hover:border-white/20"
-            >
-              {/* 滑动高亮块：与搜索引擎切换器同款交互（300ms ease-out） */}
-              <span
-                aria-hidden="true"
-                className="absolute inset-y-0 left-0 rounded-lg bg-emerald-400/[0.14] ring-1 ring-inset ring-emerald-400/40 transition-transform duration-300 ease-out"
-                style={{
-                  width: `${100 / Math.max(profileOptions.length, 1)}%`,
-                  transform: `translateX(${activeProfileIndex * 100}%)`,
-                }}
-              />
-              {profileOptions.length > 0 ? (
-                profileOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={profile === option.value}
-                    onClick={() => setProfile(option.value)}
-                    disabled={running}
-                    className={`relative z-10 flex-1 px-3 py-2.5 text-xs font-semibold transition-colors duration-200 ${
-                      profile === option.value
-                        ? 'text-emerald-200'
-                        : 'text-slate-400 hover:text-slate-200'
-                    } disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:text-slate-600`}
-                  >
-                    {option.label}
-                  </button>
-                ))
-              ) : (
-                <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-400">加载中…</span>
-              )}
-            </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-slate-400">
-              档位由服务端固定底层参数（跳数 / 子问题 / 预算 / 时限），客户端不可覆盖。
-              {activeProfile
-                ? `当前：≤${activeProfile.max_total_hops} 跳 · ≤${activeProfile.max_subquestions} 个子问题 · ${Math.round(activeProfile.timeout_seconds / 60)} 分钟`
-                : ''}
-            </p>
-
-
-
-            <button className="primary-button mt-6 w-full" type="submit" disabled={running || !topic.trim()}>
-              <span>{status === 'starting' ? '启动中' : '开始研究'}</span>
-              <span aria-hidden="true">→</span>
-            </button>
-
-            {(status === 'running' || status === 'stopping') && (
-              <button className="danger-button mt-3 w-full" type="button" onClick={() => void cancel()} disabled={status === 'stopping'}>
-                <span>{status === 'stopping' ? '正在安全停止' : '停止研究'}</span>
-              </button>
-            )}
-
-            {status === 'stopping' && (
-              <p className="mt-3 text-xs leading-5 text-amber-100/70">
-                取消请求已生效。当前节点会自然结束，系统不会再启动下一节点。
-              </p>
-            )}
-          </form>
-
-          <section className="surface-card p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">运行边界</p>
-            <div className="mt-4 space-y-3 text-xs leading-5 text-slate-400">
-              <BoundaryItem title="核心逻辑" text="研究判断全部留在 Python 后端" />
-              <BoundaryItem title="费用口径" text="只展示后端实值，缺失时不做估算" />
-              <BoundaryItem title="取消语义" text="节点边界停止，不把取消记为故障" />
-            </div>
-          </section>
-
-          <section className="surface-card p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-white">文档摄取状态</p>
-                <p className="mt-1 text-xs text-slate-400">本轮知识库参与情况</p>
-              </div>
-              <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-xs text-slate-300">{ragSourceCount}</span>
-            </div>
-            {result ? (
-              ragSources.length > 0 ? (
-                <div className="mt-4">
-                  <p className="text-xs leading-5 text-slate-400">
-                    本轮命中 {ragSources.length} 个本地知识库文件：
-                  </p>
-                  <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1" data-testid="rag-hit-list">
-                    {ragSources.map((source) => (
-                      <li key={source} title={source} data-testid="rag-hit-item"
-                          className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-xs text-emerald-50/90">
-                        <span className="min-w-0 flex-1 truncate">{knowledgeBaseName(source)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="mt-4 text-xs leading-5 text-slate-400">本轮结果未命中本地知识库文件。</p>
-              )
-            ) : (
-              <p className="mt-4 text-xs leading-5 text-slate-400">
-                研究完成后显示 RAG 文档命中情况；当前协议不伪造摄取进度。
-              </p>
-            )}
-          </section>
+      <main id="main"
+            className="mx-auto grid max-w-[1600px] gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-8 xl:grid-cols-[360px_minmax(0,1fr)]">
+        {/* R4a（审计 U16）：左栏自滚动，键盘可直接聚焦滚动 */}
+        <aside className="space-y-5 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:self-start xl:overflow-y-auto xl:pr-1"
+               tabIndex={0} role="region" aria-label="研究导航">
+          <LaunchForm
+            topic={topic}
+            instructions={instructions}
+            profile={profile}
+            profileOptions={profileOptions}
+            activeProfile={activeProfile}
+            activeProfileIndex={activeProfileIndex}
+            running={running}
+            status={status}
+            onTopicChange={setTopic}
+            onInstructionsChange={setInstructions}
+            onProfileChange={setProfile}
+            onSubmit={handleSubmit}
+            onCancel={() => void cancel()}
+          />
+          <BoundaryCard />
+          <RagStatusCard result={result} ragSources={ragSources} />
         </aside>
 
         <div className="min-w-0 space-y-6">
-          <section className="surface-card overflow-hidden">
-            <div className="border-b border-white/[0.07] px-5 py-5 sm:px-6">
-              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}
-                      data-testid="status-badge"
-                    >
-                      {statusInfo.label}
-                    </span>
-                    {runId && <span className="font-mono text-[11px] text-slate-400">RUN {runId}</span>}
-                  </div>
-                  <h1 className="mt-3 max-w-4xl text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                    {topic.trim() || '把复杂问题变成可追溯的研究结论'}
-                  </h1>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                    {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-5 sm:p-6">
-              <ProgressBar progress={progress} cancelling={status === 'stopping'} />
-            </div>
-          </section>
+          <StatusCard
+            statusInfo={statusInfo}
+            runId={runId}
+            topic={topic}
+            currentActivity={currentActivity}
+            progress={progress}
+            cancelling={status === 'stopping'}
+          />
 
           {error && (
-            <section
-              role="alert"
-              className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.07] px-5 py-4 text-sm text-rose-100"
-              data-testid="error-card"
-            >
-              <div className="flex gap-3">
-                <span aria-hidden="true">!</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold">需要注意</p>
-                    {/* P1-5 结构化错误：把 code / 归因组件 / 节点摆到台面上，
-                        用户不用从 message 文本里猜「这是谁的锅」 */}
-                    <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/80" data-testid="error-code">
-                      {error.code}
-                    </span>
-                    {error.component && (
-                      <span className="rounded-md bg-black/25 px-2 py-0.5 text-[10px] text-rose-200/70">
-                        {error.component}
-                      </span>
-                    )}
-                    {error.node && (
-                      <span className="rounded-md bg-black/25 px-2 py-0.5 font-mono text-[10px] text-rose-200/70">
-                        节点 {error.node}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-rose-100/80">{error.message}</p>
-                  {error.detail && (
-                    <details className="mt-2" data-testid="error-detail">
-                      <summary className="cursor-pointer text-xs text-rose-200/60 hover:text-rose-100/80">
-                        错误详情
-                      </summary>
-                      <p className="mt-1 break-all font-mono text-[11px] leading-5 text-rose-200/55">
-                        {error.detail}
-                      </p>
-                    </details>
-                  )}
-                  {error.hint && (
-                    <p className="mt-2 text-xs leading-5 text-rose-100/70" data-testid="error-hint">
-                      {error.hint}
-                    </p>
-                  )}
-                  {lastRequest && (
-                    <button
-                      className="secondary-button mt-3 !px-3 !py-2"
-                      type="button"
-                      onClick={handleRetry}
-                      disabled={running}
-                      data-testid="retry-button"
-                    >
-                      {running ? '运行中，暂不能重试' : '用同样参数重试'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
+            <ErrorCard error={error} lastRequest={lastRequest} running={running} onRetry={handleRetry} />
           )}
 
-          {status === 'timeout' && (
-            <section
-              className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-4 text-sm text-amber-100"
-              data-testid="timeout-card"
-            >
-              <p className="font-semibold">研究已在时限处停止</p>
-              <p className="mt-1 text-xs leading-5 text-amber-100/75">
-                {timeoutSeconds === null
-                  ? '单次运行有墙钟时限，到点后在节点边界停止。'
-                  : `本次时限 ${formatDuration(timeoutSeconds * 1000)}（后端 DR_RUN_TIMEOUT_SECONDS）。`}
-                停止发生在节点边界，最坏多等一个节点；已完成的节点与统计全部保留。
-                超时既不算「完成」也不算「取消」，更不是故障 —— 不计入运行失败率。
-              </p>
-            </section>
-          )}
+          {status === 'timeout' && <TimeoutCard timeoutSeconds={timeoutSeconds} />}
 
           {finished && (
-            <section className="surface-card p-4 sm:p-5" data-testid="run-summary">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Run summary</p>
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-                <SummaryItem label="总耗时" value={formatDuration((finished.elapsed_seconds ?? elapsedMs / 1000) * 1000)} />
-                <SummaryItem label="完成节点" value={String(steps.length)} />
-                <SummaryItem label="检索跳数" value={String(finished.result?.depth ?? 0)} />
-                <SummaryItem label="降级条目" value={String(finished.degradation_count ?? 0)} />
-                <SummaryItem label="报告字数" value={outputUnderReview ? '待复核' : finished.result?.report ? formatNumber(finished.result.report.length) : '—'} />
-                <SummaryItem label="成本估算" value={finished.cost_estimate_cny == null ? '—' : `≈ ¥${formatCost(finished.cost_estimate_cny)}`} />
-              </div>
-            </section>
+            <RunSummary
+              finished={finished}
+              elapsedMs={elapsedMs}
+              stepsCount={steps.length}
+              outputUnderReview={outputUnderReview}
+            />
           )}
 
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="已完成节点" value={String(steps.length)} detail={lastStep ? nodeLabel(lastStep.node) : '等待运行'} accent="emerald" />
-            <MetricCard label="累计 Token" value={formatNumber(tokenUsed)} detail={costLabel} accent="brand" />
-            <MetricCard label="发现 / 来源" value={`${formatNumber(findingsCount)} / ${formatNumber(sourceCount)}`} detail="实时证据规模" accent="violet" />
-            <MetricCard
-              label="运行时长"
-              value={formatDuration(elapsedMs)}
-              detail={
-                running && remainingMs !== null
-                  ? `剩余约 ${formatDuration(remainingMs)}`
-                  : lastStep
-                    ? `深度 ${lastStep.depth}`
-                    : '自发起时刻起'
-              }
-              accent="amber"
-            />
-          </section>
+          <MetricsGrid
+            stepsCount={steps.length}
+            lastStep={lastStep}
+            tokenUsed={tokenUsed}
+            costLabel={costLabel}
+            findingsCount={findingsCount}
+            sourceCount={sourceCount}
+            elapsedMs={elapsedMs}
+            remainingMs={remainingMs}
+            running={running}
+          />
 
-          <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
-            <div className="surface-card min-h-[360px] p-5 sm:p-6">
-              <SectionHeading eyebrow="Live trace" title="研究活动" detail={`${events.length} 条事件`} />
-              {/* P1-7 移动端：窄屏留给活动流的高度更小，避免一屏全是时间线 */}
-              {timeline.length === 0 ? (
-                <EmptyState icon="⌁" title="等待研究开始" text="事件会按最新优先排列，断线重连不会重新启动研究。" />
-              ) : (
-                <div className="mt-5 max-h-[360px] space-y-1 overflow-y-auto pr-1 sm:max-h-[520px]">
-                  {timeline.map(({ event, index }) => (
-                    <TimelineItem key={index} event={event} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="surface-card p-5 sm:p-6">
-              <SectionHeading eyebrow="Transparency" title="降级与恢复" detail={`${degradations.length} 项`} />
-              {degradations.length === 0 ? (
-                <EmptyState icon="✓" title="暂无降级" text={running ? '如有工具或供应商降级，会在这里立即显示。' : '本次运行没有收到降级事件。'} />
-              ) : (
-                <div className="mt-5 space-y-3">
-                  {degradations.map((event, index) => (
-                    <div key={`${event.component}-${index}`} className="rounded-xl border border-amber-300/15 bg-amber-300/[0.06] p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-amber-100">{event.component}</span>
-                        <span className="rounded-md bg-black/20 px-2 py-1 text-[10px] text-amber-200/70">{event.reason}</span>
-                      </div>
-                      <p className="mt-2 text-xs leading-5 text-slate-400">{event.detail || '未提供详情'}</p>
-                      <p className="mt-2 text-[11px] text-amber-200/60">回退：{event.fallback_action || '已由后端处理'}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
+          <TracePanels
+            timeline={timeline}
+            degradations={degradations}
+            eventsCount={events.length}
+            running={running}
+          />
 
           {result && (
             <>
-              <section className="surface-card overflow-hidden">
-                <div className="flex flex-col justify-between gap-4 border-b border-white/[0.07] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/65">Research report</p>
-                    <h2 className="mt-1 text-xl font-semibold text-white" data-testid="report-heading">研究报告</h2>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {outputUnderReview
-                        ? '报告命中内容安全预检，正在等待人工复核'
-                        : `Markdown 安全渲染 · ${result.report.length.toLocaleString('zh-CN')} 字符`}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button className="secondary-button !px-3 !py-2" type="button" onClick={() => void copyReport()} disabled={!result.report || outputUnderReview}>
-                      {copyState === 'copied' ? '已复制' : '复制正文'}
-                    </button>
-                    {/* P1-6：走后端导出（正文 + 审计元数据 + 引用清单），不是前端 Blob 那份纯正文 */}
-                    <button
-                      className="secondary-button !px-3 !py-2"
-                      type="button"
-                      onClick={() => void exportReport()}
-                      disabled={!runId || outputUnderReview}
-                      data-testid="export-button"
-                    >
-                      {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
-                    </button>
-                  </div>
-                </div>
-                <div className="px-5 py-6 sm:px-8 sm:py-8">
-                  {outputUnderReview ? (
-                    <EmptyState icon="⚑" title="报告待人工复核" text="报告命中内容安全预检：复核通过或申诉处理前不开放查看与导出；如认为误判可提交申诉。" />
-                  ) : result.report ? (
-                    <ReportView report={result.report} />
-                  ) : (
-                    <EmptyState icon="◌" title="暂无完整报告" text="运行在报告生成前停止，已完成的事件与统计仍保留。" />
-                  )}
-                </div>
-              </section>
-
-              <section className="surface-card p-5 sm:p-6">
-                <SectionHeading
-                  eyebrow="Evidence"
-                  title="引用校验"
-                  detail={`${verifiedCitations} / ${result.citations.length} 严格通过`}
-                />
-                {result.citations.length === 0 ? (
-                  <EmptyState icon="∅" title="没有引用记录" text="报告可能在引用校验前停止，或本轮未生成可校验引用。" />
-                ) : (
-                  <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                    {result.citations.map((citation, index) => (
-                      <CitationCard key={`${citation.source}-${index}`} citation={citation} index={index} />
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section className="grid gap-6 lg:grid-cols-2">
-                {/* P1-7 移动端：`min-w-0` 必须有 —— grid 子项默认 `min-width:auto`，
-                    长 URL / 长单词会把列撑得比容器宽，整页出现横向滚动条。 */}
-                <div className="surface-card min-w-0 p-5 sm:p-6">
-                  <SectionHeading eyebrow="Sources" title="访问来源" detail={`${result.visited_sources.length} 个`} />
-                  <div className="mt-5 space-y-2">
-                    {result.visited_sources.length ? result.visited_sources.map((source, index) => (
-                      <SourceRow key={`${source}-${index}`} source={source} index={index} />
-                    )) : <EmptyState icon="∅" title="暂无来源" text="没有可展示的来源记录。" />}
-                  </div>
-                </div>
-
-                <div className="surface-card min-w-0 p-5 sm:p-6">
-                  <SectionHeading eyebrow="Reflection" title="决策轨迹" detail={`${result.reflection_log.length} 轮`} />
-                  <div className="mt-5 space-y-3">
-                    {result.reflection_log.length ? result.reflection_log.map((entry, index) => (
-                      <div key={index} className="surface-card-muted p-4">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-slate-200">第 {String(entry.depth ?? index + 1)} 轮判断</span>
-                          {entry.decision != null && <span className="rounded-md bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">{String(entry.decision)}</span>}
-                        </div>
-                        <p className="text-xs leading-5 text-slate-400">{reflectionSummary(entry)}</p>
-                      </div>
-                    )) : <EmptyState icon="∅" title="暂无决策轨迹" text="本轮没有可展示的 critic 记录。" />}
-                  </div>
-                </div>
-              </section>
-
-              {Object.keys(result.validator_stats).length > 0 && (
-                <section className="surface-card p-5 sm:p-6">
-                  <SectionHeading eyebrow="Audit" title="校验统计" detail={`研究深度 ${result.depth}`} />
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {Object.entries(result.validator_stats).map(([key, value]) => (
-                      <div key={key} className="surface-card-muted p-4">
-                        <p className="truncate text-[11px] uppercase tracking-[0.1em] text-slate-400">{humanizeKey(key)}</p>
-                        <p className="mt-2 font-mono text-lg font-semibold text-slate-200">{formatUnknown(value)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
+              <ReportCard
+                result={result}
+                runId={runId}
+                outputUnderReview={outputUnderReview}
+                copyState={copyState}
+                exportState={exportState}
+                onCopy={() => void copyReport()}
+                onExport={() => void exportReport()}
+              />
+              <CitationsCard citations={result.citations} verifiedCitations={verifiedCitations} />
+              <SourcesReflection result={result} />
+              <ValidatorStats stats={result.validator_stats} depth={result.depth} />
             </>
           )}
         </div>
       </main>
     </div>
   )
-}
-
-function BoundaryItem({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="flex gap-3">
-      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400/70" />
-      <p><span className="font-medium text-slate-300">{title}：</span>{text}</p>
-    </div>
-  )
-}
-
-function MetricCard({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: 'emerald' | 'brand' | 'violet' | 'amber' }) {
-  const accentClass = {
-    emerald: 'from-emerald-400/20 text-emerald-200',
-    brand: 'from-brand-400/20 text-brand-200',
-    violet: 'from-violet-400/20 text-violet-200',
-    amber: 'from-amber-400/20 text-amber-200',
-  }[accent]
-  return (
-    <div className={`surface-card bg-gradient-to-br ${accentClass} to-transparent p-4`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
-    </div>
-  )
-}
-
-function SummaryItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[11px] text-slate-400">{label}</p>
-      <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-slate-200">{value}</p>
-    </div>
-  )
-}
-
-function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
-  return (
-    <div className="flex items-end justify-between gap-4">
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300/55">{eyebrow}</p>
-        <h2 className="mt-1 text-lg font-semibold text-white">{title}</h2>
-      </div>
-      <p className="text-xs text-slate-400">{detail}</p>
-    </div>
-  )
-}
-
-function EmptyState({ icon, title, text }: { icon: string; title: string; text: string }) {
-  return (
-    <div className="grid min-h-48 place-items-center text-center">
-      <div className="max-w-xs">
-        <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400">{icon}</div>
-        <p className="mt-3 text-sm font-medium text-slate-300">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-400">{text}</p>
-      </div>
-    </div>
-  )
-}
-
-function TimelineItem({ event }: { event: AguiEvent }) {
-  const view = eventPresentation(event)
-  return (
-    <div className="group flex gap-3 rounded-xl px-2 py-3 transition hover:bg-white/[0.025]">
-      <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border text-xs ${view.iconClass}`}>{view.icon}</div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-3">
-          <p className="truncate text-xs font-semibold text-slate-300">{view.title}</p>
-          <span className="shrink-0 font-mono text-[10px] text-slate-400">{event.type}</span>
-        </div>
-        <p className="mt-1 text-xs leading-5 text-slate-400">{view.detail}</p>
-      </div>
-    </div>
-  )
-}
-
-function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
-  const verified = citation.verified
-  return (
-    <article className={`rounded-xl border p-4 ${verified ? 'border-emerald-300/15 bg-emerald-300/[0.04]' : 'border-amber-300/15 bg-amber-300/[0.04]'}`}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-slate-400">#{index + 1}</span>
-          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${verified ? 'bg-emerald-300/10 text-emerald-200' : 'bg-amber-300/10 text-amber-200'}`}>
-            {verified ? '严格通过' : citation.verified_relaxed ? '宽松通过' : '待复核'}
-          </span>
-        </div>
-        <span className="font-mono text-xs text-slate-400">{Math.round(citation.confidence * 100)}%</span>
-      </div>
-      <p className="mt-3 text-sm leading-6 text-slate-300">{citation.claim}</p>
-      <div className="mt-3 border-t border-white/[0.06] pt-3">
-        <SourceLink source={citation.source} />
-        {citation.note && <p className="mt-2 text-xs leading-5 text-slate-400">{citation.note}</p>}
-      </div>
-    </article>
-  )
-}
-
-function SourceRow({ source, index }: { source: string; index: number }) {
-  return (
-    <div className="surface-card-muted flex items-center gap-3 p-3">
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-black/20 font-mono text-[10px] text-slate-400">{index + 1}</span>
-      <div className="min-w-0 flex-1"><SourceLink source={source} /></div>
-      <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[10px] uppercase text-slate-400">{sourceType(source)}</span>
-    </div>
-  )
-}
-
-function SourceLink({ source }: { source: string }) {
-  if (/^https?:\/\//i.test(source)) {
-    return <a className="block truncate text-xs text-emerald-300/80 hover:text-emerald-200" href={source} target="_blank" rel="noreferrer">{source}</a>
-  }
-  return <p className="truncate font-mono text-xs text-slate-400">{source}</p>
-}
-
-function isStepFinished(event: AguiEvent): event is StepFinishedEvent {
-  return event.type === 'STEP_FINISHED'
-}
-
-function isDegradation(event: AguiEvent): event is DegradationEvent {
-  return event.type === 'DEGRADATION'
-}
-
-function lastEventOfType(events: AguiEvent[], type: AguiEvent['type']): AguiEvent | undefined {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (events[index].type === type) return events[index]
-  }
-  return undefined
-}
-
-function latestActivity(events: AguiEvent[]): string {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
-    if (event.type === 'STATE_DELTA') {
-      const added = (event as StateDeltaEvent).progress_added
-      const message = added[added.length - 1]?.msg
-      if (message) return message
-    }
-  }
-  return ''
-}
-
-function statusPresentation(status: StreamStatus) {
-  return {
-    idle: { label: '等待任务', className: 'border-white/10 bg-white/[0.03] text-slate-400' },
-    starting: { label: '正在启动', className: 'border-brand-300/20 bg-brand-300/[0.08] text-brand-200' },
-    running: { label: '研究进行中', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
-    stopping: { label: '正在安全停止', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
-    done: { label: '研究完成', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
-    cancelled: { label: '已取消', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
-    timeout: { label: '已到时限停止', className: 'border-amber-300/25 bg-amber-300/[0.10] text-amber-200' },
-    error: { label: '运行失败', className: 'border-rose-300/20 bg-rose-300/[0.08] text-rose-200' },
-  }[status]
-}
-
-function connectionPresentation(status: ConnectionStatus) {
-  return {
-    idle: { label: '等待实时流', className: 'border-white/10 bg-white/[0.03] text-slate-400', dotClass: 'bg-slate-600' },
-    connecting: { label: '连接中', className: 'border-brand-300/15 bg-brand-300/[0.05] text-brand-200', dotClass: 'animate-pulse bg-brand-300' },
-    live: { label: '实时连接', className: 'border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200', dotClass: 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,0.7)]' },
-    reconnecting: { label: '正在重连', className: 'border-amber-300/15 bg-amber-300/[0.05] text-amber-200', dotClass: 'animate-pulse bg-amber-300' },
-    closed: { label: '连接已关闭', className: 'border-white/10 bg-white/[0.03] text-slate-400', dotClass: 'bg-slate-600' },
-  }[status]
-}
-
-function eventPresentation(event: AguiEvent) {
-  switch (event.type) {
-    case 'RUN_STARTED':
-      return { icon: '▶', iconClass: 'border-brand-300/15 bg-brand-300/[0.07] text-brand-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
-    case 'STEP_FINISHED': {
-      const step = event as StepFinishedEvent
-      return { icon: '✓', iconClass: 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: nodeLabel(step.node), detail: `${formatDuration(step.duration_ms)} · 深度 ${step.depth} · ${formatNumber(step.token_used)} token` }
-    }
-    case 'STATE_DELTA': {
-      const delta = event as StateDeltaEvent
-      const message = delta.progress_added[delta.progress_added.length - 1]?.msg || '状态已更新'
-      const governance = delta.planner_events_count > 0
-        ? ` · 规划治理 ${delta.planner_events_count} 条`
-        : ''
-      return { icon: '↗', iconClass: 'border-violet-300/15 bg-violet-300/[0.07] text-violet-200', title: '研究状态更新', detail: message + governance }
-    }
-    case 'DEGRADATION': {
-      const degradation = event as DegradationEvent
-      return { icon: '!', iconClass: 'border-amber-300/15 bg-amber-300/[0.07] text-amber-200', title: `${degradation.component} 已降级`, detail: degradation.detail || degradation.reason }
-    }
-    case 'RUN_FINISHED': {
-      const runFinished = event as RunFinishedEvent
-      return { icon: '■', iconClass: runFinished.cancelled ? 'border-amber-300/15 bg-amber-300/[0.07] text-amber-200' : 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: runFinished.cancelled ? '研究已在安全边界停止' : '研究已完成', detail: `${formatNumber(runFinished.token_used)} token · ${runFinished.degradation_count} 项降级` }
-    }
-    case 'RUN_ERROR':
-      return { icon: '×', iconClass: 'border-rose-300/15 bg-rose-300/[0.07] text-rose-200', title: '研究运行失败', detail: String(event.message ?? '未知错误') }
-    default:
-      return { icon: '·', iconClass: 'border-white/10 bg-white/[0.03] text-slate-400', title: event.type, detail: '事件已接收' }
-  }
-}
-
-function nodeLabel(node: string): string {
-  return NODE_LABELS[node] ?? node
-}
-
-function isKnowledgeBaseSource(source: string): boolean {
-  return source.startsWith('rag:') || source.startsWith('local://')
-}
-
-/** 命中来源 → 文件名（`rag:<filename>` / `local://<path>`；去掉分块锚点）。 */
-function knowledgeBaseName(source: string): string {
-  const stripped = source.startsWith('rag:')
-    ? source.slice(4)
-    : source.replace(/^local:\/\//, '')
-  const withoutChunk = stripped.split('#')[0]
-  return withoutChunk || source
-}
-
-function sourceType(source: string): string {
-  if (source.startsWith('rag:') || source.startsWith('local://')) return 'rag'
-  if (source.includes('arxiv.org')) return 'arxiv'
-  if (source.startsWith('code:')) return 'code'
-  return 'web'
-}
-
-function reflectionSummary(entry: Record<string, unknown>): string {
-  const summary = entry.gap ?? entry.knowledge_gap ?? entry.reason ?? entry.summary
-  if (summary != null && String(summary).trim()) return String(summary)
-  const rest = Object.entries(entry)
-    .filter(([key]) => !['depth', 'decision'].includes(key))
-    .map(([key, value]) => `${humanizeKey(key)}：${formatUnknown(value)}`)
-  return rest.join('；') || '未提供更多说明。'
-}
-
-function humanizeKey(key: string): string {
-  return key.replace(/_/g, ' ')
-}
-
-function formatUnknown(value: unknown): string {
-  if (typeof value === 'number') {
-    if (value >= 0 && value <= 1 && !Number.isInteger(value)) return `${Math.round(value * 100)}%`
-    return value.toLocaleString('zh-CN')
-  }
-  if (typeof value === 'boolean') return value ? '是' : '否'
-  if (value == null) return '—'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
 }
