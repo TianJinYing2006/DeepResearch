@@ -94,7 +94,6 @@ export default function App() {
   // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
   // 原来是累加各节点 duration_ms ⇒ 只有节点完成才会跳变，等待 LLM 时看起来卡住。
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null)
-  const [, setTick] = useState(0)
   const stoppedAtRef = useRef<number | null>(null)
   const {
     runId,
@@ -148,16 +147,11 @@ export default function App() {
 
   const running = status === 'starting' || status === 'running' || status === 'stopping'
 
-  // 运行时长实时化：运行中每 250ms 触发一次重渲染；停止时冻结在结束那一刻。
-  // 用 ref 记录停止时刻而非 state，避免 effect 里 setState 引发额外渲染循环。
+  // R5（审计 U50）：250ms 时钟已下沉到 DurationCard（局部渲染，页面隐藏时暂停）；
+  // 这里只负责在停止时冻结一次结束时刻，供「总耗时」在终局缺少后端耗时字段时兜底。
   useEffect(() => {
     if (!runStartedAt) return
-    if (running) {
-      stoppedAtRef.current = null
-      const id = window.setInterval(() => setTick((value) => value + 1), 250)
-      return () => window.clearInterval(id)
-    }
-    if (stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
+    if (!running && stoppedAtRef.current === null) stoppedAtRef.current = Date.now()
   }, [runStartedAt, running])
 
   const steps = useMemo(() => events.filter(isStepFinished), [events])
@@ -179,7 +173,7 @@ export default function App() {
     [events],
   )
 
-  // 实时运行时长（不再等节点完成才累加）
+  // 实时运行时长（终局兜底用；R5 起不再驱动全局重渲染 —— 时钟在 DurationCard 内部）
   const elapsedMs = runStartedAt ? Math.max(0, (stoppedAtRef.current ?? Date.now()) - runStartedAt) : 0
   // 成本估算由后端按 config.llm.pricing 计算（前端没有定价表，不能自己拍单价）
   const costLabel = finished?.cost_estimate_cny === undefined
@@ -192,7 +186,6 @@ export default function App() {
     const started = events.find((event) => event.type === 'RUN_STARTED') as RunStartedEvent | undefined
     return started?.timeout_seconds ?? options?.run_timeout_seconds ?? null
   }, [events, options])
-  const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - elapsedMs)
   const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
   const findingsCount = lastDelta?.findings_count ?? 0
   const verifiedCitations = result?.citations.filter((citation) => citation.verified).length ?? 0
@@ -200,7 +193,7 @@ export default function App() {
     () => Array.from(new Set((result?.visited_sources ?? []).filter(isKnowledgeBaseSource))),
     [result],
   )
-  const currentActivity = latestActivity(events)
+  const currentActivity = useMemo(() => latestActivity(events), [events])
   const statusInfo = statusPresentation(status)
   const connectionInfo = connectionPresentation(connectionStatus)
 
@@ -400,8 +393,8 @@ export default function App() {
             costLabel={costLabel}
             findingsCount={findingsCount}
             sourceCount={sourceCount}
-            elapsedMs={elapsedMs}
-            remainingMs={remainingMs}
+            startedAt={runStartedAt}
+            timeoutSeconds={timeoutSeconds}
             running={running}
           />
 

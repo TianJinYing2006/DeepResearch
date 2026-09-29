@@ -55,24 +55,26 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
         </div>
       </div>
 
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-black/25" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+      <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-black/25" role="progressbar"
+           aria-label="研究进度" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}
+           aria-valuetext={`${progress.stageName} ${percent}%`}>
+        {/* R5（审计 U61）：只动画合成属性 transform（scaleX），不再动画 layout 的 width */}
         <div
-          className={`relative h-full overflow-hidden rounded-full transition-[width] duration-500 ${
+          className={`h-full w-full origin-left rounded-full transition-transform duration-500 ${
             cancelling
               ? 'bg-gradient-to-r from-amber-400 to-orange-300'
               : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
           }`}
-          style={{ width: `${percent}%` }}
-        >
-          {/* 从左往右循环的高光渐变（shimmer）：只在**运行中**出现，表示「还在推进」。
-              ⚠️ 它纯粹是动效，**不改变 percent** —— 总进度仍只用可确认的数据推导，
-              不因为有了动画就假装知道剩余比例。完成后停止，避免闪烁干扰读数。 */}
-          {!cancelling && percent < 100 && (
-            <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
-              <span className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/45 to-transparent" />
-            </span>
-          )}
-        </div>
+          style={{ transform: `scaleX(${percent / 100})` }}
+        />
+        {/* 从左往右循环的高光渐变（shimmer）：只在**运行中**出现，表示「还在推进」。
+            ⚠️ 它纯粹是动效，**不改变 percent** —— 总进度仍只用可确认的数据推导，
+            不因为有了动画就假装知道剩余比例。完成后停止，避免闪烁干扰读数。 */}
+        {!cancelling && percent < 100 && (
+          <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+            <span className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+          </span>
+        )}
       </div>
 
       {progress.stageName === '检索' && (

@@ -25,7 +25,8 @@ export const STAGES = [
  *  出处：docs/requirements/9-web-ui-rewrite.md §5.4.1。仅用于 ETA，不参与百分比。 */
 const EST_TOTAL_NODES = 24
 
-interface ProgressInput {
+/** 进度所需原始量（R5：由事件流增量累加，不再每帧全量重扫）。 */
+export interface ProgressSummary {
   /** 最近完成的节点名 */
   currentNode: string | null
   depth: number
@@ -35,6 +36,34 @@ interface ProgressInput {
   /** 累计耗时（毫秒） */
   elapsedMs: number
   finished: boolean
+}
+
+export function emptySummary(): ProgressSummary {
+  return { currentNode: null, depth: 0, maxTotalHops: 20, nodeCount: 0, elapsedMs: 0, finished: false }
+}
+
+/** 单事件增量更新（O(1)）；`summarize` = 事件流上的 reduce。 */
+export function applyEvent(summary: ProgressSummary, event: AguiEvent): ProgressSummary {
+  if (event.type === 'RUN_STARTED') {
+    const value = Number(event.max_total_hops)
+    if (Number.isFinite(value) && value > 0) {
+      return { ...summary, maxTotalHops: value }
+    }
+    return summary
+  }
+  if (event.type === 'STEP_FINISHED') {
+    return {
+      ...summary,
+      currentNode: String(event.node ?? ''),
+      depth: Number(event.depth ?? summary.depth),
+      elapsedMs: summary.elapsedMs + Number(event.duration_ms ?? 0),
+      nodeCount: summary.nodeCount + 1,
+    }
+  }
+  if (event.type === 'RUN_FINISHED' || event.type === 'RUN_ERROR') {
+    return { ...summary, finished: true }
+  }
+  return summary
 }
 
 export interface Progress {
@@ -52,7 +81,7 @@ function stageOf(node: string | null): number {
   return STAGES.findIndex((s) => (s.nodes as readonly string[]).includes(node))
 }
 
-export function computeProgress(input: ProgressInput): Progress {
+export function computeProgress(input: ProgressSummary): Progress {
   const { currentNode, depth, maxTotalHops, nodeCount, elapsedMs, finished } = input
   const idx = stageOf(currentNode)
 
@@ -101,26 +130,6 @@ export function computeProgress(input: ProgressInput): Progress {
 }
 
 /** 从事件流里抽出进度所需的原始量（纯函数，便于单测）。 */
-export function summarize(events: AguiEvent[]): ProgressInput {
-  let currentNode: string | null = null
-  let depth = 0
-  let maxTotalHops = 20
-  let nodeCount = 0
-  let elapsedMs = 0
-  let finished = false
-
-  for (const ev of events) {
-    if (ev.type === 'RUN_STARTED') {
-      const v = Number(ev.max_total_hops)
-      if (Number.isFinite(v) && v > 0) maxTotalHops = v
-    } else if (ev.type === 'STEP_FINISHED') {
-      currentNode = String(ev.node ?? '')
-      depth = Number(ev.depth ?? depth)
-      elapsedMs += Number(ev.duration_ms ?? 0)
-      nodeCount += 1
-    } else if (ev.type === 'RUN_FINISHED' || ev.type === 'RUN_ERROR') {
-      finished = true
-    }
-  }
-  return { currentNode, depth, maxTotalHops, nodeCount, elapsedMs, finished }
+export function summarize(events: AguiEvent[]): ProgressSummary {
+  return events.reduce(applyEvent, emptySummary())
 }
