@@ -15,6 +15,7 @@
 | `NEVER exceed 200ms for interaction feedback` | baseline-ui §Animation | 交互反馈保持 ≤200ms；入场编排 300ms（非交互反馈） |
 | `MUST respect safe-area-inset for fixed elements` | baseline-ui §Interaction | Modal 遮罩以内联 `max(1rem, env(safe-area-inset-*))` 兜底 |
 | 可交互元素必须可见焦点 | fixing-accessibility §focus / WIG §Focus | 全局 `:focus-visible` 兜底轮廓（药丸按钮/文字按钮/链接/radio），组件自带 ring 优先 |
+| 堆叠弹窗的焦点陷阱与 Escape 归属 | fixing-accessibility §focus and dialogs / frontend-design-audit H13 | Modal 改为 **document 捕获 + 弹窗栈**（仅最上层响应 Tab/Escape/focusin），消除入场动画时序下的焦点竞态（本地 `--repeat-each=10` 复验通过） |
 | 加载状态需骨架/进度指示 | frontend-design-audit H1 | 同骨架方案；错误已 `role="alert"`、状态已 `aria-live` |
 | `theme-color` 与页面背景一致 / dark 主题声明 | Vercel WIG §Dark Mode & Theming | `index.html` `theme-color` → `#f4f6f3`，新增 `color-scheme: light` |
 | 配色/字体/布局刻意选择，避免模板 chrome | frontend-design §Design principles | 全大写 eyebrow 已移除（改 stamp-blue 短刻度）；单一强调色；无渐变/玻璃拟态 |
