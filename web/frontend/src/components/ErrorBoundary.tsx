@@ -22,7 +22,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error === null) return this.props.children
     return (
-      <div className="flex min-h-screen items-center justify-center p-6" data-testid="error-boundary">
+      <div className="flex min-h-dvh items-center justify-center p-6" data-testid="error-boundary">
         <div className="surface-card w-full max-w-md p-6">
           <h1 className="text-lg font-semibold text-ink">页面渲染出错</h1>
           <p className="mt-2 text-sm leading-6 text-ink-muted">

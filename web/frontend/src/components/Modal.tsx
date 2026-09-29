@@ -90,6 +90,13 @@ export default function Modal({
     <div
       className={`fixed inset-0 overscroll-contain animate-fade-in ${overlayClassName}`}
       data-testid={testId}
+      style={{
+        // baseline-ui：固定元素尊重刘海/手势区（正常屏幕等价于 p-4）
+        paddingTop: 'max(1rem, env(safe-area-inset-top))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+      }}
       onMouseDown={(event) => {
         if (dismissible && event.target === event.currentTarget) onClose()
       }}

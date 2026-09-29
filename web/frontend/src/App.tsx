@@ -300,10 +300,10 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* R4a（审计 U20）：跳过导航直达主内容（键盘/读屏） */}
       <a href="#main"
-         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[70] focus:rounded-lg focus:bg-stamp-blue focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white">
+         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-stamp-blue focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white">
         跳到主内容
       </a>
       {/* R1（审计 U3）：状态 / 复制 / 导出的读屏播报通道（视觉隐藏） */}

@@ -6,6 +6,7 @@ import { formatBytes, formatCny } from '../lib/format'
 import type { Quota, RagDoc, SessionUser } from '../types/api'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
+import { SkeletonRows } from './ui'
 
 /** P6-B：邀请链接 `?invite=CODE`（可复制给被邀请人，打开即进入注册并预填）。 */
 function inviteFromLocation(): string {
@@ -216,7 +217,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       onClose={() => { setLegal(null); setLegalError('') }}
       labelledBy="legal-title"
       testId="legal-modal"
-      overlayClassName="z-[60] flex justify-center overflow-y-auto bg-ink/35 p-4 "
+      overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4 "
       panelClassName="surface-card my-6 w-full max-w-3xl p-6"
     >
       <div className="flex items-center justify-between">
@@ -428,7 +429,12 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
 
           <p className="mb-1 text-[11px] text-ink-muted">已上传文件</p>
           {docsError && <p role="alert" className="text-stamp-amber" data-testid="kb-error">知识库不可用：{docsError}</p>}
-          {!docsError && docs === null && <p className="text-ink-muted">加载中…</p>}
+          {!docsError && docs === null && (
+            <div role="status" aria-live="polite">
+              <span className="sr-only">加载中…</span>
+              <SkeletonRows rows={3} />
+            </div>
+          )}
           {!docsError && docs && docs.length === 0 && <p className="text-ink-muted">还没有上传文档</p>}
           {!docsError && docs && docs.length > 0 && (
             <ul className="max-h-56 space-y-2 overflow-y-auto pr-1"

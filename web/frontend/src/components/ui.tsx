@@ -47,7 +47,7 @@ export function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; ti
         {/* 签名元素：一处 stamp-blue 短刻度，替代通用模板的「全大写 eyebrow」 */}
         <span aria-hidden="true" className="mb-2 block h-[3px] w-6 rounded-full bg-stamp-blue/70" />
         <p className="text-[11px] font-semibold text-stamp-blue">{eyebrow}</p>
-        <h2 className="mt-1 font-serif text-lg font-semibold tracking-tight text-ink">{title}</h2>
+        <h2 className="mt-1 text-balance font-serif text-lg font-semibold tracking-tight text-ink">{title}</h2>
       </div>
       <p className="text-xs text-ink-muted">{detail}</p>
     </div>
@@ -61,8 +61,19 @@ export function EmptyState({ icon, title, text }: { icon: string; title: string;
         <div className="mx-auto grid h-11 w-11 place-items-center rounded-lg border border-rule bg-sheet text-lg text-ink-muted shadow-[0_1px_2px_rgba(23,27,25,0.05)]"
              aria-hidden="true">{icon}</div>
         <p className="mt-3 text-sm font-medium text-ink">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-ink-muted">{text}</p>
+        <p className="mt-1 text-pretty text-xs leading-5 text-ink-muted">{text}</p>
       </div>
+    </div>
+  )
+}
+
+/** baseline-ui：结构性加载骨架（替代「加载中…」文字），行高与列表行对齐。 */
+export function SkeletonRows({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="space-y-2" aria-hidden="true">
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="h-5 animate-pulse rounded-md bg-rule/50" />
+      ))}
     </div>
   )
 }

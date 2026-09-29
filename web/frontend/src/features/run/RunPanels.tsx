@@ -38,7 +38,7 @@ export function StatusCard({ statusInfo, runId, topic, currentActivity, progress
               </span>
               {runId && <span className="font-mono text-[11px] text-ink-muted">RUN {runId}</span>}
             </div>
-            <h1 className="mt-3 max-w-4xl font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+            <h1 className="mt-3 max-w-4xl text-balance font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
               {topic.trim() || '把复杂问题变成可追溯的研究结论'}
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">
@@ -90,7 +90,7 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
               </span>
             )}
           </div>
-          <p className="mt-1 text-ink">{error.message}</p>
+          <p className="mt-1 text-pretty text-ink">{error.message}</p>
           {error.detail && (
             <details className="mt-2" data-testid="error-detail">
               <summary className="cursor-pointer text-xs text-stamp-red hover:text-ink">

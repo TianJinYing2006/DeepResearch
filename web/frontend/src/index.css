@@ -61,6 +61,13 @@
     background: rgba(30, 90, 216, 0.35);
   }
 
+  /* 无障碍兜底（fixing-accessibility / Vercel WIG）：任何可交互元素都必须有可见焦点。
+     组件类里的 focus-visible ring 优先；未单独定义的（药丸按钮、文字按钮、链接、radio）走这里。 */
+  :where(button, a, input, select, textarea, [role='radio']):focus-visible {
+    outline: 2px solid rgba(30, 90, 216, 0.55);
+    outline-offset: 2px;
+  }
+
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -85,7 +92,7 @@
       0 1px 2px rgba(23, 27, 25, 0.05),
       0 14px 36px -24px rgba(23, 27, 25, 0.25);
     /* 入场编排：所有纸面卡片错峰浮现（mount 一次，不循环）；模态内面板由 utilities 层覆盖 */
-    animation: rise 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: rise 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   main aside > .surface-card:nth-child(2) {
@@ -200,6 +207,15 @@
   /* 长 URL / 无空格长串（中文报告常见）在窄屏上会顶破容器 ⇒ 允许任意处断行 */
   .report-prose :where(p, li, h1, h2, h3, th, td, blockquote) {
     overflow-wrap: anywhere;
+  }
+
+  /* baseline-ui：标题 balance（避免孤字）、正文 pretty（避免寡行） */
+  .report-prose :where(h1, h2, h3) {
+    text-wrap: balance;
+  }
+
+  .report-prose :where(p, li) {
+    text-wrap: pretty;
   }
 
   .report-prose th {

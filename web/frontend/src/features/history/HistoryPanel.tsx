@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Modal from '../../components/Modal'
 import { ReportView } from '../../components/ReportView'
+import { SkeletonRows } from '../../components/ui'
 import { readErrorMessage } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import type { RunBrief } from '../../types/api'
@@ -128,7 +129,12 @@ export default function HistoryPanel({ open }: { open: boolean }) {
                     data-testid="history-retry" onClick={() => void loadHistory(false)}>重试</button>
           </p>
         )}
-        {!historyError && history === null && <p className="text-ink-muted">加载中…</p>}
+        {!historyError && history === null && (
+          <div role="status" aria-live="polite">
+            <span className="sr-only">加载中…</span>
+            <SkeletonRows rows={4} />
+          </div>
+        )}
         {history && history.length === 0 && !historyError && <p className="text-ink-muted">暂无历史任务</p>}
         {history && history.length > 0 && (
           <ul className="space-y-2">
