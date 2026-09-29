@@ -300,26 +300,26 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* R4a（审计 U20）：跳过导航直达主内容（键盘/读屏） */}
       <a href="#main"
-         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[70] focus:rounded-lg focus:bg-emerald-400 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-emerald-950">
+         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-stamp-blue focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white">
         跳到主内容
       </a>
       {/* R1（审计 U3）：状态 / 复制 / 导出的读屏播报通道（视觉隐藏） */}
       <div className="sr-only" role="status" aria-live="polite" data-testid="live-region">
         {announcement}
       </div>
-      <header className="border-b border-white/[0.07] bg-[#07100f]/80 backdrop-blur-xl">
+      <header className="border-b border-t-2 border-b-rule border-t-stamp-blue bg-paper/95 backdrop-blur-sm">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-lg text-emerald-200 shadow-[inset_0_0_20px_rgba(52,211,153,0.08)]"
+            <div className="grid h-10 w-10 place-items-center rounded-lg border border-stamp-blue/30 bg-stamp-blue/10 text-lg text-stamp-blue shadow-[inset_0_0_0_3px_rgba(30,90,216,0.07)]"
                  aria-hidden="true">
               ◈
             </div>
             <div>
-              <p className="font-semibold tracking-tight text-white">DeepResearch</p>
-              <p className="text-xs text-slate-400">可审计研究工作台</p>
+              <p className="font-semibold tracking-tight text-ink">DeepResearch</p>
+              <p className="text-xs text-ink-muted">可审计研究工作台</p>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -327,7 +327,7 @@ export default function App() {
               <span className={`h-1.5 w-1.5 rounded-full ${connectionInfo.dotClass}`} aria-hidden="true" />
               {connectionInfo.label}
             </span>
-            <span className="hidden rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-400 sm:inline-flex">
+            <span className="hidden rounded-full border border-rule bg-rule/30 px-3 py-1.5 text-ink-muted sm:inline-flex">
               AG-UI 事件语义
             </span>
           </div>

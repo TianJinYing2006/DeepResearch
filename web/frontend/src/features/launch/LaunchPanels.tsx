@@ -51,10 +51,10 @@ export function LaunchForm({
     <form className="surface-card p-5" onSubmit={onSubmit}>
       <div className="mb-6 flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-white">新研究</p>
-          <p className="mt-1 text-xs leading-5 text-slate-400">描述问题，研究过程会实时推送到右侧。</p>
+          <p className="text-sm font-semibold text-ink">新研究</p>
+          <p className="mt-1 text-xs leading-5 text-ink-muted">描述问题，研究过程会实时推送到右侧。</p>
         </div>
-        <span className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.07] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200/80">
+        <span className="rounded-lg border border-stamp-green/30 bg-stamp-green/10 px-2 py-1 text-[10px] font-bold tracking-[0.16em] text-stamp-blue">
           Live
         </span>
       </div>
@@ -71,7 +71,7 @@ export function LaunchForm({
         required
       />
 
-      <label className="field-label mt-5" htmlFor="instructions">附加要求 <span className="normal-case tracking-normal text-slate-400">（可选）</span></label>
+      <label className="field-label mt-5" htmlFor="instructions">附加要求 <span className="normal-case tracking-normal text-ink-muted">（可选）</span></label>
       <textarea
         id="instructions"
         className="field-control min-h-24 resize-y"
@@ -87,12 +87,12 @@ export function LaunchForm({
         role="radiogroup"
         aria-labelledby="profile-label"
         onKeyDown={handleProfileKey}
-        className="relative mt-2 flex overflow-hidden rounded-xl border border-white/10 bg-black/20 transition hover:border-white/20"
+        className="relative mt-2 flex overflow-hidden rounded-lg border border-rule bg-rule/40 transition hover:border-ink-muted/50"
       >
         {/* 滑动高亮块：与搜索引擎切换器同款交互（300ms ease-out） */}
         <span
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 rounded-lg bg-emerald-400/[0.14] ring-1 ring-inset ring-emerald-400/40 transition-transform duration-300 ease-out"
+          className="absolute inset-y-0 left-0 rounded-lg bg-stamp-blue/10 ring-1 ring-inset ring-stamp-blue/40 transition-transform duration-300 ease-out"
           style={{
             width: `${100 / Math.max(profileOptions.length, 1)}%`,
             transform: `translateX(${activeProfileIndex * 100}%)`,
@@ -110,18 +110,18 @@ export function LaunchForm({
               disabled={running}
               className={`relative z-10 flex-1 px-3 py-2.5 text-xs font-semibold transition-colors duration-200 ${
                 profile === option.value
-                  ? 'text-emerald-200'
-                  : 'text-slate-400 hover:text-slate-200'
-              } disabled:cursor-not-allowed disabled:text-slate-600 disabled:hover:text-slate-600`}
+                  ? 'text-stamp-green'
+                  : 'text-ink-muted hover:text-ink'
+              } disabled:cursor-not-allowed disabled:text-ink-muted/60 disabled:hover:text-ink-muted/60`}
             >
               {option.label}
             </button>
           ))
         ) : (
-          <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-slate-400">加载中…</span>
+          <span className="relative z-10 flex-1 px-3 py-2.5 text-xs text-ink-muted">加载中…</span>
         )}
       </div>
-      <p className="mt-1.5 text-[10px] leading-4 text-slate-400">
+      <p className="mt-1.5 text-[10px] leading-4 text-ink-muted">
         档位由服务端固定底层参数（跳数 / 子问题 / 预算 / 时限），客户端不可覆盖。
         {activeProfile
           ? `当前：≤${activeProfile.max_total_hops} 跳 · ≤${activeProfile.max_subquestions} 个子问题 · ${Math.round(activeProfile.timeout_seconds / 60)} 分钟`
@@ -154,7 +154,7 @@ export function LaunchForm({
       )}
 
       {status === 'stopping' && (
-        <p className="mt-3 text-xs leading-5 text-amber-100/70">
+        <p className="mt-3 text-xs leading-5 text-stamp-amber">
           取消请求已生效。当前节点会自然结束，系统不会再启动下一节点。
         </p>
       )}
@@ -165,8 +165,8 @@ export function LaunchForm({
 export function BoundaryCard() {
   return (
     <section className="surface-card p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">运行边界</p>
-      <div className="mt-4 space-y-3 text-xs leading-5 text-slate-400">
+      <p className="text-xs font-medium text-ink-muted">运行边界</p>
+      <div className="mt-4 space-y-3 text-xs leading-5 text-ink-muted">
         <BoundaryItem title="核心逻辑" text="研究判断全部留在 Python 后端" />
         <BoundaryItem title="费用口径" text="只展示后端实值，缺失时不做估算" />
         <BoundaryItem title="取消语义" text="节点边界停止，不把取消记为故障" />
@@ -185,15 +185,15 @@ export function RagStatusCard({ result, ragSources }: RagStatusCardProps) {
     <section className="surface-card p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-white">文档摄取状态</h2>
-          <p className="mt-1 text-xs text-slate-400">本轮知识库参与情况</p>
+          <h2 className="text-sm font-semibold text-ink">文档摄取状态</h2>
+          <p className="mt-1 text-xs text-ink-muted">本轮知识库参与情况</p>
         </div>
-        <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-300">{ragSources.length}</span>
+        <span className="rounded-full border border-rule px-2.5 py-1 font-mono text-xs tabular-nums text-ink">{ragSources.length}</span>
       </div>
       {result ? (
         ragSources.length > 0 ? (
           <div className="mt-4">
-            <p className="text-xs leading-5 text-slate-400">
+            <p className="text-xs leading-5 text-ink-muted">
               本轮命中 {ragSources.length} 个本地知识库文件：
             </p>
             {/* R4a（审计 U16）：滚动区可聚焦，键盘可滚动查看 */}
@@ -201,17 +201,17 @@ export function RagStatusCard({ result, ragSources }: RagStatusCardProps) {
                 tabIndex={0} role="region" aria-label="命中的知识库文件">
               {ragSources.map((source) => (
                 <li key={source} title={source} data-testid="rag-hit-item"
-                    className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 px-2.5 py-1.5 text-xs text-emerald-50/90">
+                    className="flex items-center gap-2 rounded-lg border border-rule bg-rule/40 px-2.5 py-1.5 text-xs text-ink">
                   <span className="min-w-0 flex-1 truncate">{knowledgeBaseName(source)}</span>
                 </li>
               ))}
             </ul>
           </div>
         ) : (
-          <p className="mt-4 text-xs leading-5 text-slate-400">本轮结果未命中本地知识库文件。</p>
+          <p className="mt-4 text-xs leading-5 text-ink-muted">本轮结果未命中本地知识库文件。</p>
         )
       ) : (
-        <p className="mt-4 text-xs leading-5 text-slate-400">
+        <p className="mt-4 text-xs leading-5 text-ink-muted">
           研究完成后显示 RAG 文档命中情况；当前协议不伪造摄取进度。
         </p>
       )}

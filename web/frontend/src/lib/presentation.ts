@@ -48,34 +48,34 @@ export function latestActivity(events: AguiEvent[]): string {
 
 export function statusPresentation(status: StreamStatus) {
   return {
-    idle: { label: '等待任务', className: 'border-white/10 bg-white/[0.03] text-slate-400' },
-    starting: { label: '正在启动', className: 'border-brand-300/20 bg-brand-300/[0.08] text-brand-200' },
-    running: { label: '研究进行中', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
-    stopping: { label: '正在安全停止', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
-    done: { label: '研究完成', className: 'border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200' },
-    cancelled: { label: '已取消', className: 'border-amber-300/20 bg-amber-300/[0.08] text-amber-200' },
-    timeout: { label: '已到时限停止', className: 'border-amber-300/25 bg-amber-300/[0.10] text-amber-200' },
-    error: { label: '运行失败', className: 'border-rose-300/20 bg-rose-300/[0.08] text-rose-200' },
+    idle: { label: '等待任务', className: 'border-rule bg-rule/30 text-ink-muted' },
+    starting: { label: '正在启动', className: 'border-stamp-blue/30 bg-stamp-blue/10 text-stamp-blue' },
+    running: { label: '研究进行中', className: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green badge-live' },
+    stopping: { label: '正在安全停止', className: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber' },
+    done: { label: '研究完成', className: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green' },
+    cancelled: { label: '已取消', className: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber' },
+    timeout: { label: '已到时限停止', className: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber' },
+    error: { label: '运行失败', className: 'border-stamp-red/30 bg-stamp-red/10 text-rose-200' },
   }[status]
 }
 
 export function connectionPresentation(status: ConnectionStatus) {
   return {
-    idle: { label: '等待实时流', className: 'border-white/10 bg-white/[0.03] text-slate-400', dotClass: 'bg-slate-600' },
-    connecting: { label: '连接中', className: 'border-brand-300/15 bg-brand-300/[0.05] text-brand-200', dotClass: 'animate-pulse bg-brand-300' },
-    live: { label: '实时连接', className: 'border-emerald-300/15 bg-emerald-300/[0.05] text-emerald-200', dotClass: 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,0.7)]' },
-    reconnecting: { label: '正在重连', className: 'border-amber-300/15 bg-amber-300/[0.05] text-amber-200', dotClass: 'animate-pulse bg-amber-300' },
-    closed: { label: '连接已关闭', className: 'border-white/10 bg-white/[0.03] text-slate-400', dotClass: 'bg-slate-600' },
+    idle: { label: '等待实时流', className: 'border-rule bg-rule/30 text-ink-muted', dotClass: 'bg-ink-muted/50' },
+    connecting: { label: '连接中', className: 'border-stamp-blue/30 bg-stamp-blue/10 text-stamp-blue', dotClass: 'animate-pulse bg-stamp-blue' },
+    live: { label: '实时连接', className: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green', dotClass: 'bg-stamp-green' },
+    reconnecting: { label: '正在重连', className: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber', dotClass: 'animate-pulse bg-stamp-amber' },
+    closed: { label: '连接已关闭', className: 'border-rule bg-rule/30 text-ink-muted', dotClass: 'bg-ink-muted/50' },
   }[status]
 }
 
 export function eventPresentation(event: AguiEvent) {
   switch (event.type) {
     case 'RUN_STARTED':
-      return { icon: '▶', iconClass: 'border-brand-300/15 bg-brand-300/[0.07] text-brand-200', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
+      return { icon: '▶', iconClass: 'border-stamp-blue/30 bg-stamp-blue/10 text-stamp-blue', title: '研究已启动', detail: `检索上限 ${String(event.max_total_hops ?? '—')} 跳 · 子问题上限 ${String(event.max_subquestions ?? '—')} 个` }
     case 'STEP_FINISHED': {
       const step = event as StepFinishedEvent
-      return { icon: '✓', iconClass: 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: nodeLabel(step.node), detail: `${formatDuration(step.duration_ms)} · 深度 ${step.depth} · ${formatNumber(step.token_used)} token` }
+      return { icon: '✓', iconClass: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green', title: nodeLabel(step.node), detail: `${formatDuration(step.duration_ms)} · 深度 ${step.depth} · ${formatNumber(step.token_used)} token` }
     }
     case 'STATE_DELTA': {
       const delta = event as StateDeltaEvent
@@ -83,20 +83,20 @@ export function eventPresentation(event: AguiEvent) {
       const governance = delta.planner_events_count > 0
         ? ` · 规划治理 ${delta.planner_events_count} 条`
         : ''
-      return { icon: '↗', iconClass: 'border-violet-300/15 bg-violet-300/[0.07] text-violet-200', title: '研究状态更新', detail: message + governance }
+      return { icon: '↗', iconClass: 'border-stamp-blue/30 bg-stamp-blue/10 text-stamp-blue', title: '研究状态更新', detail: message + governance }
     }
     case 'DEGRADATION': {
       const degradation = event as DegradationEvent
-      return { icon: '!', iconClass: 'border-amber-300/15 bg-amber-300/[0.07] text-amber-200', title: `${degradation.component} 已降级`, detail: degradation.detail || degradation.reason }
+      return { icon: '!', iconClass: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber', title: `${degradation.component} 已降级`, detail: degradation.detail || degradation.reason }
     }
     case 'RUN_FINISHED': {
       const runFinished = event as RunFinishedEvent
-      return { icon: '■', iconClass: runFinished.cancelled ? 'border-amber-300/15 bg-amber-300/[0.07] text-amber-200' : 'border-emerald-300/15 bg-emerald-300/[0.07] text-emerald-200', title: runFinished.cancelled ? '研究已在安全边界停止' : '研究已完成', detail: `${formatNumber(runFinished.token_used)} token · ${runFinished.degradation_count} 项降级` }
+      return { icon: '■', iconClass: runFinished.cancelled ? 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber' : 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green', title: runFinished.cancelled ? '研究已在安全边界停止' : '研究已完成', detail: `${formatNumber(runFinished.token_used)} token · ${runFinished.degradation_count} 项降级` }
     }
     case 'RUN_ERROR':
-      return { icon: '×', iconClass: 'border-rose-300/15 bg-rose-300/[0.07] text-rose-200', title: '研究运行失败', detail: String(event.message ?? '未知错误') }
+      return { icon: '×', iconClass: 'border-stamp-red/30 bg-rose-300/[0.07] text-rose-200', title: '研究运行失败', detail: String(event.message ?? '未知错误') }
     default:
-      return { icon: '·', iconClass: 'border-white/10 bg-white/[0.03] text-slate-400', title: event.type, detail: '事件已接收' }
+      return { icon: '·', iconClass: 'border-rule bg-rule/30 text-ink-muted', title: event.type, detail: '事件已接收' }
   }
 }
 

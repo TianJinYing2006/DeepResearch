@@ -1,6 +1,24 @@
 # 前端视觉重设计 · 方向提案（R6a）
 
-> 状态：**提案待选**。基线 `9d41c04`（R1–R5 已完成：可访问性、状态安全、结构拆分、性能）。
+> 状态：**已选定方向 B（研究档案）**。R6b-1 主题基础已实施（浅色令牌 + 全局换色 + 报告衬线排版）+ 质感/动效增强（纸纹、层次阴影、入场编排、微交互）；R6b-2 版式（报告优先 + 页边引用 + 顶部状态带）待做。
+
+## R6b-1.5 · Skill 复核记录（本仓库 `.opencode/skills/`）
+
+按已装入的 skill 对主题与动效改动做逐条复核，并按其规则修正：
+
+| Skill 规则 | 出处 | 处置 |
+|---|---|---|
+| `NEVER use h-screen, use h-dvh` | baseline-ui §Layout | `min-h-screen` → `min-h-dvh`（App / ErrorBoundary） |
+| `MUST use a fixed z-index scale (no arbitrary z-*)` | baseline-ui §Layout | 移除 `z-[60]` / `z-[70]`，统一 `z-50`（Portal 后挂载自然置顶） |
+| `SHOULD use structural skeletons for loading states` | baseline-ui §Interaction | 新增 `SkeletonRows`，历史列表与知识库加载改用骨架（保留 `sr-only` 播报） |
+| `MUST use text-balance for headings / text-pretty for paragraphs` | baseline-ui §Typography | H1 / SectionHeading / 报告标题 `text-wrap: balance`；正文与错误文案 `text-wrap: pretty` |
+| `NEVER exceed 200ms for interaction feedback` | baseline-ui §Animation | 交互反馈保持 ≤200ms；入场编排 300ms（非交互反馈） |
+| `MUST respect safe-area-inset for fixed elements` | baseline-ui §Interaction | Modal 遮罩以内联 `max(1rem, env(safe-area-inset-*))` 兜底 |
+| 可交互元素必须可见焦点 | fixing-accessibility §focus / WIG §Focus | 全局 `:focus-visible` 兜底轮廓（药丸按钮/文字按钮/链接/radio），组件自带 ring 优先 |
+| 堆叠弹窗的焦点陷阱与 Escape 归属 | fixing-accessibility §focus and dialogs / frontend-design-audit H13 | Modal 改为 **document 捕获 + 弹窗栈**（仅最上层响应 Tab/Escape/focusin），消除入场动画时序下的焦点竞态（本地 `--repeat-each=10` 复验通过） |
+| 加载状态需骨架/进度指示 | frontend-design-audit H1 | 同骨架方案；错误已 `role="alert"`、状态已 `aria-live` |
+| `theme-color` 与页面背景一致 / dark 主题声明 | Vercel WIG §Dark Mode & Theming | `index.html` `theme-color` → `#f4f6f3`，新增 `color-scheme: light` |
+| 配色/字体/布局刻意选择，避免模板 chrome | frontend-design §Design principles | 全大写 eyebrow 已移除（改 stamp-blue 短刻度）；单一强调色；无渐变/玻璃拟态 |
 > 方法：`frontend-design`（Anthropic 官方 skill）的「先立方向、再自我批判」流程 + `baseline-ui` 约束。
 > 约束：不改交互协议与 39 个 `data-testid`；中文优先；对比度 AA；`prefers-reduced-motion` 保留；数字用 `tabular-nums`。
 > 选定方向后实施（R6b）：按方案落 token 与组件，尽量不动布局结构。

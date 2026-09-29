@@ -22,17 +22,17 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
               <div
                 className={`mb-2 h-1.5 rounded-full transition-colors ${
                   completed
-                    ? 'bg-emerald-400'
+                    ? 'bg-stamp-blue/40'
                     : active
                       ? cancelling
-                        ? 'bg-amber-300'
-                        : 'bg-brand-300'
-                      : 'bg-white/10'
+                        ? 'bg-stamp-amber'
+                        : 'bg-stamp-blue'
+                      : 'bg-rule'
                 }`}
               />
               <div
                 className={`truncate text-center text-[11px] font-medium ${
-                  completed || active ? 'text-slate-200' : 'text-slate-400'
+                  completed || active ? 'text-ink' : 'text-ink-muted'
                 }`}
               >
                 {stage.name}
@@ -44,26 +44,26 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
 
       <div className="mt-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">当前阶段</p>
-          <p className="mt-1 text-xl font-semibold text-white">
+          <p className="text-xs font-semibold text-ink-muted">当前阶段</p>
+          <p className="mt-1 text-xl font-semibold text-ink">
             {cancelling ? '正在安全停止' : progress.stageName}
           </p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-2xl font-semibold tabular-nums text-emerald-300">{percent}%</p>
-          <p className="mt-1 text-xs text-slate-400">{etaLabel(progress, cancelling)}</p>
+          <p className="font-mono text-2xl font-semibold tabular-nums text-stamp-blue">{percent}%</p>
+          <p className="mt-1 text-xs text-ink-muted">{etaLabel(progress, cancelling)}</p>
         </div>
       </div>
 
-      <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-black/25" role="progressbar"
+      <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-rule/40" role="progressbar"
            aria-label="研究进度" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}
            aria-valuetext={`${progress.stageName} ${percent}%`}>
         {/* R5（审计 U61）：只动画合成属性 transform（scaleX），不再动画 layout 的 width */}
         <div
           className={`h-full w-full origin-left rounded-full transition-transform duration-500 ${
             cancelling
-              ? 'bg-gradient-to-r from-amber-400 to-orange-300'
-              : 'bg-gradient-to-r from-emerald-500 via-emerald-300 to-brand-300'
+              ? 'bg-stamp-amber'
+              : 'bg-stamp-blue'
           }`}
           style={{ transform: `scaleX(${percent / 100})` }}
         />
@@ -78,8 +78,8 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
       </div>
 
       {progress.stageName === '检索' && (
-        <p className="mt-3 text-xs text-slate-400">
-          检索跳数进度 <span className="font-mono text-slate-300">{progress.innerPercent}%</span>；总流程百分比只使用可确认的数据。
+        <p className="mt-3 text-xs text-ink-muted">
+          检索跳数进度 <span className="font-mono text-ink">{progress.innerPercent}%</span>；总流程百分比只使用可确认的数据。
         </p>
       )}
     </div>
