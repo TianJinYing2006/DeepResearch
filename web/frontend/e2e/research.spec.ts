@@ -94,9 +94,10 @@ test.describe('研究主流程（桌面端）', () => {
     // 需求 17：文件名 = 话题名（RFC 6266 filename*）
     expect(download.suggestedFilename()).toBe('导出验证.md')
 
-    // 从历史列表拿 run_id，再直接问后端要一份，核对导出内容**带审计元数据**（前端那份纯正文没有）
-    const list = await (await page.request.get('/api/runs')).json()
-    const runId = list.runs[0].run_id as string
+    // run_id 从会话存储取（终局后保留，见 useResearchStream ACTIVE_RUN_KEY）；
+    // 不依赖 /api/runs 历史接口——CI demo 环境无任务库，历史列表为空。
+    const runId = await page.evaluate(() => sessionStorage.getItem('dr.lastRunId') ?? '')
+    expect(runId).toMatch(/^[a-f0-9]{6,}$/)
     const response = await page.request.get(`/api/research/${runId}/report?format=md`)
     expect(response.ok()).toBeTruthy()
     const body = await response.text()
