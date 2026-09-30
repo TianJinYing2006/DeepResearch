@@ -38,6 +38,12 @@ x-app-environment: &app-environment
   QDRANT_URL: "${QDRANT_URL:-http://qdrant:6333}"
   # P0-8b：RAG 隔离区（api 写入、worker 读取）—— 两服务共享同一卷
   DR_RAG_QUARANTINE_DIR: "/var/lib/deepresearch/rag-quarantine"
+  # P4-B：配额与预算（2026-09-30 修：此前 compose 未透传，.env 调参对容器无效；
+  #         值仍由 .env 覆盖，默认与代码默认一致）
+  DR_MAX_USER_CONCURRENT: "${DR_MAX_USER_CONCURRENT:-1}"
+  DR_DAILY_RUNS_PER_USER: "${DR_DAILY_RUNS_PER_USER:-1}"
+  DR_RUN_BUDGET_CNY: "${DR_RUN_BUDGET_CNY:-1.50}"
+  DR_MONTHLY_BUDGET_CNY: "${DR_MONTHLY_BUDGET_CNY:-1500}"
   DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
   DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
   SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
@@ -120,7 +126,9 @@ services:
     image: qdrant/qdrant:latest
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      # qdrant 镜像内无 curl / wget（2026-09-30 实测 1.19.1 仅有 bash）：
+      # 用 bash 原生 /dev/tcp 探测 REST 端口，避免容器「运行正常却判 unhealthy」
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
       interval: 5s
       timeout: 5s
       retries: 20
