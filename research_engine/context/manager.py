@@ -95,10 +95,13 @@ class ContextManager:
         lines: List[str] = []
         current_sq: str | None = None
         for i, f in enumerate(findings, 1):
-            if sectioned and f.sq_id != current_sq:
-                header = sq_map.get(f.sq_id, f.sq_id or "未分类材料")
+            # L3 渲染防御（需求 16 / bug #75）：未知 sq_id 不再冒充「子问题」标题
+            # （归「未分类材料」）；连续未知 id 合并为一组，避免每个幽灵 id 各开一节。
+            group_key = f.sq_id if f.sq_id in sq_map else ""
+            if sectioned and group_key != current_sq:
+                header = sq_map.get(group_key) or "未分类材料"
                 lines.append(f"\n--- 子问题：{header} ---")
-                current_sq = f.sq_id
+                current_sq = group_key
             meta = "，自指/方法论" if f.is_meta else ""  # R2.4：is_meta 仅用于方法论说明小节
             # P0 引用协议统一：用 Finding N: 编号，彻底避免 #、[] 等符号被 LLM 模仿到引用中
             lines.append(f"Finding {i}: 来源: {f.source} (类型: {f.source_type}, 置信度: {f.confidence:.2f}{meta})")

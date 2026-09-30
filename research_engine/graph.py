@@ -259,6 +259,8 @@ class DeepResearchGraph:
             "next_queries": state.next_queries,
             "token_used": state.token_used,  # Q6-B：critic 的 LLM token 累计写回
             "reflection_log": [entry],  # add reducer 追加（Q7）
+            # 需求 16：critic 治理事件（next_queries sq_id 归一化）并入同一治理事件流
+            "planner_events": self.critic.drain_events(),
             "progress": [
                 {"stage": "critic", "msg": f"depth={state.depth} 裁决={signal}"
                  + ("（需重分解）" if state.needs_replan else "")
