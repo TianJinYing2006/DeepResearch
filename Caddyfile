@@ -1,0 +1,42 @@
+# DeepResearch 反向代理（Caddy 2，自动申请并续期 HTTPS 证书）
+#
+# 用法：
+#   DR_DOMAIN=your.domain docker compose --profile proxy up -d
+# 未设 DR_DOMAIN 时回落到 localhost（仅本地 HTTP 调试，不会走 ACME）。
+#
+# 验收口径见 docs/operations/production-readiness.md §7.1（SSE 必须穿透、心跳 15s 不断）。
+# 上线前请真机验证一次：浏览器跑完一个完整任务，确认进度条持续推进不中断。
+
+{$DR_DOMAIN} {
+	# ---- SSE 事件流：不压缩、不缓冲 ----
+	# 压缩会让代理缓冲响应体，表现为「进度条长时间不动然后一次性跳完」；
+	# flush_interval -1 是 Caddy 的「收到即转发」开关。
+	@stream path /api/research/*/stream
+	handle @stream {
+		reverse_proxy api:8000 {
+			flush_interval -1
+			transport http {
+				# 单次运行默认超时 3600s（DR_RUN_TIMEOUT_SECONDS），留 5 分钟余量
+				read_timeout 3900s
+				write_timeout 3900s
+			}
+		}
+	}
+
+	# ---- 其余路径：正常压缩 ----
+	handle {
+		encode zstd gzip
+		reverse_proxy api:8000
+	}
+
+	# 上传上限对齐 DR_RAG_MAX_FILE_MB（默认 10 MB）+ multipart 余量；
+	# 超过直接在代理层拒绝，不打到应用层。
+	request_body {
+		max_size 12MB
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

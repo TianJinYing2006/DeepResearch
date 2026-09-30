@@ -4,6 +4,8 @@
 # 起停：
 #   docker compose -f docker-compose.staging.yml up -d --build   # 自动等依赖健康 → 跑迁移 → 起 API
 #   docker compose -f docker-compose.staging.yml down            # 停服（加 -v 连数据卷一起删）
+#   docker compose --profile proxy up -d                         # 额外起 Caddy（自动 HTTPS）
+#   docker compose --profile local-s3 up -d                      # 额外起 MinIO（本地对象存储）
 # 探针：
 #   curl http://127.0.0.1:8000/api/health/ready
 #
@@ -13,9 +15,19 @@
 # 纯本地 HTTP 调试：DR_ENV=local DR_COOKIE_SECURE=false DR_AUTH_REQUIRED=false。
 #
 # 说明：
-# - Qdrant 不在本文件内：默认指向宿主机（host.docker.internal）；staging 部署时用 QDRANT_URL 指向真实实例。
+# - Qdrant 已于 2026-09-30 纳入本文件（此前默认指向宿主机 host.docker.internal，
+#   云上一键部署时宿主机没有实例 ⇒ RAG 上传直接不可用）。现默认指向 compose 内服务，
+#   仍可用 QDRANT_URL 覆盖为外部实例。
 # - Worker 服务在 P3 增加；API 现在仍走请求进程内 RunManager（P2/P3 迁移到队列）。
 # - 境外服务按推荐基线 v2 默认关闭（LANGFUSE_ENABLED=false / ENABLE_ARXIV=false）。
+#
+# 内存预算（面向 4 GB 轻量机，2026-09-30 实测估算）：
+#   常驻约 2.6 GB（Worker ~600 + Qdrant ~500 + 系统/Docker ~400 + API ~400
+#   + PostgreSQL ~350 + MinIO ~300 + Redis ~100），余量约 1.4 GB。
+#   🚨 各服务的 deploy.resources.limits.memory 是**硬上限**：目的是让某个服务失控时
+#   只杀它自己，而不是由内核 OOM killer 挑一个——后者最常挑中 PostgreSQL（内存占用最大
+#   且是唯一有状态服务），代价是数据损坏。用云上 COS 时不启动 MinIO，可再省 ~300 MB。
+#   另建议给宿主机加 2 GB swap（轻量机默认无 swap）。
 
 name: deepresearch-staging
 
@@ -23,7 +35,7 @@ name: deepresearch-staging
 x-app-environment: &app-environment
   DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
   DR_REDIS_URL: "redis://redis:6379/0"
-  QDRANT_URL: "${QDRANT_URL:-http://host.docker.internal:6333}"
+  QDRANT_URL: "${QDRANT_URL:-http://qdrant:6333}"
   # P0-8b：RAG 隔离区（api 写入、worker 读取）—— 两服务共享同一卷
   DR_RAG_QUARANTINE_DIR: "/var/lib/deepresearch/rag-quarantine"
   DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
@@ -38,11 +50,24 @@ x-app-environment: &app-environment
   # P1-8：OpenTelemetry（默认关闭；设置 OTLP 端点或打开 Prometheus 抓取才启用）
   OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
   DR_METRICS_PROMETHEUS: "${DR_METRICS_PROMETHEUS:-false}"
-  # P1-6：对象存储（默认指向 compose 内 MinIO；置空则回落 PostgreSQL）
+  # P1-6：对象存储。**置空 DR_S3_ENDPOINT 即完全关闭，报告回落 PostgreSQL**（双轨）。
+  # 三个供应商的取值差异见 web/backend/objectstore.py 模块 docstring：
+  #   腾讯云 COS（同地域用内网域名免流量费）：
+  #     DR_S3_ENDPOINT=https://cos-internal.ap-beijing.myqcloud.com
+  #     DR_S3_REGION=ap-beijing
+  #     DR_S3_BUCKET=deepresearch-125xxxxxxx      ← COS 桶名必须带 appid 后缀
+  #   阿里云 OSS（注意与 COS 不同）：
+  #     DR_S3_ENDPOINT=https://oss-cn-beijing.aliyuncs.com
+  #     DR_S3_SIGNATURE_VERSION=s3                ← 必须 V2，boto3 的 V4 与 OSS 不兼容
+  #     DR_S3_ADDRESSING_STYLE=virtual            ← OSS 不支持 path-style
+  #   MinIO（本地）：默认即下列值，需 --profile local-s3 启动 minio 服务。
   DR_S3_ENDPOINT: "${DR_S3_ENDPOINT:-http://minio:9000}"
   DR_S3_ACCESS_KEY: "${DR_S3_ACCESS_KEY:-deepresearch}"
   DR_S3_SECRET_KEY: "${DR_S3_SECRET_KEY:-deepresearch-local}"
   DR_S3_BUCKET: "${DR_S3_BUCKET:-deepresearch}"
+  DR_S3_REGION: "${DR_S3_REGION:-us-east-1}"
+  DR_S3_SIGNATURE_VERSION: "${DR_S3_SIGNATURE_VERSION:-s3v4}"
+  DR_S3_ADDRESSING_STYLE: "${DR_S3_ADDRESSING_STYLE:-auto}"
   DR_S3_REPORT_RETENTION_DAYS: "${DR_S3_REPORT_RETENTION_DAYS:-90}"
 
 services:
@@ -62,11 +87,18 @@ services:
       - pg_data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:${DR_POSTGRES_PORT:-5432}:5432"
+    # 硬上限见文件头「内存预算」：超限只杀本容器，不让内核 OOM 挑中 PostgreSQL
+    deploy:
+      resources:
+        limits:
+          memory: 900M
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    # 显式设 maxmemory：Redis 未设上限会一直增长；本实例只用作队列信号与限流键
+    command: ["redis-server", "--appendonly", "yes",
+              "--maxmemory", "200mb", "--maxmemory-policy", "allkeys-lru"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -76,6 +108,31 @@ services:
       - redis_data:/data
     ports:
       - "127.0.0.1:${DR_REDIS_PORT:-6379}:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # RAG 向量库（P5 多租户隔离：检索按 user_id / tenant_id / visibility 过滤）。
+  # 2026-09-30 纳入本文件 —— 此前默认指向宿主机，云上无实例时 RAG 上传功能不可用。
+  # ⚠️ 镜像用 latest 与既有 minio 服务一致；上生产前应固定具体 tag 并记入变更记录。
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:${DR_QDRANT_PORT:-6333}:6333"
+    deploy:
+      resources:
+        limits:
+          memory: 640M
 
   migrate:
     image: postgres:16-alpine
@@ -91,9 +148,13 @@ services:
     restart: "no"
 
   # P1-6：S3 兼容对象存储（报告 / 导出；私有桶 + runs/ 前缀生命周期）
+  # ⚠️ 默认**不启动**（profiles: local-s3）：上云时用腾讯云 COS / 阿里云 OSS，
+  #    只需设环境变量 DR_S3_*，不必再跑 MinIO（省 ~300 MB 内存与一份存储）。
+  #    本地要用：docker compose --profile local-s3 up -d
   minio:
     image: minio/minio:latest
     restart: unless-stopped
+    profiles: ["local-s3"]
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: "${DR_S3_ACCESS_KEY:-deepresearch}"
@@ -108,6 +169,10 @@ services:
     ports:
       - "127.0.0.1:${DR_MINIO_PORT:-9000}:9000"
       - "127.0.0.1:${DR_MINIO_CONSOLE_PORT:-9001}:9001"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
 
   api:
     build:
@@ -119,7 +184,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      # 不依赖 minio：它已移入 profiles: local-s3（用云上 COS/OSS 时不存在该服务）
+      qdrant:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -153,6 +219,10 @@ services:
       - rag_quarantine:/var/lib/deepresearch/rag-quarantine
     ports:
       - "${DR_API_BIND:-127.0.0.1}:${DR_API_PORT:-8000}:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 450M
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
       interval: 15s
@@ -172,7 +242,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      # 同 api：不依赖 minio（profiles: local-s3）
+      qdrant:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -189,8 +260,38 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - rag_quarantine:/var/lib/deepresearch/rag-quarantine
+    # Worker 跑研究图时内存峰值最高（state 累积 + LangGraph），上限给到最大档
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+
+  # 反向代理（Caddy 自动签发并续期 HTTPS 证书）。默认**不启动**，用 profile 打开：
+  #   DR_DOMAIN=your.domain docker compose --profile proxy up -d
+  # 自己已有 Nginx / 网关时不需要它 —— 配置口径见 docs/operations/production-readiness.md §7.1。
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["proxy"]
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      # Caddyfile 用 {$DR_DOMAIN} 取；未设置时回落到 localhost（仅本地 HTTP 调试）
+      DR_DOMAIN: "${DR_DOMAIN:-localhost}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
+  qdrant_data:
+  caddy_data:
+  caddy_config:
   pg_data:
   redis_data:
   rag_quarantine:

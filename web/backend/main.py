@@ -14,6 +14,7 @@ import os
 import secrets
 import shutil
 import socket
+import sys
 import tempfile
 import time
 import uuid
@@ -361,7 +362,11 @@ if store is not None:
         # P1-6：对象存储桶 + 生命周期（best-effort；未配置则为 None 直接跳过）
         _object_store = get_object_store()
         if _object_store is not None:
-            _object_store.ensure_bucket()
+            # 不再静默：ensure_bucket 自己捕获分步骤失败并返回 warnings，
+            # 这里逐条打到 stderr —— 尤其是「生命周期没设上」，否则 90 天保留期
+            # 悄悄失效、与隐私政策承诺不符却无人知晓。
+            for _warning in _object_store.ensure_bucket().get("warnings", []):
+                print(f"[objectstore] {_warning}", file=sys.stderr, flush=True)
     except Exception:  # noqa: BLE001 —— 库不可用时由 readiness 与请求侧结构化错误表达
         pass
 
