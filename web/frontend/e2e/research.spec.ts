@@ -91,10 +91,12 @@ test.describe('研究主流程（桌面端）', () => {
       page.waitForEvent('download'),
       page.click('[data-testid="export-button"]'),
     ])
-    expect(download.suggestedFilename()).toMatch(/^deepresearch-[a-f0-9]+\.md$/)
+    // 需求 17：文件名 = 话题名（RFC 6266 filename*）
+    expect(download.suggestedFilename()).toBe('导出验证.md')
 
-    // 直接问后端要一份，核对导出内容**带审计元数据**（前端那份纯正文没有）
-    const runId = download.suggestedFilename().replace(/^deepresearch-|\.md$/g, '')
+    // 从历史列表拿 run_id，再直接问后端要一份，核对导出内容**带审计元数据**（前端那份纯正文没有）
+    const list = await (await page.request.get('/api/runs')).json()
+    const runId = list.runs[0].run_id as string
     const response = await page.request.get(`/api/research/${runId}/report?format=md`)
     expect(response.ok()).toBeTruthy()
     const body = await response.text()

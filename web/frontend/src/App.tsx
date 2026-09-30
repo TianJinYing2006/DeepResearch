@@ -13,6 +13,7 @@ import {
   type StreamStatus,
   useResearchStream,
 } from './hooks/useResearchStream'
+import { filenameFromDisposition } from './lib/download'
 import { formatCost } from './lib/format'
 import {
   connectionPresentation,
@@ -302,7 +303,10 @@ export default function App() {
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `deepresearch-${runId}.md`
+      // 需求 17：优先用后端下发的文件名（话题名），取不到再回退 run_id
+      anchor.download =
+        filenameFromDisposition(response.headers.get('content-disposition')) ??
+        `deepresearch-${runId}.md`
       anchor.click()
       URL.revokeObjectURL(url)
       setExportState('exported')
