@@ -20,7 +20,10 @@ Validator 将编号映射回真实来源再做校验（ADR-0002/0005 不变）�
 """
 from __future__ import annotations
 
+import contextvars
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 from pydantic import BaseModel, Field
@@ -109,6 +112,27 @@ def validator_model_name(cfg=None) -> str:
     if cfg is not None:
         return cfg.llm.validator_model
     return effective_llm_model("validator")
+
+
+def validator_batch_size() -> int:
+    """单次 LLM 忠实度判定的最大引用条数（≤0 = 关闭分批，回退单次调用）；需求 19 / #76。"""
+    try:
+        return int(os.getenv("DR_VALIDATE_BATCH_SIZE", "16"))
+    except ValueError:
+        return 16
+
+
+def validator_concurrency() -> int:
+    """分批并行度（clamp 1..4）。
+
+    依据（2026-09-30 调研）：sharding 研究（arXiv 2608.06422）显示把判定拆成子批
+    不降低反而提升一致性（κ 0.86 @ 32/批 vs 0.73 @ 1/批），并发度主要受供应商限流约束。
+    """
+    try:
+        value = int(os.getenv("DR_VALIDATE_CONCURRENCY", "3"))
+    except ValueError:
+        value = 3
+    return max(1, min(4, value))
 
 
 class CitationVerdictItem(BaseModel):
@@ -386,24 +410,28 @@ class Validator:
             claim_field = "claim_truncated"
             for r in to_check:
                 r["claim_truncated"] = r["claim"][:100]
-        citations_json = "\n".join(
-            f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
-            for r in to_check
-        )
         # W8 Arm 6：唯一产生点（含开关选版 + min_sources 渲染），与 prompt_hash 逐字一致
         system_prompt = build_validator_system()
-        user = (
-            f"研究发现：\n{findings_text}\n\n"
-            f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
-            "请输出校验结果。"
-        )
-        if fixes_enabled:
-            user += "对每条引用，`claim_echo` 字段必须逐字回显上面的 claim 原文。"
 
-        verdicts: Dict[str, List[Dict[str, Any]]] = {}
-        unused_verdicts: List[Dict[str, Any]] = []
-        llm_failed = False
-        if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
+        def _judge_batch(
+            batch: List[Tuple[int, Dict[str, Any]]],
+        ) -> Tuple[List[Dict[str, Any]], List[int], str]:
+            """单批判定（需求 19 / #76）：同款判据 / schema / 提示词，只把 verdict 范围收窄到本批。
+
+            返回 ``(verdict_items, 失败下标, 错误信息)``；**降级留痕不在此处** ——
+            统一由主线程收集后写入，避免多线程并发修改 degradation 缓冲。
+            """
+            citations_json = "\n".join(
+                f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
+                for _, r in batch
+            )
+            user = (
+                f"研究发现：\n{findings_text}\n\n"
+                f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
+                "请输出校验结果。"
+            )
+            if fixes_enabled:
+                user += "对每条引用，`claim_echo` 字段必须逐字回显上面的 claim 原文。"
             try:
                 # 与 critic.py 同款：Pydantic schema + 纠错重试，防漏 key 静默默认
                 # W5（Q2）：role="validator" 进职责桶（直建实例不传 state 的漏计由类级差值补全）
@@ -420,26 +448,50 @@ class Validator:
                     state=state,
                     schema=CitationVerdict,
                 )
-                # Q3=A：按 finding_id 对齐，不再按序 zip
-                # Bug-7 修复：同编号多论断共享同一 verdict → 改用 list 存储，按 claim 匹配
-                for item in data.get("citations", []):
+                return list(data.get("citations", [])), [], ""
+            except Exception as e:  # noqa: BLE001
+                return [], [idx for idx, _ in batch], str(e)
+
+        verdicts: Dict[str, List[Dict[str, Any]]] = {}
+        unused_verdicts: List[Dict[str, Any]] = []
+        failed_row_ids: set = set()
+        expected_fids = {r["finding_id"] for r in to_check}
+        if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
+            batch_size = validator_batch_size()
+            indexed = list(enumerate(to_check))
+            batches: List[List[Tuple[int, Dict[str, Any]]]] = (
+                [indexed[i:i + batch_size] for i in range(0, len(indexed), batch_size)]
+                if batch_size > 0 else [indexed]
+            )
+            if len(batches) > 1:
+                # 需求 19 / #76：分批并行。上下文必须显式注入线程 —— usage sink 与运行档位
+                # 都是 contextvars，不注入会导致 validator 调用漏记账、档位模型回落全局默认。
+                base_ctx = contextvars.copy_context()
+                with ThreadPoolExecutor(
+                    max_workers=min(validator_concurrency(), len(batches))
+                ) as pool:
+                    futures = [pool.submit(base_ctx.copy().run, _judge_batch, b) for b in batches]
+                    batch_results = [future.result() for future in futures]
+            else:
+                batch_results = [_judge_batch(batches[0])]
+            for items, failed_idxs, err in batch_results:
+                if failed_idxs:
+                    failed_row_ids.update(id(to_check[idx]) for idx in failed_idxs)
+                    # W8 Arm 1：忠实度失效必须留痕（existence_only），按批隔离（每失败批一条）
+                    self.degradations._record_degradation(
+                        component="llm",
+                        reason=FailureReason.LLM_ERROR.value,
+                        detail=(f"phase=validator batch idx={failed_idxs[0]}..{failed_idxs[-1]}; "
+                                f"error={err}"),
+                        fallback_action="existence_only",
+                        node="validator",
+                    )
+                for item in items:
                     fid = item.get("finding_id", "")
-                    if fid and fid in {r["finding_id"] for r in to_check}:
+                    if fid and fid in expected_fids:
                         verdicts.setdefault(fid, []).append(item)
                     else:
                         unused_verdicts.append(item)
-            except Exception as e:  # noqa: BLE001
-                # 降级：仅返回存在性校验结果（保 W1 行为）
-                # W8 Arm 1：这是全链路最要命的一次静默降级 —— 它会让「忠实度」整项失效，
-                # 但产物里看不出来。留痕（existence_only）。
-                llm_failed = True
-                self.degradations._record_degradation(
-                    component="llm",
-                    reason=FailureReason.LLM_ERROR.value,
-                    detail=str(e),
-                    fallback_action="existence_only",
-                    node="validator",
-                )
 
         result: List[Citation] = []
         for r in local_results:
@@ -473,8 +525,8 @@ class Validator:
                         break
 
             unreliable = False
-            if llm_failed:
-                # 整体降级：忠实度未知，按存在性通过（保 W1 行为）
+            if id(r) in failed_row_ids:
+                # 该批 LLM 失败（或关闭分批时的整单失败）：忠实度未知，按存在性通过（保 W1 行为）
                 verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "LLM 校验失败，降级为存在性判定"
             elif verdict is not None:
                 fixes_enabled = config.experiment.validator_fixes_enabled
