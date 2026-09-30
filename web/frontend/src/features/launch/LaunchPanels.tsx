@@ -22,12 +22,14 @@ type LaunchFormProps = {
   /** 方向 B：报告完成后自动折叠为摘要条，把首屏让给报告；可手动展开/收起。 */
   collapsed: boolean
   onToggle: () => void
+  /** 需求 18（#74）：终局后一键开启新话题（清空输入 + 展开 + 聚焦；档位保留）。 */
+  onNewTopic: () => void
 }
 
 export function LaunchForm({
   topic, instructions, profile, profileOptions, activeProfile, activeProfileIndex,
   running, status, onTopicChange, onInstructionsChange, onProfileChange, onSubmit, onCancel,
-  collapsed, onToggle,
+  collapsed, onToggle, onNewTopic,
 }: LaunchFormProps) {
   // R4b（审计 U37）：停止为不可逆操作 —— 两步确认，避免误点丢失长任务剩余工作
   const [confirmingStop, setConfirmingStop] = useState(false)
@@ -41,10 +43,17 @@ export function LaunchForm({
             {activeProfile?.label ?? '默认档位'} · 参数已折叠，优先阅读报告
           </p>
         </div>
-        <button type="button" className="secondary-button shrink-0 !px-3 !py-2"
-                data-testid="launch-expand" onClick={onToggle}>
-          修改参数
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" className="secondary-button !px-3 !py-2"
+                  data-testid="launch-expand" onClick={onToggle}>
+            修改参数
+          </button>
+          {/* 需求 18（#74）：一键开启新话题；运行中禁用（避免清空正在跑的输入） */}
+          <button type="button" className="primary-button !px-3 !py-2"
+                  data-testid="launch-new-topic" onClick={onNewTopic} disabled={running}>
+            新研究
+          </button>
+        </div>
       </section>
     )
   }
