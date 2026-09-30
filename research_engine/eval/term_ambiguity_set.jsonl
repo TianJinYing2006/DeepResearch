@@ -1,0 +1,10 @@
+{"id": "t01", "kind": "acronym_confusion", "query": "JEV对企业项目落地的影响", "note": "实测原型（内测 2026-09-30）：JEV 被搜索引擎纠错联想为 EVA（经济增加值），来源整体偏题且引用 7/7 严格通过"}
+{"id": "t02", "kind": "acronym_confusion", "query": "RAG 与 GraphRAG 在企业知识管理中的取舍", "note": "缩写常见但不排除跨领域同名词干扰"}
+{"id": "t03", "kind": "acronym_confusion", "query": "MCP 协议对 Agent 工具生态的影响", "note": "MCP 多义（Model Context Protocol / 医学等领域同名缩写）"}
+{"id": "t04", "kind": "acronym_confusion", "query": "ESP 在企业安全体系中的作用", "note": "ESP 多义缩写（邮件服务商 / 车身稳定系统 / 超感知）"}
+{"id": "t05", "kind": "polysemy", "query": "苹果公司供应链与苹果种植产业的比较", "note": "同形词跨领域（公司 vs 农产品）"}
+{"id": "t06", "kind": "polysemy", "query": "Transformer 在电力系统与深度学习中的不同含义", "note": "同名词跨领域；题面自带限定，预期可控"}
+{"id": "t07", "kind": "control", "query": "JEV（Just Enough Value）理念在产研协作中的实践", "note": "对照组：主题携带全称与领域限定，预期不触发（或仅轻微）警示"}
+{"id": "t08", "kind": "acronym_confusion", "query": "MoE 混合专家模型在推理成本上的优化", "note": "MoE 与英文 folks 缩写/教育部门（MOE）混淆风险"}
+{"id": "t09", "kind": "acronym_confusion", "query": "BFF 架构在前端的落地实践", "note": "BFF 多义（Backend for Frontend / 网络俚语）"}
+{"id": "t10", "kind": "control", "query": "2026 年 RAG 系统评估方法综述", "note": "对照组：术语常见无歧义，预期不告警"}
