@@ -148,7 +148,102 @@
 | P1-3 | TOTP MFA + 恢复码 + step-up 策略 | 中 | 与 P1-2 可合并排期 |
 | P2 | OIDC 登录 / 设备指纹风控 / 扫码登录 / IdP 评估 | 大 | 产品开放策略 |
 
-## 7. 风险与取舍
+## 7. 字段设计策略（数据模型逐字段）
+
+> 总则：**机密字段绝不出库、不出日志、不出响应**；PII 最小收集 + 日志伪名化；所有令牌只存单向摘要；
+> 新增字段一律「可空 + 默认值」保证向后兼容；时间统一 `timestamptz`（UTC）；破坏性改名走一次性公告。
+> 现有 schema 见 `migrations/0003`（users/sessions/invites）、`0007`（audit_logs）、`0010`（会话治理/reset token）、`0005`（注销台账）。
+
+### 7.1 敏感级定义
+
+| 级别 | 含义 | 处理策略 |
+|---|---|---|
+| 🔴 机密 | 泄露即可冒用身份 | 单向摘要或加密存储；禁入日志 / 响应 / 导出 |
+| 🟠 PII | 个人信息 | 最小收集；日志伪名化（`email_hash`）；注销删除；仅本人可见 |
+| 🟡 内部 | 运维 / 审计需要 | 仅服务端与管理 CLI 可见 |
+| ⚪ 公开 | 无风险 | 可展示 |
+
+### 7.2 `users`
+
+| 字段 | 类型 / 约束 | 级别 | 设计策略 |
+|---|---|---|---|
+| `user_id` | text PK | 🟡 | 不透明 ID（不承载邮箱等语义）；对外出现在审计/会话；**用户删除后审计仍保留该 ID 线索**（审计表无外键） |
+| `email` | text NOT NULL，`UNIQUE(lower(email))` | 🟠 | 登录标识 + 通知通道；接口/日志一律用 `email_hash`（sha256 前缀）伪名化；大小写不敏感唯一；注销即随行删除；P1 加 `email_verified_at` 前不依赖邮箱找回 |
+| `password_hash` | text NOT NULL | 🔴 | Argon2id（参数内嵌于哈希串，可平滑升级）；登录失败统一文案防账号枚举；任何接口 / 日志 / 导出不返回 |
+| `status` | text CHECK `active`/`banned` | 🟡 | 封禁须同时吊销该用户全部会话（P1 落地为显式动作 + 审计 `admin_*`） |
+| `created_at` / `updated_at` | timestamptz | 🟡 | 只读审计用途 |
+| `last_login_at` | timestamptz 可空 | 🟡 | 登录活动页展示；写入失败不得阻断登录 |
+
+### 7.3 `sessions`
+
+| 字段 | 类型 / 约束 | 级别 | 设计策略 |
+|---|---|---|---|
+| `token_hash` | text PK（SHA-256） | 🔴 | 原始 token 只存在于 `__Host-dr_session` HttpOnly Cookie（创建响应一次）；库内只存摘要；**P0 改 `__Host-` 前缀会令存量会话一次性失效**（安排低峰公告） |
+| `session_id` | text UNIQUE（`gen_random_uuid`） | 🟡 | 对外会话标识（撤销 API 路径参数）；**不是凭证**、不授予任何权限 |
+| `user_id` | FK → `users` ON DELETE CASCADE | 🟡 | 注销即级联删除会话 |
+| `created_at` / `expires_at` | timestamptz | 🟡 | 绝对超时 7 天（`DR_SESSION_TTL=604800`）；过期由清理任务删除；**P0 新增空闲超时判定**（`last_seen_at` + `DR_SESSION_IDLE_SECONDS`，内测收紧到 12–24h） |
+| `last_seen_at` | timestamptz NOT NULL | 🟡 | 节流更新（避免逐请求写放大）；会话列表「最近活跃」展示 |
+| `ip` | text 可空 | 🟠 | 会话列表 + 风险信号；随会话到期删除；不参与授权判定 |
+| `user_agent` | text 可空 | 🟠 | 会话列表展示（设备/浏览器）；**入库前截断**（建议 ≤512 字符，防存储放大）；不参与授权判定 |
+
+### 7.4 `invites`（邀请码）
+
+| 字段 | 级别 | 设计策略 |
+|---|---|---|
+| `code_hash` (PK) | 🔴 | SHA-256 摘要；原始邀请码只在创建响应出现一次；库泄露不可用 |
+| `created_by` / `created_at` | 🟡 | 可空 = 管理员 CLI 创建；审计串联 |
+| `expires_at` | 🟡 | 可空（永不过期仅限内部测试）；过期为终态 |
+| `used_by` / `used_at` | 🟡 | **一次性原子消费**（唯一约束 + 条件更新，防并发复用）；`used_by` 随用户删除置空但保留使用痕迹 |
+| `revoked_at` | 🟡 | 撤销即失效（终态，与 used 互斥） |
+
+### 7.5 `password_reset_tokens`
+
+| 字段 | 级别 | 设计策略 |
+|---|---|---|
+| `token_hash` (PK) | 🔴 | 只存 SHA-256 摘要；**明文 token 仅出现于站内/邮件一次**，日志严禁记录 |
+| `user_id` | 🟡 | FK ON DELETE CASCADE |
+| `created_by` | 🟡 | 当前=管理员；P1 自助找回后=系统（保留字段语义） |
+| `created_at` / `expires_at` | 🟡 | 有效期 30 分钟（短窗口） |
+| `consumed_at` | 🟡 | 单次原子消费；**消费成功即吊销该用户全部会话**（已在 `main.py:1155` 实现） |
+
+### 7.6 `audit_logs`（append-only）
+
+| 字段 | 级别 | 设计策略 |
+|---|---|---|
+| `id` (bigserial) | 🟡 | 只追加；无更新/删除 API；保留期清理按时间轮转 |
+| `at` / `action` | 🟡 | 事件最小集（认证成败/注销/改密/CSRF/授权/管理动作）；`action` 为稳定枚举字符串 |
+| `actor_user_id` | 🟡 | **无外键**——用户删除后审计仍保留身份线索；仅内部 ID，无 PII |
+| `target_type` / `target_id` | 🟡 | 指向被操作对象（如 session_id/user_id），不含敏感值 |
+| `ip` / `user_agent` | 🟠 | 安全审计所需；保留 **180 天**（`retention.py:77`；若合规要求 ≥6 个月可上调） |
+| `request_id` | 🟡 | 与访问日志/响应头 `X-Request-Id` 串联，支持事件回溯 |
+| `detail` (jsonb) | 🟡 | 只放结构化最小信息；**硬性禁令**：密码、token、cookie、完整邮箱（用 `email_hash`） |
+
+### 7.7 Cookie 与传输字段
+
+| Cookie（P0 改名后） | 属性 | 设计策略 |
+|---|---|---|
+| `__Host-dr_session` | HttpOnly + Secure + SameSite=Lax + Path=/ + 无 Domain + `__Host-` | 值 = 不透明随机 token（`token_urlsafe(32)`）；TTL = 绝对超时；登出/撤销/改密时服务端作废；前端 JS 不可读 |
+| `__Host-dr_csrf` | Secure + SameSite=Lax + Path=/ + 无 Domain + `__Host-`（**非 HttpOnly**） | 双提交凭证：请求头 `X-CSRF-Token` 比对；随会话轮换；失败审计 `csrf_failed`；不承载任何身份信息 |
+
+### 7.8 需求 20 规划新增字段（尚不存在，先定策略）
+
+| 字段 / 表 | 级别 | 设计策略 |
+|---|---|---|
+| `users.email_verified_at` | 🟠 | 邮件通道（P1）落地后启用；未验证可登录，但禁用自助找回与通知外发 |
+| `mfa_factors`（factor_id, user_id, type[totp/webauthn], secret_encrypted, name, last_used_at） | 🔴 | TOTP secret 与密码哈希**分开保管**，必须**可逆加密**（应用独立密钥/信封加密），非哈希；恢复码另存 |
+| `webauthn_credentials`（credential_id PK, user_id, public_key(COSE), sign_count, transports, aaguid, backup_state） | 🟡（公钥无风险） | credential_id 全局唯一防重放；`sign_count` 单调递增检测克隆；**删最后一把凭证必须走防锁死流程**（要求备用方式） |
+| `recovery_codes`（code_hash, used_at） | 🔴 | SHA-256 摘要 + 单次使用；生成时一次性全量展示 |
+| 新设备判定（device_hash = f(UA, IP 网段)） | 🟠 | 只做「新设备提示/step-up」信号，不做跨站追踪；通知内容不含敏感信息；保留期同 audit |
+
+### 7.9 字段级横切规则
+
+- **命名**：令牌字段一律 `*_hash` 后缀（单向存储的事实声明）；时间字段一律 `timestamptz`；
+- **摘要算法**：高熵令牌统一 SHA-256（无需加盐/慢哈希）；用户密码唯一使用 Argon2id；
+- **索引**：`token_hash` 主键；`user_id` / `expires_at` 二级索引保证撤销与清理 O(log n)（已具备）；
+- **演进**：新增可空/默认值；迁移只前向（`tools/migrate.sh`）；破坏性改动（cookie 前缀）单独排期 + 公告；
+- **删除联动**：`users → sessions / password_reset_tokens` CASCADE；`runs.user_id` SET NULL（历史保留）；`audit_logs` 无外键长期保留；注销 PII 清除由 `deletion.py` + outbox（Qdrant 向量清理）闭环。
+
+## 8. 风险与取舍
 
 - **Passkey 兼容性**：老设备/浏览器不支持时必须有密码回退；企业环境（部分客户端）需评估；
 - **邮件通道**：国内送达率与成本是"通知/找回"前置约束，选型先于开发；
@@ -156,7 +251,7 @@
 - **明确不做**：JWT/localStorage 方案；短信验证码（成本/合规/被刷风险，非目标场景）；自研风控引擎（过度设计）。
 - **兼容性**：Cookie 改名（`__Host-` 前缀）会让存量会话失效一次——安排在低峰期，作为一次性登录成本公告。
 
-## 8. 参考来源
+## 9. 参考来源
 
 | 主题 | 来源 |
 |---|---|
@@ -169,8 +264,9 @@
 | 登录防刷分层（验证码/设备指纹/风控） | 腾讯云开发者社区 https://cloud.tencent.com/developer/article/2741111 |
 | 自建 vs 托管对比 | Clerk vs Auth0 https://clerk.com/articles/clerk-vs-auth0-which-authentication-platform-fits-your-team · Logto vs Auth0 https://guptadeepak.com/ciam-compass/compare/auth0-vs-logto · Ory vs Keycloak https://www.ory.com/comparisons/ory-vs-keycloak |
 
-## 9. 变更记录
+## 10. 变更记录
 
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-10-02 | 建稿 | 产品讨论：重新设计登录鉴权原则，要求贴合现代互联网企业 | 行业调研（RFC 10017 / NIST 800-63B-4 / FIDO / 大厂会话管理 / 国内实践 / 选型）+ 现状差距 + 目标态 + P0/P1/P2 清单 | 本 PR |
+| 2026-10-02 | 修订 | 评审反馈：补充「每个字段的设计策略」 | 新增 §7 字段设计策略（敏感级定义 + users/sessions/invites/reset/audit 逐字段 + Cookie 字段 + 规划新增字段 + 横切规则）；原 §7~§9 顺延为 §8~§10 | 本 PR |
