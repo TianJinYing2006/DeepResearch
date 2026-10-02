@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthForm from '../features/auth/AuthForm'
 import AuthGate from '../features/auth/AuthGate'
+import LandingPage from '../features/landing/LandingPage'
 import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
@@ -50,6 +51,15 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [authNotice, setAuthNotice] = useState('')
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
+  // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login 直达登录页
+  const [authView, setAuthView] = useState<'landing' | 'auth'>(() => {
+    if (inviteFromUrl) return 'auth'
+    try {
+      return new URLSearchParams(window.location.search).has('login') ? 'auth' : 'landing'
+    } catch {
+      return 'landing'
+    }
+  })
   const [legal, setLegal] = useState<{ doc: string; markdown: string } | null>(null)
   const [legalError, setLegalError] = useState('')
 
@@ -94,6 +104,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setBarMessage('')
     setHistoryOpen(false)
     setSecurityOpen(false)
+    setAuthView(inviteFromUrl ? 'auth' : 'landing')
     setHistoryEpoch((epoch) => epoch + 1)
     clearUploads()
   }, [clearUploads])
@@ -230,12 +241,24 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   ) : null
 
   if (authRequired && checked && !user) {
-    // 登录门不可关闭（dismissible=false）：整页「档案借阅台」；Modal 提供焦点陷阱与 dialog 语义
+    // 分流：未登录访客先看落地页；CTA / 邀请链接 / ?login 进入登录注册页
+    if (authView === 'landing') {
+      return (
+        <>
+          <LandingPage
+            onStart={() => setAuthView('auth')}
+            onOpenLegal={(doc) => void openLegal(doc)}
+          />
+          {legalModal}
+        </>
+      )
+    }
     return (
       <>
         <AuthGate
           notice={authNotice}
           inviteFromUrl={inviteFromUrl}
+          onBack={() => setAuthView('landing')}
           onAuthed={(next) => {
             setUser(next)
             setAuthNotice('')
