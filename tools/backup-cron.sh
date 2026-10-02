@@ -21,6 +21,8 @@ OUT="${DR_BACKUP_DIR:-$APP_DIR/backups}"
 CERT="$APP_DIR/backup-recipient.crt"
 REMOTE="${DR_BACKUP_REMOTE:-cos}"
 BUCKET="${DR_BACKUP_BUCKET:-deepresearch-1498639479}"
+# cron 以 root 运行；显式指定配置路径，避免 sudo/手工执行时 HOME 不一致
+RCLONE_CONF="${RCLONE_CONFIG:-/root/.config/rclone/rclone.conf}"
 
 [ -f "$CERT" ] || { echo "缺少公钥证书：$CERT（见 runbook §2.3）"; exit 1; }
 : "${DR_POSTGRES_PASSWORD:?缺少 DR_POSTGRES_PASSWORD（.env）}"
@@ -39,5 +41,5 @@ docker run --rm --network "$NET" \
     -e "BACKUP_KEEP=${BACKUP_KEEP:-14}" \
     postgres:16 sh /b.sh
 
-rclone copy --immutable "$OUT" "${REMOTE}:${BUCKET}/backups/"
+rclone --config "$RCLONE_CONF" copy --immutable "$OUT" "${REMOTE}:${BUCKET}/backups/"
 echo "[$(date -Is)] backup + COS sync ok"
