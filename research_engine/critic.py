@@ -59,6 +59,46 @@ def build_critic_system(cfg=None) -> str:
     return _CRITIC_SYSTEM_BASE + gap_extra + _CRITIC_SYSTEM_TAIL
 
 
+#: Critic 治理事件（与 Planner 的 PLANNER_EVENT_* 同构）：ID 归一化改写，非 FailureReason。
+CRITIC_EVENT_SQID_REWRITTEN = "next_query_sq_id_rewritten"
+
+
+def normalize_next_queries(
+    queries: List[Dict[str, Any]], valid_ids: List[str],
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """把 critic 的 ``next_queries.sq_id`` 归一化到现有子问题（需求 16 / bug #75）。
+
+    背景：critic LLM 会编造不存在或派生的 sq_id（如 ``q2.1``、``q2a``）；原实现未校验
+    直接回填 frontier，导致 ① 报告出现「子问题：q2.1」空壳章节（渲染兜底把原始 ID
+    当标题）；② ``per_subq_hop`` 给每个幽灵 ID 开新桶，稀释每子问题跳数帽。
+
+    规则（最长前缀匹配，参照社区 structured-output-repair 的 fuzzy-key 修复思路）：
+    - ``q2.1`` / ``q2a`` → ``q2``；
+    - 无法匹配 → 置空字符串归「未分类材料」（**不丢弃 query**，保检索覆盖）；
+    - 每条改写记录治理事件（审计用；不进 ``degradation_log``，不推导 degraded）。
+    """
+    ordered = sorted({str(i) for i in valid_ids if i}, key=len, reverse=True)
+    normalized: List[Dict[str, Any]] = []
+    events: List[Dict[str, Any]] = []
+    for item in queries:
+        if not isinstance(item, dict):
+            continue
+        query = dict(item)
+        raw = str(query.get("sq_id", "") or "").strip()
+        match = raw if raw in ordered else next(
+            (vid for vid in ordered if raw.startswith(vid)), "")
+        query["sq_id"] = match
+        if raw != match:
+            events.append({
+                "event": CRITIC_EVENT_SQID_REWRITTEN,
+                "phase": "critic",
+                "original_id": raw,
+                "rewritten_id": match,
+            })
+        normalized.append(query)
+    return normalized, events
+
+
 class CriticVerdict(BaseModel):
     """critic LLM 裁决的结构化 schema（防模型漏 key 被静默默认值误判）。"""
 
@@ -120,6 +160,14 @@ class Critic:
     def __init__(self, llm_fn: Optional[Callable[[ResearchState], Dict[str, Any]]] = None):
         # llm_fn 可注入，便于纯单测零 API key。生产环境传 None 走真实 LLM。
         self.llm_fn = llm_fn
+        # 治理事件缓冲（与 Planner 同构）：由 graph 节点 drain 后并入 planner_events 通道。
+        self._events: List[Dict[str, Any]] = []
+
+    def drain_events(self) -> List[Dict[str, Any]]:
+        """取走并清空 critic 治理事件（非故障，不推导 degraded）。"""
+        events = list(self._events)
+        self._events = []
+        return events
 
     def decide(self, state: ResearchState, cfg=None) -> Signal:
         gate = hard_gate(state, cfg)
@@ -133,7 +181,13 @@ class Critic:
         state.sufficient = bool(verdict.get("sufficient", False))
         state.needs_replan = bool(verdict.get("needs_replan", False))
         state.critic_gap = str(verdict.get("knowledge_gap", "")).strip()
-        state.next_queries = list(verdict.get("next_queries", []))
+        # 需求 16 / bug #75：sq_id 引用完整性——收到即修复（最长前缀归一化 + 治理事件）
+        normalized, events = normalize_next_queries(
+            list(verdict.get("next_queries", [])),
+            [sq.id for sq in state.subquestions],
+        )
+        self._events.extend(events)
+        state.next_queries = normalized
         state.critic_signal, state.critic_stop_reason = self._resolve_signal(state)
         return state.critic_signal
 
