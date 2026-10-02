@@ -36,6 +36,9 @@ ls migrations/00*.sql | tail -3
 
 # 2.3 备份 + 校验可读（P8-A 脚本；失败即中止发布）
 bash tools/backup.sh            # pg_dump -Fc + pg_restore -l 可读校验 + 轮转保留
+# 可选加密（需求 20 §8）：BACKUP_ENCRYPT=1 BACKUP_PASSPHRASE=... bash tools/backup.sh
+#   → 产出 deepresearch_*.dump.enc（AES-256-CBC + PBKDF2 200k，校验后删明文）；
+#     口令仅环境变量注入、异地托管（同机存放 = 没加密）；恢复见 .env.example 注释同口径
 
 # 2.4 配置 diff 核对：CORS / 预算 / 并发 / 限流 / 境外服务开关 / webhook
 docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|MAX_CONCURRENT|ALERT|S3|ENV)"
