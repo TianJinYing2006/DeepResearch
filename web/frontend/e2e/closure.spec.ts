@@ -84,10 +84,21 @@ test.describe('收口回归（桌面端）', () => {
       }, { timeout: 15000, intervals: [300, 500, 800] })
       .toBe('true')
 
-    const stepBar = await page.getByTestId('workflow-progress').boundingBox()
-    expect(stepBar && stepBar.width > 0).toBeTruthy()
-    const topBar = await page.getByTestId('landing-progress').boundingBox()
-    expect(topBar && topBar.width > 0).toBeTruthy()
+    const stepBar = page.getByTestId('workflow-progress')
+    await expect
+      .poll(async () => {
+        const box = await stepBar.boundingBox()
+        return box ? box.width : 0
+      }, { timeout: 10000 })
+      .toBeGreaterThan(4)
+
+    const topBar = page.getByTestId('landing-progress')
+    await expect
+      .poll(async () => {
+        const box = await topBar.boundingBox()
+        return box ? box.width : 0
+      }, { timeout: 10000 })
+      .toBeGreaterThan(4)
   })
 
   test('时限到点显示超时卡且不计为失败', async ({ page }) => {
