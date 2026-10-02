@@ -44,6 +44,22 @@ test.describe('收口回归（桌面端）', () => {
     await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   })
 
+  test('登录门支持显示/隐藏密码', async ({ page }) => {
+    await page.route('**/api/options', (route) => route.fulfill({ json: AUTH_OPTIONS }))
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({ status: 401, json: { detail: { code: 'unauthenticated', message: '未登录' } } }),
+    )
+
+    await page.goto('/')
+    const gate = page.getByTestId('auth-gate')
+    const password = gate.locator('#auth-password')
+    await expect(password).toHaveAttribute('type', 'password')
+    await gate.getByTestId('auth-password-toggle').click()
+    await expect(password).toHaveAttribute('type', 'text')
+    await gate.getByTestId('auth-password-toggle').click()
+    await expect(password).toHaveAttribute('type', 'password')
+  })
+
   test('时限到点显示超时卡且不计为失败', async ({ page }) => {
     await page.route('**/api/research', async (route) => {
       if (route.request().method() !== 'POST') return route.fallback()

@@ -146,6 +146,11 @@
     font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
   }
 
+  /* 登录门/档案场景的衬线标题（与报告正文同族，仅用于编辑性时刻） */
+  .archive-serif {
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
+  }
+
   /* P1-7 移动端：标题与代码块在窄屏上要能装下，否则会把整页撑出横向滚动条 */
   .report-prose h1 {
     @apply mb-5 mt-2 text-2xl font-bold tracking-tight text-ink sm:text-3xl;
