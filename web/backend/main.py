@@ -37,16 +37,22 @@ from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, sse_frame
 from .alerts import alert_webhook_url, collect_alerts
 from .appeals import submit_appeal
 from .auth import (
-    CSRF_COOKIE,
+    CSRF_COOKIE as CSRF_COOKIE_BASE,
+)
+from .auth import (
     CSRF_HEADER,
     MIN_PASSWORD_LENGTH,
-    SESSION_COOKIE,
+    check_password_strength,
     hash_password,
+    host_prefix_cookie_name,
     is_valid_email,
     new_token,
     normalize_email,
     token_hash,
     verify_password,
+)
+from .auth import (
+    SESSION_COOKIE as SESSION_COOKIE_BASE,
 )
 from .download_names import build_export_filename, content_disposition
 from .egress import build_egress_snapshot
@@ -190,6 +196,10 @@ def _env_number(name: str, default: float) -> float:
 AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
 INVITE_ONLY = _env_flag("DR_INVITE_ONLY", "true")
 COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
+# RFC 6265bis `__Host-` 前缀（仅 HTTPS 启用）：要求 Secure + Path=/ + 无 Domain；
+# HTTP 本地调试模式浏览器会拒收，故退回裸名（测试/本地行为不变）。
+SESSION_COOKIE = host_prefix_cookie_name(SESSION_COOKIE_BASE, COOKIE_SECURE)
+CSRF_COOKIE = host_prefix_cookie_name(CSRF_COOKIE_BASE, COOKIE_SECURE)
 SESSION_TTL_SECONDS = int(os.getenv("DR_SESSION_TTL_SECONDS", "604800"))
 # P1-10：空闲超时（秒）；0 = 仅绝对超时（L3-A 默认口径，文档登记）
 SESSION_IDLE_SECONDS = int(_env_number("DR_SESSION_IDLE_SECONDS", 0))
@@ -760,6 +770,13 @@ def _public_user(user: dict) -> dict:
     return {"user_id": user["user_id"], "email": user["email"]}
 
 
+def _reject_weak_password(password: str, *, email: str = "") -> None:
+    """NIST 口令策略（长度由 Pydantic ``min_length`` 承担；此处为弱口令/上下文检查）。"""
+    reason = check_password_strength(password, email=email)
+    if reason:
+        raise http_error("invalid_request", reason)
+
+
 def _set_session_cookies(response: Response, user_id: str, request: Optional[Request] = None) -> None:
     """建会话 + 写 Cookie：session 为 httpOnly，CSRF 为可读双提交 Cookie。
 
@@ -1007,6 +1024,7 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
     email = normalize_email(req.email)
     if not is_valid_email(email):
         raise http_error("invalid_request", "邮箱格式不合法")
+    _reject_weak_password(req.password, email=email)
     user_id = uuid.uuid4().hex[:12]
     try:
         if INVITE_ONLY:
@@ -1162,6 +1180,7 @@ def auth_reset_password(req: ResetPasswordRequest, request: Request) -> dict:
         raise http_error("rate_limited", "请求过于频繁，稍后再试")
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    _reject_weak_password(req.new_password)
     user_id = _store_call(store.complete_password_reset, token_hash(req.token),
                           hash_password(req.new_password))
     if user_id is None:
@@ -1185,6 +1204,7 @@ def auth_change_password(req: ChangePasswordRequest, request: Request, response:
     _check_csrf(request)
     if not verify_password(user["password_hash"], req.current_password):
         raise http_error("invalid_credentials", "当前密码不正确")
+    _reject_weak_password(req.new_password, email=user.get("email", ""))
     _store_call(store.update_password, user["user_id"], hash_password(req.new_password))
     revoked = _store_call(store.revoke_user_sessions, user["user_id"])
     _set_session_cookies(response, user["user_id"], request)

@@ -295,7 +295,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                  aria-invalid={authError ? true : undefined}
                  aria-describedby={authError ? 'auth-error' : undefined}
                  value={password} onChange={(event) => setPassword(event.target.value)}
-                 minLength={10} required />
+                 minLength={12} required />
           {mode === 'register' && (
             <>
               <label className="field-label mt-4" htmlFor="auth-invite">邀请码</label>
@@ -519,9 +519,9 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                    aria-invalid={authError ? true : undefined}
                    aria-describedby={authError ? 'auth-error' : undefined}
                    value={email} onChange={(event) => setEmail(event.target.value)} required />
-            <label className="field-label mt-4" htmlFor="invite-password">密码（至少 10 位）</label>
+            <label className="field-label mt-4" htmlFor="invite-password">密码（至少 12 位）</label>
             <input id="invite-password" name="password" className="field-control" type="password"
-                   autoComplete="new-password" value={password} minLength={10}
+                   autoComplete="new-password" value={password} minLength={12}
                    aria-invalid={authError ? true : undefined}
                    aria-describedby={authError ? 'auth-error' : undefined}
                    onChange={(event) => setPassword(event.target.value)} required />
