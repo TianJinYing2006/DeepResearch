@@ -210,6 +210,8 @@ services:
       DR_ENV: "${DR_ENV:-staging}"
       DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-true}"
       DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
+      # 空闲超时（秒；0 = 仅绝对超时）。内测建议 43200（12h）——P0-4（需求 20）
+      DR_SESSION_IDLE_SECONDS: "${DR_SESSION_IDLE_SECONDS:-0}"
       # P1-2 / P0-10：反代信任。优先 DR_TRUSTED_PROXY_CIDRS（只信任可信 hop 的
       # X-Forwarded-*）；DR_TRUST_PROXY=true 为历史兼容（无 CIDR 时取 XFF 首跳）。
       DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"
@@ -276,17 +278,27 @@ services:
 
   # 反向代理（Caddy 自动签发并续期 HTTPS 证书）。默认**不启动**，用 profile 打开：
   #   DR_DOMAIN=your.domain docker compose --profile proxy up -d
+  #   IP 直访（备案前过渡，内部 CA）：DR_DOMAIN=https://<公网IP> DR_DEFAULT_SNI=<公网IP>
   # 自己已有 Nginx / 网关时不需要它 —— 配置口径见 docs/operations/production-readiness.md §7.1。
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     profiles: ["proxy"]
+    healthcheck:
+      # caddy admin API（容器内 localhost:2019）——镜像内无 curl，用 busybox wget
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
     depends_on:
       api:
         condition: service_started
     environment:
       # Caddyfile 用 {$DR_DOMAIN} 取；未设置时回落到 localhost（仅本地 HTTP 调试）
       DR_DOMAIN: "${DR_DOMAIN:-localhost}"
+      # IP 直访（无域名）：无 SNI 客户端证书选择回退名（Caddyfile 用）
+      DR_DEFAULT_SNI: "${DR_DEFAULT_SNI:-}"
     ports:
       - "80:80"
       - "443:443"

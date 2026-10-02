@@ -8,6 +8,7 @@ import { formatBytes, formatCny } from '../lib/format'
 import type { Quota, RagDoc, SessionUser } from '../types/api'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
+import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
 
 /** P6-B：邀请链接 `?invite=CODE`（可复制给被邀请人，打开即进入注册并预填）。 */
@@ -41,6 +42,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   // 登出/注销后自增：让 HistoryPanel 重挂载清空内部状态（R3/U41）
   const [historyEpoch, setHistoryEpoch] = useState(0)
   const [kbOpen, setKbOpen] = useState(false)
+  const [securityOpen, setSecurityOpen] = useState(false)
   const [barMessage, setBarMessage] = useState('')
   // R7：KB 文档删除（两步内联确认 —— 不用 window.confirm 反模式）
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
@@ -91,6 +93,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     setDocsError('')
     setBarMessage('')
     setHistoryOpen(false)
+    setSecurityOpen(false)
     setHistoryEpoch((epoch) => epoch + 1)
     clearUploads()
   }, [clearUploads])
@@ -275,6 +278,12 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               onClick={() => { setKbOpen((open) => !open); void refreshSideData() }} data-testid="kb-toggle">
         知识库 {docs ? `${docs.length} 篇` : docsError ? '不可用' : '…'}
       </button>
+      {user && (
+        <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
+                onClick={() => setSecurityOpen((open) => !open)} data-testid="security-toggle">
+          会话与安全
+        </button>
+      )}
       {uploadState && (
         <span className="text-ink-muted" role="status" aria-live="polite"
               data-testid="upload-state">{uploadState}</span>
@@ -413,6 +422,10 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
             </ul>
           )}
         </div>
+      )}
+
+      {securityOpen && user && (
+        <SecurityPanel onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
       )}
 
       {inviteOpen && !authRequired && !user && (

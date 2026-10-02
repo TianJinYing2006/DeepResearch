@@ -185,4 +185,50 @@ test.describe('收口回归（桌面端）', () => {
     await expect(page.getByTestId('auth-notice')).toContainText('pending')
     await expect(page.getByTestId('account-email')).toHaveCount(0)
   })
+
+  test('会话与安全：列出设备并退出其他所有设备', async ({ page }) => {
+    await page.route('**/api/options', (route) => route.fulfill({ json: AUTH_OPTIONS }))
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({ json: { user: { user_id: 'u-sec', email: 'sec@example.com' } } }),
+    )
+    let sessions = [
+      {
+        session_id: 's1',
+        current: true,
+        created_at: '2026-10-02T00:00:00Z',
+        last_seen_at: '2026-10-02T01:00:00Z',
+        ip: '1.1.1.1',
+        user_agent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/154.0',
+      },
+      {
+        session_id: 's2',
+        current: false,
+        created_at: '2026-10-01T00:00:00Z',
+        last_seen_at: '2026-10-01T01:00:00Z',
+        ip: '2.2.2.2',
+        user_agent: 'Mozilla/5.0 (iPhone) Safari/605.1',
+      },
+    ]
+    await page.route('**/api/auth/sessions', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        sessions = sessions.filter((item) => item.current)
+        return route.fulfill({ json: { ok: true, revoked: 1 } })
+      }
+      return route.fulfill({ json: { sessions } })
+    })
+
+    await page.goto('/')
+    await expect(page.getByTestId('account-email')).toHaveText('sec@example.com')
+    await page.getByTestId('security-toggle').click()
+    await expect(page.getByTestId('security-panel')).toBeVisible()
+    await expect(page.getByTestId('session-item')).toHaveCount(2)
+    await expect(page.getByTestId('session-current')).toHaveCount(1)
+    await expect(page.getByTestId('security-panel')).toContainText('iPhone')
+
+    // 退出其他设备需重认证（密码确认）→ 列表刷新为仅剩当前设备
+    page.once('dialog', (dialog) => void dialog.accept('password1234'))
+    await page.getByTestId('session-revoke-others').click()
+    await expect(page.getByTestId('security-notice')).toContainText('已退出其他设备（1 个）')
+    await expect(page.getByTestId('session-item')).toHaveCount(1)
+  })
 })

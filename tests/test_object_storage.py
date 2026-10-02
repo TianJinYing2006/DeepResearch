@@ -66,7 +66,12 @@ def test_put_get_and_bucket_lifecycle():
     info = store.put_text("runs/r1/report_md", "# 报告", content_type="text/markdown")
 
     assert fake.buckets == {"deepresearch"}
-    assert fake.lifecycle["Rules"][0]["Expiration"]["Days"] == 90
+    rules = {rule["ID"]: rule for rule in fake.lifecycle["Rules"]}
+    assert rules["expire-runs"]["Expiration"]["Days"] == 90
+    assert rules["expire-runs"]["Filter"]["Prefix"] == "runs/"
+    # 备份加密件（需求 20 §8）：PUT 会整体替换配置，两条规则必须一起提交
+    assert rules["expire-backups"]["Expiration"]["Days"] == 90
+    assert rules["expire-backups"]["Filter"]["Prefix"] == "backups/"
     assert info["key"] == "runs/r1/report_md"
     assert info["size_bytes"] == len("# 报告".encode("utf-8"))
     assert len(info["sha256"]) == 64
