@@ -132,6 +132,41 @@ python -m web.backend.admin audit-list --action release_rollback --limit 5  # �
 - **紧急热修**：允许从 `main` 对应 hotfix 分支发布，但必须补 PR 回合并到 dev；
   跳过 §2.2 仅限不涉及迁移的改动，且需双人复核。
 
+### 7.1 公网入口（`proxy` profile，Caddy）
+
+```bash
+# 启动（服务器侧常驻；restart: unless-stopped + Docker 开机自启）
+docker compose -f docker-compose.staging.yml --profile proxy up -d
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep caddy   # 应显示 (healthy)
+
+# 防火墙须放行 TCP 80 / 443（腾讯云轻量：控制台 → 实例 → 防火墙）
+```
+
+**两种模式（`.env`）**
+
+| 模式 | 配置 | 证书 | 备注 |
+|---|---|---|---|
+| 域名（正式） | `DR_DOMAIN=example.com` | Let's Encrypt 自动签发/续期 | 大陆服务器**必须先完成 ICP 备案**，否则 80 被 webblock、443 按 SNI reset |
+| IP 直访（备案前过渡） | `DR_DOMAIN=https://<公网IP>` + `DR_DEFAULT_SNI=<公网IP>` | Caddy 内部 CA（自签） | 浏览器访问 IP 不发 SNI，必须 `default_sni` 回退；客户端需信任根证书或用「继续前往」 |
+
+```bash
+# 根证书导出与信任（仅 IP 直访模式需要）
+docker compose -f docker-compose.staging.yml exec caddy \
+  cat /data/caddy/pki/authorities/local/root.crt > caddy-root.crt
+# Windows（当前用户，免管理员）：certutil -user -addstore Root caddy-root.crt
+# macOS：sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root.crt
+# iOS / Android：把 caddy-root.crt 发到设备安装，并在「证书信任设置」里启用
+
+# 验证（IP 直访模式；schannel 对本地 CA 默认查吊销，curl 用 best-effort）
+curl --ssl-revoke-best-effort -fsS https://<公网IP>/api/health/ready
+```
+
+**排错**
+- 无 SNI 时 `tlsv1 alert internal error`：`DR_DEFAULT_SNI` 未透传进容器 —— `docker compose exec caddy env | grep DR_DEFAULT_SNI`；
+- 改了 `Caddyfile` 不生效：bind mount 不触发容器重建，需 `docker compose -f docker-compose.staging.yml restart caddy`；
+- 域名 302 到 `dnspod.qcloud.com/static/webblock.html` 或 TLS 被 reset：域名未备案（大陆云拦截）；
+- caddy `unhealthy`：`docker compose logs caddy`；healthcheck 探的是容器内 admin API `:2019`。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

@@ -276,17 +276,27 @@ services:
 
   # 反向代理（Caddy 自动签发并续期 HTTPS 证书）。默认**不启动**，用 profile 打开：
   #   DR_DOMAIN=your.domain docker compose --profile proxy up -d
+  #   IP 直访（备案前过渡，内部 CA）：DR_DOMAIN=https://<公网IP> DR_DEFAULT_SNI=<公网IP>
   # 自己已有 Nginx / 网关时不需要它 —— 配置口径见 docs/operations/production-readiness.md §7.1。
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     profiles: ["proxy"]
+    healthcheck:
+      # caddy admin API（容器内 localhost:2019）——镜像内无 curl，用 busybox wget
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
     depends_on:
       api:
         condition: service_started
     environment:
       # Caddyfile 用 {$DR_DOMAIN} 取；未设置时回落到 localhost（仅本地 HTTP 调试）
       DR_DOMAIN: "${DR_DOMAIN:-localhost}"
+      # IP 直访（无域名）：无 SNI 客户端证书选择回退名（Caddyfile 用）
+      DR_DEFAULT_SNI: "${DR_DEFAULT_SNI:-}"
     ports:
       - "80:80"
       - "443:443"

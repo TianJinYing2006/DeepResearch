@@ -3,9 +3,21 @@
 # 用法：
 #   DR_DOMAIN=your.domain docker compose --profile proxy up -d
 # 未设 DR_DOMAIN 时回落到 localhost（仅本地 HTTP 调试，不会走 ACME）。
+# 无域名场景（公网 IP 直访）：
+#   DR_DOMAIN=https://<公网IP> 且 DR_DEFAULT_SNI=<公网IP>
+#   —— 浏览器直访 IP 不发送 SNI，需要 default_sni 回退才能选到证书；
+#   —— 使用 Caddy 内部 CA 签发，客户端需信任根证书（或点击浏览器警告继续）。
+#   —— 提醒：大陆服务器上未备案域名会被云厂商在 80（webblock）与 443（SNI reset）拦截，
+#      域名模式必须先完成 ICP 备案。
 #
 # 验收口径见 docs/operations/production-readiness.md §7.1（SSE 必须穿透、心跳 15s 不断）。
 # 上线前请真机验证一次：浏览器跑完一个完整任务，确认进度条持续推进不中断。
+
+{
+	# 客户端未发送 SNI 时（浏览器直访 IP 属此类）用于证书选择的回退名。
+	# 默认 localhost 仅为本地调试；公网 IP 直访场景在 .env 设 DR_DEFAULT_SNI=<公网IP>。
+	default_sni {$DR_DEFAULT_SNI:localhost}
+}
 
 {$DR_DOMAIN} {
 	# ---- SSE 事件流：不压缩、不缓冲 ----
