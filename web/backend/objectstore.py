@@ -11,7 +11,7 @@
 | 供应商 | 签名 | 寻址风格 | 桶名 |
 | --- | --- | --- | --- |
 | MinIO（本地 / compose） | V4（boto3 默认） | path（auto 自动选） | 任意合法名 |
-| 腾讯云 COS | V4（boto3 默认） | auto；同地域用内网域名免流量费 | **必须带 appid 后缀**（`bucket-125xxxxxxx`） |
+| 腾讯云 COS | V4（boto3 默认） | **必须 `virtual`**（2026-09-30 实测：auto 选到 path-style 被 `PathStyleDomainForbidden` 拒绝） | **必须带 appid 后缀**（`bucket-125xxxxxxx`）；生命周期 PUT 需 `Content-MD5`（已内置注入）；`cos-internal` 内网域名不支持 ListBuckets |
 | 阿里云 OSS | **必须 `s3`（V2）** | **必须 `virtual`** | 不带 appid |
 
 🚨 阿里云 OSS 的 V2 是硬要求：boto3 的 V4 实现与 `Transfer-Encoding: chunked` 强耦合，
@@ -20,6 +20,7 @@ OSS 不接受 ⇒ 默认配置会得到 `SignatureDoesNotMatch`。改这两个�
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import sys
@@ -34,6 +35,15 @@ def _log(message: str) -> None:
     print(f"[objectstore] {message}", file=sys.stderr, flush=True)
 
 
+def _inject_content_md5(request, **_kwargs) -> None:
+    """腾讯云 COS 兼容（2026-09-30 实测）：桶级 `PutBucketLifecycleConfiguration`
+    必须携带 `Content-MD5`，否则报 `InvalidRequest: Missing required header`。
+    必须按实际序列化后的 body 计算，不能预设固定值。"""
+    body = getattr(request, "body", None)
+    if body:
+        request.headers["Content-MD5"] = base64.b64encode(hashlib.md5(body).digest()).decode()
+
+
 class ObjectStore:
     """S3 兼容客户端（boto3 懒加载；只在配置后才实例化）。"""
 
@@ -45,7 +55,8 @@ class ObjectStore:
         self._access_key = access_key
         self._secret_key = secret_key
         self._client: Optional[Any] = None
-        # 签名与寻址风格（见模块 docstring 的兼容性表）：MinIO / COS 保持默认即可，
+        # 签名与寻址风格（见模块 docstring 的兼容性表）：
+        # MinIO 任意；腾讯云 COS 需 DR_S3_ADDRESSING_STYLE=virtual（auto 会选 path-style 被拒）；
         # 阿里云 OSS 需 DR_S3_SIGNATURE_VERSION=s3 + DR_S3_ADDRESSING_STYLE=virtual。
         self._signature_version = (os.getenv("DR_S3_SIGNATURE_VERSION") or "s3v4").strip()
         self._addressing_style = (os.getenv("DR_S3_ADDRESSING_STYLE") or "auto").strip()
@@ -69,6 +80,9 @@ class ObjectStore:
                     retries={"max_attempts": 3, "mode": "standard"},
                 ),
             )
+            # 腾讯云 COS 兼容：请求签名前按实际 body 注入 Content-MD5（生命周期 PUT 必需）
+            self._client.meta.events.register(
+                "before-sign.s3.PutBucketLifecycleConfiguration", _inject_content_md5)
         return self._client
 
     def ensure_bucket(self, retention_days: Optional[int] = None) -> Dict[str, Any]:

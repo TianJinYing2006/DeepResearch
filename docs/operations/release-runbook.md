@@ -40,6 +40,12 @@ bash tools/backup.sh            # pg_dump -Fc + pg_restore -l 可读校验 + 轮
 # 2.4 配置 diff 核对：CORS / 预算 / 并发 / 限流 / 境外服务开关 / webhook
 docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|MAX_CONCURRENT|ALERT|S3|ENV)"
 
+# 2.4b 对象存储兼容核对（腾讯云 COS，2026-10-01 现场验证）：
+#   - DR_S3_ADDRESSING_STYLE 必须为 virtual（auto 会选 path-style 被 PathStyleDomainForbidden 拒绝）
+#   - 桶级 PutBucketLifecycleConfiguration 依赖 objectstore 的 Content-MD5 注入钩子
+#     （见 web/backend/objectstore.py 模块 docstring 兼容表；缺失会报 InvalidRequest: Missing required header）
+#   - MinIO/OSS 场景按 docstring 兼容表核对，不要照抄 COS 结论
+
 # 2.5 容量检查：连接预算（capacity-model §3.1）
 # N_api×DR_PG_POOL_MAX + N_worker×DR_PG_POOL_MAX + LISTEN + 余量 <= PG max_connections
 ```
