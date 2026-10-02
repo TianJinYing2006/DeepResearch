@@ -302,6 +302,35 @@
   }
 }
 
+/* ---- 登录门动效（参考 LinkResume：光标闪烁 / 虚线流动 / 卡片漂浮）----
+   原则：一次编排好的入场 + 永不抢焦点的循环微动；全部走 transform/opacity。 */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes trace-flow {
+  to {
+    stroke-dashoffset: -160;
+  }
+}
+
+@keyframes card-drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--drift-rot, 0deg));
+  }
+  50% {
+    transform: translateY(-6px) rotate(calc(var(--drift-rot, 0deg) + 0.5deg));
+  }
+}
+
 @layer utilities {
   .animate-shimmer {
     animation: shimmer 1.8s ease-in-out infinite;
@@ -322,6 +351,19 @@
   .badge-live {
     animation: ripple 2.2s ease-out infinite;
   }
+
+  /* 登录门：标题光标 / 轨迹虚线 / 报告卡漂浮 */
+  .animate-caret {
+    animation: caret-blink 1s steps(1, end) infinite;
+  }
+
+  .trace-dash {
+    animation: trace-flow 24s linear infinite;
+  }
+
+  .card-drift {
+    animation: card-drift 18s ease-in-out infinite;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -332,5 +374,12 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  /* 循环微动直接关闭（光标保持常亮、轨迹与卡片静止） */
+  .animate-caret,
+  .trace-dash,
+  .card-drift {
+    animation: none;
   }
 }

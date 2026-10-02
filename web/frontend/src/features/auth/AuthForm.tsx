@@ -119,14 +119,15 @@ export default function AuthForm({
         </button>
       </div>
       {mode === 'register' && (
-        <p className="mt-1.5 text-[11px] text-ink-muted">至少 12 位；避免使用常见口令或邮箱账号名</p>
+        <p className="animate-rise mt-1.5 text-[11px] text-ink-muted">至少 12 位；避免使用常见口令或邮箱账号名</p>
       )}
 
       {mode === 'register' && (
         <>
-          <label className="field-label mt-4" htmlFor={`${idPrefix}-invite`}>邀请码</label>
+          <label className="field-label animate-rise mt-4" htmlFor={`${idPrefix}-invite`}>邀请码</label>
           <input id={`${idPrefix}-invite`} name="invite_code"
-                 className="field-control" autoComplete="off" spellCheck={false}
+                 className="field-control animate-rise" autoComplete="off" spellCheck={false}
+                 style={{ animationDelay: '60ms' }}
                  data-testid={idPrefix === 'invite' ? 'invite-code-input' : undefined}
                  value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
         </>
