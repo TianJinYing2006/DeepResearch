@@ -86,3 +86,28 @@ export function usePrefersReducedMotion(): boolean {
   }, [])
   return reduced
 }
+
+/** 打字机：逐字输出（reduced-motion 直接给全量文本）。 */
+export function useTypewriter(text: string, speedMs = 90, startDelayMs = 250): string {
+  const reduced = usePrefersReducedMotion()
+  const [count, setCount] = useState(() => (prefersReducedMotion() ? text.length : 0))
+  useEffect(() => {
+    if (reduced) {
+      setCount(text.length)
+      return
+    }
+    setCount(0)
+    let index = 0
+    let timer = 0
+    const start = window.setTimeout(function tick() {
+      index += 1
+      setCount(index)
+      if (index < text.length) timer = window.setTimeout(tick, speedMs)
+    }, startDelayMs)
+    return () => {
+      window.clearTimeout(start)
+      window.clearTimeout(timer)
+    }
+  }, [text, speedMs, startDelayMs, reduced])
+  return text.slice(0, count)
+}

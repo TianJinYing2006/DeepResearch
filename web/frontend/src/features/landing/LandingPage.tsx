@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { usePrefersReducedMotion, useRevealAll, useScrollState } from '../../lib/useScrollFx'
+import { usePrefersReducedMotion, useRevealAll, useScrollState, useTypewriter } from '../../lib/useScrollFx'
 import ArchiveWall from './ArchiveWall'
 
 type Props = {
@@ -67,6 +67,7 @@ export default function LandingPage({ onStart, onOpenLegal }: Props) {
   const stepRefs = useRef<Array<HTMLLIElement | null>>([])
   const [activeStep, setActiveStep] = useState(0)
   const reduced = usePrefersReducedMotion()
+  const typedTitle = useTypewriter('把复杂问题变成可追溯的研究结论', 90, 300)
 
   useRevealAll(contentRef, scrollerRef)
   const { y, progress } = useScrollState(scrollerRef)
@@ -128,10 +129,9 @@ export default function LandingPage({ onStart, onOpenLegal }: Props) {
           <ArchiveWall />
           <div className="relative mx-auto flex max-w-3xl flex-col items-center px-5 pb-24 pt-20 text-center sm:pb-32 sm:pt-28"
                style={heroStyle}>
-            <h1 className="archive-serif max-w-4xl text-center text-[30px] font-semibold leading-[1.32] text-ink sm:text-[38px] sm:leading-[1.28] lg:text-[46px]">
-              {'把复杂问题'}
-              <br className="sm:hidden" />
-              {'变成可追溯的研究结论'}
+            <h1 aria-label="把复杂问题变成可追溯的研究结论"
+                className="archive-serif min-h-[2.75em] max-w-4xl text-center text-[30px] font-semibold leading-[1.32] text-ink sm:min-h-[1.32em] sm:text-[38px] sm:leading-[1.28] lg:text-[46px]">
+              <span aria-hidden="true">{typedTitle}</span>
               <span aria-hidden="true"
                     className="animate-caret ml-1.5 inline-block h-[0.8em] w-[3px] translate-y-[0.08em] bg-ink align-baseline" />
             </h1>
