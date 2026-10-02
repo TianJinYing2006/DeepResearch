@@ -243,7 +243,34 @@
 - **演进**：新增可空/默认值；迁移只前向（`tools/migrate.sh`）；破坏性改动（cookie 前缀）单独排期 + 公告；
 - **删除联动**：`users → sessions / password_reset_tokens` CASCADE；`runs.user_id` SET NULL（历史保留）；`audit_logs` 无外键长期保留；注销 PII 清除由 `deletion.py` + outbox（Qdrant 向量清理）闭环。
 
-## 8. 风险与取舍
+## 8. 数据安全设计（账号与用户数据）
+
+> 与 §7 字段策略配套：§7 定义「字段怎么存」，本节定义「数据怎么保护」。
+
+### 8.1 威胁模型（务实版）
+
+- 要防：数据库 / 备份被拷走后凭证可直接利用；日志 / 导出泄露凭证；内部误操作；传输窃听；
+- 不假设能防：拥有 root / 宿主机权限的攻击者（需独立 KMS/HSM 与盘级加密，超出内测阶段成本）。
+
+### 8.2 分层措施
+
+| 层 | 现状 | 本需求动作 / 后续 |
+|---|---|---|
+| 传输 | 公网 HTTPS（Caddy，内部 CA 自签）；容器内 PG/Redis 走 Docker 私有网络；COS 走 HTTPS | 域名 + 备案后切公网受信证书（runbook §7.1）；零代码改动 |
+| 凭证存储 | 密码 Argon2id；会话/邀请/重置 token 仅存 SHA-256 摘要——库泄露不直接可用 | 维持；P1 TOTP secret 落地时必须**可逆加密**（§7.8） |
+| 静态数据 | PG 数据卷位于系统盘（Lighthouse 无盘级加密）；**备份此前为明文** | **备份加密**：`BACKUP_ENCRYPT=1` + 口令环境变量注入（AES-256-CBC + PBKDF2 200k；runbook §2.3） |
+| 密钥管理 | `.env` 权限 600；`DR_OPS_TOKEN` 随机 32B | 登记轮换策略：ops token / COS 密钥 / 备份口令；备份口令**异地托管**（同机存放 = 没加密） |
+| 日志与审计 | audit 脱敏（email_hash、无 token/密码）；180 天轮转 | 维持；「登录活动」展示可复用审计（P1） |
+| 保留与删除 | sessions 过期清理；audit 180 天；注销 CASCADE + outbox 清向量 | 维持；PIPL「最少必要」口径复核 |
+| 对象存储 | COS 生命周期 90 天已生效 | 桶策略最小权限复核（列清单后确认） |
+
+### 8.3 明确不做（现阶段）
+
+- 自研 KMS/HSM、宿主机盘级加密、全库字段级加密（收益/成本不成比例）；
+- 备份口令与备份文件同机存放（加密意义归零）；
+- 自造加密原语——一律使用 openssl/AEAD 标准件。
+
+## 9. 风险与取舍
 
 - **Passkey 兼容性**：老设备/浏览器不支持时必须有密码回退；企业环境（部分客户端）需评估；
 - **邮件通道**：国内送达率与成本是"通知/找回"前置约束，选型先于开发；
@@ -251,7 +278,7 @@
 - **明确不做**：JWT/localStorage 方案；短信验证码（成本/合规/被刷风险，非目标场景）；自研风控引擎（过度设计）。
 - **兼容性**：Cookie 改名（`__Host-` 前缀）会让存量会话失效一次——安排在低峰期，作为一次性登录成本公告。
 
-## 9. 参考来源
+## 10. 参考来源
 
 | 主题 | 来源 |
 |---|---|
@@ -264,9 +291,10 @@
 | 登录防刷分层（验证码/设备指纹/风控） | 腾讯云开发者社区 https://cloud.tencent.com/developer/article/2741111 |
 | 自建 vs 托管对比 | Clerk vs Auth0 https://clerk.com/articles/clerk-vs-auth0-which-authentication-platform-fits-your-team · Logto vs Auth0 https://guptadeepak.com/ciam-compass/compare/auth0-vs-logto · Ory vs Keycloak https://www.ory.com/comparisons/ory-vs-keycloak |
 
-## 10. 变更记录
+## 11. 变更记录
 
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-10-02 | 建稿 | 产品讨论：重新设计登录鉴权原则，要求贴合现代互联网企业 | 行业调研（RFC 10017 / NIST 800-63B-4 / FIDO / 大厂会话管理 / 国内实践 / 选型）+ 现状差距 + 目标态 + P0/P1/P2 清单 | 本 PR |
 | 2026-10-02 | 修订 | 评审反馈：补充「每个字段的设计策略」 | 新增 §7 字段设计策略（敏感级定义 + users/sessions/invites/reset/audit 逐字段 + Cookie 字段 + 规划新增字段 + 横切规则）；原 §7~§9 顺延为 §8~§10 | 本 PR |
+| 2026-10-02 | 修订 | 实施反馈：补充「数据安全性」设计 | 新增 §8 数据安全设计（威胁模型 / 分层措施 / 明确不做）；原 §8~§10 顺延为 §9~§11；配套 `tools/backup.sh` 备份加密（另 PR） | 本 PR |
