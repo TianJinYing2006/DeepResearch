@@ -641,3 +641,21 @@ def test_export_never_touches_disk(monkeypatch, tmp_path):
     _drain(rid, mgr)
     mgr.export_markdown(rid)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_export_filename_uses_topic(monkeypatch):
+    """需求 17 / #77：下载文件名 = 话题名（filename* UTF-8 + ASCII 回退）。"""
+    from urllib.parse import quote
+
+    mgr = RunManager(graph_factory=lambda: ReportGraph(steps=2, delay=0.01))
+    monkeypatch.setattr(api, "manager", mgr)
+    client = TestClient(api.app)
+    topic = "天蝎座与狮子座的适配"
+    rid = client.post("/api/research", json={"topic": topic}).json()["run_id"]
+    _drain(rid, mgr)
+
+    r = client.get(f"/api/research/{rid}/report")
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    assert f"filename*=UTF-8''{quote(topic + '.md', safe='')}" in cd
+    assert f'filename="deepresearch-{rid}.md"' in cd

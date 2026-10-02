@@ -48,6 +48,7 @@ from .auth import (
     token_hash,
     verify_password,
 )
+from .download_names import build_export_filename, content_disposition
 from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload, http_error
 from .injection_guard import scan_injection
@@ -1751,6 +1752,16 @@ def cancel(run_id: str, request: Request) -> dict:
     return {"ok": True}
 
 
+def _markdown_export_response(body: str, topic: Optional[str], run_id: str) -> Response:
+    """需求 17（#77）：下载文件名 = 话题名；RFC 6266 双格式（filename* UTF-8 + ASCII 回退）。"""
+    display, ascii_fallback = build_export_filename(topic, run_id)
+    return Response(
+        content=body,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": content_disposition(display, ascii_fallback)},
+    )
+
+
 def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:
     """任务库导出回落（P2-C）：进程重启后仍可下载历史报告。
 
@@ -1780,11 +1791,7 @@ def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:
         raise http_error("report_unavailable", "本次运行没有产出报告")
     if fmt == "json":
         return JSONResponse(json.loads(body))
-    return Response(
-        content=body,
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="deepresearch-{run_id}.md"'},
-    )
+    return _markdown_export_response(body, row.get("topic"), run_id)
 
 
 @app.get("/api/research/{run_id}/report")
@@ -1816,11 +1823,8 @@ def export_report(run_id: str, request: Request,
 
     if fmt == "json":
         return JSONResponse(payload)
-    return Response(
-        content=manager.export_markdown(run_id) or "",
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="deepresearch-{run_id}.md"'},
-    )
+    return _markdown_export_response(
+        manager.export_markdown(run_id) or "", payload.get("topic"), run_id)
 
 
 @app.get("/api/research/{run_id}/stream")
