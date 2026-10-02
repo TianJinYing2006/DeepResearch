@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import AuthForm from '../features/auth/AuthForm'
+import AuthGate from '../features/auth/AuthGate'
 import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
@@ -44,14 +46,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
   const [deletingDoc, setDeletingDoc] = useState(false)
   const [authNotice, setAuthNotice] = useState('')
-  const [busy, setBusy] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
-  const [mode, setMode] = useState<'login' | 'register'>(inviteFromUrl ? 'register' : 'login')
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [inviteCode, setInviteCode] = useState(inviteFromUrl)
-  const [authError, setAuthError] = useState('')
   const [legal, setLegal] = useState<{ doc: string; markdown: string } | null>(null)
   const [legalError, setLegalError] = useState('')
 
@@ -115,38 +111,6 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     if (checked && user) void refreshSideData()
     if (checked && !user) void refreshSideData()
   }, [checked, user, refreshSideData, activeRunId, running])
-
-  async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setBusy(true)
-    setAuthError('')
-    try {
-      const payload =
-        mode === 'login'
-          ? { email, password }
-          : { email, password, invite_code: inviteCode }
-      const response = await fetch(`/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!response.ok) {
-        setAuthError(await readErrorMessage(response))
-        return
-      }
-      const body = (await response.json()) as { user: SessionUser }
-      setUser(body.user)
-      setPassword('')
-      setInviteCode('')
-      setInviteOpen(false)
-      setAuthNotice('')
-      void refreshSideData()
-    } catch {
-      setAuthError('网络错误，请重试')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function logout() {
     try {
@@ -263,68 +227,21 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   ) : null
 
   if (authRequired && checked && !user) {
-    // 登录门不可关闭（dismissible=false）：只保留 dialog 语义与焦点管理
+    // 登录门不可关闭（dismissible=false）：整页「档案借阅台」；Modal 提供焦点陷阱与 dialog 语义
     return (
-      <Modal
-        onClose={() => {}}
-        labelledBy="auth-title"
-        testId="auth-gate"
-        dismissible={false}
-        overlayClassName="z-50 flex items-center justify-center bg-ink/35 p-4 "
-        panelClassName="surface-card w-full max-w-md p-6"
-      >
-        <form onSubmit={(event) => void submitAuth(event)}>
-          <h2 id="auth-title" className="text-lg font-semibold text-ink">
-            {mode === 'login' ? '登录 DeepResearch' : '邀请制注册'}
-          </h2>
-          <p className="mt-1 text-xs text-ink-muted">
-            {mode === 'login' ? '使用邮箱与密码登录' : '需要一次性邀请码（管理员通过 CLI 生成）'}
-          </p>
-          {authNotice && (
-            <p role="status" className="mt-3 rounded-lg border border-stamp-green/30 bg-stamp-green/10 px-3 py-2 text-xs text-ink"
-               data-testid="auth-notice">{authNotice}</p>
-          )}
-          <label className="field-label mt-5" htmlFor="auth-email">邮箱</label>
-          <input id="auth-email" name="email" className="field-control" type="email" autoComplete="email"
-                 aria-invalid={authError ? true : undefined}
-                 aria-describedby={authError ? 'auth-error' : undefined}
-                 value={email} onChange={(event) => setEmail(event.target.value)} required />
-          <label className="field-label mt-4" htmlFor="auth-password">密码</label>
-          <input id="auth-password" name="password" className="field-control" type="password"
-                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                 aria-invalid={authError ? true : undefined}
-                 aria-describedby={authError ? 'auth-error' : undefined}
-                 value={password} onChange={(event) => setPassword(event.target.value)}
-                 minLength={10} required />
-          {mode === 'register' && (
-            <>
-              <label className="field-label mt-4" htmlFor="auth-invite">邀请码</label>
-              <input id="auth-invite" name="invite_code" className="field-control" value={inviteCode}
-                     onChange={(event) => setInviteCode(event.target.value)} required />
-            </>
-          )}
-          {authError && (
-            <p id="auth-error" role="alert" className="mt-4 text-sm text-stamp-red"
-               data-testid="auth-error">{authError}</p>
-          )}
-          <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
-            {busy ? '提交中…' : mode === 'login' ? '登录' : '注册并登录'}
-          </button>
-          <button type="button" className="mt-3 w-full text-xs text-ink-muted hover:text-ink"
-                  onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setAuthError('') }}>
-            {mode === 'login' ? '有邀请码？去注册' : '已有账号？去登录'}
-          </button>
-          <p className="mt-3 text-center text-[11px] text-ink-muted">
-            注册即表示同意
-            <button type="button" className="mx-1 underline hover:text-ink"
-                    onClick={() => void openLegal('terms')}>用户协议</button>
-            与
-            <button type="button" className="mx-1 underline hover:text-ink"
-                    onClick={() => void openLegal('privacy')}>隐私政策</button>
-          </p>
-          {legalModal}
-        </form>
-      </Modal>
+      <>
+        <AuthGate
+          notice={authNotice}
+          inviteFromUrl={inviteFromUrl}
+          onAuthed={(next) => {
+            setUser(next)
+            setAuthNotice('')
+            void refreshSideData()
+          }}
+          onOpenLegal={(doc) => void openLegal(doc)}
+        />
+        {legalModal}
+      </>
     )
   }
 
@@ -504,47 +421,24 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           labelledBy="invite-title"
           testId="invite-register"
           overlayClassName="z-50 flex items-center justify-center bg-ink/35 p-4 "
-          panelClassName="surface-card w-full max-w-md p-6"
+          panelClassName="surface-card relative w-full max-w-md p-6"
         >
-          <form onSubmit={(event) => void submitAuth(event)}>
-            <div className="flex items-start justify-between gap-3">
-              <h2 id="invite-title" className="text-lg font-semibold text-ink">邀请制注册</h2>
-              <button type="button" className="text-xs text-ink-muted hover:text-ink"
-                      data-testid="invite-close"
-                      onClick={() => setInviteOpen(false)}>关闭</button>
-            </div>
-            <p className="mt-1 text-xs text-ink-muted">邀请码已从链接预填；注册成功后自动登录。</p>
-            <label className="field-label mt-5" htmlFor="invite-email">邮箱</label>
-            <input id="invite-email" name="email" className="field-control" type="email" autoComplete="email"
-                   aria-invalid={authError ? true : undefined}
-                   aria-describedby={authError ? 'auth-error' : undefined}
-                   value={email} onChange={(event) => setEmail(event.target.value)} required />
-            <label className="field-label mt-4" htmlFor="invite-password">密码（至少 10 位）</label>
-            <input id="invite-password" name="password" className="field-control" type="password"
-                   autoComplete="new-password" value={password} minLength={10}
-                   aria-invalid={authError ? true : undefined}
-                   aria-describedby={authError ? 'auth-error' : undefined}
-                   onChange={(event) => setPassword(event.target.value)} required />
-            <label className="field-label mt-4" htmlFor="invite-code">邀请码</label>
-            <input id="invite-code" name="invite_code" className="field-control" data-testid="invite-code-input"
-                   autoComplete="off" spellCheck={false}
-                   value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
-            {authError && (
-              <p id="auth-error" role="alert" className="mt-4 text-sm text-stamp-red"
-                 data-testid="auth-error">{authError}</p>
-            )}
-            <button type="submit" className="primary-button mt-6 w-full" disabled={busy}>
-              {busy ? '提交中…' : '注册并登录'}
-            </button>
-            <p className="mt-3 text-center text-[11px] text-ink-muted">
-              注册即表示同意
-              <button type="button" className="mx-1 underline hover:text-ink"
-                      onClick={() => void openLegal('terms')}>用户协议</button>
-              与
-              <button type="button" className="mx-1 underline hover:text-ink"
-                      onClick={() => void openLegal('privacy')}>隐私政策</button>
-            </p>
-          </form>
+          <button type="button" className="absolute right-5 top-5 text-xs text-ink-muted transition hover:text-ink"
+                  data-testid="invite-close"
+                  onClick={() => setInviteOpen(false)}>关闭</button>
+          <AuthForm
+            idPrefix="invite"
+            titleId="invite-title"
+            initialMode="register"
+            inviteFromUrl={inviteFromUrl}
+            subtitle="邀请码已从链接预填；注册成功后自动登录。"
+            onAuthed={(next) => {
+              setUser(next)
+              setInviteOpen(false)
+              void refreshSideData()
+            }}
+            onOpenLegal={(doc) => void openLegal(doc)}
+          />
         </Modal>
       )}
       {legalModal}
