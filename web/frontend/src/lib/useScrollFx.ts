@@ -3,7 +3,14 @@ import { useEffect, useState, type RefObject } from 'react'
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-/** 观察 scope 内全部 `.reveal`，进入视口后挂 `is-visible`（一次性；`--reveal-delay` 控制错峰）。
+/** 滚动扫描：scope 内 `.reveal` 元素越过视口约 88% 线后标记 `data-reveal-visible`（一次性）。
+ *
+ * 为什么不用 IntersectionObserver：IO 只能捕捉「从下方进入」；锚点/快速滚动跳过的元素
+ * 永远不再进入视口 → 会一直停在模糊态。滚动扫描对「已掠过（top<0）」与「新进入」统一处理。
+ *
+ * 为什么用 data-* 而不是 class：工作流卡片等元素的 className 由 React 动态生成，
+ * 任何重渲染都会整体重写 className，把命令式添加的 `is-visible` 抹掉；`data-*` 不在
+ * React 托管范围内，重渲染不会触碰，状态稳定。
  *
  * `rootRef` 为滚动容器（落地页是独立 overlay 滚动），缺省视口。 */
 export function useRevealAll(
@@ -14,23 +21,35 @@ export function useRevealAll(
     const scope = scopeRef.current
     if (!scope) return
     const nodes = Array.from(scope.querySelectorAll<HTMLElement>('.reveal'))
+    if (nodes.length === 0) return
     if (prefersReducedMotion()) {
-      nodes.forEach((node) => node.classList.add('is-visible'))
+      nodes.forEach((node) => { node.dataset.revealVisible = 'true' })
       return
     }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('is-visible')
-            observer.unobserve(entry.target)
-          }
-        })
-      },
-      { root: rootRef?.current ?? null, rootMargin: '0px 0px -10% 0px', threshold: 0.12 },
-    )
-    nodes.forEach((node) => observer.observe(node))
-    return () => observer.disconnect()
+    const scroller = rootRef?.current ?? null
+    let raf = 0
+    const reveal = () => {
+      raf = 0
+      const viewportHeight = scroller ? scroller.clientHeight : window.innerHeight
+      const rootTop = scroller ? scroller.getBoundingClientRect().top : 0
+      nodes.forEach((node) => {
+        if (node.dataset.revealVisible === 'true') return
+        const top = node.getBoundingClientRect().top - rootTop
+        if (top < viewportHeight * 0.88) node.dataset.revealVisible = 'true'
+      })
+    }
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(reveal)
+    }
+    const target: HTMLElement | Window = scroller ?? window
+    target.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    reveal()
+    return () => {
+      target.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      if (raf) cancelAnimationFrame(raf)
+    }
   }, [scopeRef, rootRef])
 }
 

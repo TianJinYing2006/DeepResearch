@@ -103,7 +103,7 @@ export default function LandingPage({ onStart, onOpenLegal }: Props) {
            style={{ width: `${(progress * 100).toFixed(2)}%` }} data-testid="landing-progress" />
 
       <div ref={contentRef}>
-        <header className="sticky top-0 z-30 border-b border-rule/70 bg-paper/95">
+        <header className="sticky top-0 z-30 border-b border-rule/70 bg-paper">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-3.5 sm:px-8">
             <div className="flex items-center gap-2.5">
               <span aria-hidden="true" className="text-lg leading-none text-stamp-blue">◈</span>
@@ -210,7 +210,7 @@ export default function LandingPage({ onStart, onOpenLegal }: Props) {
                     ref={(node) => { stepRefs.current[index] = node }}
                     data-testid="workflow-step"
                     data-active={activeStep === index}
-                    className={`surface-card reveal p-5 transition-all duration-300 ${
+                    className={`surface-card reveal p-5 ${
                       activeStep === index
                         ? 'border-stamp-blue/50 shadow-[0_1px_2px_rgba(30,90,216,0.10),0_18px_40px_-26px_rgba(30,90,216,0.45)]'
                         : 'opacity-70'
