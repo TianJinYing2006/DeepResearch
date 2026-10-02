@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
@@ -28,6 +29,8 @@ class LLMClient:
     model_stats: Dict[str, int] = {}
     role_stats: Dict[str, int] = {}
     model_io_stats: Dict[str, Dict[str, int]] = {}
+    # 并发记账锁（需求 19 / #76）：validator 分批并行时保护上方类级计数器与 state.token_used
+    _stats_lock = threading.Lock()
 
     def __init__(self, model: Optional[str] = None, role: Optional[str] = None):
         self.model = model or config.llm.smart_model
@@ -90,14 +93,17 @@ class LLMClient:
                 total = int(getattr(u, "total_tokens", 0) or 0)
                 inp = int(getattr(u, "prompt_tokens", 0) or 0)
                 out = int(getattr(u, "completion_tokens", 0) or 0)
-                LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
-                LLMClient.model_stats[self.model] = LLMClient.model_stats.get(self.model, 0) + total
-                LLMClient.role_stats[self.role] = LLMClient.role_stats.get(self.role, 0) + total
-                io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
-                io["input"] += inp
-                io["output"] += out
-                if state is not None:
-                    state.token_used = getattr(state, "token_used", 0) + total
+                # 需求 19 / #76：validator 分批并行后本方法会被多线程调用 →
+                # 类级计数与 state.token_used 的读-改-写必须加锁，否则并发丢账。
+                with LLMClient._stats_lock:
+                    LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
+                    LLMClient.model_stats[self.model] = LLMClient.model_stats.get(self.model, 0) + total
+                    LLMClient.role_stats[self.role] = LLMClient.role_stats.get(self.role, 0) + total
+                    io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
+                    io["input"] += inp
+                    io["output"] += out
+                    if state is not None:
+                        state.token_used = getattr(state, "token_used", 0) + total
                 # P1-4：逐调用记账（无 sink 时为 no-op）
                 emit_usage(UsageRecord(
                     kind="llm", provider="dashscope", model=self.model, role=self.role,
