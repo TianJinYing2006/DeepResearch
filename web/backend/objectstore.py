@@ -86,7 +86,7 @@ class ObjectStore:
         return self._client
 
     def ensure_bucket(self, retention_days: Optional[int] = None) -> Dict[str, Any]:
-        """幂等：建桶 + `runs/` 前缀生命周期（到期自动删除）。
+        """幂等：建桶 + `runs/`、`backups/` 前缀生命周期（到期自动删除）。
 
         返回结构化结果而**不向上抛异常**。原因：`main.py` 的启动块用 `try/except: pass`
         包住本方法，一旦整体抛出，生命周期设置失败会被完全静默 ——
@@ -94,6 +94,9 @@ class ObjectStore:
 
         因此这里把「建桶」与「生命周期」两步分别捕获，失败写入 `warnings`，
         由调用方显式打印（运维可据此在控制台手动补配过期规则）。
+
+        注意：PUT 会**整体替换**桶的生命周期配置，所以两条规则必须一起提交
+        （`backups/` = 需求 20 §8 备份加密件的 COS 保留期，防止无限累积）。
         """
         result: Dict[str, Any] = {"bucket_ready": False, "lifecycle_applied": None,
                                   "warnings": []}
@@ -117,18 +120,26 @@ class ObjectStore:
         try:
             client.put_bucket_lifecycle_configuration(
                 Bucket=self.bucket,
-                LifecycleConfiguration={"Rules": [{
-                    "ID": "expire-runs",
-                    "Status": "Enabled",
-                    "Filter": {"Prefix": "runs/"},
-                    "Expiration": {"Days": max(1, days)},
-                }]},
+                LifecycleConfiguration={"Rules": [
+                    {
+                        "ID": "expire-runs",
+                        "Status": "Enabled",
+                        "Filter": {"Prefix": "runs/"},
+                        "Expiration": {"Days": max(1, days)},
+                    },
+                    {
+                        "ID": "expire-backups",
+                        "Status": "Enabled",
+                        "Filter": {"Prefix": "backups/"},
+                        "Expiration": {"Days": max(1, days)},
+                    },
+                ]},
             )
             result["lifecycle_applied"] = True
         except Exception as exc:  # noqa: BLE001 —— 保留期不生效必须留痕，不能静默
             result["lifecycle_applied"] = False
-            warning = (f"`runs/` 生命周期设置失败（{type(exc).__name__}: {exc}）：报告不会在 "
-                       f"{days} 天后自动删除，请在对象存储控制台手动配置该前缀的过期规则")
+            warning = (f"`runs/`、`backups/` 生命周期设置失败（{type(exc).__name__}: {exc}）："
+                       f"对象不会在 {days} 天后自动删除，请在对象存储控制台手动配置这两个前缀")
             result["warnings"].append(warning)
             _log(warning)
         return result
