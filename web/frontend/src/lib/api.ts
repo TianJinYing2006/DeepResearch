@@ -3,7 +3,7 @@ import type { StructuredError } from '../types/agui'
 
 /** 双提交 Cookie 的 CSRF 头（无 cookie 时返回空对象）。 */
 export function csrfHeaders(): Record<string, string> {
-  const match = document.cookie.match(/(?:^|;\s*)dr_csrf=([^;]+)/)
+  const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?dr_csrf=([^;]+)/)
   return match ? { 'X-CSRF-Token': decodeURIComponent(match[1]) } : {}
 }
 
