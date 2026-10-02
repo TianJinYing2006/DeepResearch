@@ -1,6 +1,7 @@
 import Modal from '../../components/Modal'
 import type { SessionUser } from '../../types/api'
 import AuthForm from './AuthForm'
+import InkFlowCanvas from './InkFlowCanvas'
 
 type Props = {
   /** 顶部提示（如「账号已注销」）。 */
@@ -55,15 +56,17 @@ export default function AuthGate({ notice, inviteFromUrl, onAuthed, onOpenLegal,
           />
         </div>
 
-        <aside className="flex flex-col justify-between gap-8 bg-ink p-7 text-white sm:p-9">
-          <p className="archive-serif text-[24px] font-semibold leading-[1.4] sm:text-[28px]">
+        <aside className="relative flex flex-col justify-between gap-10 overflow-hidden bg-ink p-8 text-white sm:p-10">
+          <InkFlowCanvas className="absolute inset-0 h-full w-full" />
+          {/* 文字保护罩：左侧渐入墨色，白字落在安静的深色区，右侧展示流沙 */}
+          <div aria-hidden="true"
+               className="pointer-events-none absolute inset-0 bg-[linear-gradient(105deg,rgba(23,27,25,0.92)_0%,rgba(23,27,25,0.55)_42%,rgba(23,27,25,0)_72%)]" />
+          <p className="relative text-[27px] font-bold leading-[1.22] tracking-tight sm:text-[30px] lg:text-[34px]">
             {'把复杂问题，'}
             <br />
-            {'变成可追溯的研究结论'}
-            <span aria-hidden="true"
-                  className="animate-caret ml-1.5 inline-block h-[0.75em] w-[3px] translate-y-[0.08em] bg-white align-baseline" />
+            变成可追溯的研究结论
           </p>
-          <p className="text-xs leading-relaxed text-white/60">
+          <p className="relative max-w-[26em] text-xs leading-relaxed text-white/60">
             内测阶段，仅限邀请；普通账号由邀请码创建。
             登录后可在「会话与安全」中随时查看设备并退出其他会话。
           </p>
