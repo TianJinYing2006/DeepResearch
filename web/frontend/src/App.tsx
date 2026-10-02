@@ -282,6 +282,18 @@ export default function App() {
     launch(lastRequest)
   }
 
+  // 需求 18（#74）：终局后一键开启新话题 —— 清空主题/附加要求、展开表单并聚焦；
+  // 档位（profile）保留；运行中不可用（折叠条上的按钮同步 disabled）。
+  const handleNewTopic = () => {
+    if (running) return
+    setTopic('')
+    setInstructions('')
+    setExportState('idle')
+    setLaunchOpen(true)
+    setAnnouncement('已清空输入，可开始新研究')
+    window.setTimeout(() => document.getElementById('topic')?.focus(), 0)
+  }
+
   const copyReport = async () => {
     if (!result?.report) return
     await navigator.clipboard.writeText(result.report)
@@ -404,6 +416,7 @@ export default function App() {
               onCancel={() => void cancel()}
               collapsed={!launchOpen}
               onToggle={() => setLaunchOpen((open) => !open)}
+              onNewTopic={handleNewTopic}
             />
             {launchOpen && <BoundaryCard />}
 

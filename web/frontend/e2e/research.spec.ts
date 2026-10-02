@@ -139,6 +139,24 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.locator('#topic')).toHaveValue('折叠验证')
   })
 
+  test('完成后一键开启新话题（清空输入并聚焦）', async ({ page }) => {
+    await page.fill('#topic', '新话题A')
+    await page.click('button[type="submit"]')
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+
+    // 需求 18（#74）：折叠条上的「新研究」一键回到干净起点（档位保留）
+    await page.getByTestId('launch-new-topic').click()
+    await expect(page.locator('#topic')).toBeVisible()
+    await expect(page.locator('#topic')).toHaveValue('')
+    await expect(page.locator('#topic')).toBeFocused()
+
+    // 不刷新页面直接提交第二单：旧报告先退场，再等新报告出现
+    await page.fill('#topic', '新话题B')
+    await page.click('button[type="submit"]')
+    await expect(page.getByTestId('report-heading')).toBeHidden({ timeout: 10_000 })
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+  })
+
   test('引用证据显示在页边栏', async ({ page }) => {
     await page.fill('#topic', '页边证据')
     await page.click('button[type="submit"]')
