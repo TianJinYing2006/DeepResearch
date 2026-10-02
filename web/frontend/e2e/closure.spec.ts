@@ -27,6 +27,9 @@ test.describe('收口回归（桌面端）', () => {
     )
 
     await page.goto('/')
+    // 分流：未登录访客先看落地页 → CTA 进入登录注册页
+    await expect(page.getByTestId('landing-page')).toBeVisible()
+    await page.getByTestId('landing-cta').click()
     const gate = page.getByTestId('auth-gate')
     await expect(gate).toBeVisible()
     await expect(gate.getByRole('heading', { name: '登录 DeepResearch' })).toBeVisible()
@@ -51,6 +54,7 @@ test.describe('收口回归（桌面端）', () => {
     )
 
     await page.goto('/')
+    await page.getByTestId('landing-cta').click()
     const gate = page.getByTestId('auth-gate')
     const password = gate.locator('#auth-password')
     await expect(password).toHaveAttribute('type', 'password')
@@ -58,6 +62,43 @@ test.describe('收口回归（桌面端）', () => {
     await expect(password).toHaveAttribute('type', 'text')
     await gate.getByTestId('auth-password-toggle').click()
     await expect(password).toHaveAttribute('type', 'password')
+  })
+
+  test('落地页：滚动驱动的工作流逐级激活', async ({ page }) => {
+    await page.route('**/api/options', (route) => route.fulfill({ json: AUTH_OPTIONS }))
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({ status: 401, json: { detail: { code: 'unauthenticated', message: '未登录' } } }),
+    )
+
+    await page.goto('/')
+    await expect(page.getByTestId('landing-page')).toBeVisible()
+    await expect(page.getByTestId('landing-marquee')).toBeVisible()
+
+    // 滚到第 3 步并居中：该步应被激活；工作流进度线与顶部进度条均已推进。
+    // 用 poll 反复滚动（全量负载下首次 scrollIntoView 可能未落入 IO 判定带）。
+    const third = page.getByTestId('workflow-step').nth(2)
+    await expect
+      .poll(async () => {
+        await third.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+        return await third.getAttribute('data-active')
+      }, { timeout: 15000, intervals: [300, 500, 800] })
+      .toBe('true')
+
+    const stepBar = page.getByTestId('workflow-progress')
+    await expect
+      .poll(async () => {
+        const box = await stepBar.boundingBox()
+        return box ? box.width : 0
+      }, { timeout: 10000 })
+      .toBeGreaterThan(4)
+
+    const topBar = page.getByTestId('landing-progress')
+    await expect
+      .poll(async () => {
+        const box = await topBar.boundingBox()
+        return box ? box.width : 0
+      }, { timeout: 10000 })
+      .toBeGreaterThan(4)
   })
 
   test('时限到点显示超时卡且不计为失败', async ({ page }) => {
@@ -178,7 +219,9 @@ test.describe('收口回归（桌面端）', () => {
     await expect(page.getByTestId('account-email')).toHaveText('bye@example.com')
     await page.getByTestId('delete-account').click()
 
-    // 注销后回到登录门，并给出「知识库清理」提示（P0-7 outbox 语义）
+    // 注销后回到落地页；进入登录页可见「账号已注销」提示（P0-7 outbox 语义）
+    await expect(page.getByTestId('landing-page')).toBeVisible()
+    await page.getByTestId('landing-cta').click()
     await expect(page.getByTestId('auth-gate')).toBeVisible()
     await expect(page.getByTestId('auth-notice')).toContainText('账号已注销')
     await expect(page.getByTestId('auth-notice')).toContainText('pending')
