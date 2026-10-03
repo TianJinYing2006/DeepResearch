@@ -37,7 +37,14 @@ import sys
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from .auth import hash_password, new_invite_code, normalize_email, token_hash
+from .auth import (
+    MIN_PASSWORD_LENGTH,
+    check_password_strength,
+    hash_password,
+    new_invite_code,
+    normalize_email,
+    token_hash,
+)
 from .store import RunStore
 
 
@@ -55,6 +62,12 @@ def _audit(store: RunStore, action: str, **detail) -> None:
         store.record_audit(action, detail={"via": "cli", **detail})
     except Exception:  # noqa: BLE001
         pass
+
+
+def _validate_password(password: str, email: str) -> str | None:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"密码长度不足（至少 {MIN_PASSWORD_LENGTH} 位）"
+    return check_password_strength(password, email=email)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -148,6 +161,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     reset = sub.add_parser("reset-password", help="管理员重置密码（无邮件通道；临时密码打印一次）")
     reset.add_argument("--email", required=True)
+    reset.add_argument("--password", default="",
+                       help="指定新密码（须满足口令策略）；不传则生成随机临时密码并打印一次")
 
     revoke = sub.add_parser("revoke-invite", help="撤销未使用的邀请码")
     revoke.add_argument("--code", required=True)
@@ -165,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "create-user":
         email = normalize_email(args.email)
         password = args.password or secrets.token_urlsafe(12)
+        if args.password:
+            reason = _validate_password(password, email)
+            if reason:
+                print(reason, file=sys.stderr)
+                return 1
         user_id = uuid.uuid4().hex[:12]
         store.create_user(user_id, email, hash_password(password))
         _audit(store, "admin_create_user", target_id=user_id, detail={"email": email})
@@ -196,13 +216,23 @@ def main(argv: list[str] | None = None) -> int:
         if user is None:
             print("user not found", file=sys.stderr)
             return 1
-        password = secrets.token_urlsafe(12)
+        if args.password:
+            reason = _validate_password(args.password, user["email"])
+            if reason:
+                print(reason, file=sys.stderr)
+                return 1
+            password = args.password
+        else:
+            password = secrets.token_urlsafe(12)
         store.update_password(user["user_id"], hash_password(password))
         revoked = store.revoke_user_sessions(user["user_id"])
         _audit(store, "admin_reset_password", actor_user_id=user["user_id"],
                detail={"revoked_sessions": revoked})
         print(f"已重置 {user['email']}；吊销 {revoked} 个会话")
-        print(f"临时密码（仅本次打印）：{password}")
+        if args.password:
+            print("密码已按指定值更新")
+        else:
+            print(f"临时密码（仅本次打印）：{password}")
         return 0
 
     if args.command == "moderation-list":
