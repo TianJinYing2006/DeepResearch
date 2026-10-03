@@ -102,6 +102,11 @@ class FakeStore:
         self.alert_deliveries: list[dict] = []
         self._alert_delivery_seq = 0
         self.fail_events = False
+        # 需求 23：三层数据（解析快照 / 分块产物 / 版本状态机）+ 全局修订号
+        self.rag_snapshots: dict[str, list[dict]] = {}
+        self.rag_chunks: dict[tuple, list[dict]] = {}
+        self.rag_generations: dict[str, list[dict]] = {}
+        self.rag_revision = 0
 
     def ping(self) -> None:
         return None
@@ -817,6 +822,9 @@ class FakeStore:
             "attempts": 0, "next_attempt_at": now, "lease_expires_at": None,
             "claimed_by": None, "scan_status": "skipped", "last_error": None,
             "created_at": now, "updated_at": now, "processed_at": None,
+            # 需求 23：任务类型 / 展示元数据 / 活动版本 / 修订号
+            "task": "ingest", "display_name": None, "tags": [],
+            "active_generation": None, "index_revision": 0,
         }
         self.ingestions[ingestion_id] = row
         return row
@@ -909,6 +917,141 @@ class FakeStore:
                 if row["status"] == "ready" and row["created_at"] < before]
         rows.sort(key=lambda row: row["created_at"])
         return [dict(row) for row in rows[:limit]]
+
+    # ---- 需求 23：三层数据（解析快照 / 分块产物 / 版本状态机）----
+
+    def replace_parse_snapshot(self, doc_id, blocks):
+        self.rag_snapshots[doc_id] = [dict(block) for block in blocks]
+        return len(self.rag_snapshots[doc_id])
+
+    def get_parse_snapshot(self, doc_id):
+        return [dict(block) for block in self.rag_snapshots.get(doc_id, [])]
+
+    def count_parse_snapshot(self, doc_id):
+        return len(self.rag_snapshots.get(doc_id, []))
+
+    def create_index_generation(self, doc_id, *, chunker_version, embedding_model,
+                                embedding_dim):
+        generations = self.rag_generations.setdefault(doc_id, [])
+        generation = max((item["generation"] for item in generations), default=0) + 1
+        generations.append({
+            "doc_id": doc_id, "generation": generation,
+            "chunker_version": chunker_version, "embedding_model": embedding_model,
+            "embedding_dim": embedding_dim, "status": "building",
+            "chunk_count": 0, "error": None, "activated_at": None,
+        })
+        return generation
+
+    def insert_rag_chunks(self, doc_id, generation, chunks):
+        self.rag_chunks[(doc_id, generation)] = [dict(chunk) for chunk in chunks]
+
+    def count_rag_chunks(self, doc_id, generation):
+        return len(self.rag_chunks.get((doc_id, generation), []))
+
+    def list_rag_chunks(self, doc_id, generation, *, offset=0, limit=20):
+        rows = self.rag_chunks.get((doc_id, generation), [])
+        return [dict(row) for row in rows[offset:offset + limit]], len(rows)
+
+    def get_rag_chunk_rows(self, doc_id, generation):
+        return [dict(row) for row in self.rag_chunks.get((doc_id, generation), [])]
+
+    def activate_index_generation(self, doc_id, generation):
+        generations = self.rag_generations.get(doc_id, [])
+        target = next((g for g in generations if g["generation"] == generation), None)
+        if target is None or target["status"] != "building":
+            raise ValueError("generation_not_building")
+        retired = [g["generation"] for g in generations
+                   if g["status"] == "active" and g["generation"] != generation]
+        for item in generations:
+            if item["status"] == "active" and item["generation"] != generation:
+                item["status"] = "retired"
+        target.update(status="active", activated_at=datetime.now(UTC),
+                      chunk_count=self.count_rag_chunks(doc_id, generation))
+        for row in self.ingestions.values():
+            if row["doc_id"] == doc_id:
+                row["active_generation"] = generation
+                row["index_revision"] = row.get("index_revision", 0) + 1
+        self.rag_revision += 1
+        return retired
+
+    def fail_index_generation(self, doc_id, generation, error):
+        for item in self.rag_generations.get(doc_id, []):
+            if item["generation"] == generation and item["status"] == "building":
+                item.update(status="failed", error=error[:300])
+
+    def delete_rag_generation_layers(self, doc_id, generation):
+        self.rag_chunks.pop((doc_id, generation), None)
+
+    def mark_generation_cleaned(self, doc_id, generation):
+        self.rag_chunks.pop((doc_id, generation), None)
+        self.rag_generations[doc_id] = [
+            item for item in self.rag_generations.get(doc_id, [])
+            if not (item["generation"] == generation
+                    and item["status"] in ("retired", "failed"))]
+
+    def list_retired_generations(self, limit=20):
+        rows = []
+        for doc_id, generations in self.rag_generations.items():
+            for item in generations:
+                if item["status"] in ("retired", "failed"):
+                    rows.append({"doc_id": doc_id, "generation": item["generation"],
+                                 "status": item["status"]})
+        return rows[:limit]
+
+    def get_active_generation(self, doc_id):
+        for item in self.rag_generations.get(doc_id, []):
+            if item["status"] == "active":
+                return item["generation"]
+        return None
+
+    def get_rag_revision(self):
+        return self.rag_revision
+
+    def bump_rag_revision(self):
+        self.rag_revision += 1
+        return self.rag_revision
+
+    def list_rag_docs(self, user_id):
+        rows = [dict(row) for row in self.ingestions.values()
+                if row["user_id"] == user_id and row["status"] != "deleted"]
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return rows
+
+    def get_rag_doc_for_user(self, doc_id, user_id):
+        return self.find_ingestion_by_doc(user_id, doc_id)
+
+    def update_rag_doc_meta(self, doc_id, user_id, *, display_name=None, tags=None):
+        row = self.find_ingestion_by_doc(user_id, doc_id)
+        if row is None:
+            return False
+        if display_name is not None:
+            row["display_name"] = display_name
+        if tags is not None:
+            row["tags"] = list(tags)
+        return True
+
+    def rag_usage_bytes(self, user_id):
+        return sum(int(row.get("size_bytes") or 0) for row in self.ingestions.values()
+                   if row["user_id"] == user_id and row["status"] != "deleted")
+
+    def requeue_ingestion_for_task(self, ingestion_id, task):
+        row = self.ingestions.get(ingestion_id)
+        if row is None or row["status"] != "ready":
+            return False
+        row.update(status="pending", task=task, attempts=0, last_error=None,
+                   next_attempt_at=datetime.now(UTC), lease_expires_at=None,
+                   claimed_by=None)
+        return True
+
+    def delete_rag_layers(self, doc_id):
+        self.rag_snapshots.pop(doc_id, None)
+        for key in [key for key in self.rag_chunks if key[0] == doc_id]:
+            self.rag_chunks.pop(key, None)
+        self.rag_generations.pop(doc_id, None)
+
+    def list_rag_doc_ids_for_user(self, user_id):
+        return [row["doc_id"] for row in self.ingestions.values()
+                if row["user_id"] == user_id and row["status"] != "deleted"]
 
     def mark_ingestion_deleted(self, ingestion_id, reason="expired"):
         row = self.ingestions.get(ingestion_id)

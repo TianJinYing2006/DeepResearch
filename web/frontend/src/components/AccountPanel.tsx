@@ -6,11 +6,22 @@ import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
 import { formatBytes, formatCny } from '../lib/format'
-import type { Quota, RagDoc, SessionUser } from '../types/api'
+import type { Quota, RagChunk, RagDoc, SessionUser } from '../types/api'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
+
+/** 需求 23：locator → 可读定位（页码 / 幻灯片 / 工作表 / 行范围）。 */
+function locatorLabel(locator: Record<string, unknown>): string {
+  const parts: string[] = []
+  if (typeof locator.page === 'number') parts.push(`第 ${locator.page} 页`)
+  if (typeof locator.slide === 'number') parts.push(`第 ${locator.slide} 页幻灯片`)
+  if (typeof locator.sheet === 'string') parts.push(`工作表 ${locator.sheet}`)
+  const range = locator.row_range
+  if (Array.isArray(range) && range.length === 2) parts.push(`行 ${range[0]}-${range[1]}`)
+  return parts.join(' · ') || '全文'
+}
 
 /** P6-B：邀请链接 `?invite=CODE`（可复制给被邀请人，打开即进入注册并预填）。 */
 function inviteFromLocation(): string {
@@ -48,6 +59,16 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   // R7：KB 文档删除（两步内联确认 —— 不用 window.confirm 反模式）
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
   const [deletingDoc, setDeletingDoc] = useState(false)
+  // 需求 23：分块预览 / 重命名 / 重分块 / 重嵌入 / 容量
+  const [previewDoc, setPreviewDoc] = useState<{ docId: string; source: string } | null>(null)
+  const [previewChunks, setPreviewChunks] = useState<RagChunk[] | null>(null)
+  const [previewTotal, setPreviewTotal] = useState(0)
+  const [previewError, setPreviewError] = useState('')
+  const [renamingDocId, setRenamingDocId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [kbBusyDocId, setKbBusyDocId] = useState<string | null>(null)
+  const [kbActionError, setKbActionError] = useState('')
+  const [kbUsage, setKbUsage] = useState<{ used_bytes: number; quota_bytes: number | null } | null>(null)
   const [authNotice, setAuthNotice] = useState('')
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
@@ -80,7 +101,9 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   }, [])
 
   const refreshSideData = useCallback(async () => {
-    const [quotaResp, docsResp] = await Promise.all([fetch('/api/quota'), fetch('/api/rag/docs')])
+    const [quotaResp, docsResp, usageResp] = await Promise.all([
+      fetch('/api/quota'), fetch('/api/rag/docs'), fetch('/api/rag/usage'),
+    ])
     if (quotaResp.ok) setQuota((await quotaResp.json()) as Quota)
     else setQuota(null)
     if (docsResp.ok) {
@@ -90,6 +113,11 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
     } else {
       setDocs(null)
       setDocsError(await readErrorMessage(docsResp))
+    }
+    if (usageResp.ok) {
+      setKbUsage((await usageResp.json()) as { used_bytes: number; quota_bytes: number | null })
+    } else {
+      setKbUsage(null)
     }
   }, [])
 
@@ -175,6 +203,50 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       setBarMessage('网络错误，请重试')
     } finally {
       setDeletingDoc(false)
+    }
+  }
+
+  /** 需求 23：知识库写操作（重命名 PATCH / 重分块 / 重嵌入）。 */
+  async function kbMutate(docId: string, suffix: string, body?: unknown, method = 'POST') {
+    if (kbBusyDocId !== null) return
+    setKbActionError('')
+    setKbBusyDocId(docId)
+    try {
+      const response = await fetch(`/api/rag/docs${suffix}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+      if (!response.ok) {
+        setKbActionError(await readErrorMessage(response))
+        return
+      }
+      setRenamingDocId(null)
+      await refreshSideData()
+    } catch {
+      setKbActionError('网络错误，请重试')
+    } finally {
+      setKbBusyDocId(null)
+    }
+  }
+
+  /** 需求 23：分块预览（默认活动版本；locator 供引用回溯定位）。 */
+  async function openPreview(docId: string, source: string) {
+    setPreviewDoc({ docId, source })
+    setPreviewChunks(null)
+    setPreviewTotal(0)
+    setPreviewError('')
+    try {
+      const response = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}/chunks?limit=50`)
+      if (!response.ok) {
+        setPreviewError(await readErrorMessage(response))
+        return
+      }
+      const body = (await response.json()) as { total: number; chunks: RagChunk[] }
+      setPreviewChunks(body.chunks)
+      setPreviewTotal(body.total)
+    } catch {
+      setPreviewError('网络错误，请重试')
     }
   }
 
@@ -403,6 +475,16 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           )}
 
           <p className="mb-1 text-[11px] text-ink-muted">已上传文件</p>
+          {kbUsage && (
+            <p className="mb-1 text-[11px] tabular-nums text-ink-muted" data-testid="kb-usage">
+              已用 {formatBytes(kbUsage.used_bytes)}
+              {kbUsage.quota_bytes ? ` / ${formatBytes(kbUsage.quota_bytes)}` : ''}
+            </p>
+          )}
+          {kbActionError && (
+            <p role="alert" className="mb-1 text-[11px] text-stamp-amber"
+               data-testid="kb-action-error">{kbActionError}</p>
+          )}
           {docsError && <p role="alert" className="text-stamp-amber" data-testid="kb-error">知识库不可用：{docsError}</p>}
           {!docsError && docs === null && (
             <div role="status" aria-live="polite">
@@ -414,37 +496,149 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           {!docsError && docs && docs.length > 0 && (
             <ul className="max-h-56 space-y-2 overflow-y-auto pr-1"
                 tabIndex={0} role="region" aria-label="已上传文件列表">
-              {docs.map((doc) => (
-                <li key={doc.doc_id || doc.source} data-testid="kb-doc-item"
-                    className="flex flex-wrap items-center justify-between gap-2 text-ink">
-                  <span className="min-w-0 flex-1 truncate" title={doc.source}>{doc.source}</span>
-                  <span className="text-[11px] tabular-nums text-ink-muted">{doc.chunks} 块</span>
-                  {doc.doc_id && (
-                    <code className="text-[11px] text-ink-muted">{doc.doc_id.split(':').pop()}</code>
-                  )}
-                  {doc.doc_id && (
-                    deleteDocId === doc.doc_id ? (
-                      <span className="flex items-center gap-2 text-[11px]">
-                        <button type="button" className="text-stamp-red hover:text-ink disabled:opacity-60"
-                                data-testid="kb-delete-confirm" disabled={deletingDoc}
-                                onClick={() => void deleteDoc(doc.doc_id!)}>
-                          {deletingDoc ? '删除中…' : '确认删除'}
-                        </button>
-                        <button type="button" className="text-ink-muted hover:text-ink"
-                                data-testid="kb-delete-cancel" disabled={deletingDoc}
-                                onClick={() => setDeleteDocId(null)}>取消</button>
+              {docs.map((doc) => {
+                const status = doc.status ?? 'ready'
+                const statusLabel = status === 'ready' ? '就绪' : status === 'rejected' ? '失败' : '处理中'
+                const docId = doc.doc_id ?? ''
+                return (
+                  <li key={docId || doc.source} data-testid="kb-doc-item"
+                      className="flex flex-wrap items-center justify-between gap-2 text-ink">
+                    <span className="min-w-0 flex-1 truncate" title={doc.source}>
+                      {doc.display_name || doc.source}
+                    </span>
+                    <span className="flex items-center gap-2 text-[11px] text-ink-muted">
+                      <span
+                        className={status === 'rejected' ? 'text-stamp-red'
+                          : status === 'ready' ? 'text-ink-muted' : 'text-stamp-amber'}
+                        data-testid="kb-doc-status" title={doc.error ?? undefined}
+                      >
+                        {statusLabel}
                       </span>
-                    ) : (
-                      <button type="button" className="text-[11px] text-ink-muted hover:text-stamp-red"
-                              data-testid="kb-delete"
-                              onClick={() => setDeleteDocId(doc.doc_id ?? null)}>删除</button>
-                    )
-                  )}
+                      {typeof doc.size_bytes === 'number' && (
+                        <span className="tabular-nums" data-testid="kb-doc-size">
+                          {formatBytes(doc.size_bytes)}
+                        </span>
+                      )}
+                      <span className="tabular-nums">{doc.chunks} 块</span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-2 text-[11px]">
+                      {docId && status === 'ready' && (
+                        <>
+                          <button type="button" className="underline text-ink-muted hover:text-ink"
+                                  data-testid="kb-doc-preview"
+                                  onClick={() => void openPreview(docId, doc.source)}>预览</button>
+                          {renamingDocId === docId ? (
+                            <>
+                              <input
+                                className="w-32 rounded border border-rule bg-rule/40 px-1.5 py-0.5 text-ink"
+                                data-testid="kb-rename-input"
+                                autoFocus value={renameValue}
+                                onChange={(event) => setRenameValue(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    void kbMutate(docId, '', { doc_id: docId, display_name: renameValue }, 'PATCH')
+                                  }
+                                  if (event.key === 'Escape') setRenamingDocId(null)
+                                }}
+                              />
+                              <button type="button" className="underline hover:text-ink"
+                                      disabled={kbBusyDocId !== null || !renameValue.trim()}
+                                      onClick={() => void kbMutate(docId, '', { doc_id: docId, display_name: renameValue }, 'PATCH')}>
+                                保存
+                              </button>
+                            </>
+                          ) : (
+                            <button type="button" className="underline text-ink-muted hover:text-ink"
+                                    data-testid="kb-rename" disabled={kbBusyDocId !== null}
+                                    onClick={() => {
+                                      setRenamingDocId(docId)
+                                      setRenameValue(doc.display_name || doc.source)
+                                    }}>
+                              重命名
+                            </button>
+                          )}
+                          <button type="button" className="underline text-ink-muted hover:text-ink"
+                                  data-testid="kb-rechunk" disabled={kbBusyDocId !== null}
+                                  title="从解析快照重新分块（换分块器）"
+                                  onClick={() => void kbMutate(docId, '/rechunk', { doc_id: docId })}>
+                            重分块
+                          </button>
+                          <button type="button" className="underline text-ink-muted hover:text-ink"
+                                  data-testid="kb-reembed" disabled={kbBusyDocId !== null}
+                                  title="同分块重新嵌入（换向量模型 / 修复索引）"
+                                  onClick={() => void kbMutate(docId, '/reembed', { doc_id: docId })}>
+                            重嵌入
+                          </button>
+                        </>
+                      )}
+                      {docId && (
+                        deleteDocId === docId ? (
+                          <span className="flex items-center gap-2 text-[11px]">
+                            <button type="button" className="text-stamp-red hover:text-ink disabled:opacity-60"
+                                    data-testid="kb-delete-confirm" disabled={deletingDoc}
+                                    onClick={() => void deleteDoc(docId)}>
+                              {deletingDoc ? '删除中…' : '确认删除'}
+                            </button>
+                            <button type="button" className="text-ink-muted hover:text-ink"
+                                    data-testid="kb-delete-cancel" disabled={deletingDoc}
+                                    onClick={() => setDeleteDocId(null)}>取消</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="text-ink-muted hover:text-stamp-red"
+                                  data-testid="kb-delete"
+                                  onClick={() => setDeleteDocId(docId)}>删除</button>
+                        )
+                      )}
+                    </span>
+                    {status === 'rejected' && doc.error && (
+                      <span className="w-full text-[11px] text-stamp-red" data-testid="kb-doc-error">
+                        {doc.error}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {previewDoc && (
+        <Modal
+          onClose={() => { setPreviewDoc(null); setPreviewChunks(null); setPreviewError('') }}
+          labelledBy="kb-preview-title"
+          testId="kb-preview"
+          overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4"
+          panelClassName="surface-card my-6 w-full max-w-2xl p-6"
+        >
+          <div className="flex items-center justify-between">
+            <h3 id="kb-preview-title" className="text-sm font-semibold text-ink">
+              分块预览：{previewDoc.source}（{previewTotal} 块）
+            </h3>
+            <button type="button" className="text-xs text-ink-muted hover:text-ink"
+                    onClick={() => { setPreviewDoc(null); setPreviewChunks(null); setPreviewError('') }}>
+              关闭
+            </button>
+          </div>
+          {previewError && <p role="alert" className="mt-3 text-sm text-stamp-red">{previewError}</p>}
+          {previewChunks === null && !previewError && (
+            <div className="mt-3"><SkeletonRows rows={4} /></div>
+          )}
+          {previewChunks && (
+            <ul className="mt-3 max-h-[60vh] space-y-2 overflow-y-auto" data-testid="kb-chunk-list">
+              {previewChunks.map((chunk) => (
+                <li key={chunk.chunk_id} className="rounded-lg border border-rule bg-rule/30 px-3 py-2">
+                  <p className="text-[11px] text-ink-muted">
+                    #{chunk.chunk_index + 1} · {locatorLabel(chunk.locator)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
+                    {chunk.text.length > 400 ? `${chunk.text.slice(0, 400)}…` : chunk.text}
+                  </p>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </Modal>
       )}
 
       {securityOpen && user && (

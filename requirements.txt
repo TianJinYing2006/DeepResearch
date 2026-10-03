@@ -51,3 +51,7 @@ opentelemetry-instrumentation-httpx>=0.51b0,<1
 
 # 对象存储（P1-6：报告 / 导出迁 S3 兼容存储 —— MinIO 自托管；未配置时回落 PostgreSQL）
 boto3>=1.35,<2
+
+# 需求 23：知识库格式扩展（pptx / xlsx 结构解析；html 走已有 beautifulsoup4）
+python-pptx>=1.0,<2
+openpyxl>=3.1,<4

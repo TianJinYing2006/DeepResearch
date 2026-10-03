@@ -112,26 +112,53 @@ def _process_item(store: RunStore, item: dict[str, Any],
                   max_attempts: int, summary: dict[str, int]) -> None:
     from research_engine.rag.ingest import IngestLimitExceeded
 
+    from .rag_pipeline import (
+        NoActiveChunksError,
+        NoSnapshotError,
+        build_from_chunks,
+        build_from_file,
+        build_from_snapshot,
+    )
+
     ingestion_id = item["ingestion_id"]
+    task = (item.get("task") or "ingest").strip() or "ingest"
     path = quarantine_path(item["stored_name"])
+    keep_file = task == "ingest"  # 仅 ingest 使用隔离区文件（rechunk/reembed 走 PG 层）
     try:
-        scan = _scan_file(path)
-        if scan == "infected":
-            store.mark_ingestion_rejected(ingestion_id, "malware_detected",
-                                          scan_status="infected")
-            _remove(path)
-            summary["rejected"] += 1
-            _log(f"REJECTED ingestion={ingestion_id}: malware detected")
-            return
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"quarantine file missing: {item['stored_name']}")
+        scan = "skipped"
+        if keep_file:
+            scan = _scan_file(path)
+            if scan == "infected":
+                store.mark_ingestion_rejected(ingestion_id, "malware_detected",
+                                              scan_status="infected")
+                _remove(path)
+                summary["rejected"] += 1
+                _log(f"REJECTED ingestion={ingestion_id}: malware detected")
+                return
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"quarantine file missing: {item['stored_name']}")
         factory = ingester_factory or _default_ingester_factory
+        ingester = factory()
         # P1-4：摄取期 embedding 调用逐次记账（run_id=None；doc_id 进 detail）
         with use_usage_sink(make_store_sink(
                 store, run_id=None, attempt=int(item["attempts"]),
-                detail={"doc_id": item["doc_id"]})):
-            chunks = factory().ingest_file(path, doc_id=item["doc_id"],
+                detail={"doc_id": item["doc_id"], "task": task})):
+            if task == "rechunk":
+                # 需求 23：从解析快照重新分块（分块器升级）
+                result = build_from_snapshot(store, ingester, doc_id=item["doc_id"],
+                                             source_name=item["source"],
+                                             user_id=item["user_id"])
+            elif task == "reembed":
+                # 需求 23：同分块换向量（模型升级 / 修复索引）
+                result = build_from_chunks(store, ingester, doc_id=item["doc_id"],
+                                           source_name=item["source"],
                                            user_id=item["user_id"])
+            else:
+                # 需求 23 管道 v2：文件 → 结构快照（落库）→ 分块 v2 → 版本化向量
+                result = build_from_file(store, ingester, doc_id=item["doc_id"], path=path,
+                                         source_name=item["source"],
+                                         user_id=item["user_id"])
+        chunks = int(result.get("chunks") or 0)
         if not chunks:
             store.mark_ingestion_rejected(ingestion_id, "empty_document", scan_status=scan)
             _remove(path)
@@ -140,6 +167,12 @@ def _process_item(store: RunStore, item: dict[str, Any],
         store.mark_ingestion_ready(ingestion_id, chunks, scan_status=scan)
         _remove(path)
         summary["ready"] += 1
+    except (NoSnapshotError, NoActiveChunksError) as exc:
+        # 前置缺失（无快照 / 无活动分块）：重试无意义，如实拒绝
+        store.mark_ingestion_rejected(ingestion_id, f"{type(exc).__name__}: {exc}")
+        _remove(path)
+        summary["rejected"] += 1
+        _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except IngestLimitExceeded as exc:
         store.mark_ingestion_rejected(ingestion_id, str(exc))
         _remove(path)
@@ -185,6 +218,9 @@ def purge_expired_documents(store: RunStore, *, vector_store: Optional[Any] = No
             continue
         _remove(quarantine_path(row["stored_name"]))
         store.mark_ingestion_deleted(row["ingestion_id"])
+        # 需求 23：三层数据随保留期删除；修订号递增使检索缓存失效（删除后不可命中）
+        store.delete_rag_layers(row["doc_id"])
+        store.bump_rag_revision()
         summary["purged"] += 1
     return summary
 

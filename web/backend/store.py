@@ -1886,6 +1886,265 @@ class RunStore:
             cur.execute("SELECT status, count(*) AS n FROM rag_ingestions GROUP BY status")
             return {row["status"]: int(row["n"]) for row in cur.fetchall()}
 
+    # ---- 需求 23：三层数据（解析快照 / 分块产物 / 版本状态机）----
+
+    def replace_parse_snapshot(self, doc_id: str, blocks: list[dict[str, Any]]) -> int:
+        """重写解析快照（单事务 delete+insert）；返回写入块数。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM rag_parse_snapshots WHERE doc_id = %s", (doc_id,))
+            if blocks:
+                cur.executemany(
+                    "INSERT INTO rag_parse_snapshots "
+                    "(doc_id, block_index, kind, title_path, locator, text) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    [(doc_id, int(block["block_index"]), block["kind"],
+                      list(block.get("title_path") or []), Jsonb(block.get("locator") or {}),
+                      block["text"]) for block in blocks],
+                )
+        return len(blocks)
+
+    def get_parse_snapshot(self, doc_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM rag_parse_snapshots WHERE doc_id = %s ORDER BY block_index",
+                (doc_id,),
+            )
+            return cur.fetchall()
+
+    def count_parse_snapshot(self, doc_id: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM rag_parse_snapshots WHERE doc_id = %s",
+                        (doc_id,))
+            return int(cur.fetchone()["n"])
+
+    def create_index_generation(self, doc_id: str, *, chunker_version: str,
+                                embedding_model: str, embedding_dim: int) -> int:
+        """新建 building 代（generation = 同 doc 现有最大值 + 1）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO rag_index_generations "
+                "(doc_id, generation, chunker_version, embedding_model, embedding_dim) "
+                "SELECT %s, COALESCE(MAX(generation), 0) + 1, %s, %s, %s "
+                "FROM rag_index_generations WHERE doc_id = %s "
+                "RETURNING generation",
+                (doc_id, chunker_version, embedding_model, int(embedding_dim), doc_id),
+            )
+            return int(cur.fetchone()["generation"])
+
+    def insert_rag_chunks(self, doc_id: str, generation: int,
+                          chunks: list[dict[str, Any]]) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            if chunks:
+                cur.executemany(
+                    "INSERT INTO rag_chunks "
+                    "(doc_id, generation, chunk_index, chunk_id, text, embed_text, "
+                    "title_path, locator) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    [(doc_id, int(generation), int(chunk["chunk_index"]), chunk["chunk_id"],
+                      chunk["text"], chunk["embed_text"],
+                      list(chunk.get("title_path") or []),
+                      Jsonb(chunk.get("locator") or {}))
+                     for chunk in chunks],
+                )
+
+    def count_rag_chunks(self, doc_id: str, generation: int) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM rag_chunks WHERE doc_id = %s AND generation = %s",
+                (doc_id, int(generation)),
+            )
+            return int(cur.fetchone()["n"])
+
+    def list_rag_chunks(self, doc_id: str, generation: int, *,
+                        offset: int = 0, limit: int = 20) -> tuple[list[dict[str, Any]], int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM rag_chunks WHERE doc_id = %s AND generation = %s",
+                (doc_id, int(generation)),
+            )
+            total = int(cur.fetchone()["n"])
+            cur.execute(
+                "SELECT chunk_index, chunk_id, text, locator FROM rag_chunks "
+                "WHERE doc_id = %s AND generation = %s ORDER BY chunk_index LIMIT %s OFFSET %s",
+                (doc_id, int(generation), limit, offset),
+            )
+            return cur.fetchall(), total
+
+    def get_rag_chunk_rows(self, doc_id: str, generation: int) -> list[dict[str, Any]]:
+        """re-embed 输入：某代的全部块（文本/embed 文本/定位）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT chunk_index, chunk_id, text, embed_text, title_path, locator "
+                "FROM rag_chunks WHERE doc_id = %s AND generation = %s ORDER BY chunk_index",
+                (doc_id, int(generation)),
+            )
+            return cur.fetchall()
+
+    def activate_index_generation(self, doc_id: str, generation: int) -> list[int]:
+        """单事务切换活动版本（旧 active → retired）；返回被退役的代数（供向量清理）。
+
+        提交条件校验：目标代必须仍为 `building`（防过期 worker 覆盖新结果）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT generation FROM rag_index_generations "
+                "WHERE doc_id = %s AND status = 'active' AND generation <> %s",
+                (doc_id, int(generation)),
+            )
+            retired = [int(row["generation"]) for row in cur.fetchall()]
+            cur.execute(
+                "UPDATE rag_index_generations SET status = 'retired' "
+                "WHERE doc_id = %s AND status = 'active' AND generation <> %s",
+                (doc_id, int(generation)),
+            )
+            cur.execute(
+                "UPDATE rag_index_generations SET status = 'active', activated_at = now() "
+                "WHERE doc_id = %s AND generation = %s AND status = 'building'",
+                (doc_id, int(generation)),
+            )
+            if cur.rowcount == 0:
+                raise ValueError("generation_not_building")
+            cur.execute(
+                "UPDATE rag_ingestions SET active_generation = %s, "
+                "index_revision = index_revision + 1, updated_at = now() WHERE doc_id = %s",
+                (int(generation), doc_id),
+            )
+            cur.execute("UPDATE rag_revision SET revision = revision + 1 WHERE id = 1")
+        return retired
+
+    def fail_index_generation(self, doc_id: str, generation: int, error: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_index_generations SET status = 'failed', error = %s "
+                "WHERE doc_id = %s AND generation = %s AND status = 'building'",
+                (error[:300], doc_id, int(generation)),
+            )
+
+    def delete_rag_generation_layers(self, doc_id: str, generation: int) -> None:
+        """清理某代的分块产物（向量由调用方按代删除）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM rag_chunks WHERE doc_id = %s AND generation = %s",
+                        (doc_id, int(generation)))
+
+    def mark_generation_cleaned(self, doc_id: str, generation: int) -> None:
+        """retired / failed 代清理完成：删产物行 + 删状态行（幂等）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM rag_chunks WHERE doc_id = %s AND generation = %s",
+                        (doc_id, int(generation)))
+            cur.execute(
+                "DELETE FROM rag_index_generations "
+                "WHERE doc_id = %s AND generation = %s AND status IN ('retired', 'failed')",
+                (doc_id, int(generation)),
+            )
+
+    def list_retired_generations(self, limit: int = 20) -> list[dict[str, Any]]:
+        """待清理代：retired（切换后）与 failed（构建中断的孤儿向量）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT doc_id, generation, status FROM rag_index_generations "
+                "WHERE status IN ('retired', 'failed') "
+                "ORDER BY activated_at NULLS FIRST, id LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+    def get_active_generation(self, doc_id: str) -> Optional[int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT generation FROM rag_index_generations "
+                "WHERE doc_id = %s AND status = 'active'",
+                (doc_id,),
+            )
+            row = cur.fetchone()
+            return int(row["generation"]) if row else None
+
+    def get_rag_revision(self) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT revision FROM rag_revision WHERE id = 1")
+            row = cur.fetchone()
+            return int(row["revision"]) if row else 0
+
+    def bump_rag_revision(self) -> int:
+        """写路径递增修订号（上传完成由 activate 处理；删除走这里）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE rag_revision SET revision = revision + 1 WHERE id = 1 "
+                        "RETURNING revision")
+            row = cur.fetchone()
+            return int(row["revision"]) if row else 0
+
+    def list_rag_docs(self, user_id: Optional[str]) -> list[dict[str, Any]]:
+        """需求 23：列表以 PG 台账为准（状态/大小/时间/失败原因/活动版本/展示名）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ingestion_id, doc_id, user_id, source, status, chunks, size_bytes, "
+                "display_name, tags, last_error, active_generation, created_at, updated_at "
+                "FROM rag_ingestions WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' "
+                "ORDER BY created_at DESC",
+                (user_id,),
+            )
+            return cur.fetchall()
+
+    def get_rag_doc_for_user(self, doc_id: str, user_id: Optional[str]) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM rag_ingestions "
+                "WHERE doc_id = %s AND user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' "
+                "LIMIT 1",
+                (doc_id, user_id),
+            )
+            return cur.fetchone()
+
+    def update_rag_doc_meta(self, doc_id: str, user_id: Optional[str], *,
+                            display_name: Optional[str] = None,
+                            tags: Optional[list[str]] = None) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_ingestions SET "
+                "display_name = COALESCE(%s, display_name), "
+                "tags = COALESCE(%s, tags), updated_at = now() "
+                "WHERE doc_id = %s AND user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' "
+                "RETURNING ingestion_id",
+                (display_name, Jsonb(tags) if tags is not None else None, doc_id, user_id),
+            )
+            return cur.fetchone() is not None
+
+    def rag_usage_bytes(self, user_id: Optional[str]) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(SUM(size_bytes), 0) AS n FROM rag_ingestions "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted'",
+                (user_id,),
+            )
+            return int(cur.fetchone()["n"])
+
+    def requeue_ingestion_for_task(self, ingestion_id: str, task: str) -> bool:
+        """把 ready 文档重新入队为 rechunk / reembed（复用既有租约/重试机制）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'pending', task = %s, attempts = 0, "
+                "last_error = NULL, next_attempt_at = now(), lease_expires_at = NULL, "
+                "claimed_by = NULL, updated_at = now() "
+                "WHERE ingestion_id = %s AND status = 'ready' RETURNING ingestion_id",
+                (task, ingestion_id),
+            )
+            return cur.fetchone() is not None
+
+    def delete_rag_layers(self, doc_id: str) -> None:
+        """删除文档的三层 PG 数据（快照 / 分块 / 版本行；向量由调用方删除）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM rag_parse_snapshots WHERE doc_id = %s", (doc_id,))
+            cur.execute("DELETE FROM rag_chunks WHERE doc_id = %s", (doc_id,))
+            cur.execute("DELETE FROM rag_index_generations WHERE doc_id = %s", (doc_id,))
+
+    def list_rag_doc_ids_for_user(self, user_id: Optional[str]) -> list[str]:
+        """账号注销清理：该用户全部活跃文档的 doc_id（删除三层数据用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT doc_id FROM rag_ingestions "
+                "WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted'",
+                (user_id,),
+            )
+            return [row["doc_id"] for row in cur.fetchall()]
+
     # ---- 保留期清理（P2-2）----
 
     #: 允许清理的表与时间列白名单（防注入；只接受代码内常量，不接受调用方自由拼接）

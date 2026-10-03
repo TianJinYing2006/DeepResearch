@@ -31,6 +31,9 @@ _OWNERLESS = (None, "")
 class RagScope:
     user_id: Optional[str] = None
     tenant_id: Optional[str] = None
+    #: 需求 23：全局索引修订号（上传完成 / 删除 / 版本切换时递增）。
+    #: 仅用于派生缓存（BM25 语料）的失效键；不参与命中判定。
+    revision: int = 0
 
     @property
     def is_owner_scope(self) -> bool:
@@ -45,21 +48,23 @@ def current_scope() -> RagScope:
     return _current.get()
 
 
-def set_scope(user_id: Optional[str] = None, tenant_id: Optional[str] = None) -> None:
+def set_scope(user_id: Optional[str] = None, tenant_id: Optional[str] = None,
+              revision: int = 0) -> None:
     """直接设置当前作用域（不返回 token）。
 
     专供「线程/进程按 run 串行执行」的执行器（RunManager 工作线程、Queue Worker）：
     每次开跑前调用覆盖即可；contextvars 不跨线程，线程结束作用域自然消失。
     库函数 / 测试请优先用 :func:`use_rag_scope`。
     """
-    _current.set(RagScope(user_id=user_id, tenant_id=tenant_id))
+    _current.set(RagScope(user_id=user_id, tenant_id=tenant_id, revision=revision))
 
 
 @contextmanager
 def use_rag_scope(user_id: Optional[str] = None,
-                  tenant_id: Optional[str] = None) -> Iterator[RagScope]:
+                  tenant_id: Optional[str] = None,
+                  revision: int = 0) -> Iterator[RagScope]:
     """在 with 块内设定检索作用域（线程/任务隔离由 contextvars 保证）。"""
-    token = _current.set(RagScope(user_id=user_id, tenant_id=tenant_id))
+    token = _current.set(RagScope(user_id=user_id, tenant_id=tenant_id, revision=revision))
     try:
         yield _current.get()
     finally:

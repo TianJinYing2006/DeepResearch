@@ -112,10 +112,11 @@ def test_store_search_pushes_down_owner_filter_and_post_filters(monkeypatch):
     hits = store.search([0.1], top_k=5, scope=RagScope(user_id="u1"))
     assert [h["payload"]["source"] for h in hits] == ["a.md"]
 
-    # 匿名作用域不下推服务端过滤，但后置只留无主块
+    # 匿名作用域不下推 owner 过滤；但「活动版本」过滤（active != false）恒生效（需求 23）
     fake.payloads = [OWNER_DOC, LEGACY_DOC]
     hits = store.search([0.1], top_k=5, scope=RagScope())
-    assert fake.last_filter is None
+    assert fake.last_filter is not None and fake.last_filter.must is None
+    assert {condition.key for condition in fake.last_filter.must_not} == {"active"}
     assert [h["payload"]["source"] for h in hits] == ["old.md"]
 
 

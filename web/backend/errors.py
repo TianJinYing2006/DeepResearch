@@ -154,6 +154,16 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         404, False,
         "摄取记录不存在（或不属于当前用户）：确认 ingestion_id，或重新上传。",
         component="rag"),
+    # --- 需求 23：知识库管理与版本重建 -----------------------------------
+    "rag_no_snapshot": ErrorSpec(
+        409, False,
+        "该文档没有解析快照（历史文档）：无法重新分块，请重新上传该文档。"
+        "（分块预览与重新嵌入仍可用）",
+        component="rag"),
+    "rag_not_ready": ErrorSpec(
+        409, False,
+        "文档当前状态不允许该操作（处理中 / 已失败）：等状态就绪后重试。",
+        component="rag"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

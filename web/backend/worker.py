@@ -63,6 +63,7 @@ from .moderation import apply_output_gate, evaluate_output
 from .otel import run_span, setup_otel
 from .persistence import persist_terminal
 from .queue import RunQueue
+from .rag_pipeline import cleanup_stale_generations
 from .retention import run_retention
 from .runner import _env_int, _estimate_cost_cny
 from .store import RunStore
@@ -230,6 +231,13 @@ class Worker:
                             _log(f"ingestions: {ingestions}")
                     except Exception as exc:  # noqa: BLE001 —— 摄取失败不拖垮消费循环
                         _log(f"ingestion worker failed: {type(exc).__name__}: {exc}")
+                    try:
+                        # 需求 23：退役 / 失败代清理（删向量 → 删产物；失败下轮重试）
+                        cleaned = cleanup_stale_generations(self._store)
+                        if cleaned["scanned"]:
+                            _log(f"rag generations: {cleaned}")
+                    except Exception as exc:  # noqa: BLE001
+                        _log(f"rag generation cleanup failed: {type(exc).__name__}: {exc}")
                     if time.monotonic() >= next_retention:
                         try:
                             purged = purge_expired_documents(self._store)

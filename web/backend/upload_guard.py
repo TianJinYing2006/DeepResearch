@@ -21,7 +21,8 @@ MAX_FILENAME_CHARS = 120
 DOCX_MAX_ENTRIES = 2000
 DOCX_MAX_EXPANSION_RATIO = 50  # 解压后总大小 / 压缩包大小 上限（zip bomb 防护）
 
-ALLOWED_EXT = {".pdf", ".docx", ".md", ".markdown", ".txt", ".text"}
+ALLOWED_EXT = {".pdf", ".docx", ".pptx", ".xlsx", ".md", ".markdown",
+               ".txt", ".text", ".html", ".htm"}
 
 
 class UploadRejected(Exception):
@@ -91,37 +92,43 @@ def detect_and_validate(path: str, filename: str, head: bytes) -> str:
                                  "文件内容与扩展名不符（不是 PDF）",
                                  detail="magic mismatch: pdf")
         return "pdf"
-    if ext == ".docx":
+    if ext in (".docx", ".pptx", ".xlsx"):
         if not head.startswith(b"PK\x03\x04"):
             raise UploadRejected("unsupported_file_type",
-                                 "文件内容与扩展名不符（不是 DOCX/ZIP）",
-                                 detail="magic mismatch: docx")
-        _validate_docx_zip(path)
-        return "docx"
+                                 f"文件内容与扩展名不符（不是 {ext.lstrip('.').upper()}/ZIP）",
+                                 detail=f"magic mismatch: {ext.lstrip('.')}")
+        _validate_ooxml_zip(path, ext)
+        return ext.lstrip(".")
     if b"\x00" in head:
         raise UploadRejected("unsupported_file_type",
                              "文本文件包含二进制内容（疑似伪装）",
                              detail="nul byte in head")
-    return "text"
+    return "html" if ext in (".html", ".htm") else "text"
 
 
-def _validate_docx_zip(path: str) -> None:
-    """DOCX 结构校验：必须是含 `word/` 或 `[Content_Types].xml` 的 ZIP，且解压比合理。"""
+#: OOXML 家族（docx/pptx/xlsx）各自的内部结构标记
+_OOXML_MARKERS = {".docx": "word/", ".pptx": "ppt/", ".xlsx": "xl/"}
+
+
+def _validate_ooxml_zip(path: str, ext: str) -> None:
+    """OOXML 结构校验（需求 23 扩展 pptx/xlsx）：内部标记 + 解压比（zip bomb 防护）。"""
+    marker = _OOXML_MARKERS.get(ext, "word/")
+    label = ext.lstrip(".").upper()
     try:
         with zipfile.ZipFile(path) as archive:
             infos = archive.infolist()
             if len(infos) > DOCX_MAX_ENTRIES:
                 raise UploadRejected("unsupported_file_type",
-                                     "DOCX 内部条目过多（疑似压缩炸弹）")
+                                     f"{label} 内部条目过多（疑似压缩炸弹）")
             names = {info.filename for info in infos}
-            if not any(name.startswith("word/") or name == "[Content_Types].xml"
+            if not any(name.startswith(marker) or name == "[Content_Types].xml"
                        for name in names):
                 raise UploadRejected("unsupported_file_type",
-                                     "DOCX 结构校验失败（缺少 word/ 内容）")
+                                     f"{label} 结构校验失败（缺少 {marker} 内容）")
             packed = os.path.getsize(path)
             expanded = sum(info.file_size for info in infos)
             if packed > 0 and expanded > packed * DOCX_MAX_EXPANSION_RATIO:
                 raise UploadRejected("unsupported_file_type",
-                                     "DOCX 解压比例异常（疑似压缩炸弹）")
+                                     f"{label} 解压比例异常（疑似压缩炸弹）")
     except zipfile.BadZipFile as exc:
-        raise UploadRejected("unsupported_file_type", "DOCX 不是有效的 ZIP 包") from exc
+        raise UploadRejected("unsupported_file_type", f"{label} 不是有效的 ZIP 包") from exc

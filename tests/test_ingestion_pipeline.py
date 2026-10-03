@@ -16,16 +16,52 @@ from web.backend.auth import token_hash
 from web.backend.ingestion import process_ingestions_once, purge_expired_documents
 
 
-class _FakeIngester:
-    def __init__(self, *, chunks: int = 3, error: Exception | None = None):
-        self.chunks = chunks
-        self.error = error
+class _FakePipelineVectorStore:
+    """管道 v2 的向量库替身（需求 23：代际 upsert / 校验 / 切换 / 删除）。"""
 
-    def ingest_file(self, path, doc_id, *, user_id=None, tenant_id=None, visibility="private"):
+    def __init__(self, *, reason: str | None = None):
+        self.points: dict[tuple, list] = {}
+        self.active: dict[tuple, bool] = {}
+        self.deleted: list[tuple] = []
+        self.reason = reason
+
+    def upsert(self, points):
+        for point in points:
+            payload = point.payload
+            key = (payload["doc_id"], payload["generation"])
+            self.points.setdefault(key, []).append(point)
+            self.active[key] = bool(payload.get("active"))
+
+    def count_by_generation(self, doc_id, generation):
+        return len(self.points.get((doc_id, generation), []))
+
+    def set_generation_active(self, doc_id, generation, active, *, wait=True):
+        self.active[(doc_id, generation)] = active
+
+    def delete_by_generation(self, doc_id, generation, *, wait=True):
+        self.deleted.append((doc_id, generation))
+        self.points.pop((doc_id, generation), None)
+
+    @property
+    def unavailable_reason(self):
+        return self.reason
+
+    @property
+    def last_error(self):
+        return "stub"
+
+
+class _FakeIngester:
+    """管道 v2 协议：`embed(texts)` + `store`（VectorStore 替身）。"""
+
+    def __init__(self, *, error: Exception | None = None):
+        self.error = error
+        self.store = _FakePipelineVectorStore()
+
+    def embed(self, texts):
         if self.error:
             raise self.error
-        assert os.path.isfile(path)  # 隔离区文件必须存在
-        return self.chunks
+        return [[0.0] * 4 for _ in texts]
 
 
 class _FakeVectorStore:
@@ -57,19 +93,28 @@ def _create(store: FakeStore, ingestion_id: str = "ing000000001", doc_id: str = 
     if write_file:
         path = ingestion_module.quarantine_path(stored_name)
         with open(path, "wb") as handle:
-            handle.write(b"# doc")
+            handle.write("# doc\n\n正文内容。".encode())
     store.create_ingestion(ingestion_id, doc_id, user_id=user_id, source="doc.md",
-                           sha256="abc", size_bytes=6, stored_name=stored_name)
+                           sha256="abc", size_bytes=24, stored_name=stored_name)
     return ingestion_id
 
 
 def test_ingestion_success_marks_ready_and_removes_file(quarantine):
+    """需求 23 管道 v2：文件 → 快照落库 → 分块 → 版本激活（ready）。"""
     store = FakeStore()
     ingestion_id = _create(store)
-    summary = process_ingestions_once(store, ingester_factory=lambda: _FakeIngester(chunks=3))
+    ingester = _FakeIngester()
+    summary = process_ingestions_once(store, ingester_factory=lambda: ingester)
     assert summary == {"claimed": 1, "ready": 1, "rejected": 0, "retried": 0}
     row = store.get_ingestion(ingestion_id)
-    assert row["status"] == "ready" and row["chunks"] == 3
+    assert row["status"] == "ready" and row["chunks"] == 1  # "# doc" 标题 + 一段正文
+    # 三层数据与版本状态
+    assert store.count_parse_snapshot("u1:abc") >= 2  # heading + paragraph
+    active = store.get_active_generation("u1:abc")
+    assert active == 1 and row["active_generation"] == 1
+    assert store.count_rag_chunks("u1:abc", 1) == 1
+    assert ingester.store.active[("u1:abc", 1)] is True  # 切换后活动
+    assert store.get_rag_revision() >= 1  # 激活递增修订号（缓存失效）
     assert not os.path.exists(ingestion_module.quarantine_path("f.md"))
 
 
@@ -199,6 +244,10 @@ def test_delete_doc_endpoint_verifies_and_cleans(monkeypatch, quarantine):
     assert response.status_code == 200
     assert store.get_ingestion("ing000000001")["status"] == "deleted"
     assert not os.path.exists(ingestion_module.quarantine_path("d.md"))
+    # 需求 23：三层数据一并删除 + 修订号递增（缓存失效）
+    assert store.count_parse_snapshot("local:abc") == 0
+    assert store.get_active_generation("local:abc") is None
+    assert store.get_rag_revision() >= 1
 
     denied = client.delete("/api/rag/docs", params={"doc_id": "someone:abc"})
     assert denied.status_code == 422

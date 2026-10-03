@@ -25,7 +25,27 @@ export type RunBrief = {
   archived_at?: string | null
 }
 
-export type RagDoc = { doc_id?: string; source: string; chunks: number }
+export type RagDoc = {
+  doc_id?: string
+  source: string
+  chunks: number
+  /** 需求 23：PG 台账字段（旧接口无这些字段时为 undefined） */
+  display_name?: string | null
+  tags?: string[]
+  status?: string
+  size_bytes?: number | null
+  created_at?: string | null
+  error?: string | null
+  active_generation?: number | null
+}
+
+/** 需求 23：分块预览（chunk_id 身份 + locator 定位） */
+export type RagChunk = {
+  chunk_index: number
+  chunk_id: string
+  text: string
+  locator: Record<string, unknown>
+}
 
 export type UploadStatus = 'queued' | 'uploading' | 'processing' | 'done' | 'error' | 'cancelled'
 
