@@ -107,8 +107,8 @@ class FakeStore:
         return None
 
     def create_run(self, run_id, topic, request=None, *, user_id=None, tenant_id=None,
-                   idempotency_key=None, request_hash=None, status="CREATED", timeout_at=None,
-                   budget_limit_cny=None):
+                   idempotency_key=None, request_hash=None, retry_of=None, status="CREATED",
+                   timeout_at=None, budget_limit_cny=None):
         if idempotency_key is not None:
             for row in self.runs.values():
                 if row["user_id"] == user_id and row["idempotency_key"] == idempotency_key:
@@ -119,13 +119,14 @@ class FakeStore:
             "research_status": None, "stop_reason": None, "current_node": None,
             "topic": topic, "request": request or {}, "token_used": 0,
             "cost_estimate_cny": 0.0, "budget_limit_cny": budget_limit_cny,
-            "budget_used_cny": 0.0, "attempt": 1, "retry_of": None,
+            "budget_used_cny": 0.0, "attempt": 1, "retry_of": retry_of,
             "idempotency_key": idempotency_key, "request_hash": request_hash,
             "worker_id": None, "worker_status": None,
             "lease_expires_at": None, "timeout_at": timeout_at, "hard_deadline_at": None,
             "cancel_requested_at": None, "created_at": now,
             "queued_at": now if status == "QUEUED" else None,
             "started_at": None, "finished_at": None, "moderation_status": None,
+            "pinned_at": None, "archived_at": None,
         }
         self.runs[run_id] = row
         self.events[run_id] = []
@@ -181,7 +182,8 @@ class FakeStore:
         return self.runs.get(run_id)
 
     def create_run_admitted(self, run_id, topic, request=None, *, user_id=None, tenant_id=None,
-                            idempotency_key=None, request_hash=None, status="CREATED",
+                            idempotency_key=None, request_hash=None, retry_of=None,
+                            status="CREATED",
                             timeout_at=None, budget_limit_cny=None, global_active_limit=None,
                             user_active_limit=None, daily_limit=None,
                             monthly_budget_cny=None, reserve_cny=None, daily_since=None):
@@ -211,7 +213,7 @@ class FakeStore:
                     raise QuotaExceeded("daily_runs", f"used={used}; limit={daily_limit}")
         row, created = self.create_run(run_id, topic, request, user_id=user_id, tenant_id=tenant_id,
                                        idempotency_key=idempotency_key, request_hash=request_hash,
-                                       status=status, timeout_at=timeout_at,
+                                       retry_of=retry_of, status=status, timeout_at=timeout_at,
                                        budget_limit_cny=budget_limit_cny)
         if created and reserve_cny is not None and reserve_cny > 0:
             self.quota_reservations[run_id] = {
@@ -240,17 +242,50 @@ class FakeStore:
                 return row
         return None
 
-    def list_runs(self, *, user_id=None, statuses=None, limit=20, offset=0):
+    def list_runs(self, *, user_id=None, statuses=None, q=None, archived=False,
+                  limit=20, offset=0):
+        """需求 22：关键词 + 归档过滤 + 置顶优先（与 RunStore.list_runs 同语义）。"""
         rows = [r for r in self.runs.values()
                 if (user_id is None or r["user_id"] == user_id)
-                and (not statuses or r["status"] in statuses)]
-        rows.sort(key=lambda r: (r["created_at"], r["run_id"]), reverse=True)
+                and (not statuses or r["status"] in statuses)
+                and (bool(r.get("archived_at")) == archived)
+                and (not q or q.lower() in r["topic"].lower())]
+        def _ts(value):
+            return value.timestamp() if value is not None else 0.0
+
+        rows.sort(key=lambda r: (
+            0 if r.get("pinned_at") else 1,
+            -_ts(r.get("pinned_at") or r["created_at"]),
+            -_ts(r["created_at"]),
+            r["run_id"],
+        ))
         out = []
         for row in rows[offset:offset + limit]:
             item = dict(row)
             item["has_report"] = "report_md" in self.artifacts.get(row["run_id"], {})
             out.append(item)
         return out
+
+    def update_topic(self, run_id, topic, *, user_id):
+        row = self.runs.get(run_id)
+        if row is None or row["user_id"] != user_id:
+            return False
+        row["topic"] = topic
+        return True
+
+    def set_pinned(self, run_id, pinned, *, user_id):
+        row = self.runs.get(run_id)
+        if row is None or row["user_id"] != user_id:
+            return False
+        row["pinned_at"] = datetime.now(UTC) if pinned else None
+        return True
+
+    def set_archived(self, run_id, archived, *, user_id):
+        row = self.runs.get(run_id)
+        if row is None or row["user_id"] != user_id:
+            return False
+        row["archived_at"] = datetime.now(UTC) if archived else None
+        return True
 
     def claim_run(self, run_id, worker_id, lease_seconds):
         row = self.runs.get(run_id)

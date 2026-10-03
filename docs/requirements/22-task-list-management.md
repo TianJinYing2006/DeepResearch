@@ -1,6 +1,6 @@
 # 需求 22：任务列表增强（搜索 / 重命名 / 归档置顶 / 失败重试）
 
-> 状态：**草稿**（需求 21 批次 A1 的落地设计；评审后冻结实施）。
+> 状态：**待合**（实现完成：迁移 0018 已在 staging 实测幂等通过，API/Store/前端/E2E 全绿；PR #104 CI 全绿，等待确认合并）。
 > 父需求：`docs/requirements/21-product-modules-completeness.md` §4-B / §5-A1。
 > 飞书镜像：待同步。
 
@@ -11,10 +11,10 @@
 | 编号 | 22 |
 | 标题 | 任务列表增强（搜索 / 重命名 / 归档置顶 / 失败重试） |
 | 优先级 | P1 |
-| 状态 | 草稿 |
+| 状态 | 待合 |
 | 负责人 | TianJinYing2006 |
-| 关联 Issue | 待建 |
-| 关联 PR | 待填 |
+| 关联 Issue | #103 |
+| 关联 PR | #104 |
 | 创建 / 更新 | 2026-10-03 |
 
 ## 2. 问题背景
@@ -125,12 +125,12 @@ CREATE INDEX runs_topic_trgm_idx ON runs USING gin (topic gin_trgm_ops);
 
 ## 7. 验收标准（DoD）
 
-- [ ] 迁移 0018 幂等可重跑，含 schema 自检（列/索引/扩展）
-- [ ] 5 个新接口 + 列表扩参，全部有归属校验与审计
-- [ ] 搜索：`q` 转义正确（`%`/`_`/空串），归档过滤与置顶排序正确
-- [ ] 重试：终态校验、血缘写入、配额预留生效；非终态返回 409
-- [ ] 前端 7 个新 testid E2E 全绿；`tsc`/`build`/`ruff` 全绿
-- [ ] 回填需求 21 §10 变更记录
+- [x] 迁移 0018 幂等可重跑，含 schema 自检（列/索引/扩展）——2026-10-03 staging 实测：migrate 两次（apply=1 → 0），`pinned_at`/`archived_at`/`runs_topic_trgm_idx`/`pg_trgm` 全部就位
+- [x] 5 个新接口 + 列表扩参，全部有归属校验与审计——`tests/test_runs_management_api.py` 5 用例通过（含越权 404 / CSRF / 幂等重试）
+- [x] 搜索：`q` 转义正确（`%`/`_`/空串），归档过滤与置顶排序正确——store 用例（真实 PG，CI `infra` job 执行）+ FakeStore API 用例
+- [x] 重试：终态校验、血缘写入、配额预留生效；非终态返回 409
+- [x] 前端新 testid E2E 全绿（搜索/重命名/归档/重试/空态 3 条新用例；桌面套件 40/40）；`tsc`/`build`/`ruff` 全绿
+- [x] 回填需求 21 §10 变更记录
 
 ## 8. 影响范围与风险
 
@@ -154,3 +154,4 @@ CREATE INDEX runs_topic_trgm_idx ON runs USING gin (topic gin_trgm_ops);
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-10-03 | 新建 | 需求 21 批次 A1 立项 | 初稿：现状核实（接口/表/前端）+ 迁移 0018 + 5 接口 + DoD | 本文档 |
+| 2026-10-03 | 实施 | 需求 22 落地 | 迁移 0018（staging 幂等实测）；`list_runs` 扩参（q/archived/置顶排序）+ `update_topic`/`set_pinned`/`set_archived` + `retry_of` 入库；5 新路由（PATCH/pin/unpin/archive/unarchive/retry，含 `run_active`/`run_not_retryable` 错误码）；HistoryPanel 搜索防抖/归档开关/行内操作；测试：新 API 5/5、E2E 40/40、ruff/build 全绿 | 待合 |

@@ -121,6 +121,11 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _escape_like(value: str) -> str:
+    """需求 22：ILIKE 通配符转义（配合 `ESCAPE '\\'`），防止用户输入 %/_ 干扰匹配。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class QuotaExceeded(Exception):
     """准入检查失败（P0-3）：kind ∈ global_concurrency / user_concurrency / daily_runs / monthly_budget。"""
 
@@ -199,6 +204,7 @@ class RunStore:
         tenant_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         request_hash: Optional[str] = None,
+        retry_of: Optional[str] = None,
         status: str = "CREATED",
         timeout_at: Optional[datetime] = None,
         budget_limit_cny: Optional[float] = None,
@@ -216,13 +222,13 @@ class RunStore:
                 cur.execute(
                     """
                     INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
-                                      idempotency_key, request_hash, timeout_at,
+                                      idempotency_key, request_hash, retry_of, timeout_at,
                                       budget_limit_cny, queued_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
                     """,
                     (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
-                     idempotency_key, request_hash, timeout_at, budget_limit_cny,
+                     idempotency_key, request_hash, retry_of, timeout_at, budget_limit_cny,
                      _now() if status == "QUEUED" else None),
                 )
                 row = cur.fetchone()
@@ -250,6 +256,7 @@ class RunStore:
         tenant_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         request_hash: Optional[str] = None,
+        retry_of: Optional[str] = None,
         status: str = "CREATED",
         timeout_at: Optional[datetime] = None,
         budget_limit_cny: Optional[float] = None,
@@ -353,13 +360,13 @@ class RunStore:
                 cur.execute(
                     """
                     INSERT INTO runs (run_id, user_id, tenant_id, status, topic, request,
-                                      idempotency_key, request_hash, timeout_at,
+                                      idempotency_key, request_hash, retry_of, timeout_at,
                                       budget_limit_cny, queued_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
                     """,
                     (run_id, user_id, tenant_id, status, topic, Jsonb(request or {}),
-                     idempotency_key, request_hash, timeout_at, budget_limit_cny,
+                     idempotency_key, request_hash, retry_of, timeout_at, budget_limit_cny,
                      _now() if status == "QUEUED" else None),
                 )
                 row = cur.fetchone()
@@ -403,9 +410,12 @@ class RunStore:
         *,
         user_id: Optional[str] = None,
         statuses: Optional[Iterable[str]] = None,
+        q: Optional[str] = None,
+        archived: bool = False,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        """需求 22：状态 + 关键词过滤、归档开关、置顶优先排序。"""
         clauses: list[str] = []
         params: list[Any] = []
         if user_id is not None:
@@ -414,15 +424,51 @@ class RunStore:
         if statuses:
             clauses.append("r.status = ANY(%s)")
             params.append(list(statuses))
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        if q:
+            clauses.append("r.topic ILIKE %s ESCAPE '\\'")
+            params.append(f"%{_escape_like(q)}%")
+        clauses.append("r.archived_at IS NOT NULL" if archived else "r.archived_at IS NULL")
+        where = f"WHERE {' AND '.join(clauses)}"
         params.extend([limit, offset])
         sql = (
             "SELECT r.*, EXISTS (SELECT 1 FROM run_artifacts a WHERE a.run_id = r.run_id) AS has_report "
-            f"FROM runs r {where} ORDER BY r.created_at DESC, r.run_id DESC LIMIT %s OFFSET %s"
+            f"FROM runs r {where} "
+            "ORDER BY r.pinned_at DESC NULLS LAST, r.created_at DESC, r.run_id DESC "
+            "LIMIT %s OFFSET %s"
         )
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchall()
+
+    def update_topic(self, run_id: str, topic: str, *, user_id: Optional[str]) -> bool:
+        """需求 22：重命名（仅本人；匿名模式 user_id=None 同样匹配）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET topic = %s "
+                "WHERE run_id = %s AND user_id IS NOT DISTINCT FROM %s RETURNING run_id",
+                (topic, run_id, user_id),
+            )
+            return cur.fetchone() is not None
+
+    def set_pinned(self, run_id: str, pinned: bool, *, user_id: Optional[str]) -> bool:
+        """需求 22：置顶/取消置顶（幂等）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET pinned_at = CASE WHEN %s THEN now() ELSE NULL END "
+                "WHERE run_id = %s AND user_id IS NOT DISTINCT FROM %s RETURNING run_id",
+                (pinned, run_id, user_id),
+            )
+            return cur.fetchone() is not None
+
+    def set_archived(self, run_id: str, archived: bool, *, user_id: Optional[str]) -> bool:
+        """需求 22：软归档/取消归档（幂等）；仅影响默认列表可见性。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE runs SET archived_at = CASE WHEN %s THEN now() ELSE NULL END "
+                "WHERE run_id = %s AND user_id IS NOT DISTINCT FROM %s RETURNING run_id",
+                (archived, run_id, user_id),
+            )
+            return cur.fetchone() is not None
 
     def update_status(
         self,

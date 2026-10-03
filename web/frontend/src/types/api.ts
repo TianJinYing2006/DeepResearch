@@ -20,6 +20,9 @@ export type RunBrief = {
   created_at: string | null
   has_report: boolean
   moderation_status?: string | null
+  /** 需求 22：置顶 / 软归档（后端已返回；NULL=未设置） */
+  pinned_at?: string | null
+  archived_at?: string | null
 }
 
 export type RagDoc = { doc_id?: string; source: string; chunks: number }

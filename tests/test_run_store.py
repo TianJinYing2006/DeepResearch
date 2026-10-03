@@ -210,6 +210,53 @@ def test_list_runs_filter_and_pagination(store: RunStore):
     assert len(store.list_runs(user_id=OTHER_USER)) == 1
 
 
+# ---------------------------------------------------------------- 需求 22 增补
+
+
+def _create_topic(store: RunStore, topic: str) -> str:
+    run_id = uuid.uuid4().hex[:12]
+    store.create_run(run_id, topic, {"instructions": "x"}, user_id=TEST_USER)
+    return run_id
+
+
+def test_list_runs_search_archive_and_pin(store: RunStore):
+    a = _create_topic(store, "量子计算综述")
+    b = _create_topic(store, "蛋白质折叠")
+    c = _create_topic(store, "量子退火")
+
+    assert {r["run_id"] for r in store.list_runs(user_id=TEST_USER, q="量子")} == {a, c}
+    # 通配符转义：`%` 按字面匹配，不作为 LIKE 通配符
+    assert store.list_runs(user_id=TEST_USER, q="%") == []
+
+    assert store.set_pinned(b, True, user_id=TEST_USER) is True
+    assert store.list_runs(user_id=TEST_USER)[0]["run_id"] == b
+    assert store.set_pinned(b, False, user_id=TEST_USER) is True
+
+    assert store.set_archived(c, True, user_id=TEST_USER) is True
+    assert {r["run_id"] for r in store.list_runs(user_id=TEST_USER)} == {a, b}
+    assert [r["run_id"] for r in store.list_runs(user_id=TEST_USER, archived=True)] == [c]
+    assert store.set_archived(c, False, user_id=TEST_USER) is True
+
+
+def test_update_topic_and_flags_ownership(store: RunStore):
+    run_id = _create_topic(store, "旧主题")
+    assert store.update_topic(run_id, "新主题", user_id=TEST_USER) is True
+    assert store.get_run(run_id)["topic"] == "新主题"
+    assert store.update_topic(run_id, "越权", user_id=OTHER_USER) is False
+    assert store.set_archived(run_id, True, user_id=OTHER_USER) is False
+    assert store.set_pinned(run_id, True, user_id=OTHER_USER) is False
+    assert store.get_run(run_id)["archived_at"] is None
+    assert store.get_run(run_id)["pinned_at"] is None
+
+
+def test_create_run_persists_retry_of(store: RunStore):
+    base, _, _ = _create(store)
+    retry_id = uuid.uuid4().hex[:12]
+    store.create_run(retry_id, "测试主题", {"instructions": "x"},
+                     user_id=TEST_USER, retry_of=base)
+    assert store.get_run(retry_id)["retry_of"] == base
+
+
 # ---------------------------------------------------------------- P2-C 增补
 
 
