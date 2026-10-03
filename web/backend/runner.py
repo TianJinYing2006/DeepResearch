@@ -155,7 +155,8 @@ class RunManager:
               budget_limit_cny: float | None = None,
               ignored_overrides: Optional[dict] = None,
               admission: Optional[dict] = None,
-              request_hash: Optional[str] = None) -> str:
+              request_hash: Optional[str] = None,
+              retry_of: Optional[str] = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
         配置了仓储（P2-C）时：
@@ -202,6 +203,7 @@ class RunManager:
                             user_id=user_id,
                             idempotency_key=idempotency_key,
                             request_hash=request_hash,
+                            retry_of=retry_of,
                             timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
                             budget_limit_cny=budget_limit_cny,
                             **admission)
@@ -211,6 +213,7 @@ class RunManager:
                             user_id=user_id,
                             idempotency_key=idempotency_key,
                             request_hash=request_hash,
+                            retry_of=retry_of,
                             timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
                             budget_limit_cny=budget_limit_cny,
                         )

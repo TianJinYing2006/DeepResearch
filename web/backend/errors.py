@@ -64,6 +64,15 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         404, False,
         "本次运行没有产出报告（被取消 / 超时 / 失败）。可调整参数后重新运行。",
         component="web"),
+    # --- 任务列表管理（需求 22） ------------------------------------------
+    "run_not_retryable": ErrorSpec(
+        409, False,
+        "仅失败 / 失联 / 超时的任务支持一键重试：进行中任务请等它结束，成功或已取消的任务请重新提交。",
+        component="web"),
+    "run_active": ErrorSpec(
+        409, False,
+        "进行中的任务不能归档：等待任务结束或先取消，再归档。",
+        component="web"),
     "concurrency_limit": ErrorSpec(
         429, True,
         "已有研究在运行：前台模型下一次只跑一个（D-19）。等它结束或点「停止」后再启动；"

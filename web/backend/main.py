@@ -655,6 +655,9 @@ def _run_brief(row: dict) -> dict:
         "cost_estimate_cny": float(row.get("cost_estimate_cny") or 0.0),
         "has_report": bool(row.get("has_report")),
         "moderation_status": row.get("moderation_status"),
+        # 需求 22：置顶 / 软归档（NULL=未设置）
+        "pinned_at": _iso(row.get("pinned_at")),
+        "archived_at": _iso(row.get("archived_at")),
     }
 
 
@@ -950,12 +953,13 @@ def _admission_limits(reserve_cny: Optional[float] = None) -> dict:
 
 
 def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: dict,
-                  fingerprint: str) -> str:
+                  fingerprint: str, retry_of: Optional[str] = None) -> str:
     """队列模式（P3）：创建 `QUEUED` 任务并投递唤醒信号；重复幂等键返回既有 run_id。
 
     幂等命中先于并发检查 —— 重复提交是同一个逻辑请求，不应被并发闸拒绝。
     P0：run.request 写**档位快照**（而非客户端参数）；超时 / 预算取自档位。
     P1-1：同键不同指纹 ⇒ 409（由 `_idempotent_existing` 判定）。
+    需求 22：`retry_of` 记录重试血缘（原 run_id）。
     """
     if store is None:
         raise ApiError("persistence_unavailable", "队列模式需要任务库（DR_DATABASE_URL）")
@@ -976,6 +980,7 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
             user_id=user_id,
             idempotency_key=req.idempotency_key,
             request_hash=fingerprint,
+            retry_of=retry_of,
             status="QUEUED",
             timeout_at=datetime.now(UTC) + timedelta(seconds=profile.timeout_seconds),
             budget_limit_cny=_effective_run_budget(profile),
@@ -1357,10 +1362,13 @@ def list_runs(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: Optional[str] = Query(None, description="按状态过滤（逗号分隔，如 RUNNING,FAILED）"),
+    q: Optional[str] = Query(None, max_length=100, description="关键词（topic 模糊搜索）"),
+    archived: bool = Query(False, description="true=只看归档；默认排除归档"),
 ) -> dict:
-    """历史任务列表（P2-C）：读任务库；未配置库时结构化 503。
+    """历史任务列表（P2-C / 需求 22）：读任务库；未配置库时结构化 503。
 
     P4-A：鉴权开启时只返回当前用户的 run。
+    需求 22：`q` 关键词搜索 + `archived` 归档过滤 + 置顶优先排序。
     """
     if store is None:
         raise http_error(
@@ -1368,9 +1376,135 @@ def list_runs(
             "未配置任务库（DR_DATABASE_URL），无法列出历史任务",
         )
     statuses = [item.strip() for item in status.split(",") if item.strip()] if status else None
+    keyword = (q or "").strip() or None
     rows = _store_call(store.list_runs, user_id=_require_user(request),
-                       limit=limit, offset=offset, statuses=statuses)
+                       limit=limit, offset=offset, statuses=statuses,
+                       q=keyword, archived=archived)
     return {"runs": [_run_brief(row) for row in rows], "limit": limit, "offset": offset}
+
+
+#: 需求 22：可重试的终态（失败 / 失联 / 超时）；成功与取消不重试
+RETRYABLE_STATUSES = ("FAILED", "LOST", "TIMED_OUT")
+
+
+class RenameRunRequest(BaseModel):
+    topic: str = Field(..., max_length=MAX_TOPIC_LENGTH)
+
+
+def _owned_run_row(request: Request, run_id: str) -> tuple[Optional[str], dict]:
+    """需求 22 写操作共用前置：任务库可用 + 归属校验（非本人 404）+ CSRF + 取行。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "未配置任务库（DR_DATABASE_URL）")
+    owner = _authorize_run(request, run_id)
+    _check_csrf(request)
+    row = _store_call(store.get_run, run_id)
+    if row is None:
+        raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    return owner, row
+
+
+@app.patch("/api/runs/{run_id}")
+def rename_run(run_id: str, req: RenameRunRequest, request: Request) -> dict:
+    """需求 22：重命名（仅本人）。导出文件名随 topic 变化属预期行为，审计留痕。"""
+    owner, row = _owned_run_row(request, run_id)
+    topic = req.topic.strip()
+    if not topic:
+        raise http_error("empty_topic", "topic 不能为空")
+    if not _store_call(store.update_topic, run_id, topic, user_id=owner):
+        raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    _audit("run_renamed", request=request, actor_user_id=owner, target_type="run",
+           target_id=run_id, detail={"old_topic": row["topic"][:200], "new_topic": topic[:200]})
+    return {"ok": True, "run_id": run_id, "topic": topic}
+
+
+@app.post("/api/runs/{run_id}/pin")
+def pin_run(run_id: str, request: Request) -> dict:
+    """需求 22：置顶（幂等）。"""
+    owner, _ = _owned_run_row(request, run_id)
+    _store_call(store.set_pinned, run_id, True, user_id=owner)
+    _audit("run_pinned", request=request, actor_user_id=owner, target_type="run", target_id=run_id)
+    return {"ok": True, "run_id": run_id, "pinned": True}
+
+
+@app.post("/api/runs/{run_id}/unpin")
+def unpin_run(run_id: str, request: Request) -> dict:
+    """需求 22：取消置顶（幂等）。"""
+    owner, _ = _owned_run_row(request, run_id)
+    _store_call(store.set_pinned, run_id, False, user_id=owner)
+    _audit("run_unpinned", request=request, actor_user_id=owner, target_type="run", target_id=run_id)
+    return {"ok": True, "run_id": run_id, "pinned": False}
+
+
+@app.post("/api/runs/{run_id}/archive")
+def archive_run(run_id: str, request: Request) -> dict:
+    """需求 22：软归档（仅影响默认列表可见性；进行中任务 409）。"""
+    owner, row = _owned_run_row(request, run_id)
+    if row["status"] in ACTIVE_STATUSES:
+        raise http_error("run_active", "进行中的任务不能归档", detail=f"status={row['status']}")
+    _store_call(store.set_archived, run_id, True, user_id=owner)
+    _audit("run_archived", request=request, actor_user_id=owner, target_type="run", target_id=run_id)
+    return {"ok": True, "run_id": run_id, "archived": True}
+
+
+@app.post("/api/runs/{run_id}/unarchive")
+def unarchive_run(run_id: str, request: Request) -> dict:
+    """需求 22：取消归档（幂等）。"""
+    owner, _ = _owned_run_row(request, run_id)
+    _store_call(store.set_archived, run_id, False, user_id=owner)
+    _audit("run_unarchived", request=request, actor_user_id=owner, target_type="run", target_id=run_id)
+    return {"ok": True, "run_id": run_id, "archived": False}
+
+
+@app.post("/api/runs/{run_id}/retry", response_model=StartResponse)
+def retry_run(run_id: str, request: Request) -> StartResponse:
+    """需求 22：失败任务一键重试 —— 复制原 request 快照创建**新 run**（`retry_of` 血缘）。
+
+    幂等键固定 `retry-{原 run_id}`：重复点击返回同一个新 run；配额 / 预算照常走准入事务。
+    仅终态失败（FAILED / LOST / TIMED_OUT）可重试；其余 409。
+    """
+    if store is None:
+        raise http_error("persistence_unavailable", "未配置任务库（DR_DATABASE_URL）")
+    owner = _authorize_run(request, run_id)
+    _check_csrf(request)
+    if not SUBMIT_LIMITER.allow(f"submit:{owner or _client_key(request)}"):
+        raise http_error("rate_limited", "提交过于频繁，稍后再试")
+    row = _store_call(store.get_run, run_id)
+    if row is None:
+        raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    if row["status"] not in RETRYABLE_STATUSES:
+        raise http_error(
+            "run_not_retryable",
+            "仅失败 / 失联 / 超时的任务可重试",
+            detail=f"status={row['status']}",
+        )
+    payload = row.get("request") or {}
+    profile_name = (payload.get("profile") or {}).get("name") or DEFAULT_PROFILE
+    profile = resolve_profile(profile_name) or resolve_profile(DEFAULT_PROFILE)
+    cloned = StartRequest(
+        topic=row["topic"],
+        instructions=payload.get("instructions") or "",
+        profile=profile.name,
+        idempotency_key=f"retry-{run_id}",
+    )
+    ignored = payload.get("ignored_overrides") or {}
+    fingerprint = _request_fingerprint(cloned, profile.name)
+    try:
+        if EXECUTION_MODE == "queue":
+            new_run_id = _start_queued(cloned, owner, profile, ignored, fingerprint,
+                                       retry_of=run_id)
+        else:
+            new_run_id = manager.start(
+                cloned.topic, cloned.instructions, profile,
+                cloned.idempotency_key, user_id=owner,
+                budget_limit_cny=_effective_run_budget(profile),
+                ignored_overrides=ignored,
+                admission=_admission_limits(_effective_run_budget(profile)),
+                request_hash=fingerprint, retry_of=run_id)
+    except ApiError as exc:
+        raise exc.to_http() from exc
+    _audit("run_retried", request=request, actor_user_id=owner, target_type="run",
+           target_id=run_id, detail={"new_run_id": new_run_id})
+    return StartResponse(run_id=new_run_id)
 
 
 @app.get("/api/quota")
