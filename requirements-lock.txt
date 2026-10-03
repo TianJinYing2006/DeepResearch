@@ -46,6 +46,8 @@ distro==1.9.0
     # via
     #   langsmith
     #   openai
+et-xmlfile==2.0.0
+    # via openpyxl
 fastapi==0.141.1
     # via -r requirements.txt
 googleapis-common-protos==1.75.3
@@ -166,6 +168,8 @@ opentelemetry-proto==1.44.0
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
+openpyxl==3.1.5
+    # via -r requirements.txt
 opentelemetry-sdk==1.44.0
     # via
     #   -r requirements.txt
@@ -196,6 +200,8 @@ packaging==26.3
     #   langfuse
     #   langsmith
     #   opentelemetry-instrumentation
+pillow==12.3.0
+    # via python-pptx
 portalocker==3.2.0
     # via qdrant-client
 prometheus-client==0.26.0
@@ -234,6 +240,8 @@ python-docx==1.2.0
 python-dotenv==1.2.3
     # via -r requirements.txt
 python-multipart==0.0.32
+    # via -r requirements.txt
+python-pptx==1.0.2
     # via -r requirements.txt
 pywin32==312 ; sys_platform == 'win32'
     # via portalocker
@@ -326,5 +334,7 @@ xxhash==4.0.1
     # via
     #   langgraph
     #   langsmith
+xlsxwriter==3.2.9
+    # via python-pptx
 zstandard==0.25.0
     # via langsmith

@@ -61,12 +61,17 @@ def _make_retriever(monkeypatch, store, texts=(), sources=(), embed_ok=True, api
     from research_engine.rag.tokenizer import tokenize
 
     bm25 = BM25Okapi([tokenize(t) for t in texts]) if texts else None
-    # P5：BM25 语料改为「按检索作用域缓存」；匿名作用域键 = (None, None)
-    r._cache = {(None, None): (list(texts), list(sources), bm25)}
+    # 需求 23：语料缓存键 = (作用域, revision)，语料为 payload 形态（含身份元数据）
+    source_list = list(sources) if sources else ["" for _ in texts]
+    metas = [{"text": t, "source": s} for t, s in zip(texts, source_list)]
+    r._bm25_cache = {(None, None, 0): (metas, bm25)}
     # 与真实环境解耦：不依赖 .env 里有没有 DASHSCOPE_API_KEY
     monkeypatch.setattr(R, "config", SimpleNamespace(
         llm=SimpleNamespace(api_key=api_key),
-        rag=SimpleNamespace(top_k=5),
+        rag=SimpleNamespace(
+            top_k=5, recall_per_route=20, rrf_k=60, use_rerank=False,
+            max_per_doc=2, evidence_max_tokens=1500,
+        ),
     ))
     if embed_ok:
         r.embed_query = lambda q: [0.1, 0.2]

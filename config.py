@@ -84,14 +84,32 @@ class CodeExecConfig:
 
 @dataclass
 class RAGConfig:
-    """RAG 配置。"""
+    """RAG 配置（需求 23：三层数据 / 分块 v2 / 双路召回 + RRF / 云端 rerank / 证据预算）。"""
     qdrant_url: str = field(default_factory=lambda: _env("QDRANT_URL", "http://127.0.0.1:6333"))
     collection: str = "deepresearch_docs"
     embedding_model: str = "text-embedding-v3"
-    chunk_size: int = 800
-    chunk_overlap: int = 100
-    top_k: int = 5
-    use_rerank: bool = False  # rerank 先评测再决定去留
+    chunk_size: int = 800          # 兼容保留：字符级资源口径（旧分块器/兜底）
+    chunk_overlap: int = 100       # 兼容保留（v2 的 overlap 以 token 计，见 chunk_overlap_tokens）
+    top_k: int = 5                 # 证据组装后最终入 prompt 的条数
+    # ---- 需求 23：分块 v2（结构保真；尺寸用 token 预算，字符仅用于限额）----
+    chunk_tokens: int = field(default_factory=lambda: int(_env("RAG_CHUNK_TOKENS", "400")))
+    chunk_overlap_tokens: int = field(
+        default_factory=lambda: int(_env("RAG_CHUNK_OVERLAP_TOKENS", "60")))
+    chunker_version: str = "v2"
+    # ---- 需求 23：双路召回 + RRF 融合（参数为初始值，由评测调整）----
+    recall_per_route: int = field(default_factory=lambda: int(_env("RAG_RECALL_PER_ROUTE", "20")))
+    rrf_k: int = field(default_factory=lambda: int(_env("RAG_RRF_K", "60")))
+    max_per_doc: int = field(default_factory=lambda: int(_env("RAG_MAX_PER_DOC", "2")))
+    evidence_max_tokens: int = field(
+        default_factory=lambda: int(_env("RAG_EVIDENCE_MAX_TOKENS", "1500")))
+    # ---- 需求 23：云端 rerank（DashScope gte-rerank；fail-open）----
+    use_rerank: bool = field(default_factory=lambda: _env("DR_RAG_RERANK", "false").lower() == "true")
+    rerank_model: str = field(default_factory=lambda: _env("DR_RAG_RERANK_MODEL", "gte-rerank-v2"))
+    rerank_url: str = field(default_factory=lambda: _env(
+        "DR_RAG_RERANK_URL",
+        "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"))
+    rerank_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("DR_RAG_RERANK_TIMEOUT", "8")))
     # P0-8a 解析限额（防资源耗尽 / 压缩炸弹；超限抛 IngestLimitExceeded）
     max_pages: int = field(default_factory=lambda: int(_env("RAG_MAX_PAGES", "200")))
     max_chars: int = field(default_factory=lambda: int(_env("RAG_MAX_CHARS", "2000000")))

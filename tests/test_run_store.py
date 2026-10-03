@@ -36,6 +36,11 @@ def store() -> RunStore:
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE user_id LIKE 'test-store-%'")
         cur.execute("DELETE FROM invites WHERE created_by = 'test-store'")
+        # 需求 23：三层表按测试前缀清理（无外键，顺序无关）
+        cur.execute("DELETE FROM rag_ingestions WHERE user_id LIKE 'test-store-%'")
+        cur.execute("DELETE FROM rag_parse_snapshots WHERE doc_id LIKE 'test-store-%'")
+        cur.execute("DELETE FROM rag_chunks WHERE doc_id LIKE 'test-store-%'")
+        cur.execute("DELETE FROM rag_index_generations WHERE doc_id LIKE 'test-store-%'")
         cur.execute("DELETE FROM users WHERE email LIKE '%@test-store.local'")
         # 0003 起 runs.user_id 有外键 ⇒ 预置本文件使用的两个固定用户
         cur.execute(
@@ -847,3 +852,76 @@ def test_finalize_run_atomic_contract(store: RunStore):
 
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+
+
+# ---------------------------------------------------------------- 需求 23 增补（三层数据 / 版本化重建）
+
+
+def test_rag_three_layers_and_generation_switch(store: RunStore):
+    doc_id = f"test-store-{uuid.uuid4().hex[:8]}:doc"
+    assert store.replace_parse_snapshot(doc_id, [
+        {"block_index": 0, "kind": "heading", "title_path": ["标题"], "locator": {}, "text": "标题"},
+        {"block_index": 1, "kind": "paragraph", "title_path": ["标题"],
+         "locator": {"page": 1}, "text": "正文"},
+    ]) == 2
+    assert store.count_parse_snapshot(doc_id) == 2
+
+    generation = store.create_index_generation(
+        doc_id, chunker_version="v2", embedding_model="text-embedding-v3", embedding_dim=1024)
+    store.insert_rag_chunks(doc_id, generation, [
+        {"chunk_index": 0, "chunk_id": f"{doc_id}:g{generation}:0", "text": "正文",
+         "embed_text": "标题\n\n正文", "title_path": ["标题"], "locator": {"page": 1}},
+    ])
+    assert store.count_rag_chunks(doc_id, generation) == 1
+    rows, total = store.list_rag_chunks(doc_id, generation, offset=0, limit=10)
+    assert total == 1 and rows[0]["chunk_id"].endswith(":0")
+    assert store.activate_index_generation(doc_id, generation) == []
+    assert store.get_active_generation(doc_id) == generation
+    revision_after_first = store.get_rag_revision()
+
+    # 二代构建 → 切换后一代退役；提交条件校验拒绝重复激活
+    generation2 = store.create_index_generation(
+        doc_id, chunker_version="v2", embedding_model="text-embedding-v3", embedding_dim=1024)
+    store.insert_rag_chunks(doc_id, generation2, [
+        {"chunk_index": 0, "chunk_id": f"{doc_id}:g{generation2}:0", "text": "正文二",
+         "embed_text": "标题\n\n正文二", "title_path": ["标题"], "locator": {"page": 1}},
+    ])
+    assert store.activate_index_generation(doc_id, generation2) == [generation]
+    assert store.get_active_generation(doc_id) == generation2
+    assert store.get_rag_revision() == revision_after_first + 1
+    assert any(row["doc_id"] == doc_id and row["generation"] == generation
+               for row in store.list_retired_generations())
+    with pytest.raises(ValueError):
+        store.activate_index_generation(doc_id, generation2)
+
+    # 清理退役代 → 行与产物消失；活动代不受影响
+    store.mark_generation_cleaned(doc_id, generation)
+    assert store.count_rag_chunks(doc_id, generation) == 0
+    assert not any(row["doc_id"] == doc_id and row["generation"] == generation
+                   for row in store.list_retired_generations())
+
+    # 删除三层
+    store.delete_rag_layers(doc_id)
+    assert store.count_parse_snapshot(doc_id) == 0
+    assert store.get_active_generation(doc_id) is None
+
+
+def test_rag_meta_usage_and_requeue(store: RunStore):
+    ingestion_id = uuid.uuid4().hex[:12]
+    doc_id = f"test-store-{uuid.uuid4().hex[:8]}:doc"
+    store.create_ingestion(ingestion_id, doc_id, user_id=TEST_USER, source="a.md",
+                           sha256="x", size_bytes=100, stored_name="s.md")
+    assert store.get_rag_doc_for_user(doc_id, TEST_USER)["doc_id"] == doc_id
+    assert store.update_rag_doc_meta(doc_id, TEST_USER, display_name="手册", tags=["x"]) is True
+    row = store.get_rag_doc_for_user(doc_id, TEST_USER)
+    assert row["display_name"] == "手册" and row["tags"] == ["x"]
+    assert store.rag_usage_bytes(TEST_USER) >= 100
+    assert doc_id in store.list_rag_doc_ids_for_user(TEST_USER)
+
+    store.mark_ingestion_ready(ingestion_id, 1)
+    assert store.requeue_ingestion_for_task(ingestion_id, "rechunk") is True
+    requeued = store.get_ingestion(ingestion_id)
+    assert requeued["task"] == "rechunk" and requeued["status"] == "pending"
+
+    assert store.delete_ingestion_by_doc(TEST_USER, doc_id) == ["s.md"]
+    assert store.get_rag_doc_for_user(doc_id, TEST_USER) is None

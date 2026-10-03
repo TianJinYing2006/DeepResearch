@@ -28,8 +28,8 @@ from research_engine.rag.scope import RagScope, payload_matches
 class VectorStore:
     """Qdrant 向量存储封装。"""
 
-    #: P1-7：检索过滤 / 删除依赖的 payload 字段（幂等建索引）
-    INDEXED_PAYLOAD_FIELDS = ("user_id", "tenant_id", "visibility", "doc_id")
+    #: P1-7 / 需求 23：检索过滤 / 删除 / 版本切换依赖的 payload 字段（幂等建索引）
+    INDEXED_PAYLOAD_FIELDS = ("user_id", "tenant_id", "visibility", "doc_id", "generation")
 
     def __init__(self, url: Optional[str] = None, collection: Optional[str] = None):
         self.url = url or config.rag.qdrant_url
@@ -120,8 +120,12 @@ class VectorStore:
         for field in self.INDEXED_PAYLOAD_FIELDS:
             if field in existing:
                 continue
-            schema = (KeywordIndexParams(type="keyword", is_tenant=True)
-                      if field == "user_id" else PayloadSchemaType.KEYWORD)
+            if field == "user_id":
+                schema = KeywordIndexParams(type="keyword", is_tenant=True)
+            elif field == "generation":
+                schema = PayloadSchemaType.INTEGER
+            else:
+                schema = PayloadSchemaType.KEYWORD
             try:
                 self._client.create_payload_index(
                     collection_name=self.collection, field_name=field,
@@ -146,12 +150,17 @@ class VectorStore:
         client = self._get_client()
         if client is None:
             return []
-        query_filter = None
+        # 需求 23：只检索活动版本 —— 退役版本标 active=false；历史点无该字段（语义放行）
+        must = None
         if scope is not None and scope.is_owner_scope:
-            query_filter = Filter(must=[
+            must = [
                 FieldCondition(key="user_id", match=MatchValue(value=scope.user_id)),
                 FieldCondition(key="visibility", match=MatchValue(value="private")),
-            ])
+            ]
+        query_filter = Filter(
+            must=must,
+            must_not=[FieldCondition(key="active", match=MatchValue(value=False))],
+        )
         resp = client.query_points(
             collection_name=self.collection,
             query=vector,
@@ -186,6 +195,8 @@ class VectorStore:
             with_payload=True,
         )
         payloads = [p.payload or {} for p in points]
+        # 需求 23：BM25 语料同样只取活动版本（退役点 active=false 被排除；历史点无字段放行）
+        payloads = [p for p in payloads if p.get("active") is not False]
         if scope is not None:
             payloads = [p for p in payloads if payload_matches(p, scope)]
         return payloads
@@ -253,3 +264,48 @@ class VectorStore:
             exact=True,
         )
         return int(result.count)
+
+    # ---- 需求 23：代际操作（构建校验 / 版本切换 / 清理）----
+
+    @staticmethod
+    def _generation_filter(doc_id: str, generation: int) -> Filter:
+        return Filter(must=[
+            FieldCondition(key="doc_id", match=MatchValue(value=doc_id)),
+            FieldCondition(key="generation", match=MatchValue(value=int(generation))),
+        ])
+
+    def count_by_generation(self, doc_id: str, generation: int) -> int:
+        """某代的点数（构建校验；`exact=True`）。"""
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        result = client.count(
+            collection_name=self.collection,
+            count_filter=self._generation_filter(doc_id, generation),
+            exact=True,
+        )
+        return int(result.count)
+
+    def set_generation_active(self, doc_id: str, generation: int, active: bool,
+                              *, wait: bool = True) -> None:
+        """版本切换：把某代的点标记 active / 退役（检索 `active != false` 的过滤依据）。"""
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        client.set_payload(
+            collection_name=self.collection,
+            payload={"active": bool(active)},
+            points=self._generation_filter(doc_id, generation),
+            wait=wait,
+        )
+
+    def delete_by_generation(self, doc_id: str, generation: int, *, wait: bool = True) -> None:
+        """删除某代的全部点（retired / failed 清理）。"""
+        client = self._get_client()
+        if client is None:
+            raise RuntimeError(self._last_error or "qdrant unavailable")
+        client.delete(
+            collection_name=self.collection,
+            points_selector=self._generation_filter(doc_id, generation),
+            wait=wait,
+        )

@@ -111,4 +111,8 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
             os.remove(quarantine_path(name))
         except FileNotFoundError:
             pass
+    # 需求 23：三层数据随账号注销删除（快照 / 分块 / 版本行；向量已按用户删除）
+    for doc_id in store.list_rag_doc_ids_for_user(user_id):
+        store.delete_rag_layers(doc_id)
     store.mark_ingestions_deleted_for_user(user_id)
+    store.bump_rag_revision()

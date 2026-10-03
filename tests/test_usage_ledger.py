@@ -139,16 +139,37 @@ def test_ingestion_worker_wires_usage_sink(monkeypatch, tmp_path):
     store = FakeStore()
     path = ingestion_module.quarantine_path("f.md")
     with open(path, "wb") as handle:
-        handle.write(b"# doc")
+        handle.write(b"# doc\n\nhello world")
     store.create_ingestion("ing-usage-1", "u:abc", user_id="u", source="f.md",
                            sha256="abc", size_bytes=5, stored_name="f.md")
 
+    class _FakeVectorStore:
+        def __init__(self):
+            self.points: list = []
+            self.active: dict = {}
+            self.unavailable_reason = None
+
+        def upsert(self, points):
+            self.points.extend(points)
+
+        def count_by_generation(self, doc_id, generation):
+            return sum(1 for point in self.points
+                       if point.payload["doc_id"] == doc_id
+                       and point.payload["generation"] == generation)
+
+        def set_generation_active(self, doc_id, generation, active, *, wait=True):
+            self.active[(doc_id, generation)] = active
+
     class _EmittingIngester:
-        def ingest_file(self, path, doc_id, *, user_id=None, tenant_id=None,
-                        visibility="private"):
+        """需求 23 管道 v2 协议：embed + store（版本化落库）。"""
+
+        def __init__(self):
+            self.store = _FakeVectorStore()
+
+        def embed(self, texts):
             emit_usage(UsageRecord(kind="embedding", provider="dashscope",
                                    model="text-embedding-v3", total_tokens=50))
-            return 2
+            return [[0.1, 0.2] for _ in texts]
 
     summary = ingestion_module.process_ingestions_once(
         store, ingester_factory=lambda: _EmittingIngester())

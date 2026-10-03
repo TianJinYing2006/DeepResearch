@@ -304,6 +304,8 @@ OPS_TOKEN = (os.getenv("DR_OPS_TOKEN") or "").strip()
 
 # P6-A / P0-8a：RAG 上传限制（流式落盘 + magic bytes 三重校验 + 解析限额）
 RAG_MAX_UPLOAD_MB = _env_number("DR_RAG_MAX_FILE_MB", 10.0)
+#: 需求 23：知识库总配额（MB；0 = 不限，仅展示用量）
+RAG_TOTAL_MB = _env_number("DR_RAG_TOTAL_MB", 0)
 RAG_UPLOAD_LIMITER = make_limiter(
     "rag_upload", int(_env_number("DR_RAG_UPLOADS_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
@@ -1812,9 +1814,11 @@ def rag_ingestion_status(ingestion_id: str, request: Request) -> dict:
         "doc_id": row["doc_id"],
         "source": row["source"],
         "status": row["status"],
+        "task": row.get("task") or "ingest",
         "chunks": row["chunks"],
         "attempts": row["attempts"],
         "scan_status": row["scan_status"],
+        "active_generation": row.get("active_generation"),
         "error": row.get("last_error"),
         "created_at": _iso(row.get("created_at")),
         "processed_at": _iso(row.get("processed_at")),
@@ -1862,13 +1866,14 @@ def rag_delete_doc(request: Request, doc_id: str = Query(..., max_length=128)) -
             os.remove(quarantine_path(name))
         except FileNotFoundError:
             pass
+    # 需求 23：三层 PG 数据一并删除；递增修订号使检索缓存失效（删除后不可命中）
+    _store_call(store.delete_rag_layers, doc_id)
+    _store_call(store.bump_rag_revision)
     return {"ok": True, "doc_id": doc_id}
 
 
-@app.get("/api/rag/docs")
-def rag_docs(request: Request) -> dict:
-    """当前作用域可见的知识库文档清单（P6-A；按 P5 作用域过滤，不泄露他人文档）。"""
-    user_id = _require_user(request)
+def _rag_docs_from_qdrant(user_id: Optional[str]) -> dict:
+    """本地零依赖回落：无任务库时从 Qdrant 聚合（无台账字段）。"""
     from research_engine.rag.scope import RagScope
     from research_engine.rag.store import VectorStore
 
@@ -1888,6 +1893,151 @@ def rag_docs(request: Request) -> dict:
         entry = counts.setdefault(key, {"doc_id": doc_id, "source": source, "chunks": 0})
         entry["chunks"] += 1
     return {"docs": sorted(counts.values(), key=lambda item: item["source"])}
+
+
+@app.get("/api/rag/docs")
+def rag_docs(request: Request) -> dict:
+    """知识库文档清单（需求 23：**PG 台账为准**；本地零依赖回落 Qdrant 聚合）。
+
+    返回状态 / 大小 / 块数 / 失败原因 / 活动版本 / 展示名 / 标签 —— 上传后不再是黑盒。
+    """
+    user_id = _require_user(request)
+    if store is None:
+        return _rag_docs_from_qdrant(user_id)
+    rows = _store_call(store.list_rag_docs, user_id)
+    return {"docs": [
+        {
+            "doc_id": row["doc_id"],
+            "source": row["source"],
+            "display_name": row.get("display_name"),
+            "tags": list(row.get("tags") or []),
+            "status": row["status"],
+            "chunks": row.get("chunks") or 0,
+            "size_bytes": row.get("size_bytes"),
+            "created_at": _iso(row.get("created_at")),
+            "error": row.get("last_error"),
+            "active_generation": row.get("active_generation"),
+        }
+        for row in rows
+    ]}
+
+
+class RagDocMetaRequest(BaseModel):
+    doc_id: str = Field(..., max_length=128)
+    display_name: Optional[str] = Field(None, max_length=120)
+    tags: Optional[list[str]] = Field(None, max_length=20)
+
+
+class RagRebuildRequest(BaseModel):
+    doc_id: str = Field(..., max_length=128)
+
+
+def _rag_owned_doc(request: Request, doc_id: str) -> tuple[Optional[str], dict]:
+    """需求 23 写操作前置：任务库 + 归属（非本人 404）+ CSRF + 台账行。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "知识库管理需要任务库（DR_DATABASE_URL）")
+    user_id = _require_user(request)
+    _check_csrf(request)
+    row = _store_call(store.get_rag_doc_for_user, doc_id, user_id)
+    if row is None:
+        raise http_error("ingestion_not_found", f"文档不存在：{doc_id}")
+    return user_id, row
+
+
+@app.get("/api/rag/docs/{doc_id}/chunks")
+def rag_doc_chunks(doc_id: str, request: Request,
+                   generation: Optional[int] = Query(None, ge=1),
+                   offset: int = Query(0, ge=0),
+                   limit: int = Query(20, ge=1, le=100)) -> dict:
+    """分块预览（需求 23）：默认活动版本；locator 供引用回溯定位。"""
+    if store is None:
+        raise http_error("persistence_unavailable", "分块预览需要任务库（DR_DATABASE_URL）")
+    user_id = _require_user(request)
+    row = _store_call(store.get_rag_doc_for_user, doc_id, user_id)
+    if row is None:
+        raise http_error("ingestion_not_found", f"文档不存在：{doc_id}")
+    active = row.get("active_generation")
+    target = generation or active
+    if target is None:
+        return {"doc_id": doc_id, "generation": None, "active_generation": active,
+                "total": 0, "chunks": []}
+    chunks, total = _store_call(store.list_rag_chunks, doc_id, int(target),
+                                offset=offset, limit=limit)
+    return {
+        "doc_id": doc_id,
+        "generation": int(target),
+        "active_generation": active,
+        "total": total,
+        "chunks": [
+            {"chunk_index": row["chunk_index"], "chunk_id": row["chunk_id"],
+             "text": row["text"], "locator": row.get("locator") or {}}
+            for row in chunks
+        ],
+    }
+
+
+@app.patch("/api/rag/docs")
+def rag_update_doc(req: RagDocMetaRequest, request: Request) -> dict:
+    """重命名 / 标签（需求 23）；`display_name` 为空字符串非法（不传字段 = 不变）。"""
+    user_id, _ = _rag_owned_doc(request, req.doc_id)
+    display_name = req.display_name.strip() if req.display_name is not None else None
+    if display_name == "":
+        raise http_error("invalid_request", "display_name 不能为空字符串")
+    tags: Optional[list[str]] = None
+    if req.tags is not None:
+        cleaned = [tag.strip() for tag in req.tags if tag.strip()]
+        if any(len(tag) > 32 for tag in cleaned):
+            raise http_error("invalid_request", "单个标签不超过 32 字")
+        tags = cleaned
+    ok = _store_call(store.update_rag_doc_meta, req.doc_id, user_id,
+                     display_name=display_name, tags=tags)
+    if not ok:
+        raise http_error("ingestion_not_found", f"文档不存在：{req.doc_id}")
+    _audit("rag_doc_updated", request=request, actor_user_id=user_id,
+           target_type="rag_doc", target_id=req.doc_id,
+           detail={"has_display_name": display_name is not None,
+                   "tag_count": len(tags) if tags is not None else None})
+    return {"ok": True, "doc_id": req.doc_id}
+
+
+def _rag_requeue(request: Request, doc_id: str, task: str) -> dict:
+    """重建类操作共用：状态校验 + 快照前置 + 入队（复用租约/重试机制）。"""
+    user_id, row = _rag_owned_doc(request, doc_id)
+    if not RAG_UPLOAD_LIMITER.allow(f"rag-rebuild:{user_id or _client_key(request)}"):
+        raise http_error("rate_limited", "操作过于频繁，稍后再试")
+    if row["status"] != "ready":
+        raise http_error("rag_not_ready", "文档当前状态不允许重建（处理中或已失败）",
+                         detail=f"status={row['status']}")
+    if task == "rechunk" and _store_call(store.count_parse_snapshot, doc_id) == 0:
+        raise http_error("rag_no_snapshot",
+                         "该文档没有解析快照（历史文档），请重新上传后再操作")
+    if not _store_call(store.requeue_ingestion_for_task, row["ingestion_id"], task):
+        raise http_error("rag_not_ready", "文档当前状态不允许重建",
+                         detail=f"status={row['status']}")
+    _audit(f"rag_{task}_requested", request=request, actor_user_id=user_id,
+           target_type="rag_doc", target_id=doc_id, detail={"task": task})
+    return {"ok": True, "doc_id": doc_id, "ingestion_id": row["ingestion_id"], "task": task}
+
+
+@app.post("/api/rag/docs/rechunk")
+def rag_rechunk(req: RagRebuildRequest, request: Request) -> dict:
+    """重新分块（需求 23）：解析快照 → 分块 v2 → 新版本切换（无不可检索窗口）。"""
+    return _rag_requeue(request, req.doc_id, "rechunk")
+
+
+@app.post("/api/rag/docs/reembed")
+def rag_reembed(req: RagRebuildRequest, request: Request) -> dict:
+    """重新嵌入（需求 23）：同分块换向量 → 新版本切换。"""
+    return _rag_requeue(request, req.doc_id, "reembed")
+
+
+@app.get("/api/rag/usage")
+def rag_usage(request: Request) -> dict:
+    """知识库用量（需求 23）：已用字节 + 可选总配额（`DR_RAG_TOTAL_MB`，0=不限）。"""
+    user_id = _require_user(request)
+    used = _store_call(store.rag_usage_bytes, user_id) if store is not None else 0
+    quota = int(RAG_TOTAL_MB * 1024 * 1024) if RAG_TOTAL_MB and RAG_TOTAL_MB > 0 else None
+    return {"used_bytes": used, "quota_bytes": quota}
 
 
 @app.post("/api/research/{run_id}/cancel")

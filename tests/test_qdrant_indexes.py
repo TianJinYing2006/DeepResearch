@@ -46,11 +46,12 @@ def test_payload_indexes_created_with_tenant_user_id():
     store._ensure_collection()
 
     fields = [name for name, _ in fake.created_indexes]
-    assert fields == ["user_id", "tenant_id", "visibility", "doc_id"]
+    assert fields == ["user_id", "tenant_id", "visibility", "doc_id", "generation"]
     schemas = dict(fake.created_indexes)
     assert isinstance(schemas["user_id"], KeywordIndexParams)
     assert schemas["user_id"].is_tenant is True
     assert schemas["doc_id"] == PayloadSchemaType.KEYWORD
+    assert schemas["generation"] == PayloadSchemaType.INTEGER  # 需求 23：代过滤
 
 
 def test_payload_indexes_idempotent_on_second_call():
@@ -72,4 +73,4 @@ def test_missing_collection_is_created_then_indexed():
 
     assert fake.created_collections == ["deepresearch_docs"]
     assert [name for name, _ in fake.created_indexes] == [
-        "user_id", "tenant_id", "visibility", "doc_id"]
+        "user_id", "tenant_id", "visibility", "doc_id", "generation"]
