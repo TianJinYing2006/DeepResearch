@@ -25,6 +25,10 @@ RUN pip install --no-cache-dir -r requirements-lock.txt
 COPY config.py cli.py ./
 COPY research_engine/ ./research_engine/
 COPY web/ ./web/
+# 需求 25：帮助/法律文本由 API 运行时读取（LEGAL_DIR/HELP_DIR = /app/docs/*）——
+# 镜像必须包含，否则 /api/legal 与 /api/help/faq 在容器内 404
+COPY docs/legal/ ./docs/legal/
+COPY docs/help/ ./docs/help/
 COPY --from=frontend /build/dist ./web/frontend/dist
 RUN useradd --create-home --uid 10001 app
 USER app
