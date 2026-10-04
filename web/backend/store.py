@@ -1512,6 +1512,105 @@ class RunStore:
             )
             return int(cur.fetchone()["n"])
 
+    # ---- 报告只读分享（需求 26）----
+
+    def create_report_share(self, share_id: str, token_hash: str, run_id: str, created_by: str,
+                            expires_at: Optional[datetime]) -> None:
+        """创建分享：先撤销该 run 既有活跃链接（兄弟互斥），再插入新链接。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE report_shares SET revoked_at = now() "
+                "WHERE run_id = %s AND revoked_at IS NULL",
+                (run_id,),
+            )
+            cur.execute(
+                "INSERT INTO report_shares (share_id, token_hash, run_id, created_by, expires_at) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (share_id, token_hash, run_id, created_by, expires_at),
+            )
+
+    def get_active_report_share(self, run_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM report_shares WHERE run_id = %s AND revoked_at IS NULL "
+                "AND (expires_at IS NULL OR expires_at > now()) "
+                "ORDER BY created_at DESC LIMIT 1",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def resolve_report_share(self, token_hash: str) -> Optional[dict[str, Any]]:
+        """按 token 摘要解析有效分享（含 run 主题）；无效/撤销/过期返回 None。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT s.*, r.topic FROM report_shares s JOIN runs r ON r.run_id = s.run_id "
+                "WHERE s.token_hash = %s AND s.revoked_at IS NULL "
+                "AND (s.expires_at IS NULL OR s.expires_at > now())",
+                (token_hash,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def revoke_report_share(self, run_id: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE report_shares SET revoked_at = now() "
+                "WHERE run_id = %s AND revoked_at IS NULL RETURNING share_id",
+                (run_id,),
+            )
+            return cur.fetchone() is not None
+
+    def revoke_report_share_by_id(self, share_id: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE report_shares SET revoked_at = now() "
+                "WHERE share_id = %s AND revoked_at IS NULL RETURNING share_id",
+                (share_id,),
+            )
+            return cur.fetchone() is not None
+
+    def revoke_report_shares_for_user(self, user_id: str) -> int:
+        """账号注销：撤销该用户创建的全部活跃分享（需求 26）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE report_shares SET revoked_at = now() "
+                "WHERE created_by = %s AND revoked_at IS NULL RETURNING share_id",
+                (user_id,),
+            )
+            return len(cur.fetchall())
+
+    def touch_report_share(self, token_hash: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE report_shares SET last_accessed_at = now(), "
+                "access_count = access_count + 1 WHERE token_hash = %s",
+                (token_hash,),
+            )
+
+    def list_report_shares(self, *, active_only: bool = False,
+                           limit: int = 50) -> list[dict[str, Any]]:
+        clause = ("WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())"
+                  if active_only else "")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM report_shares {clause} ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def purge_expired_report_shares(self, keep_days: int = 30) -> int:
+        """存储卫生：清理已撤销/过期超过 keep_days 的记录（审计保留窗口）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM report_shares WHERE "
+                "(revoked_at IS NOT NULL AND revoked_at < now() - make_interval(days => %s)) "
+                "OR (expires_at IS NOT NULL AND expires_at < now() - make_interval(days => %s)) "
+                "RETURNING share_id",
+                (keep_days, keep_days),
+            )
+            return len(cur.fetchall())
+
     # ---- 产品反馈 / 注册同意（需求 25）----
 
     def create_feedback(self, feedback_id: str, user_id: str, *, category: str,

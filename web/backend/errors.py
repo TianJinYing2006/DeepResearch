@@ -109,6 +109,8 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         component="auth"),
     "help_unavailable": ErrorSpec(
         503, True, "帮助文档尚未准备：稍后再试或联系管理员。", component="web"),
+    "share_not_found": ErrorSpec(
+        404, False, "分享链接无效或已过期。", component="web"),
     "idempotency_conflict": ErrorSpec(
         409, False,
         "幂等键已用于不同请求：换一个新 key 重试，或原样重发首次请求（同键不同载荷会被拒绝）。",

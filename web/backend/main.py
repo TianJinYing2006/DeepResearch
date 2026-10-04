@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, File, Header, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -313,6 +313,12 @@ RAG_UPLOAD_LIMITER = make_limiter(
     "rag_upload", int(_env_number("DR_RAG_UPLOADS_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
 
+# 需求 26：报告只读分享（默认关闭；过期默认 7 天，0=永不过期需显式选择）
+SHARE_ENABLED = os.getenv("DR_SHARE_ENABLED", "false").lower() == "true"
+SHARE_LIMITER = make_limiter(
+    "share", int(_env_number("DR_SHARE_RATE_PER_MINUTE", 30)),
+    redis_url=_LIMITER_REDIS_URL)
+
 # P8-A：告警判定阈值（触达渠道由部署方接 IM/邮件；此处只做“可判定”）
 ALERT_5XX_RATE_PCT = _env_number("DR_ALERT_5XX_RATE_PCT", 2.0)
 ALERT_QUEUE_DEPTH = int(_env_number("DR_ALERT_QUEUE_DEPTH", 20))
@@ -486,6 +492,8 @@ def options() -> dict:
         "sentry_dsn": config.observability.sentry_dsn_frontend,
         "sentry_environment": config.observability.sentry_environment,
         "release": config.observability.sentry_release,
+        # 需求 26：报告只读分享开关（前端据此隐藏分享入口）
+        "share_enabled": SHARE_ENABLED,
     }
 
 
@@ -2245,6 +2253,142 @@ def export_report(run_id: str, request: Request,
         manager.export_markdown(run_id) or "", payload.get("topic"), run_id)
 
 
+# ------------------------------------------------------------------ 报告只读分享（需求 26）
+
+
+class ShareCreateRequest(BaseModel):
+    """expires_days：1/7/30 天；0 = 永不过期（显式选择，前端二次确认）。"""
+
+    expires_days: int = Field(7, ge=0, le=30)
+
+
+def _share_enabled_or_404() -> None:
+    if not SHARE_ENABLED:
+        raise http_error("share_not_found", "链接无效或已过期")
+
+
+def _share_markdown(run_id: str) -> Optional[str]:
+    """分享读取链：内存产物 → 任务库产物（含 S3）；无报告返回 None。"""
+    if manager.exists(run_id):
+        if not manager.has_result(run_id):
+            return None
+        return manager.export_markdown(run_id) or None
+    if store is None:
+        return None
+    artifact = _store_call(store.get_artifact_row, run_id, "report_md")
+    if not artifact:
+        return None
+    if artifact.get("storage") == "s3" and artifact.get("object_key"):
+        object_store = get_object_store()
+        if object_store is None:
+            return None
+        try:
+            return object_store.get_text(artifact["object_key"]) or None
+        except Exception:  # noqa: BLE001
+            return None
+    return (artifact.get("body") or "") or None
+
+
+def _share_state(row: dict) -> dict:
+    return {
+        "share_id": row["share_id"],
+        "permanent": row.get("expires_at") is None,
+        "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "last_accessed_at": (row["last_accessed_at"].isoformat()
+                             if row.get("last_accessed_at") else None),
+        "access_count": row.get("access_count", 0),
+    }
+
+
+@app.post("/api/runs/{run_id}/share")
+def create_run_share(run_id: str, req: ShareCreateRequest, request: Request) -> dict:
+    """创建/重建报告只读分享：一 run 单活跃链接（重建即撤销旧的）；token 明文只回一次。"""
+    _share_enabled_or_404()
+    _authorize_run(request, run_id)
+    _check_csrf(request)
+    _enforce_output_policy(run_id)
+    if store is None:
+        raise http_error("persistence_unavailable", "分享需要任务库（DR_DATABASE_URL）")
+    if _share_markdown(run_id) is None:
+        raise http_error("report_unavailable", "本次运行没有产出报告")
+    owner = _run_owner(run_id) or ""
+    token = new_token()
+    share_id = uuid.uuid4().hex[:12]
+    expires_at = (None if req.expires_days == 0
+                  else datetime.now(UTC) + timedelta(days=req.expires_days))
+    _store_call(store.create_report_share, share_id, token_hash(token), run_id,
+                owner, expires_at)
+    _audit("share_created", request=request, actor_user_id=owner or None,
+           target_id=share_id, detail={"run_id": run_id, "expires_days": req.expires_days})
+    return {"ok": True, "share_id": share_id, "url": f"/s/{token}",
+            "permanent": expires_at is None,
+            "expires_at": expires_at.isoformat() if expires_at else None}
+
+
+@app.get("/api/runs/{run_id}/share")
+def get_run_share(run_id: str, request: Request) -> dict:
+    """当前活跃分享状态（不含 token —— 明文不可恢复；重建即轮换）。"""
+    _share_enabled_or_404()
+    _authorize_run(request, run_id)
+    if store is None:
+        raise http_error("persistence_unavailable", "分享需要任务库（DR_DATABASE_URL）")
+    row = _store_call(store.get_active_report_share, run_id)
+    if row is None:
+        return {"active": False}
+    return {"active": True, **_share_state(row)}
+
+
+@app.delete("/api/runs/{run_id}/share")
+def revoke_run_share(run_id: str, request: Request) -> dict:
+    """撤销该 run 的活跃分享（立即失效）。"""
+    _share_enabled_or_404()
+    _authorize_run(request, run_id)
+    _check_csrf(request)
+    if store is None:
+        raise http_error("persistence_unavailable", "分享需要任务库（DR_DATABASE_URL）")
+    revoked = _store_call(store.revoke_report_share, run_id)
+    if revoked:
+        _audit("share_revoked", request=request, actor_user_id=_run_owner(run_id),
+               target_id=run_id)
+    return {"ok": True, "revoked": revoked}
+
+
+@app.get("/api/share/{token}")
+def get_shared_report(token: str, request: Request) -> Response:
+    """免登录只读分享：统一 404（不存在/撤销/过期/审核未过/无报告）；限流防枚举。"""
+    _share_enabled_or_404()
+    if not token or len(token) > 128:
+        raise http_error("share_not_found", "链接无效或已过期")
+    if not SHARE_LIMITER.allow(f"share:{_client_key(request)}"):
+        raise http_error("rate_limited", "请求过于频繁，稍后再试")
+    if store is None:
+        raise http_error("share_not_found", "链接无效或已过期")
+    row = _store_call(store.resolve_report_share, token_hash(token))
+    if row is None:
+        raise http_error("share_not_found", "链接无效或已过期")
+    try:
+        _enforce_output_policy(row["run_id"])
+    except Exception:  # noqa: BLE001 —— 审核未过一律并进统一 404
+        raise http_error("share_not_found", "链接无效或已过期") from None
+    markdown = _share_markdown(row["run_id"])
+    if markdown is None:
+        raise http_error("share_not_found", "链接无效或已过期")
+    _store_call(store.touch_report_share, token_hash(token))
+    _audit("share_viewed", request=request, target_id=row["share_id"],
+           detail={"run_id": row["run_id"]})
+    return JSONResponse(
+        {"topic": row.get("topic") or "研究报告", "markdown": markdown,
+         "permanent": row.get("expires_at") is None,
+         "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None},
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
+
+
 @app.get("/api/research/{run_id}/stream")
 async def stream(
     run_id: str,
@@ -2388,5 +2532,16 @@ async def _shutdown_notifier() -> None:
         notifier.close()
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+
+
+@app.get("/s/{token}")
+def share_page_shell(token: str) -> Response:
+    """SPA 分享页壳（需求 26）：只回 index.html；数据走 /api/share/{token}（统一 404）。"""
+    index = FRONTEND_DIST / "index.html"
+    if not index.is_file():
+        raise http_error("share_not_found", "链接无效或已过期")
+    return FileResponse(index)
+
+
 if FRONTEND_DIST.is_dir():
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

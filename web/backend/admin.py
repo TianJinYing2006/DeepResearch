@@ -119,6 +119,13 @@ def _build_parser() -> argparse.ArgumentParser:
     feedback_list.add_argument("--status", default="", help="new / reviewing / closed")
     feedback_list.add_argument("--limit", type=int, default=50)
 
+    share_list = sub.add_parser("share-list", help="列出报告只读分享（需求 26）")
+    share_list.add_argument("--active", action="store_true", help="只看活跃链接")
+    share_list.add_argument("--limit", type=int, default=50)
+
+    share_revoke = sub.add_parser("share-revoke", help="按 share_id 撤销分享（需求 26）")
+    share_revoke.add_argument("--share-id", required=True)
+
     reset_token = sub.add_parser("create-reset-token",
                                  help="发放一次性密码重置 token（P1-10；默认 30 分钟）")
     reset_token.add_argument("--email", required=True)
@@ -296,6 +303,25 @@ def main(argv: list[str] | None = None) -> int:
                   f"user={row['user_id']} page={row['page'] or '-'} "
                   f"contact={row['contact'] or '-'} at={row['created_at']:%Y-%m-%d %H:%M} "
                   f"| {summary}")
+        return 0
+
+    if args.command == "share-list":
+        rows = store.list_report_shares(active_only=args.active, limit=args.limit)
+        for row in rows:
+            expiry = ("permanent" if row["expires_at"] is None
+                      else f"{row['expires_at']:%Y-%m-%d}")
+            state = "revoked" if row["revoked_at"] else "active"
+            print(f"{row['share_id']}  {state:<8} run={row['run_id']} by={row['created_by']} "
+                  f"expires={expiry} views={row['access_count']} "
+                  f"last={row['last_accessed_at'] or '-'}")
+        return 0
+
+    if args.command == "share-revoke":
+        if not store.revoke_report_share_by_id(args.share_id):
+            print(f"share not found or already revoked: {args.share_id}", file=sys.stderr)
+            return 1
+        _audit(store, "admin_revoke_share", share_id=args.share_id)
+        print(f"revoked {args.share_id}")
         return 0
 
     if args.command == "delete-doc":

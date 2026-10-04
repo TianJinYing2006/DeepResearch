@@ -83,6 +83,8 @@ export interface RunOptions {
   sentry_dsn?: string | null
   sentry_environment?: string | null
   release?: string | null
+  /** 需求 26：报告只读分享开关（隐藏分享入口） */
+  share_enabled?: boolean
 }
 
 export interface StepFinishedEvent extends AguiEvent {
