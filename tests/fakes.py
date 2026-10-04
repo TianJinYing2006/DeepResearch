@@ -107,6 +107,8 @@ class FakeStore:
         self.rag_chunks: dict[tuple, list[dict]] = {}
         self.rag_generations: dict[str, list[dict]] = {}
         self.rag_revision = 0
+        # 需求 26：报告只读分享（token_hash → 行）
+        self.report_shares: dict[str, dict] = {}
 
     def ping(self) -> None:
         return None
@@ -1352,6 +1354,83 @@ class FakeStore:
         self.revoke_user_sessions(user_id)
         self.delete_password_resets(user_id)
         return user_id
+
+    # ---- 报告只读分享（需求 26）----
+
+    def _active_share(self, row):
+        now = datetime.now(UTC)
+        return row["revoked_at"] is None and (row["expires_at"] is None or row["expires_at"] > now)
+
+    def create_report_share(self, share_id, token_hash, run_id, created_by, expires_at):
+        for row in self.report_shares.values():
+            if row["run_id"] == run_id and row["revoked_at"] is None:
+                row["revoked_at"] = datetime.now(UTC)
+        self.report_shares[token_hash] = {
+            "share_id": share_id, "token_hash": token_hash, "run_id": run_id,
+            "created_by": created_by, "created_at": datetime.now(UTC),
+            "expires_at": expires_at, "revoked_at": None,
+            "last_accessed_at": None, "access_count": 0,
+        }
+
+    def get_active_report_share(self, run_id):
+        for row in reversed(list(self.report_shares.values())):
+            if row["run_id"] == run_id and self._active_share(row):
+                return dict(row)
+        return None
+
+    def resolve_report_share(self, token_hash):
+        row = self.report_shares.get(token_hash)
+        if row is None or not self._active_share(row):
+            return None
+        run = self.runs.get(row["run_id"])
+        if run is None:
+            return None
+        result = dict(row)
+        result["topic"] = run.get("topic")
+        return result
+
+    def revoke_report_share(self, run_id):
+        changed = False
+        for row in self.report_shares.values():
+            if row["run_id"] == run_id and row["revoked_at"] is None:
+                row["revoked_at"] = datetime.now(UTC)
+                changed = True
+        return changed
+
+    def revoke_report_share_by_id(self, share_id):
+        for row in self.report_shares.values():
+            if row["share_id"] == share_id and row["revoked_at"] is None:
+                row["revoked_at"] = datetime.now(UTC)
+                return True
+        return False
+
+    def revoke_report_shares_for_user(self, user_id):
+        count = 0
+        for row in self.report_shares.values():
+            if row["created_by"] == user_id and row["revoked_at"] is None:
+                row["revoked_at"] = datetime.now(UTC)
+                count += 1
+        return count
+
+    def touch_report_share(self, token_hash):
+        row = self.report_shares.get(token_hash)
+        if row is not None:
+            row["last_accessed_at"] = datetime.now(UTC)
+            row["access_count"] += 1
+
+    def list_report_shares(self, *, active_only=False, limit=50):
+        rows = [dict(row) for row in self.report_shares.values()
+                if not active_only or self._active_share(row)]
+        return sorted(rows, key=lambda r: r["created_at"], reverse=True)[:limit]
+
+    def purge_expired_report_shares(self, keep_days=30):
+        cutoff = datetime.now(UTC) - timedelta(days=keep_days)
+        keys = [k for k, row in self.report_shares.items()
+                if (row["revoked_at"] is not None and row["revoked_at"] < cutoff)
+                or (row["expires_at"] is not None and row["expires_at"] < cutoff)]
+        for key in keys:
+            del self.report_shares[key]
+        return len(keys)
 
     # ---- 用量账本（P1-4）----
 
