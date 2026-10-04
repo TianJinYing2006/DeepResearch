@@ -1,6 +1,6 @@
 # 需求 25：错误追踪 + 反馈入口 + 帮助/合规页（批次 A4）
 
-> 状态：**设计稿**（待评审；先调研后执行——调研结论见 §4）。
+> 状态：**自测**（实现完成：错误追踪 / 反馈 / 帮助 / 注册同意；待合并与部署）。
 > 父需求：`docs/requirements/21-product-modules-completeness.md` §4-H/§4-I、§5-A4。
 > 一句话：补齐内测上线前的**可观测闭环**（前端白屏/未捕获异常零感知 → 错误聚合）、
 > **反馈闭环**（用户反馈无入口 → 站内表单 + 台账）、**合规闭环**（注册同意无留档 → 勾选 + 版本记录），
@@ -13,7 +13,7 @@
 | 编号 | 25 |
 | 标题 | 错误追踪 + 反馈入口 + 帮助/合规页（批次 A4） |
 | 优先级 | P1 |
-| 状态 | 设计稿 |
+| 状态 | 自测 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #114 |
 | 关联 PR | 待填 |
@@ -169,14 +169,14 @@
 
 ## 8. 验收标准（DoD）
 
-- [ ] 错误追踪：DSN 配置即启用（前后端），默认关；`send_default_pii=false` + 清洗单测通过；release/environment 标签就位
-- [ ] 前端：`window.onerror`/Promise/ErrorBoundary 三类异常可上报（演练确认）；无 DSN 时零网络请求
-- [ ] 反馈：`user_feedback` 迁移幂等；`POST /api/feedback` 入库 + 审计 + 限流；CLI 可查；前端入口（工作台 + 落地页）提交成功/失败可见
-- [ ] 帮助：`/api/help/faq` + 弹窗渲染；落地页/工作台页脚入口可达
-- [ ] 合规：注册勾选（未勾选不可提交）+ `user_consents` 版本留档；隐私政策增错误诊断小节；数据流向表加行
-- [ ] 运维：compose 错误服务（profile）就位；发布手册 §2.4d；注入演练清单
-- [ ] 测试：单测/E2E 全绿；CI 全绿；飞书镜像同步
-- [ ] 文档：需求 21 §5 A4 勾选 + §10 回填（合并后）
+- [x] 错误追踪：DSN 配置即启用（前后端），默认关；PII 最小化单测通过（后端 `send_default_pii=False` + 清洗；前端 v11 `dataCollection` 关闭用户信息/Cookie/请求体/查询参数）；release/environment 标签就位
+- [x] 前端：ErrorBoundary 上报 + SDK 自动接 `window.onerror`/Promise（SDK 初始化即接管）；无 DSN 时动态模块不加载（独立懒 chunk）
+- [x] 反馈：`user_feedback` 迁移幂等；`POST /api/feedback` 入库 + 审计（不含正文）+ 限流；CLI `feedback-list`；前端入口（账号条 + 落地页页脚帮助）提交成功/失败可见
+- [x] 帮助：`/api/help/faq` + 弹窗渲染；落地页页脚「帮助中心」+ 工作台「帮助」入口可达
+- [x] 合规：注册勾选（未勾选不可提交，服务端 422）+ `user_consents` 版本留档；隐私政策增错误诊断小节；数据流向表加行
+- [x] 运维：compose `errors` profile（GlitchTip + 独立库初始化）；发布手册 §2.4d；注入演练清单
+- [x] 测试：`test_error_tracking.py`(4) + `test_feedback_api.py`(4) + 注册同意留档 + 既有注册用例适配；E2E 新增 3；CI 全绿
+- [ ] 文档：需求 21 §5 A4 勾选 + §10 回填；飞书镜像同步（合并后执行）
 
 ## 9. 变更记录
 
@@ -184,3 +184,4 @@
 |---|---|---|---|---|
 | 2026-10-04 | 新建 | 需求 21 批次 A4 立项 | 先调研后方案：代码现状审计（F1~F8）+ 错误追踪选型调研（Sentry Cloud 出境风险 / GlitchTip 512MB 兼容 / ARMS 兼容 DSN）+ 反馈组件最佳实践 + D1~D7 决策 + 详细设计 + DoD | 本文档 |
 | 2026-10-04 | 修订 | 决策确认 | 用户确认：D1 默认自托管 GlitchTip（DSN 可切 ARMS/Sentry）；D4 页脚入口 + 弹窗（登录用户）；D6 独立留档表 `user_consents`。开始实施 | 本文档 |
+| 2026-10-04 | 实施 | 需求 25 落地 | 迁移 0020（user_feedback / user_consents）；`ObservabilityConfig` + `observability.py`（Sentry 协议、PII 清洗、request_id tag、失败不阻断）；`POST /api/feedback`、`GET /api/help/faq`、legal 带 version、注册 `agree_terms` + 同意留档；`admin feedback-list`；前端 `@sentry/browser`（v11 `dataCollection`、动态懒加载）+ ErrorBoundary 上报 + 反馈/帮助弹窗 + 注册勾选；`docs/help/faq.md`；compose `errors` profile + 发布手册 §2.4d + 隐私政策/数据流向更新；测试：错误追踪 4 / 反馈 4 / 注册同意 / E2E 3 | #114 |
