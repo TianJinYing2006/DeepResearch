@@ -22,6 +22,7 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     is_fault_reason,
 )
 from research_engine.rag.retriever import HybridRetriever
+from research_engine.rag.scope import current_scope
 from research_engine.sanitize import strip_invisible
 from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.base import SearchProvider, create_search_provider
@@ -74,6 +75,10 @@ class Researcher:
         self.search: SearchProvider = create_search_provider(config.search.provider)
         self.arxiv: ArxivSearchProvider = ArxivSearchProvider()
         self.retriever = HybridRetriever()
+        # 检索作用域在**构建时捕获**（runner/worker 在 create_graph 之前 set_scope）：
+        # LangGraph 并行执行节点时线程不继承 ContextVar，运行期 current_scope() 会丢；
+        # 捕获后由 _search_rag 显式传入，保证多租户过滤在任意线程都生效。
+        self._rag_scope = current_scope()
         # W8 Arm 1：降级记录缓冲区（共享实现，见 state.DegradationSink）
         self.degradations = DegradationSink()
 
@@ -143,7 +148,7 @@ class Researcher:
         ``resp.faults()``；**零命中（``empty_result``）不进降级日志**（D-03）。
         """
         try:
-            resp = self.retriever.retrieve(query, top_k=5)
+            resp = self.retriever.retrieve(query, top_k=5, scope=self._rag_scope)
         except Exception as e:  # noqa: BLE001
             # 同上：能抛到这里的属未预期内部错误，按非工具类归类
             self._record_degradation("rag_search", classify_exception(e), detail=str(e))

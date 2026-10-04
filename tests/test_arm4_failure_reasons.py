@@ -223,6 +223,7 @@ def test_retrieve_partial_backend_failure_keeps_failures(monkeypatch):
 def test_researcher_derives_partial_failure_with_component(monkeypatch):
     """researcher 单向派生：部分失败 ⇒ component 带 backend 名（`rag_search:vector`）。"""
     from research_engine.agents.researcher import Researcher
+    from research_engine.rag.scope import RagScope
     from research_engine.state import DegradationSink
 
     store = _FakeStore(payloads=[{"text": "chunk A", "source": "doc_a.md"},
@@ -230,6 +231,7 @@ def test_researcher_derives_partial_failure_with_component(monkeypatch):
                                  {"text": "third C", "source": "doc_c.md"}])
     r = Researcher.__new__(Researcher)
     r.degradations = DegradationSink()
+    r._rag_scope = RagScope()
     r.retriever = _make_retriever(monkeypatch, store,
                                   texts=["chunk A", "other B", "third C"],
                                   sources=["doc_a.md", "doc_b.md", "doc_c.md"], embed_ok=False)
@@ -245,11 +247,13 @@ def test_researcher_derives_partial_failure_with_component(monkeypatch):
 def test_researcher_zero_hit_writes_no_degradation(monkeypatch):
     """D-03 端到端：零命中不写降级条目 ⇒ run_status 仍为 success。"""
     from research_engine.agents.researcher import Researcher
+    from research_engine.rag.scope import RagScope
     from research_engine.state import DegradationSink
 
     store = _FakeStore(hits=[], payloads=[])
     r = Researcher.__new__(Researcher)
     r.degradations = DegradationSink()
+    r._rag_scope = RagScope()
     r.retriever = _make_retriever(monkeypatch, store)
 
     assert r._search_rag("q") == []

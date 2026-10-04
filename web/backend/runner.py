@@ -581,6 +581,10 @@ class RunManager:
             set_profile(profile)
             effective = effective_research_config()
 
+            # P5：把本 run 的所有者写进 RAG 检索作用域（须在 create_graph **之前**：
+            # Researcher 构建时捕获作用域，避免 LangGraph 并行线程丢失 ContextVar）
+            set_scope(user_id=self.owner(run_id))
+
             graph = self._graph_factory()
             # 把跳数上限随 RUN_STARTED 下发 ⇒ 前端才能算**真实的**检索阶段进度
             # （depth / max_total_hops），而不是做一个只会动的假条。
@@ -606,8 +610,7 @@ class RunManager:
                     return True
                 return deadline is not None and time.monotonic() >= deadline
 
-            # P5：把本 run 的所有者写进 RAG 检索作用域（本线程只服务本 run，无需复位）
-            set_scope(user_id=self.owner(run_id))
+            # P5：作用域已在 create_graph 之前设置（见上）
             seen_progress = 0
             for step in graph.iter_run(topic, instructions, thread_id=run_id,
                                        should_cancel=should_stop):
