@@ -2,6 +2,7 @@
 
 > 状态：**已合**（PR #115 squash `fc599a6`；CI 全绿；部署按约定 A 批次完成后统一执行）。
 > 父需求：`docs/requirements/21-product-modules-completeness.md` §4-H/§4-I、§5-A4。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/CGNTd49q2oRoUXxka18cTKfUnEg（「需求设计文档：错误追踪与反馈帮助」）。
 > 一句话：补齐内测上线前的**可观测闭环**（前端白屏/未捕获异常零感知 → 错误聚合）、
 > **反馈闭环**（用户反馈无入口 → 站内表单 + 台账）、**合规闭环**（注册同意无留档 → 勾选 + 版本记录），
 > 并把帮助入口与法律文本接入产品页面。
