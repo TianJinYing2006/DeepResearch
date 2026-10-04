@@ -1222,6 +1222,17 @@ class RunStore:
             )
             return len(cur.fetchall())
 
+    def has_recent_password_reset(self, user_id: str, within_seconds: int) -> bool:
+        """需求 24：冷却检查 —— 该用户最近是否有未消费 token（防邮件轰炸）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM password_reset_tokens WHERE user_id = %s "
+                "AND consumed_at IS NULL "
+                "AND created_at > now() - make_interval(secs => %s) LIMIT 1",
+                (user_id, within_seconds),
+            )
+            return cur.fetchone() is not None
+
     def complete_password_reset(self, token_hash: str, password_hash: str) -> Optional[str]:
         """原子完成重置（P1-10）：消费 token + 改密 + 吊销全部会话 + 清理其余 token。
 

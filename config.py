@@ -157,6 +157,29 @@ class LangfuseConfig:
 
 
 @dataclass
+class MailConfig:
+    """需求 24：邮件通道（SMTP-first，任意服务商；stdlib 实现）。
+
+    ``host`` / ``sender`` 为空 = 未配置：``/api/auth/forgot`` 返回结构化
+    ``mail_unavailable``（503），管理员 CLI 兜底路径不变。
+    """
+
+    host: str = field(default_factory=lambda: _env("DR_SMTP_HOST"))
+    port: int = field(default_factory=lambda: int(_env("DR_SMTP_PORT", "465")))
+    user: str = field(default_factory=lambda: _env("DR_SMTP_USER"))
+    password: str = field(default_factory=lambda: _env("DR_SMTP_PASSWORD"))
+    sender: str = field(default_factory=lambda: _env("DR_SMTP_FROM"))
+    tls: str = field(default_factory=lambda: _env("DR_SMTP_TLS", "ssl").lower())
+    base_url: str = field(default_factory=lambda: _env("DR_MAIL_BASE_URL", "http://localhost:5173"))
+    reset_cooldown_seconds: int = field(
+        default_factory=lambda: int(_env("DR_RESET_COOLDOWN_SECONDS", "60")))
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.host and self.sender)
+
+
+@dataclass
 class ExperimentConfig:
     """W7 TBD-8 受控单变量实验开关。默认全开 = 保持当前行为；全关 = v1.1 基线。"""
 
@@ -191,6 +214,7 @@ class Config:
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
     code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
+    mail: MailConfig = field(default_factory=MailConfig)
 
 
 config = Config()
