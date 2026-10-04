@@ -1,6 +1,6 @@
 # 需求 25：错误追踪 + 反馈入口 + 帮助/合规页（批次 A4）
 
-> 状态：**自测**（实现完成：错误追踪 / 反馈 / 帮助 / 注册同意；待合并与部署）。
+> 状态：**已合**（PR #115 squash `fc599a6`；CI 全绿；部署按约定 A 批次完成后统一执行）。
 > 父需求：`docs/requirements/21-product-modules-completeness.md` §4-H/§4-I、§5-A4。
 > 一句话：补齐内测上线前的**可观测闭环**（前端白屏/未捕获异常零感知 → 错误聚合）、
 > **反馈闭环**（用户反馈无入口 → 站内表单 + 台账）、**合规闭环**（注册同意无留档 → 勾选 + 版本记录），
@@ -13,10 +13,10 @@
 | 编号 | 25 |
 | 标题 | 错误追踪 + 反馈入口 + 帮助/合规页（批次 A4） |
 | 优先级 | P1 |
-| 状态 | 自测 |
+| 状态 | 已合 |
 | 负责人 | TianJinYing2006 |
-| 关联 Issue | #114 |
-| 关联 PR | 待填 |
+| 关联 Issue | #114（已关） |
+| 关联 PR | #115（squash `fc599a6`） |
 | 创建 / 更新 | 2026-10-04 |
 
 ## 2. 问题背景：现状审计（事实 → 影响）
@@ -176,7 +176,7 @@
 - [x] 合规：注册勾选（未勾选不可提交，服务端 422）+ `user_consents` 版本留档；隐私政策增错误诊断小节；数据流向表加行
 - [x] 运维：compose `errors` profile（GlitchTip + 独立库初始化）；发布手册 §2.4d；注入演练清单
 - [x] 测试：`test_error_tracking.py`(4) + `test_feedback_api.py`(4) + 注册同意留档 + 既有注册用例适配；E2E 新增 3；CI 全绿
-- [ ] 文档：需求 21 §5 A4 勾选 + §10 回填；飞书镜像同步（合并后执行）
+- [x] 文档：需求 21 §5 A4 勾选 + §10 回填（随收尾 PR 落地）；飞书镜像已同步（[链接](https://wcnnpvbxd7li.feishu.cn/docx/CGNTd49q2oRoUXxka18cTKfUnEg)）
 
 ## 9. 变更记录
 
@@ -185,3 +185,4 @@
 | 2026-10-04 | 新建 | 需求 21 批次 A4 立项 | 先调研后方案：代码现状审计（F1~F8）+ 错误追踪选型调研（Sentry Cloud 出境风险 / GlitchTip 512MB 兼容 / ARMS 兼容 DSN）+ 反馈组件最佳实践 + D1~D7 决策 + 详细设计 + DoD | 本文档 |
 | 2026-10-04 | 修订 | 决策确认 | 用户确认：D1 默认自托管 GlitchTip（DSN 可切 ARMS/Sentry）；D4 页脚入口 + 弹窗（登录用户）；D6 独立留档表 `user_consents`。开始实施 | 本文档 |
 | 2026-10-04 | 实施 | 需求 25 落地 | 迁移 0020（user_feedback / user_consents）；`ObservabilityConfig` + `observability.py`（Sentry 协议、PII 清洗、request_id tag、失败不阻断）；`POST /api/feedback`、`GET /api/help/faq`、legal 带 version、注册 `agree_terms` + 同意留档；`admin feedback-list`；前端 `@sentry/browser`（v11 `dataCollection`、动态懒加载）+ ErrorBoundary 上报 + 反馈/帮助弹窗 + 注册勾选；`docs/help/faq.md`；compose `errors` profile + 发布手册 §2.4d + 隐私政策/数据流向更新；测试：错误追踪 4 / 反馈 4 / 注册同意 / E2E 3 | #114 |
+| 2026-10-04 | 已合 | PR #115 合并 | squash `fc599a6`；CI 全绿（lint-and-test 3.11/3.12/3.13 + frontend + e2e + infra）；Issue #114 关闭；部署待 A 批次完成后统一执行 | #115 |

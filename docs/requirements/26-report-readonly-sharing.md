@@ -1,7 +1,8 @@
 # 需求 26：报告只读分享（批次 A5）
 
-> 状态：**自测**（实现完成：后端端点/前端分享面板与只读页/CLI/E2E；待合并与部署）。
+> 状态：**已合**（PR #117 squash `4077fb1`；CI 全绿；部署按约定 A 批次完成后统一执行）。
 > 父需求：`docs/requirements/21-product-modules-completeness.md` §4-C/§4-J、§5-A5、§6.3、§8 风险表。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/XbC0dC7Zlo9NtVxqiw4cyoZHnpf（「需求设计文档：报告只读分享」）。
 > 一句话：为完成的研究报告生成**不可猜测的只读分享链接**（可过期、可撤销、全程审计），
 > 外部评审者无需账号即可查看；不暴露内部 run_id 与对象存储直链，延续 BFF 口径。
 
@@ -12,10 +13,10 @@
 | 编号 | 26 |
 | 标题 | 报告只读分享（批次 A5） |
 | 优先级 | P1 |
-| 状态 | 自测 |
+| 状态 | 已合 |
 | 负责人 | TianJinYing2006 |
-| 关联 Issue | #116 |
-| 关联 PR | 待填 |
+| 关联 Issue | #116（已关） |
+| 关联 PR | #117（squash `4077fb1`） |
 | 创建 / 更新 | 2026-10-04 |
 
 ## 2. 问题背景：现状审计（事实 → 影响）
@@ -148,7 +149,7 @@ access_count int NOT NULL DEFAULT 0
 - [x] 前端：分享面板（创建/复制/撤销/最近访问/永久二次确认）+ `/s/<token>` 只读页与失效页；功能关闭时入口隐藏
 - [x] 管理：CLI `share-list` / `share-revoke`
 - [x] 运维：开关/限流配置进 `.env.example`；FAQ 修正（待需求 25 合并后随收尾 PR 落地）
-- [ ] 测试：单测 7 全绿 + E2E 2 全绿；真库契约与 CI 全绿；飞书镜像同步；需求 21 §5 A5 勾选 + §10 回填（合并后）
+- [x] 测试：单测 7 全绿 + E2E 2 全绿；真库契约与 CI 全绿；飞书镜像已同步；需求 21 §5 A5 勾选 + §10 回填（随收尾 PR 落地）
 
 ## 9. 变更记录
 
@@ -157,3 +158,4 @@ access_count int NOT NULL DEFAULT 0
 | 2026-10-04 | 新建 | 需求 21 批次 A5 立项 | 先调研后方案：现状审计（F1~F8：零分享实现 / 导出私有 / token 原语可复用 / 审核闸 / BFF 口径）+ 分享链接安全调研（bearer capability / 路径 token / no-store+noindex+no-referrer / 默认过期 / 统一 404 / 可管理可审计）+ D1~D6 决策 + 详细设计 + DoD | 本文档 |
 | 2026-10-04 | 修订 | 决策确认 | 用户确认：D5 支持**永不过期**（显式选择 + 二次确认 + 管理面 permanent 标注；默认仍 7 天）；D6 纯只读浏览（不导出）；D1 路径式 `/s/<token>`。建 Issue 后实施 | 本文档 |
 | 2026-10-04 | 实施 | 需求 26 落地 | 迁移 0021（report_shares）；store 全套（互斥/解析/撤销/访问计数/清理）；端点 POST/GET/DELETE `/api/runs/{run_id}/share` + 免登录 `GET /api/share/{token}`（统一 404/限流/审核闸/安全响应头/审计）+ `/s/{token}` SPA 壳；前端 ShareModal + SharedReportPage + 报告卡入口 + `/api/options.share_enabled`；CLI `share-list`/`share-revoke`；`share_not_found` 错误码；测试：share API 7 + E2E 2 | #116 |
+| 2026-10-04 | 已合 | PR #117 合并 | squash `4077fb1`（与需求 25 的 options/错误码/store/fakes/admin/env 冲突已本地解决并复测）；CI 全绿；Issue #116 关闭；部署待 A 批次完成后统一执行 | #117 |
