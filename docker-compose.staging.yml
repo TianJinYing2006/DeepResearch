@@ -35,6 +35,23 @@ name: deepresearch-staging
 x-app-environment: &app-environment
   DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
   DR_REDIS_URL: "redis://redis:6379/0"
+  # 需求 24/25/26：邮件通道 / 错误追踪 / 报告分享 —— .env 调参必须在此透传，
+  # 否则容器内取代码默认值（如 DR_SHARE_ENABLED 恒 false、SMTP 恒未配置）
+  DR_SMTP_HOST: "${DR_SMTP_HOST:-}"
+  DR_SMTP_PORT: "${DR_SMTP_PORT:-465}"
+  DR_SMTP_USER: "${DR_SMTP_USER:-}"
+  DR_SMTP_PASSWORD: "${DR_SMTP_PASSWORD:-}"
+  DR_SMTP_FROM: "${DR_SMTP_FROM:-}"
+  DR_SMTP_TLS: "${DR_SMTP_TLS:-ssl}"
+  DR_MAIL_BASE_URL: "${DR_MAIL_BASE_URL:-}"
+  DR_RESET_COOLDOWN_SECONDS: "${DR_RESET_COOLDOWN_SECONDS:-60}"
+  DR_SENTRY_DSN: "${DR_SENTRY_DSN:-}"
+  DR_SENTRY_DSN_FRONTEND: "${DR_SENTRY_DSN_FRONTEND:-}"
+  DR_SENTRY_ENVIRONMENT: "${DR_SENTRY_ENVIRONMENT:-staging}"
+  DR_SENTRY_RELEASE: "${DR_SENTRY_RELEASE:-}"
+  DR_SENTRY_TRACES_SAMPLE_RATE: "${DR_SENTRY_TRACES_SAMPLE_RATE:-0}"
+  DR_SHARE_ENABLED: "${DR_SHARE_ENABLED:-false}"
+  DR_SHARE_RATE_PER_MINUTE: "${DR_SHARE_RATE_PER_MINUTE:-30}"
   QDRANT_URL: "${QDRANT_URL:-http://qdrant:6333}"
   # P0-8b：RAG 隔离区（api 写入、worker 读取）—— 两服务共享同一卷
   DR_RAG_QUARANTINE_DIR: "/var/lib/deepresearch/rag-quarantine"
