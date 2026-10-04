@@ -1334,6 +1334,14 @@ class FakeStore:
             del self.password_resets[key]
         return len(keys)
 
+    def has_recent_password_reset(self, user_id, within_seconds):
+        now = datetime.now(UTC)
+        return any(
+            row["user_id"] == user_id and row["consumed_at"] is None
+            and row["created_at"] > now - timedelta(seconds=within_seconds)
+            for row in self.password_resets.values()
+        )
+
     def complete_password_reset(self, token_hash, password_hash):
         user_id = self.consume_password_reset(token_hash)
         if user_id is None:

@@ -50,6 +50,14 @@ docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|
 #     （见 web/backend/objectstore.py 模块 docstring 兼容表；缺失会报 InvalidRequest: Missing required header）
 #   - MinIO/OSS 场景按 docstring 兼容表核对，不要照抄 COS 结论
 
+# 2.4c 邮件通道核对（需求 24）：
+#   - DNS：SPF（含服务商 include）、DKIM（服务商公钥）、DMARC（p=none 起步）；发件域名与 DR_SMTP_FROM 一致
+#   - 环境变量：DR_SMTP_HOST / DR_SMTP_PORT / DR_SMTP_USER / DR_SMTP_PASSWORD / DR_SMTP_FROM / DR_SMTP_TLS
+#     （ssl=465 默认；starttls=587；none=本地 MailHog）；DR_MAIL_BASE_URL 指向实际前端地址
+#   - 未配置时 /api/auth/forgot 返回 mail_unavailable 503（管理员 CLI create-reset-token 兜底）
+#   - 本地联调：docker compose -f docker-compose.staging.yml --profile local-mail up -d mailhog
+#   - 上线 smoke：真实邮箱申请 → 收信（含垃圾箱检查）→ 完成重置 → 确认全设备会话吊销
+
 # 2.5 容量检查：连接预算（capacity-model §3.1）
 # N_api×DR_PG_POOL_MAX + N_worker×DR_PG_POOL_MAX + LISTEN + 余量 <= PG max_connections
 ```

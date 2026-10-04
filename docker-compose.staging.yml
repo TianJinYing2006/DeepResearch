@@ -182,6 +182,22 @@ services:
         limits:
           memory: 384M
 
+  # 需求 24：邮件沙箱（本地/联调专用，捕获全部外发邮件，不真实投递）
+  # 用法：docker compose --profile local-mail up -d mailhog
+  #      api 侧配 DR_SMTP_HOST=mailhog、DR_SMTP_PORT=1025、DR_SMTP_TLS=none
+  #      Web UI：http://127.0.0.1:8025
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    restart: unless-stopped
+    profiles: ["local-mail"]
+    ports:
+      - "127.0.0.1:${DR_MAILHOG_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${DR_MAILHOG_UI_PORT:-8025}:8025"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
   api:
     build:
       context: .

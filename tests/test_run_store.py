@@ -802,6 +802,29 @@ def test_session_governance_and_reset_contract(store: RunStore):
         cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
 
 
+def test_password_reset_cooldown_contract(store: RunStore):
+    """需求 24：冷却检查 —— 未消费 token 在窗口内命中，消费后不再命中。"""
+    uid = "test-store-cooldown-user"
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO users (user_id, email, password_hash) VALUES (%s, %s, 'x') "
+                    "ON CONFLICT DO NOTHING", (uid, "test-store-cooldown@test-store.local"))
+        cur.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (uid,))
+
+    assert store.has_recent_password_reset(uid, 60) is False
+    store.create_password_reset(token_hash("reset-cooldown"), uid,
+                                datetime.now(timezone.utc) + timedelta(minutes=30),
+                                created_by="system")
+    assert store.has_recent_password_reset(uid, 60) is True
+    assert store.has_recent_password_reset(uid, 0) is False  # 窗口为 0 时不再命中
+
+    store.consume_password_reset(token_hash("reset-cooldown"))
+    assert store.has_recent_password_reset(uid, 3600) is False  # 已消费不算
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM password_reset_tokens WHERE user_id = %s", (uid,))
+        cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
+
+
 def test_usage_ledger_contract(store: RunStore):
     """P1-4：逐调用账本写入 / 汇总（先对请求数再对钱）。"""
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:

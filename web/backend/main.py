@@ -58,6 +58,7 @@ from .download_names import build_export_filename, content_disposition
 from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload, http_error
 from .injection_guard import scan_injection
+from .mailer import get_mailer, password_reset_email
 from .metrics import METRICS
 from .moderation import (
     MAX_APPEAL_LENGTH,
@@ -1116,6 +1117,14 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=200)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+
+
+#: 自助找回 token 有效期（分钟；与管理员 CLI create-reset-token 默认一致）
+RESET_TOKEN_MINUTES = 30
+
+
 def _require_session_user(request: Request) -> dict:
     user = _session_user(request)
     if user is None:
@@ -1194,6 +1203,45 @@ def auth_reset_password(req: ResetPasswordRequest, request: Request) -> dict:
         _audit("password_reset_failed", request=request)
         raise http_error("invalid_request", "重置链接无效或已过期，请重新申请")
     _audit("password_reset_completed", request=request, actor_user_id=user_id)
+    return {"ok": True}
+
+
+@app.post("/api/auth/forgot")
+def auth_forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
+    """自助找回（需求 24）：防枚举恒 200；投递失败留审计但不暴露。
+
+    限流双维度（IP + 邮箱哈希）；冷却期内不重发；邮件通道未配置 → 503 结构化降级
+    （在用户查询**之前**判断，避免成为存在性预言机）。
+    """
+    email = normalize_email(req.email)
+    email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+    if not is_valid_email(email):
+        raise http_error("invalid_request", "邮箱格式不正确")
+    if (not LOGIN_LIMITER.allow(f"forgot:{_client_key(request)}")
+            or not LOGIN_ACCOUNT_LIMITER.allow(f"forgot-acct:{email_hash}")):
+        _audit("forgot_rate_limited", request=request, detail={"email_hash": email_hash})
+        raise http_error("rate_limited", "请求过于频繁，稍后再试")
+    if store is None:
+        raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    mailer = get_mailer()
+    if mailer is None:
+        raise http_error("mail_unavailable", "邮件通道未配置，请联系管理员重置密码")
+    user = _store_call(store.get_user_by_email, email)
+    if user is not None and user["status"] == "active":
+        cooldown = int(config.mail.reset_cooldown_seconds)
+        if not _store_call(store.has_recent_password_reset, user["user_id"], cooldown):
+            token = new_token()
+            expires_at = datetime.now(UTC) + timedelta(minutes=RESET_TOKEN_MINUTES)
+            _store_call(store.create_password_reset, token_hash(token), user["user_id"],
+                        expires_at, created_by="system")
+            link = f"{config.mail.base_url.rstrip('/')}/#reset={token}"
+            subject, text, html = password_reset_email(link, minutes=RESET_TOKEN_MINUTES)
+            try:
+                mailer.send(user["email"], subject, text, html)
+                _audit("forgot_requested", request=request, detail={"email_hash": email_hash})
+            except Exception as exc:  # noqa: BLE001 —— 投递失败不向匿名请求方暴露
+                _audit("mail_send_failed", request=request,
+                       detail={"email_hash": email_hash, "error": type(exc).__name__})
     return {"ok": True}
 
 
