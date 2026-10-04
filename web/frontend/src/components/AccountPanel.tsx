@@ -72,10 +72,11 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [authNotice, setAuthNotice] = useState('')
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
-  // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login 直达登录页
+  // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login / 重置链接直达登录页
   const [authView, setAuthView] = useState<'landing' | 'auth'>(() => {
     if (inviteFromUrl) return 'auth'
     try {
+      if (window.location.hash.startsWith('#reset=')) return 'auth'
       return new URLSearchParams(window.location.search).has('login') ? 'auth' : 'landing'
     } catch {
       return 'landing'

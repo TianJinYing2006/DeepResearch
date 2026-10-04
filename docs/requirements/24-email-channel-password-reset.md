@@ -1,6 +1,6 @@
 # 需求 24：邮件通道 + 自助找回密码（批次 A3）
 
-> 状态：**设计稿**（待评审）。
+> 状态：**自测**（实现完成：SMTP 通道 / 自助找回端点 / 前端四态 / 测试；待合并与部署）。
 > 父需求：`docs/requirements/21-product-modules-completeness.md` §5-A3 / §6.2。
 > 上游设计：`docs/requirements/20-login-auth-redesign.md` §6（P1-1 邮件通道）、§7.5（reset token 约定）、§7.6（审计约定）。
 > 一句话：建立**邮件外发通道**，在其上完成**匿名自助找回密码全流程**（申请 → 收信 → 重置），
@@ -13,7 +13,7 @@
 | 编号 | 24 |
 | 标题 | 邮件通道 + 自助找回密码（批次 A3） |
 | 优先级 | P1 |
-| 状态 | 设计稿 |
+| 状态 | 自测 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #109 |
 | 关联 PR | 待填 |
@@ -176,16 +176,18 @@
 
 ## 8. 验收标准（DoD）
 
-- [ ] 邮件通道：SMTP 可配置（ssl/starttls/none），未配置结构化 503；启动日志可见状态
-- [ ] 自助找回：`/api/auth/forgot` 防枚举恒 200；邮件链接 → `/api/auth/reset` 全链路（FakeMailer 单测）成功并吊销全部会话
-- [ ] 安全：IP + 邮箱哈希双维度限流（429 + 审计）；冷却期；审计 `forgot_requested` / `forgot_rate_limited` / `mail_send_failed`；审计与邮件正文无完整邮箱/token
-- [ ] 前端：忘记密码入口 + 重置表单（无效/过期 token 态 + 成功回登录）；E2E 覆盖；`npm run build` 绿
-- [ ] 运维：SPF/DKIM/DMARC 清单进发布手册；staging `local-mail` profile（MailHog）
-- [ ] 测试：`test_mailer.py` + `test_forgot_api.py` 全绿；既有 auth/session 回归全绿；CI 全绿
-- [ ] 文档：需求 20 §6 P1-1 拆分标注；飞书镜像同步
+- [x] 邮件通道：SMTP 可配置（ssl/starttls/none），未配置结构化 503；启动日志可见状态
+- [x] 自助找回：`/api/auth/forgot` 防枚举恒 200；邮件链接 → `/api/auth/reset` 全链路（FakeMailer 单测）成功并吊销全部会话
+- [x] 安全：IP + 邮箱哈希双维度限流（429 + 审计）；冷却期；审计 `forgot_requested` / `forgot_rate_limited` / `mail_send_failed`；审计与邮件正文无完整邮箱/token
+- [x] 前端：忘记密码入口 + 重置表单（无效/过期 token 态 + 成功回登录）；E2E 覆盖（新增 3 用例）；`npm run build` 绿
+- [x] 运维：SPF/DKIM/DMARC 清单进发布手册（§2.4c）；staging `local-mail` profile（MailHog）
+- [x] 测试：`test_mailer.py`(7) + `test_forgot_api.py`(7) 全绿；既有 auth/session 回归全绿；真库冷却契约测试进 `test_run_store.py`
+- [ ] 文档：需求 20 §6 P1-1 拆分标注（已标注）；飞书镜像同步（合并后执行）
 
 ## 9. 变更记录
 
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-10-04 | 新建 | 需求 21 批次 A3 立项 | 初稿：现状审计（F1~F8：零邮件实现 / CLI 发 token / 消费端完备 / 单维限流 / 无前端入口）+ D1~D6 决策 + 详细设计 + DoD | 本文档 |
+| 2026-10-04 | 修订 | 评审确认与市面调研 | 决策确认：SMTP-first（stdlib）、范围=通道+找回（新登录通知后置）；前端设计按市面调研定稿（防枚举中性文案 / 规则常显+实时灰→绿 / 失效链接可复活 / 成功回登录） | 本文档 |
+| 2026-10-04 | 实施 | 需求 24 落地 | `MailConfig`（DR_SMTP_*）+ `web/backend/mailer.py`（SMTP ssl/starttls/none + 模板）+ `POST /api/auth/forgot`（恒 200 防枚举 / 双维限流 / 冷却 / `mail_send_failed` 审计 / 未配置 503）+ `mail_unavailable` 错误码 + 前端 AuthForm 四态（forgot/sent/reset/invalid/done）+ 发布手册 §2.4c + staging `local-mail` profile；测试：mailer 7 / forgot 7 / 真库冷却契约 / E2E 3 | #109 |
