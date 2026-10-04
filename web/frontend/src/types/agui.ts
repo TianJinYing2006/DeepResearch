@@ -79,6 +79,8 @@ export interface RunOptions {
   auth_required?: boolean
   /** P4-A：注册是否需要邀请码 */
   invite_only?: boolean
+  /** 需求 26：报告只读分享开关（隐藏分享入口） */
+  share_enabled?: boolean
 }
 
 export interface StepFinishedEvent extends AguiEvent {

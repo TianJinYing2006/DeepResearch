@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import AccountPanel from './components/AccountPanel'
+import ShareModal from './components/ShareModal'
 import { BoundaryCard, LaunchForm, RagStatusCard } from './features/launch/LaunchPanels'
 import {
   EvidenceMargin,
@@ -90,6 +91,7 @@ export default function App() {
   // P0 profile 固化：前端只选档位（quick / standard），底层参数由服务端固定。
   const [profile, setProfile] = useState('quick')
   const [options, setOptions] = useState<RunOptions | null>(null)
+  const [shareRunId, setShareRunId] = useState<string | null>(null)
   // P6-A：是否开启鉴权（登录门开关；未开启时保持匿名可用）
   const [authRequired, setAuthRequired] = useState(false)
   // P1-7 重试：记住**上一次实际发起**的参数（不是当前表单值）——
@@ -430,10 +432,15 @@ export default function App() {
                   exportState={exportState}
                   onCopy={() => void copyReport()}
                   onExport={() => void exportReport()}
+                  shareEnabled={Boolean(options?.share_enabled)}
+                  onShare={() => { if (runId) setShareRunId(runId) }}
                 />
                 <ReflectionList log={result.reflection_log} />
                 <ValidatorStats stats={result.validator_stats} depth={result.depth} />
               </>
+            )}
+            {shareRunId && (
+              <ShareModal runId={shareRunId} onClose={() => setShareRunId(null)} />
             )}
 
             <TracePanels

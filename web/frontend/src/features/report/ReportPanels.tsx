@@ -12,9 +12,12 @@ type ReportCardProps = {
   exportState: 'idle' | 'exported' | 'failed'
   onCopy: () => void
   onExport: () => void
+  /** 需求 26：分享开关与入口（关闭时不渲染按钮）。 */
+  shareEnabled?: boolean
+  onShare?: () => void
 }
 
-export function ReportCard({ result, runId, outputUnderReview, copyState, exportState, onCopy, onExport }: ReportCardProps) {
+export function ReportCard({ result, runId, outputUnderReview, copyState, exportState, onCopy, onExport, shareEnabled, onShare }: ReportCardProps) {
   return (
     <section className="surface-card overflow-hidden">
       <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -41,6 +44,17 @@ export function ReportCard({ result, runId, outputUnderReview, copyState, export
           >
             {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
           </button>
+          {shareEnabled && onShare && (
+            <button
+              className="secondary-button !px-3 !py-2"
+              type="button"
+              onClick={onShare}
+              disabled={!runId || outputUnderReview}
+              data-testid="share-button"
+            >
+              分享
+            </button>
+          )}
         </div>
       </div>
       <div className="px-5 py-6 sm:px-8 sm:py-8">
