@@ -51,7 +51,7 @@ export function uploadLabel(item: UploadItem): string {
     case 'uploading':
       return `上传中 ${item.percent}%`
     case 'processing':
-      return item.note ?? '处理中…'
+      return item.note ?? '解析与嵌入中…'
     case 'done':
       return item.chunks ? `已入库（${item.chunks} 块）` : '已入库'
     case 'error':
@@ -114,13 +114,16 @@ export function useUploads(onFinished: () => void) {
     setUploadState('')
   }
 
-  async function pollIngestion(ingestionId: string, shouldStop: () => boolean, attempts = 30): Promise<{
+  async function pollIngestion(ingestionId: string, shouldStop: () => boolean,
+                               onTick?: (seconds: number) => void, attempts = 120): Promise<{
     status: string; chunks: number; source: string; error: string | null
   }> {
-    // P0-8b：异步摄取 —— 每秒轮询直到终态（最长约 30s，之后提示稍后刷新）
+    // P0-8b：异步摄取 —— 每秒轮询直到终态（最长约 2 分钟，之后提示稍后刷新）；
+    // onTick 只用于「仍在推进」的耗时反馈，不代表任何百分比。
     for (let index = 0; index < attempts; index += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000))
       if (shouldStop()) return { status: 'cancelled', chunks: 0, source: '', error: null }
+      onTick?.(index + 1)
       try {
         const response = await fetch(`/api/rag/ingestions/${ingestionId}`)
         if (!response.ok) continue
@@ -167,11 +170,17 @@ export function useUploads(onFinished: () => void) {
     }
     const parsed = (body ?? {}) as { source?: string; chunks?: number; ingestion_id?: string }
     if (parsed.ingestion_id) {
-      // P0-8b：异步摄取协议只有粗粒度状态 ⇒ 不显示百分比，只做不确定态动画
-      updateUpload(item.id, { status: 'processing', percent: 100, chunks: undefined })
+      // P0-8b：异步摄取协议只有粗粒度状态 ⇒ 进度条用不确定态 + 耗时反馈
+      updateUpload(item.id, { status: 'processing', percent: 100, chunks: undefined,
+                              note: '解析与嵌入中…' })
       const final = await pollIngestion(
         parsed.ingestion_id,
         () => uploadCancelledRef.current.has(item.id) || !mountedRef.current,
+        (seconds) => {
+          if (!uploadCancelledRef.current.has(item.id) && mountedRef.current) {
+            updateUpload(item.id, { note: `解析与嵌入中…（${seconds}s）` })
+          }
+        },
       )
       if (!mountedRef.current) return
       if (final.status === 'cancelled') {

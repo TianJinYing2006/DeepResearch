@@ -15,6 +15,16 @@ test.describe('账号与知识库入口（桌面端）', () => {
   test('账号条与上传入口可用，且不影响主流程', async ({ page }) => {
     await expect(page.getByTestId('account-panel')).toBeVisible()
     await expect(page.getByTestId('rag-upload-input')).toBeAttached()
+    // 需求 23 格式白名单对齐（PPT / Excel / HTML 可被选择）
+    await expect(page.getByTestId('rag-upload-input')).toHaveAttribute(
+      'accept', expect.stringContaining('.pptx'),
+    )
+    await expect(page.getByTestId('rag-upload-input')).toHaveAttribute(
+      'accept', expect.stringContaining('.xlsx'),
+    )
+    await expect(page.getByTestId('rag-upload-input')).toHaveAttribute(
+      'accept', expect.stringContaining('.html'),
+    )
     await expect(page.getByTestId('kb-toggle')).toBeVisible()
     await expect(page.getByRole('button', { name: /开始研究/ })).toBeVisible()
   })
@@ -78,6 +88,37 @@ test.describe('账号与知识库入口（桌面端）', () => {
     ])
     await expect(page.getByTestId('upload-item').filter({ hasText: 'a.md' })).toBeVisible()
     await expect(page.getByTestId('upload-item').filter({ hasText: 'b.md' })).toBeVisible()
+  })
+
+  test('异步摄取协议：处理中显示耗时反馈，终态转为已入库', async ({ page }) => {
+    await page.route('**/api/rag/ingest', (route) =>
+      route.fulfill({
+        status: 202,
+        json: { ingestion_id: 'ing-async-1', doc_id: 'local:x', source: 'async.md', status: 'pending' },
+      }),
+    )
+    let polls = 0
+    await page.route('**/api/rag/ingestions/ing-async-1', (route) => {
+      polls += 1
+      return route.fulfill({
+        json: {
+          ingestion_id: 'ing-async-1',
+          status: polls < 2 ? 'processing' : 'ready',
+          chunks: 4, source: 'async.md', error: null,
+        },
+      })
+    })
+    await page.route('**/api/rag/docs', (route) => route.fulfill({ json: { docs: [] } }))
+
+    await page.getByTestId('rag-upload-input').setInputFiles({
+      name: 'async.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# async'),
+    })
+    const row = page.getByTestId('upload-item').filter({ hasText: 'async.md' })
+    await expect(row).toContainText('解析与嵌入中…', { timeout: 5000 })
+    await expect(row).toContainText('已入库（4 块）', { timeout: 10000 })
+    await expect(row.getByTestId('upload-progress')).toHaveAttribute('aria-valuetext', '已入库（4 块）')
   })
 
   // ---- P6-B：邀请链接 / 历史筛选与分页 ----

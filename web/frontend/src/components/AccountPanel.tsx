@@ -357,9 +357,11 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       </button>
       {/* R7（审计 U1）：输入框改 sr-only —— 视觉隐藏但**可 Tab 聚焦、可键盘激活**；
           焦点环画在 label 上（focus-within），鼠标点击路径不变。 */}
-      <label className="cursor-pointer rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50 focus-within:ring-2 focus-within:ring-stamp-blue/40">
+      <label className="cursor-pointer rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50 focus-within:ring-2 focus-within:ring-stamp-blue/40"
+             title="支持 PDF / Word / PPT / Excel / Markdown / 文本 / HTML">
         上传文档
-        <input type="file" accept=".pdf,.docx,.md,.markdown,.txt" multiple className="sr-only"
+        <input type="file" multiple className="sr-only"
+               accept=".pdf,.docx,.pptx,.xlsx,.md,.markdown,.txt,.text,.html,.htm"
                data-testid="rag-upload-input"
                onChange={(event) => {
                  if (event.target.files?.length) {
@@ -415,12 +417,14 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
               <p className="mb-1 text-[11px] text-ink-muted">上传队列</p>
               <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
                 {uploads.map((item) => {
+                  // 进度语义：上传中/失败 = 实际字节进度（失败保留断点）；完成 = 满格；
+                  // 排队/处理中/取消 = 0（处理中走「不确定态滑光」，不假装知道百分比）
                   const width =
-                    item.status === 'uploading'
+                    item.status === 'uploading' || item.status === 'error'
                       ? item.percent
-                      : item.status === 'queued' || item.status === 'cancelled'
-                        ? 0
-                        : 100
+                      : item.status === 'done'
+                        ? 100
+                        : 0
                   const barClass =
                     item.status === 'error'
                       ? 'bg-stamp-red'
@@ -443,7 +447,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
                       </div>
                       <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-rule/40" role="progressbar"
                            data-testid="upload-progress" aria-label={`${item.name} 上传进度`}
-                           aria-valuenow={item.status === 'uploading' ? item.percent : undefined}
+                           aria-valuenow={item.status === 'uploading' || item.status === 'error' ? item.percent : undefined}
+                           aria-valuetext={uploadLabel(item)}
                            aria-valuemin={0} aria-valuemax={100}>
                         <div
                           className={`h-full w-full origin-left rounded-full transition-transform duration-300 ${barClass}`}
