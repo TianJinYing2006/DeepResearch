@@ -388,8 +388,13 @@ class Worker:
         topic = row["topic"]
         self._apply_profile(request)
         # P5：检索作用域须在 create_graph **之前**设置（Researcher 构建时捕获作用域，
-        # 避免 LangGraph 并行线程丢失 ContextVar → 运行期 RAG 恒零命中）
-        set_scope(user_id=row.get("user_id"))
+        # 避免 LangGraph 并行线程丢失 ContextVar → 运行期 RAG 恒零命中）；
+        # 修订号从任务库读（缓存键必须拿真实修订号，上传/删除后才会失效）
+        try:
+            rag_revision = self._store.get_rag_revision()
+        except Exception:  # noqa: BLE001
+            rag_revision = 0
+        set_scope(user_id=row.get("user_id"), revision=rag_revision)
         graph = self._graph_factory()
         effective = effective_research_config()
         timeout_at = row.get("timeout_at")

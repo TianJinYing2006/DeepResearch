@@ -582,8 +582,13 @@ class RunManager:
             effective = effective_research_config()
 
             # P5：把本 run 的所有者写进 RAG 检索作用域（须在 create_graph **之前**：
-            # Researcher 构建时捕获作用域，避免 LangGraph 并行线程丢失 ContextVar）
-            set_scope(user_id=self.owner(run_id))
+            # Researcher 构建时捕获作用域，避免 LangGraph 并行线程丢失 ContextVar）；
+            # 修订号从任务库读（VectorStore 无此方法，缓存键必须拿真实修订号才失效）
+            try:
+                rag_revision = self._store.get_rag_revision()
+            except Exception:  # noqa: BLE001 —— 无库/替身缺方法时退化为 0
+                rag_revision = 0
+            set_scope(user_id=self.owner(run_id), revision=rag_revision)
 
             graph = self._graph_factory()
             # 把跳数上限随 RUN_STARTED 下发 ⇒ 前端才能算**真实的**检索阶段进度
