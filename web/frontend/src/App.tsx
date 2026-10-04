@@ -15,6 +15,7 @@ import {
   useResearchStream,
 } from './hooks/useResearchStream'
 import { filenameFromDisposition } from './lib/download'
+import { initErrorTracking } from './lib/errorTracking'
 import { formatCost } from './lib/format'
 import {
   connectionPresentation,
@@ -130,6 +131,12 @@ export default function App() {
         setAuthRequired(Boolean(data.auth_required))
         // 后端默认档位优先；老后端没下发 profiles 时保持 quick。
         if (data.default_profile) setProfile(data.default_profile)
+        // 需求 25：错误追踪（DSN 空则动态模块不加载）
+        void initErrorTracking({
+          dsn: data.sentry_dsn,
+          environment: data.sentry_environment,
+          release: data.release,
+        })
       })
       .catch(() => { /* 保持本地默认，不阻断主流程 */ })
     return () => { cancelled = true }

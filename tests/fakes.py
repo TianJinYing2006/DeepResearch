@@ -107,6 +107,9 @@ class FakeStore:
         self.rag_chunks: dict[tuple, list[dict]] = {}
         self.rag_generations: dict[str, list[dict]] = {}
         self.rag_revision = 0
+        # 需求 25：产品反馈 / 注册同意留档
+        self.feedback: list[dict] = []
+        self.user_consents: dict[tuple, dict] = {}
         # 需求 26：报告只读分享（token_hash → 行）
         self.report_shares: dict[str, dict] = {}
 
@@ -1354,6 +1357,32 @@ class FakeStore:
         self.revoke_user_sessions(user_id)
         self.delete_password_resets(user_id)
         return user_id
+
+    # ---- 产品反馈 / 注册同意（需求 25）----
+
+    def create_feedback(self, feedback_id, user_id, *, category, message, contact=None,
+                        page=None, request_id=None):
+        self.feedback.append({
+            "feedback_id": feedback_id, "user_id": user_id, "category": category,
+            "message": message, "contact": contact, "page": page,
+            "request_id": request_id, "status": "new", "created_at": datetime.now(UTC),
+        })
+
+    def list_feedback(self, *, user_id=None, status=None, limit=50):
+        rows = [row for row in self.feedback
+                if (user_id is None or row["user_id"] == user_id)
+                and (status is None or row["status"] == status)]
+        return list(reversed(rows))[:limit]
+
+    def save_user_consents(self, user_id, consents, *, ip_hash=None):
+        for item in consents:
+            self.user_consents[(user_id, item["doc_type"])] = {
+                "user_id": user_id, "doc_type": item["doc_type"], "version": item["version"],
+                "agreed_at": datetime.now(UTC), "ip_hash": ip_hash,
+            }
+
+    def list_user_consents(self, user_id):
+        return [row for (uid, _), row in sorted(self.user_consents.items()) if uid == user_id]
 
     # ---- 报告只读分享（需求 26）----
 

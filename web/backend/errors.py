@@ -107,6 +107,8 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         503, True,
         "邮件通道未配置或不可用：联系管理员用 create-reset-token 兜底，或稍后再试。",
         component="auth"),
+    "help_unavailable": ErrorSpec(
+        503, True, "帮助文档尚未准备：稍后再试或联系管理员。", component="web"),
     "share_not_found": ErrorSpec(
         404, False, "分享链接无效或已过期。", component="web"),
     "idempotency_conflict": ErrorSpec(

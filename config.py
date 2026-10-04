@@ -180,6 +180,27 @@ class MailConfig:
 
 
 @dataclass
+class ObservabilityConfig:
+    """需求 25：错误追踪（Sentry 协议；DSN 空 = 关闭）。
+
+    只依赖 Sentry 协议：DSN 可指向自托管 GlitchTip（默认，数据不出境）/
+    阿里云 ARMS RUM / Sentry Cloud（需数据出境评审）。PII 策略见
+    ``web/backend/observability.py``（不采内容、清洗凭据）。
+    """
+
+    sentry_dsn: str = field(default_factory=lambda: _env("DR_SENTRY_DSN"))
+    sentry_dsn_frontend: str = field(default_factory=lambda: _env("DR_SENTRY_DSN_FRONTEND"))
+    sentry_environment: str = field(default_factory=lambda: _env("DR_SENTRY_ENVIRONMENT", "staging"))
+    sentry_release: str = field(default_factory=lambda: _env("DR_SENTRY_RELEASE"))
+    sentry_traces_sample_rate: float = field(
+        default_factory=lambda: float(_env("DR_SENTRY_TRACES_SAMPLE_RATE", "0")))
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.sentry_dsn)
+
+
+@dataclass
 class ExperimentConfig:
     """W7 TBD-8 受控单变量实验开关。默认全开 = 保持当前行为；全关 = v1.1 基线。"""
 
@@ -215,6 +236,7 @@ class Config:
     code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     mail: MailConfig = field(default_factory=MailConfig)
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
 
 config = Config()

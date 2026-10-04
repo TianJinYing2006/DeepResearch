@@ -59,7 +59,8 @@ def client(monkeypatch, store: FakeStore, mailer: FakeMailer) -> TestClient:
 
 def _register(client: TestClient, email: str):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": PASSWORD, "invite_code": "invite-1"})
+                       json={"email": email, "password": PASSWORD, "invite_code": "invite-1",
+                             "agree_terms": True})
 
 
 def _extract_token(text: str) -> str:

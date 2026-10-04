@@ -60,6 +60,7 @@ export default function AuthForm({
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [inviteCode, setInviteCode] = useState(inviteFromUrl)
+  const [agreed, setAgreed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [forgotSent, setForgotSent] = useState(false)
@@ -180,7 +181,7 @@ export default function AuthForm({
       const payload =
         mode === 'login'
           ? { email, password }
-          : { email, password, invite_code: inviteCode }
+          : { email, password, invite_code: inviteCode, agree_terms: agreed }
       const response = await fetch(`/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -378,6 +379,19 @@ export default function AuthForm({
                  style={{ animationDelay: '60ms' }}
                  data-testid={idPrefix === 'invite' ? 'invite-code-input' : undefined}
                  value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
+          <label className="mt-4 flex items-start gap-2 text-[11px] text-ink-muted">
+            <input type="checkbox" className="mt-0.5" checked={agreed}
+                   data-testid="auth-agree-terms"
+                   onChange={(event) => setAgreed(event.target.checked)} />
+            <span>
+              我已阅读并同意
+              <button type="button" className="mx-1 underline hover:text-ink"
+                      onClick={() => onOpenLegal('terms')}>用户协议</button>
+              与
+              <button type="button" className="mx-1 underline hover:text-ink"
+                      onClick={() => onOpenLegal('privacy')}>隐私政策</button>
+            </span>
+          </label>
         </>
       )}
 
@@ -388,7 +402,7 @@ export default function AuthForm({
 
       <button type="submit" className="primary-button mt-6 w-full"
               data-testid={mode === 'forgot' ? 'auth-forgot-submit' : mode === 'reset' ? 'auth-reset-submit' : undefined}
-              disabled={busy || (mode === 'reset' && !resetReady)}>
+              disabled={busy || (mode === 'reset' && !resetReady) || (mode === 'register' && !agreed)}>
         {busy
           ? mode === 'login'
             ? '登录中…'
@@ -425,9 +439,8 @@ export default function AuthForm({
           {mode === 'login' ? '有邀请码？去注册' : '已有账号？去登录'}
         </button>
       )}
-      {(mode === 'login' || mode === 'register') && (
+      {mode === 'login' && (
         <p className="mt-4 text-center text-[11px] text-ink-muted">
-          {mode === 'register' && '注册即表示同意'}
           <button type="button" className="mx-1 underline hover:text-ink"
                   onClick={() => onOpenLegal('terms')}>用户协议</button>
           与

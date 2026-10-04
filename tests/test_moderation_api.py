@@ -29,7 +29,8 @@ def _client(monkeypatch, store: FakeStore, *, auth: bool = False) -> TestClient:
 
 
 def _register(client: TestClient, email: str) -> None:
-    response = client.post("/api/auth/register", json={"email": email, "password": PASSWORD})
+    response = client.post("/api/auth/register",
+                           json={"email": email, "password": PASSWORD, "agree_terms": True})
     assert response.status_code == 200
 
 

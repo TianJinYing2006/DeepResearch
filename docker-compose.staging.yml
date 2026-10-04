@@ -198,6 +198,41 @@ services:
         limits:
           memory: 64M
 
+  # 需求 25：错误追踪（Sentry 协议；默认部署形态，数据不出境）
+  # 用法：docker compose -f docker-compose.staging.yml --profile errors up -d glitchtip-db-init glitchtip
+  #   首次启动前设置 DR_GLITCHTIP_SECRET_KEY（随机长串）；控制台建项目后配 DR_SENTRY_DSN[_FRONTEND]
+  glitchtip-db-init:
+    image: postgres:16-alpine
+    profiles: ["errors"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: "${DR_POSTGRES_PASSWORD:-deepresearch-local}"
+    entrypoint: ["sh", "-c",
+                 "psql -h postgres -U deepresearch -d deepresearch -c 'CREATE DATABASE glitchtip' || true"]
+
+  glitchtip:
+    image: glitchtip/glitchtip:v5
+    restart: unless-stopped
+    profiles: ["errors"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/glitchtip"
+      REDIS_URL: "redis://redis:6379/1"
+      SECRET_KEY: "${DR_GLITCHTIP_SECRET_KEY:-change-me-before-enable}"
+      GLITCHTIP_DOMAIN: "${DR_GLITCHTIP_DOMAIN:-http://127.0.0.1:8081}"
+    ports:
+      - "127.0.0.1:${DR_GLITCHTIP_PORT:-8081}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
   api:
     build:
       context: .

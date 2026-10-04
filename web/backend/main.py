@@ -69,6 +69,7 @@ from .moderation import (
 )
 from .notify import RunEventNotifier
 from .objectstore import get_object_store
+from .observability import init_error_tracking, set_request_context
 from .otel import (
     PROMETHEUS_ENABLED,
     instrument_fastapi,
@@ -139,6 +140,7 @@ async def _request_id_middleware(request: Request, call_next):
     """P1-5：为每个请求分配 `X-Request-ID`（支持透传），供审计 / 日志关联。"""
     request_id = (request.headers.get("x-request-id") or "").strip()[:64]
     request.state.request_id = request_id or uuid.uuid4().hex[:12]
+    set_request_context(request.state.request_id)
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
@@ -327,6 +329,13 @@ WORKER_HEARTBEAT_MAX_AGE_SECONDS = int(_env_number("DR_WORKER_HEARTBEAT_MAX_AGE_
 
 # P7-A：合规文本（隐私政策 / 用户协议）以仓库文档为唯一来源
 LEGAL_DIR = Path(__file__).resolve().parents[2] / "docs" / "legal"
+# 需求 25：帮助中心 FAQ（仓库文档为唯一来源）
+HELP_DIR = Path(__file__).resolve().parents[2] / "docs" / "help"
+
+
+def _legal_version(path: Path) -> str:
+    """需求 25：法律文档版本号 = 内容 sha256[:12]（注册同意留档用）。"""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
 # P3：执行模式。`inprocess` = 请求进程内线程执行（P1/P2 行为，默认，本地开发）；
@@ -359,6 +368,9 @@ def _startup_store_maintenance(run_store: RunStore, execution_mode: str) -> None
 
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
 store = None if DEMO_MODE else _make_store()
+
+# 需求 25：错误追踪（Sentry 协议；DSN 空 = 关闭；观测旁路不阻断启动）
+init_error_tracking()
 
 # P2-4：SSE 尾随的 LISTEN/NOTIFY 唤醒（懒启动；通知只放 run_id，正确性靠轮询兜底）
 SSE_POLL_SECONDS = max(0.5, _env_number("DR_SSE_POLL_SECONDS", 5.0))
@@ -476,6 +488,10 @@ def options() -> dict:
         # P4-A / P6-A：前端据此决定是否展示登录页（未开启鉴权时保持匿名可用）
         "auth_required": AUTH_REQUIRED,
         "invite_only": INVITE_ONLY,
+        # 需求 25：错误追踪（DSN 空 = 前端不初始化，零网络请求）
+        "sentry_dsn": config.observability.sentry_dsn_frontend,
+        "sentry_environment": config.observability.sentry_environment,
+        "release": config.observability.sentry_release,
         # 需求 26：报告只读分享开关（前端据此隐藏分享入口）
         "share_enabled": SHARE_ENABLED,
     }
@@ -1018,6 +1034,7 @@ class RegisterRequest(BaseModel):
     email: str = Field(..., max_length=254)
     password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=200)
     invite_code: Optional[str] = Field(None, max_length=128, description="邀请制下必填")
+    agree_terms: bool = Field(False, description="需求 25：必须勾选同意《用户协议》与《隐私政策》")
 
 
 class LoginRequest(BaseModel):
@@ -1040,6 +1057,8 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
     email = normalize_email(req.email)
     if not is_valid_email(email):
         raise http_error("invalid_request", "邮箱格式不合法")
+    if not req.agree_terms:
+        raise http_error("invalid_request", "请先阅读并同意《用户协议》与《隐私政策》")
     _reject_weak_password(req.password, email=email)
     user_id = uuid.uuid4().hex[:12]
     try:
@@ -1061,8 +1080,17 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
         ) from exc
     _store_call(store.touch_last_login, user["user_id"])
     _set_session_cookies(response, user["user_id"], request)
+    # 需求 25：注册同意留档（PIPL 可举证；版本 = 文档内容 hash）
+    consent_versions = {
+        "terms": _legal_version(LEGAL_DIR / "terms-of-service.md"),
+        "privacy": _legal_version(LEGAL_DIR / "privacy-policy.md"),
+    }
+    _store_call(store.save_user_consents, user["user_id"],
+                [{"doc_type": doc_type, "version": version}
+                 for doc_type, version in consent_versions.items()],
+                ip_hash=hashlib.sha256(_client_key(request).encode("utf-8")).hexdigest()[:16])
     _audit("register_success", request=request, actor_user_id=user["user_id"],
-           detail={"invite": bool(req.invite_code)})
+           detail={"invite": bool(req.invite_code), "consents": consent_versions})
     return {"user": _public_user(user)}
 
 
@@ -1741,6 +1769,43 @@ def my_appeals(request: Request) -> dict:
     ]}
 
 
+class FeedbackRequest(BaseModel):
+    category: str = Field(..., pattern="^(bug|idea|other)$")
+    message: str = Field(..., min_length=10, max_length=2000)
+    contact: Optional[str] = Field(None, max_length=200)
+    page: Optional[str] = Field(None, max_length=64)
+
+
+@app.post("/api/feedback")
+def submit_feedback(req: FeedbackRequest, request: Request) -> dict:
+    """站内产品反馈（需求 25）：登录 + 限流 + 审计（审计不含正文，只记长度）。"""
+    user_id = _require_user(request)
+    _check_csrf(request)
+    if not SUBMIT_LIMITER.allow(f"feedback:{user_id or _client_key(request)}"):
+        raise http_error("rate_limited", "反馈提交过于频繁，稍后再试")
+    if store is None:
+        raise http_error("persistence_unavailable", "反馈需要任务库（DR_DATABASE_URL）")
+    feedback_id = uuid.uuid4().hex[:12]
+    _store_call(store.create_feedback, feedback_id, user_id,
+                category=req.category, message=req.message.strip(),
+                contact=(req.contact or "").strip() or None, page=req.page,
+                request_id=getattr(request.state, "request_id", None))
+    _audit("feedback_submitted", request=request, actor_user_id=user_id,
+           target_id=feedback_id,
+           detail={"category": req.category, "page": req.page,
+                   "message_chars": len(req.message)})
+    return {"ok": True, "feedback_id": feedback_id}
+
+
+@app.get("/api/help/faq")
+def help_faq() -> dict:
+    """帮助中心 FAQ（需求 25）：以仓库 `docs/help/faq.md` 为唯一来源。"""
+    path = HELP_DIR / "faq.md"
+    if not path.is_file():
+        raise http_error("help_unavailable", "帮助文档尚未准备（请联系管理员）")
+    return {"markdown": path.read_text(encoding="utf-8")}
+
+
 @app.get("/api/legal/{doc}")
 def legal_document(doc: str) -> dict:
     """隐私政策 / 用户协议（P7-A）：以仓库 `docs/legal/` 为唯一来源。"""
@@ -1750,7 +1815,8 @@ def legal_document(doc: str) -> dict:
     path = LEGAL_DIR / files[doc]
     if not path.is_file():
         raise http_error("invalid_request", "文档尚未准备（请联系管理员）")
-    return {"doc": doc, "markdown": path.read_text(encoding="utf-8")}
+    return {"doc": doc, "markdown": path.read_text(encoding="utf-8"),
+            "version": _legal_version(path)}
 
 
 # ------------------------------------------------------------------ RAG 知识库（P6-A）

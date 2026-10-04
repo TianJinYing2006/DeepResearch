@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { captureException } from '../lib/errorTracking'
 
 type Props = { children: ReactNode }
 type State = { error: Error | null }
@@ -6,7 +7,8 @@ type State = { error: Error | null }
 /**
  * R1（审计 U2/U32）：渲染异常兜底 —— 单个畸形事件 payload 不得让整页白屏。
  *
- * 只显示错误消息（不含用户内容），提供刷新入口；错误同时写入 console 便于排障。
+ * 只显示错误消息（不含用户内容），提供刷新入口；错误写入 console 并上报
+ * 错误追踪（需求 25，DSN 未配置时为 no-op）。
  */
 export default class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
@@ -17,6 +19,7 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('[ui] render error:', error, info.componentStack)
+    void captureException(error)
   }
 
   render() {

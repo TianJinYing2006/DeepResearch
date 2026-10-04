@@ -7,6 +7,8 @@ type Props = {
   /** 进入登录 / 注册（分流主 CTA）。 */
   onStart: () => void
   onOpenLegal: (doc: 'privacy' | 'terms') => void
+  /** 需求 25：帮助中心（FAQ）弹窗。 */
+  onOpenHelp: () => void
 }
 
 const MARQUEE_TOKENS = [
@@ -61,7 +63,7 @@ const FEATURES = [
  *
  * 分流：本页 CTA 进入登录注册页；已登录用户不会看到本页（直接进工作台）。
  * 独立 overlay 滚动容器（fixed），动效全部尊重 `prefers-reduced-motion`。 */
-export default function LandingPage({ onStart, onOpenLegal }: Props) {
+export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const stepRefs = useRef<Array<HTMLLIElement | null>>([])
@@ -269,6 +271,8 @@ export default function LandingPage({ onStart, onOpenLegal }: Props) {
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-[11px] text-ink-muted sm:px-8">
             <span>DeepResearch · 可审计研究工作台 · 内测阶段</span>
             <span className="flex gap-4">
+              <button type="button" className="underline decoration-rule underline-offset-4 hover:text-ink"
+                      data-testid="footer-help" onClick={onOpenHelp}>帮助中心</button>
               <button type="button" className="underline decoration-rule underline-offset-4 hover:text-ink"
                       onClick={() => onOpenLegal('terms')}>用户协议</button>
               <button type="button" className="underline decoration-rule underline-offset-4 hover:text-ink"

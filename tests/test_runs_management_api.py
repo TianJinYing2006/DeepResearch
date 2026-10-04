@@ -42,7 +42,8 @@ def client(monkeypatch, store: FakeStore) -> TestClient:
 
 def _register(client: TestClient, email: str, code: str = "invite-1"):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": PASSWORD, "invite_code": code})
+                       json={"email": email, "password": PASSWORD, "invite_code": code,
+                             "agree_terms": True})
 
 
 def _csrf(client: TestClient) -> dict[str, str]:
