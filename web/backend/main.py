@@ -1860,6 +1860,12 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
             size, digest, head = await stream_to_temp(file, path, max_bytes)
         except UploadRejected as exc:
             raise http_error(exc.code, exc.message, detail=exc.detail) from exc
+        except OSError as exc:
+            # 服务端存储不可写（如隔离区卷属主/权限错误）：结构化 503，不裸 500
+            raise http_error(
+                "rag_ingest_failed",
+                f"上传暂存失败（服务端存储不可写）：{type(exc).__name__}: {exc}"[:200],
+            ) from exc
         if size == 0:
             raise http_error("invalid_request", "文件为空")
         try:
