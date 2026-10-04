@@ -40,6 +40,9 @@ requests>=2.31.0
 # 可观测（W3：Langfuse 全链路 trace；版本锁定防 wrap 机制漂移，grill Q1）
 langfuse>=4.15,<5
 
+# 错误追踪（需求 25：Sentry 协议；DSN 空 = 关闭，默认自托管 GlitchTip）
+sentry-sdk[fastapi]>=2.71,<3
+
 # 可观测（P1-8：OpenTelemetry SDK + OTLP / Prometheus 导出 + FastAPI/httpx 自动埋点；
 # 默认关闭，设置 OTEL_EXPORTER_OTLP_ENDPOINT 或 DR_METRICS_PROMETHEUS=true 才启用）
 opentelemetry-api>=1.30,<2

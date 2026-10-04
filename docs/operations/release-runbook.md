@@ -58,6 +58,14 @@ docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|
 #   - 本地联调：docker compose -f docker-compose.staging.yml --profile local-mail up -d mailhog
 #   - 上线 smoke：真实邮箱申请 → 收信（含垃圾箱检查）→ 完成重置 → 确认全设备会话吊销
 
+# 2.4d 错误追踪核对（需求 25）：
+#   - 默认形态：自托管 GlitchTip（compose profile errors；复用现有 postgres，独立 glitchtip 库）
+#     首次启用：docker compose -f docker-compose.staging.yml --profile errors up -d glitchtip glitchtip-db-init
+#     控制台建项目后，把 DSN 配到 DR_SENTRY_DSN（后端）与 DR_SENTRY_DSN_FRONTEND（前端经 /api/options 下发）
+#   - 环境/发版：DR_SENTRY_ENVIRONMENT=staging、DR_SENTRY_RELEASE=<git SHA>（部署时注入）
+#   - 注入演练：前端触发一次渲染异常 + 后端触发一次 500，确认错误服务控制台可达（1~2 分钟延迟属正常）
+#   - 合规：隐私政策已含「错误诊断数据」小节；数据流向登记表已加行（境内自托管，不含内容/PII）
+
 # 2.5 容量检查：连接预算（capacity-model §3.1）
 # N_api×DR_PG_POOL_MAX + N_worker×DR_PG_POOL_MAX + LISTEN + 余量 <= PG max_connections
 ```

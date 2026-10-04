@@ -79,6 +79,10 @@ export interface RunOptions {
   auth_required?: boolean
   /** P4-A：注册是否需要邀请码 */
   invite_only?: boolean
+  /** 需求 25：错误追踪（DSN 空 = 前端不初始化） */
+  sentry_dsn?: string | null
+  sentry_environment?: string | null
+  release?: string | null
 }
 
 export interface StepFinishedEvent extends AguiEvent {

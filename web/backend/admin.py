@@ -115,6 +115,10 @@ def _build_parser() -> argparse.ArgumentParser:
     audit_list.add_argument("--actor", default="")
     audit_list.add_argument("--limit", type=int, default=100)
 
+    feedback_list = sub.add_parser("feedback-list", help="列出站内产品反馈（需求 25）")
+    feedback_list.add_argument("--status", default="", help="new / reviewing / closed")
+    feedback_list.add_argument("--limit", type=int, default=50)
+
     reset_token = sub.add_parser("create-reset-token",
                                  help="发放一次性密码重置 token（P1-10；默认 30 分钟）")
     reset_token.add_argument("--email", required=True)
@@ -282,6 +286,16 @@ def main(argv: list[str] | None = None) -> int:
                   f"user={row['user_id'] or '-'} chunks={row['chunks']} "
                   f"attempts={row['attempts']} scan={row['scan_status']} "
                   f"error={row['last_error'] or '-'}")
+        return 0
+
+    if args.command == "feedback-list":
+        rows = store.list_feedback(status=args.status or None, limit=args.limit)
+        for row in rows:
+            summary = row["message"].replace("\n", " ")[:80]
+            print(f"{row['feedback_id']}  {row['status']:<9} {row['category']:<5} "
+                  f"user={row['user_id']} page={row['page'] or '-'} "
+                  f"contact={row['contact'] or '-'} at={row['created_at']:%Y-%m-%d %H:%M} "
+                  f"| {summary}")
         return 0
 
     if args.command == "delete-doc":

@@ -41,7 +41,8 @@ def client(monkeypatch, store: FakeStore) -> TestClient:
 
 def _register(client: TestClient, email: str, code: str = "invite-1"):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": PASSWORD, "invite_code": code})
+                       json={"email": email, "password": PASSWORD, "invite_code": code,
+                             "agree_terms": True})
 
 
 def _login(client: TestClient, email: str):
@@ -141,7 +142,8 @@ def test_owner_can_read_and_cancel(client: TestClient):
 def test_register_without_invite_when_not_invite_only(monkeypatch, client: TestClient):
     monkeypatch.setattr(api, "INVITE_ONLY", False)
     response = client.post("/api/auth/register",
-                           json={"email": "free@example.com", "password": PASSWORD})
+                           json={"email": "free@example.com", "password": PASSWORD,
+                                 "agree_terms": True})
     assert response.status_code == 200
 
 
@@ -177,3 +179,20 @@ def test_change_password_requires_login_and_current_password(client: TestClient)
                         headers=_csrf(client))
     assert wrong.status_code == 401
     assert wrong.json()["detail"]["code"] == "invalid_credentials"
+
+
+def test_register_requires_consent_and_records_versions(client: TestClient, store: FakeStore):
+    """需求 25：注册必须勾选同意；成功后按文档 hash 留档 terms/privacy 两行。"""
+    without = client.post("/api/auth/register",
+                          json={"email": "noconsent@example.com", "password": PASSWORD,
+                                "invite_code": "invite-2"})
+    assert without.status_code == 422
+    assert without.json()["detail"]["code"] == "invalid_request"
+    assert store.users == {}  # 未勾选不建用户、不消耗邀请码
+
+    response = _register(client, "consent@example.com")
+    assert response.status_code == 200
+    user_id = response.json()["user"]["user_id"]
+    rows = store.list_user_consents(user_id)
+    assert {row["doc_type"] for row in rows} == {"terms", "privacy"}
+    assert all(len(row["version"]) == 12 for row in rows)

@@ -7,6 +7,8 @@ import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
 import { formatBytes, formatCny } from '../lib/format'
 import type { Quota, RagChunk, RagDoc, SessionUser } from '../types/api'
+import FeedbackModal from './FeedbackModal'
+import HelpModal from './HelpModal'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
 import SecurityPanel from './SecurityPanel'
@@ -70,6 +72,9 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   const [kbActionError, setKbActionError] = useState('')
   const [kbUsage, setKbUsage] = useState<{ used_bytes: number; quota_bytes: number | null } | null>(null)
   const [authNotice, setAuthNotice] = useState('')
+  // 需求 25：帮助中心 / 站内反馈
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
   // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login / 重置链接直达登录页
@@ -321,8 +326,10 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           <LandingPage
             onStart={() => setAuthView('auth')}
             onOpenLegal={(doc) => void openLegal(doc)}
+            onOpenHelp={() => setHelpOpen(true)}
           />
           {legalModal}
+          {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
         </>
       )
     }
@@ -380,6 +387,17 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
                 onClick={() => setSecurityOpen((open) => !open)} data-testid="security-toggle">
           会话与安全
+        </button>
+      )}
+      {/* 需求 25：帮助中心（所有人可达）；反馈（登录用户；本地未开鉴权时也可用） */}
+      <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
+              onClick={() => setHelpOpen(true)} data-testid="help-toggle">
+        帮助
+      </button>
+      {(user || !authRequired) && (
+        <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
+                onClick={() => setFeedbackOpen(true)} data-testid="feedback-toggle">
+          反馈
         </button>
       )}
       {uploadState && (
@@ -678,6 +696,8 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         </Modal>
       )}
       {legalModal}
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
     </div>
   )
 }

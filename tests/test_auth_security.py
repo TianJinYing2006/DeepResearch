@@ -77,7 +77,8 @@ def client(monkeypatch) -> TestClient:
 
 def _register(client: TestClient, email: str, password: str, code: str = "invite-1"):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": password, "invite_code": code})
+                       json={"email": email, "password": password, "invite_code": code,
+                             "agree_terms": True})
 
 
 def test_register_rejects_weak_password(client: TestClient):
