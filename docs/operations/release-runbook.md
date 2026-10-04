@@ -66,6 +66,12 @@ docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|
 #   - 注入演练：前端触发一次渲染异常 + 后端触发一次 500，确认错误服务控制台可达（1~2 分钟延迟属正常）
 #   - 合规：隐私政策已含「错误诊断数据」小节；数据流向登记表已加行（境内自托管，不含内容/PII）
 
+# 2.4e 报告分享 smoke（需求 26）：
+#   - 确认 DR_SHARE_ENABLED=true（灰度开启）；DR_SHARE_RATE_PER_MINUTE 默认 30
+#   - smoke：报告页创建分享（7 天）→ 匿名浏览器打开 /s/<token> 可见 → 撤销 → 同一链接 404
+#   - 响应头核对：Cache-Control: private, no-store / X-Robots-Tag: noindex, nofollow, noarchive /
+#     Referrer-Policy: no-referrer
+
 # 2.5 容量检查：连接预算（capacity-model §3.1）
 # N_api×DR_PG_POOL_MAX + N_worker×DR_PG_POOL_MAX + LISTEN + 余量 <= PG max_connections
 ```
