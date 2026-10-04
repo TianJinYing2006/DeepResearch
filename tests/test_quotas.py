@@ -46,7 +46,8 @@ def _client(monkeypatch, store: FakeStore, *, steps: int = 2, delay: float = 0.0
         monkeypatch.setattr(api, key, value)
     client = TestClient(api.app)
     register = client.post("/api/auth/register", json={
-        "email": "quota@example.com", "password": PASSWORD, "invite_code": "invite-1"})
+        "email": "quota@example.com", "password": PASSWORD, "invite_code": "invite-1",
+        "agree_terms": True})
     assert register.status_code == 200
     return client
 

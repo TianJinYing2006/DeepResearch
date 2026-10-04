@@ -1512,6 +1512,59 @@ class RunStore:
             )
             return int(cur.fetchone()["n"])
 
+    # ---- 产品反馈 / 注册同意（需求 25）----
+
+    def create_feedback(self, feedback_id: str, user_id: str, *, category: str,
+                        message: str, contact: Optional[str] = None,
+                        page: Optional[str] = None,
+                        request_id: Optional[str] = None) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO user_feedback (feedback_id, user_id, category, message, "
+                "contact, page, request_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (feedback_id, user_id, category, message, contact, page, request_id),
+            )
+
+    def list_feedback(self, *, user_id: Optional[str] = None, status: Optional[str] = None,
+                      limit: int = 50) -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if user_id:
+            where.append("user_id = %s")
+            params.append(user_id)
+        if status:
+            where.append("status = %s")
+            params.append(status)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        params.append(limit)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM user_feedback {clause} ORDER BY created_at DESC LIMIT %s",
+                params,
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def save_user_consents(self, user_id: str, consents: list[dict[str, str]],
+                           *, ip_hash: Optional[str] = None) -> None:
+        """注册同意留档（需求 25）：每用户每文档一行，重新同意时覆盖为最新版本。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            for item in consents:
+                cur.execute(
+                    "INSERT INTO user_consents (user_id, doc_type, version, ip_hash) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (user_id, doc_type) DO UPDATE SET "
+                    "version = EXCLUDED.version, agreed_at = now(), ip_hash = EXCLUDED.ip_hash",
+                    (user_id, item["doc_type"], item["version"], ip_hash),
+                )
+
+    def list_user_consents(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM user_consents WHERE user_id = %s ORDER BY doc_type",
+                (user_id,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
     def delete_user(self, user_id: str) -> bool:
         """删除用户（P7-A 注销）：会话级联删除、runs/记录脱钩（SET NULL）、邀请 used_by 置空。
 
