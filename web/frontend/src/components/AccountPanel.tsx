@@ -38,6 +38,8 @@ type Props = {
   authRequired: boolean
   activeRunId: string | null
   running: boolean
+  /** 需求 26：报告分享开关（透传给历史面板，控制分享入口显示）。 */
+  shareEnabled?: boolean
 }
 
 /**
@@ -46,7 +48,7 @@ type Props = {
  * - 鉴权开启（authRequired）且未登录时渲染全屏登录门；
  * - 未开启鉴权时保持匿名可用（历史/上传仍可用，配额由后端按匿名口径返回）。
  */
-export default function AccountPanel({ authRequired, activeRunId, running }: Props) {
+export default function AccountPanel({ authRequired, activeRunId, running, shareEnabled = false }: Props) {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [checked, setChecked] = useState(false)
   const [quota, setQuota] = useState<Quota | null>(null)
@@ -419,7 +421,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         <span className="text-ink-muted">未登录（本地模式）</span>
       )}
 
-      <HistoryPanel key={historyEpoch} open={historyOpen} />
+      <HistoryPanel key={historyEpoch} open={historyOpen} shareEnabled={shareEnabled} />
 
       {kbOpen && (
         <div className="surface-card-muted mt-2 w-full max-w-sm p-3 sm:ml-auto" data-testid="kb-panel">
