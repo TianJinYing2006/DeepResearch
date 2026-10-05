@@ -524,34 +524,37 @@ class Validator:
                         unused_verdicts.pop(j)
                         break
 
-            unreliable = False
+            verification_failed = False
             if id(r) in failed_row_ids:
-                # 该批 LLM 失败（或关闭分批时的整单失败）：忠实度未知，按存在性通过（保 W1 行为）
-                verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "LLM 校验失败，降级为存在性判定"
+                # 审计 P1#2：LLM 失败 ⇒ 校验未完成（不视为通过）；仅保留存在性结论
+                verified, faithful, supported_flag, confidence, note = (
+                    False, False, False, 0.5, "LLM 校验失败：校验未完成（不视为通过）")
+                verification_failed = True
             elif verdict is not None:
                 fixes_enabled = config.experiment.validator_fixes_enabled
-                # W7 F2：claim_echo 回显对齐；不一致标 unreliable 并降级通过
+                # W7 F2：claim_echo 回显对齐；不一致 ⇒ 校验未完成（P1#2：不再降级判通过）
                 echo = verdict.get("claim_echo", "") or verdict.get("claim", "")
                 if fixes_enabled and echo and self._claim_similarity(echo, r["claim"]) < 0.6:
-                    unreliable = True
                     faithful = False
                     supported_flag = bool(verdict.get("supported", False))
                     confidence = float(verdict.get("confidence", 0.5))
                     note = f"claim_echo 错位（相似度低）：{verdict.get('note', '') or ' verdict 与原文 claim 不匹配'}".strip()
+                    verification_failed = True
                 else:
                     faithful = bool(verdict.get("faithful", True))
                     supported_flag = bool(verdict.get("supported", False))
                     confidence = float(verdict.get("confidence", 0.5))
                     note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
                 verified = faithful
-                if unreliable:
-                    verified = True  # 降级为保守通过，但 note 留痕
             else:
-                # 单条缺失：来源存在但未获 LLM 反馈 → 保守通过 + 提示（贴近 W1 行为）
-                verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "忠实度未获 LLM 反馈（按存在性通过）"
+                # 单条缺失：来源存在但未获 LLM 反馈 ⇒ 校验未完成（P1#2：不视为通过）
+                verified, faithful, supported_flag, confidence, note = (
+                    False, False, False, 0.5, "忠实度未获 LLM 反馈：校验未完成（不视为通过）")
+                verification_failed = True
 
-            # W7 TBD-5：宽松口径 = 存在性 AND (忠实 OR 多源印证 OR 保守通过)
-            verified_relaxed = True and (faithful or supported_flag or verified)
+            # W7 TBD-5：宽松口径 = 存在性 AND (忠实 OR 多源印证)；校验未完成不进入宽松通过
+            verified_relaxed = (True and (faithful or supported_flag)
+                                and not verification_failed)
 
             result.append(Citation(
                 claim=r["claim"], source=r["source"],
@@ -560,6 +563,7 @@ class Validator:
                 finding_id=r["finding_id"], source_type=r["source_type"],
                 confidence=confidence, note=note, existence=True,
                 verified_relaxed=verified_relaxed,
+                verification_failed=verification_failed,
                 is_meta=bool(verdict.get("is_meta", False)) if verdict is not None else False,
             ))
         self.last_validation_stats.update({

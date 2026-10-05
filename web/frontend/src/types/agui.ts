@@ -125,6 +125,8 @@ export interface CitationResult {
   note: string
   existence: boolean
   verified_relaxed: boolean
+  /** 审计 P1#2：校验未完成（LLM 失败/无反馈/结论错位）——不视为通过 */
+  verification_failed?: boolean
   is_meta: boolean
 }
 

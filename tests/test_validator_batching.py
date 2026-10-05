@@ -102,8 +102,12 @@ def test_failed_batch_is_isolated_and_logged(monkeypatch):
     result = v.validate(_report(6), _findings(6))
     by_id = {c.finding_id: c for c in result}
 
-    assert "LLM 校验失败" in by_id["3"].note and by_id["3"].verified is True
+    assert "LLM 校验失败" in by_id["3"].note
+    # 审计 P1#2：失败批不得判通过 —— 校验未完成态（仅保留存在性）
+    assert by_id["3"].verified is False
+    assert by_id["3"].verification_failed is True
     assert "LLM 校验失败" in by_id["4"].note
+    assert by_id["4"].verified is False and by_id["4"].verification_failed is True
     assert by_id["1"].note == "" and by_id["1"].verified is True
     assert by_id["2"].verified is False  # 第一批正常判定（忠实度生效）
 

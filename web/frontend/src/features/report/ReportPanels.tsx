@@ -78,12 +78,16 @@ type CitationsCardProps = {
 /** 方向 B 签名：引用证据挂在**页边栏**（与报告并排、可滚动、可聚焦），
  *  阅读时视线不离开正文；窄屏自动落到报告下方。 */
 export function EvidenceMargin({ citations, verifiedCitations }: CitationsCardProps) {
+  const failedCount = citations.filter((citation) => citation.verification_failed).length
+  const detail = failedCount > 0
+    ? `${verifiedCitations} / ${citations.length} 严格通过 · ${failedCount} 条校验未完成`
+    : `${verifiedCitations} / ${citations.length} 严格通过`
   return (
     <section className="surface-card p-4" aria-label="引用证据">
       <SectionHeading
         eyebrow="证据"
         title="引用校验"
-        detail={`${verifiedCitations} / ${citations.length} 严格通过`}
+        detail={detail}
       />
       {citations.length === 0 ? (
         <p className="mt-3 text-xs leading-5 text-ink-muted">
