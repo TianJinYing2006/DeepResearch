@@ -165,9 +165,6 @@ class Researcher:
         for bf in resp.faults():
             component = "rag_search" if bf.backend == "all" else f"rag_search:{bf.backend}"
             self._record_degradation(component, bf.reason, detail=bf.detail)
-        # 审计 P1#1：人物查询先做身份硬闸 —— 证据必须包含查询实体，否则丢弃
-        # （阻止「问 A 返回 B」；证据被清空时自然走「信息不足」路径）
-        entities = extract_entities(query)
         findings = []
         for h in resp.items:
             doc = h.get("doc") or h.get("source") or "unknown"
