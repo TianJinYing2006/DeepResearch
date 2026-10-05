@@ -103,19 +103,22 @@ def _contained(a: str, b: str) -> bool:
 
 def _assemble(entries: List[dict], *, top_k: int, max_per_doc: int,
               max_tokens: int) -> List[dict]:
-    """证据组装：同文档上限 + 同文档包含去重 + token 预算（贪心填充）。"""
+    """证据组装：同文档上限 + 同文档包含去重 + token 预算（贪心填充）。
+
+    审计 P2#6：文档键优先 `doc_id`（同名文件不共享上限、不互相去重）。
+    """
     picked: List[dict] = []
     per_doc: Dict[str, int] = {}
     tokens_used = 0
     for entry in entries:
         if len(picked) >= top_k:
             break
-        doc_key = str(entry.get("doc") or entry.get("doc_id") or "")
+        doc_key = str(entry.get("doc_id") or entry.get("doc") or "")
         if per_doc.get(doc_key, 0) >= max_per_doc:
             continue
         text = entry.get("text", "")
         if any(
-            str(other.get("doc") or other.get("doc_id") or "") == doc_key
+            str(other.get("doc_id") or other.get("doc") or "") == doc_key
             and _contained(text, other.get("text", ""))
             for other in picked
         ):

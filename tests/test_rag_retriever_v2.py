@@ -172,6 +172,22 @@ def test_rrf_merge_is_deterministic_and_identity_based():
     assert [item["chunk_id"] for item in merged] == ["v1", "b1", "v2"]
 
 
+def test_assemble_per_doc_cap_uses_doc_id():
+    """审计 P2#6：同名文件不共享「同文档上限」（按 doc_id 计）。"""
+    same_name = [
+        {"chunk_id": "a1", "doc": "同名.md", "doc_id": "u1:aaa", "text": "甲" * 60},
+        {"chunk_id": "b1", "doc": "同名.md", "doc_id": "u1:bbb", "text": "乙" * 60},
+    ]
+    picked = _assemble(same_name, top_k=5, max_per_doc=1, max_tokens=10000)
+    assert [entry["chunk_id"] for entry in picked] == ["a1", "b1"]
+
+    same_doc = [
+        {"chunk_id": "a1", "doc": "同名.md", "doc_id": "u1:aaa", "text": "甲" * 60},
+        {"chunk_id": "a2", "doc": "同名.md", "doc_id": "u1:aaa", "text": "丙" * 60},
+    ]
+    assert len(_assemble(same_doc, top_k=5, max_per_doc=1, max_tokens=10000)) == 1
+
+
 def test_bm25_cache_tracks_store_revision_without_scope_revision():
     """回归：runner/worker 的 set_scope 不带 revision 时，缓存键必须跟随库内修订号。
 

@@ -51,6 +51,39 @@ def test_researcher_drops_foreign_entity_hits():
     assert findings[0].source == "rag:resume.pdf"
 
 
+def test_researcher_preserves_evidence_identity():
+    """审计 P2#6：证据身份保留 —— 标题路径进正文、元数据进 metadata、置信度分档。"""
+    from research_engine.agents.researcher import Researcher
+    from research_engine.rag.scope import RagScope
+    from research_engine.state import DegradationSink
+
+    class _Retriever:
+        def retrieve(self, query, top_k=5, scope=None):
+            return SimpleNamespace(items=[
+                {"text": "田金应 的简历正文", "doc": "resume.pdf", "doc_id": "u1:aaa",
+                 "chunk_id": "u1:aaa:g1:0", "title_path": ["个人信息"], "locator": {"page": 1}},
+                {"text": "田金应 的工作经历", "doc": "resume.pdf", "doc_id": "u1:aaa",
+                 "chunk_id": "u1:aaa:g1:1", "title_path": [], "locator": {"page": 2}},
+            ], faults=lambda: [])
+
+    researcher = Researcher.__new__(Researcher)
+    researcher.degradations = DegradationSink()
+    researcher._rag_scope = RagScope()
+    researcher.retriever = _Retriever()
+
+    findings = researcher._search_rag("田金应是谁")
+
+    assert len(findings) == 2
+    first, second = findings
+    assert first.content.startswith("个人信息")
+    assert first.metadata["doc_id"] == "u1:aaa"
+    assert first.metadata["chunk_id"] == "u1:aaa:g1:0"
+    assert first.metadata["locator"] == {"page": 1}
+    assert first.confidence == 0.85
+    assert second.content == "田金应 的工作经历"  # 无标题路径不前缀
+    assert second.confidence == 0.75
+
+
 def test_researcher_keeps_all_hits_for_generic_query():
     from research_engine.agents.researcher import Researcher
     from research_engine.rag.scope import RagScope
