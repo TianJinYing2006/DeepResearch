@@ -147,9 +147,6 @@ class Researcher:
         ``[]`` 不再同时表达「没命中」与「向量库不可用」。故障条目**单向派生**自
         ``resp.faults()``；**零命中（``empty_result``）不进降级日志**（D-03）。
         """
-        # 审计 P1#1：人物查询先做身份硬闸 —— 证据必须包含查询实体，否则丢弃
-        # （阻止「问 A 返回 B」；证据被清空时自然走「信息不足」路径）
-        entities = extract_entities(query)
         # 作用域兼容：测试替身可能以 __new__ 构造（无 _rag_scope）且 retrieve 不接受 scope 参数
         scope = getattr(self, "_rag_scope", None)
         try:
