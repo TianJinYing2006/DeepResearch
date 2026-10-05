@@ -297,7 +297,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       onClose={() => { setLegal(null); setLegalError('') }}
       labelledBy="legal-title"
       testId="legal-modal"
-      overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4 "
+      overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4 "
       panelClassName="surface-card my-6 w-full max-w-3xl p-6"
     >
       <div className="flex items-center justify-between">
@@ -632,7 +632,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           onClose={() => { setPreviewDoc(null); setPreviewChunks(null); setPreviewError('') }}
           labelledBy="kb-preview-title"
           testId="kb-preview"
-          overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4"
+          overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4"
           panelClassName="surface-card my-6 w-full max-w-2xl p-6"
         >
           <div className="flex items-center justify-between">

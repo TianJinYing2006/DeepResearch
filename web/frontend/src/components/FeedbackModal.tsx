@@ -45,7 +45,7 @@ export default function FeedbackModal({ onClose }: Props) {
       onClose={onClose}
       labelledBy="feedback-title"
       testId="feedback-modal"
-      overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4"
+      overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4"
       panelClassName="surface-card my-6 w-full max-w-lg p-6"
     >
       <div className="flex items-center justify-between">
