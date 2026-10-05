@@ -7,7 +7,7 @@ from __future__ import annotations
 import research_engine.rag.retriever as R
 from config import config
 from research_engine.rag.retriever import HybridRetriever, _assemble, _rrf_merge
-from research_engine.rag.scope import use_rag_scope
+from research_engine.rag.scope import RagScope, use_rag_scope
 
 
 class _FakeStore:
@@ -170,3 +170,33 @@ def test_rrf_merge_is_deterministic_and_identity_based():
     assert merged[0]["chunk_id"] == "v1"
     assert merged[0]["ranks"] == {"vector": 1, "bm25": 2}
     assert [item["chunk_id"] for item in merged] == ["v1", "b1", "v2"]
+
+
+def test_bm25_cache_tracks_store_revision_without_scope_revision():
+    """回归：runner/worker 的 set_scope 不带 revision 时，缓存键必须跟随库内修订号。
+
+    否则长驻进程缓存「摄取前的空语料」永不失效 → 运行期检索恒零命中（staging 实测）。"""
+
+    class _Store:
+        def __init__(self):
+            self.revision = 1
+            self.payloads = [{"text": "a", "user_id": "u1"}]
+
+        def get_rag_revision(self):
+            return self.revision
+
+        def scroll_all(self, scope=None):
+            return self.payloads
+
+    retriever = HybridRetriever()
+    retriever.store = _Store()
+    scope = RagScope(user_id="u1")
+
+    metas, _ = retriever._load_all(scope)
+    assert len(metas) == 1
+    retriever.store.payloads.append({"text": "b", "user_id": "u1"})
+    metas, _ = retriever._load_all(scope)  # 修订号未变 → 仍命中缓存
+    assert len(metas) == 1
+    retriever.store.revision = 2  # 写路径递增 → 缓存失效
+    metas, _ = retriever._load_all(scope)
+    assert len(metas) == 2

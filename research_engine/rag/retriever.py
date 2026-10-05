@@ -153,9 +153,22 @@ class HybridRetriever:
             )
         return self._client
 
+    def _effective_revision(self, scope: RagScope) -> int | None:
+        """缓存修订号：作用域 revision 为 0（默认未指定）时读库当前值（写路径递增即失效）。
+
+        修复：runner/worker 的 set_scope 只带 user_id/tenant_id（revision 取默认 0），
+        长驻进程会永久缓存「摄取前的空语料」→ 运行期检索恒零命中。
+        """
+        if scope.revision:
+            return scope.revision
+        try:
+            return self.store.get_rag_revision()
+        except Exception:  # noqa: BLE001 —— 读不到时退化为不按修订失效（原行为）
+            return scope.revision
+
     def _load_all(self, scope: RagScope) -> tuple[List[dict], BM25Okapi | None]:
         """按 (作用域, 修订号) 加载 BM25 语料（含身份/定位元数据），结果缓存。"""
-        key = (scope.user_id, scope.tenant_id, scope.revision)
+        key = (scope.user_id, scope.tenant_id, self._effective_revision(scope))
         cached = self._bm25_cache.get(key)
         if cached is not None:
             return cached

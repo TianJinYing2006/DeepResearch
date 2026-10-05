@@ -240,3 +240,33 @@ def test_worker_sets_rag_scope_from_run_row():
                     heartbeat_seconds=5, poll_seconds=0)
     assert worker.run_once(row["run_id"]) is True
     assert probe.seen == ["u-worker"]
+
+
+def test_researcher_captures_scope_at_construction(monkeypatch):
+    """回归：Researcher 构建时捕获作用域并显式传给 retriever。
+
+    LangGraph 并行执行节点时线程不继承 ContextVar —— 运行期 current_scope() 会丢；
+    必须在 create_graph（构建期）捕获，否则多租户过滤按空作用域执行（staging 实测 RAG 恒零命中）。
+    """
+    from types import SimpleNamespace
+
+    import research_engine.agents.researcher as researcher_module
+    from research_engine.agents.researcher import Researcher
+    from research_engine.rag.scope import use_rag_scope
+
+    monkeypatch.setattr(researcher_module, "create_search_provider", lambda name: object())
+    monkeypatch.setattr(researcher_module, "ArxivSearchProvider", lambda: object())
+    captured = {}
+
+    class _Retriever:
+        def retrieve(self, query, top_k=5, scope=None):
+            captured["scope"] = scope
+            return SimpleNamespace(items=[], faults=lambda: [])
+
+    with use_rag_scope(user_id="u-capture"):
+        researcher = Researcher()
+    researcher.retriever = _Retriever()
+    researcher._search_rag("q")
+
+    assert captured["scope"] is not None
+    assert captured["scope"].user_id == "u-capture"

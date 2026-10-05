@@ -116,7 +116,16 @@ def _persist_generation(store, ingester, *, doc_id: str, source_name: str,
         if ingester.store.count_by_generation(doc_id, generation) != len(points):
             raise RuntimeError("chunk count mismatch (qdrant)")
         ingester.store.set_generation_active(doc_id, generation, True)
-        retired = store.activate_index_generation(doc_id, generation)
+        try:
+            retired = store.activate_index_generation(doc_id, generation)
+        except Exception:
+            # PG 提交失败：立即撤销新代活动标记，不留「失败代与旧代同时可见」窗口
+            # （后台清扫仍会兜底重试；此处保证提交失败即刻回滚可见性）
+            try:
+                ingester.store.set_generation_active(doc_id, generation, False)
+            except Exception:  # noqa: BLE001 —— 回滚失败交给清扫
+                pass
+            raise
         for old_generation in retired:
             ingester.store.set_generation_active(doc_id, old_generation, False)
         return {"generation": generation, "chunks": len(chunk_rows), "retired": retired}

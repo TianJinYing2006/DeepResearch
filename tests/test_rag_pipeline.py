@@ -138,6 +138,26 @@ def test_failure_keeps_old_active_and_marks_failed(tmp_path):
     assert {row["generation"] for row in store.list_retired_generations()} == {2}
 
 
+def test_activate_failure_rolls_back_qdrant_active(tmp_path, monkeypatch):
+    """回归（审计 P1#5）：PG 切换失败 → 立即撤销 Qdrant 新代活动标记，不留双可见窗口。"""
+    store = FakeStore()
+    build_from_file(store, _Ingester(), doc_id="u1:doc", path=_write(tmp_path),
+                    source_name="doc.md", user_id="u1")
+    ingester = _Ingester()
+
+    def _boom(doc_id, generation):
+        raise RuntimeError("pg commit failed")
+
+    monkeypatch.setattr(store, "activate_index_generation", _boom)
+    with pytest.raises(RuntimeError):
+        build_from_snapshot(store, ingester, doc_id="u1:doc",
+                            source_name="doc.md", user_id="u1")
+
+    # 新代（g2）不得停留在 active=True；旧代仍是活动版本
+    assert ingester.store.active.get(("u1:doc", 2)) is False
+    assert store.get_active_generation("u1:doc") == 1
+
+
 def test_cleanup_stale_generations_success_and_failure(tmp_path):
     store = FakeStore()
     ingester = _Ingester()
