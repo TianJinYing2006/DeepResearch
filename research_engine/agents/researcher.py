@@ -21,6 +21,7 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     classify_exception,
     is_fault_reason,
 )
+from research_engine.rag.identity import extract_entities, hit_matches_entities
 from research_engine.rag.retriever import HybridRetriever
 from research_engine.rag.scope import current_scope
 from research_engine.sanitize import strip_invisible
@@ -156,10 +157,15 @@ class Researcher:
         for bf in resp.faults():
             component = "rag_search" if bf.backend == "all" else f"rag_search:{bf.backend}"
             self._record_degradation(component, bf.reason, detail=bf.detail)
+        # 审计 P1#1：人物查询先做身份硬闸 —— 证据必须包含查询实体，否则丢弃
+        # （阻止「问 A 返回 B」；证据被清空时自然走「信息不足」路径）
+        entities = extract_entities(query)
         findings = []
         for h in resp.items:
             doc = h.get("doc") or h.get("source") or "unknown"
             text = strip_invisible(h["text"])  # P2-1a：检索侧净化（历史数据兜底）
+            if not hit_matches_entities(text, entities):
+                continue
             findings.append(
                 ResearchFinding(
                     content=text,  # 源 chunk_size=800 已控，Q5 不再截
