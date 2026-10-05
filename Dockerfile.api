@@ -31,6 +31,9 @@ COPY docs/legal/ ./docs/legal/
 COPY docs/help/ ./docs/help/
 COPY --from=frontend /build/dist ./web/frontend/dist
 RUN useradd --create-home --uid 10001 app
+# P0-8b：隔离区挂载点预创建并授权 —— named volume 首次初始化会继承镜像目录属主，
+# 否则卷为 root:root 时非 root 进程无法写入（表现为上传 500 / 摄取不登记）
+RUN mkdir -p /var/lib/deepresearch/rag-quarantine && chown -R app:app /var/lib/deepresearch
 USER app
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "web.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
