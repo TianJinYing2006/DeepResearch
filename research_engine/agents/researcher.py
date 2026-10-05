@@ -66,6 +66,16 @@ def _is_meta_content(content: str) -> bool:
     return any(k in c for k in META_KEYWORDS)
 
 
+#: 审计 P2#6：RAG 证据置信度按召回排序分档（不再一刀切 0.7）
+_RAG_CONFIDENCE_TIERS = (0.85, 0.75, 0.65)
+
+
+def _rag_confidence(rank: int) -> float:
+    if rank < len(_RAG_CONFIDENCE_TIERS):
+        return _RAG_CONFIDENCE_TIERS[rank]
+    return 0.6
+
+
 class Researcher:
     """单跳检索器（并行全工具）。"""
 
@@ -166,18 +176,29 @@ class Researcher:
             component = "rag_search" if bf.backend == "all" else f"rag_search:{bf.backend}"
             self._record_degradation(component, bf.reason, detail=bf.detail)
         findings = []
-        for h in resp.items:
+        for rank, h in enumerate(resp.items):
             doc = h.get("doc") or h.get("source") or "unknown"
             text = strip_invisible(h["text"])  # P2-1a：检索侧净化（历史数据兜底）
             if not hit_matches_entities(text, entities):
                 continue
+            # 审计 P2#6：证据身份保留 —— 标题路径进正文（人物/章节靠标题区分）、
+            # 完整身份元数据进 metadata（doc_id/chunk_id/定位），置信度按排序分档
+            title_path = [str(part) for part in (h.get("title_path") or []) if part]
+            content = (" > ".join(title_path) + "\n\n" + text) if title_path else text
             findings.append(
                 ResearchFinding(
-                    content=text,  # 源 chunk_size=800 已控，Q5 不再截
+                    content=content,  # 源 chunk_size=800 已控，Q5 不再截
                     source=f"rag:{doc}",
                     source_type="rag",
-                    confidence=0.7,
+                    confidence=_rag_confidence(rank),
                     is_meta=_is_meta_content(text),
+                    metadata={
+                        "doc_id": h.get("doc_id"),
+                        "chunk_id": h.get("chunk_id"),
+                        "title_path": title_path,
+                        "locator": h.get("locator") or {},
+                        "rank": rank,
+                    },
                 )
             )
         return findings
