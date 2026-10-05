@@ -148,8 +148,16 @@ class Researcher:
         ``[]`` 不再同时表达「没命中」与「向量库不可用」。故障条目**单向派生**自
         ``resp.faults()``；**零命中（``empty_result``）不进降级日志**（D-03）。
         """
+        # 审计 P1#1：人物查询先做身份硬闸 —— 证据必须包含查询实体，否则丢弃
+        # （阻止「问 A 返回 B」；证据被清空时自然走「信息不足」路径）
+        entities = extract_entities(query)
+        # 作用域兼容：测试替身可能以 __new__ 构造（无 _rag_scope）且 retrieve 不接受 scope 参数
+        scope = getattr(self, "_rag_scope", None)
         try:
-            resp = self.retriever.retrieve(query, top_k=5, scope=self._rag_scope)
+            if scope is not None:
+                resp = self.retriever.retrieve(query, top_k=5, scope=scope)
+            else:
+                resp = self.retriever.retrieve(query, top_k=5)
         except Exception as e:  # noqa: BLE001
             # 同上：能抛到这里的属未预期内部错误，按非工具类归类
             self._record_degradation("rag_search", classify_exception(e), detail=str(e))
