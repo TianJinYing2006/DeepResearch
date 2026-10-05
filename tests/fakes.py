@@ -273,6 +273,10 @@ class FakeStore:
         for row in rows[offset:offset + limit]:
             item = dict(row)
             item["has_report"] = "report_md" in self.artifacts.get(row["run_id"], {})
+            item["shared"] = any(
+                share["run_id"] == row["run_id"] and self._active_share(share)
+                for share in self.report_shares.values()
+            )
             out.append(item)
         return out
 
@@ -1451,6 +1455,17 @@ class FakeStore:
         rows = [dict(row) for row in self.report_shares.values()
                 if not active_only or self._active_share(row)]
         return sorted(rows, key=lambda r: r["created_at"], reverse=True)[:limit]
+
+    def list_report_shares_for_user(self, user_id, limit=50):
+        rows = []
+        for row in self.report_shares.values():
+            if row["created_by"] == user_id and self._active_share(row):
+                run = self.runs.get(row["run_id"]) or {}
+                item = dict(row)
+                item["topic"] = run.get("topic")
+                rows.append(item)
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows[:limit]
 
     def purge_expired_report_shares(self, keep_days=30):
         cutoff = datetime.now(UTC) - timedelta(days=keep_days)

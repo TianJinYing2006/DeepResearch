@@ -9,6 +9,7 @@ import { formatBytes, formatCny } from '../lib/format'
 import type { Quota, RagChunk, RagDoc, SessionUser } from '../types/api'
 import FeedbackModal from './FeedbackModal'
 import HelpModal from './HelpModal'
+import ShareManageModal from './ShareManageModal'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
 import SecurityPanel from './SecurityPanel'
@@ -77,6 +78,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
   // 需求 25：帮助中心 / 站内反馈
   const [helpOpen, setHelpOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [shareManageOpen, setShareManageOpen] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
   // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login / 重置链接直达登录页
@@ -402,6 +404,12 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
           反馈
         </button>
       )}
+      {user && shareEnabled && (
+        <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
+                onClick={() => setShareManageOpen(true)} data-testid="share-manage-toggle">
+          分享管理
+        </button>
+      )}
       {uploadState && (
         <span className="text-ink-muted" role="status" aria-live="polite"
               data-testid="upload-state">{uploadState}</span>
@@ -700,6 +708,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
       {legalModal}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
+      {shareManageOpen && <ShareManageModal onClose={() => setShareManageOpen(false)} />}
     </div>
   )
 }

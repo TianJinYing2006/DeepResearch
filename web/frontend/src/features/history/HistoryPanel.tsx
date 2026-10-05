@@ -268,6 +268,12 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
                   {item.pinned_at && (
                     <span className="rounded border border-stamp-blue/40 px-1 text-stamp-blue">置顶</span>
                   )}
+                  {item.shared && (
+                    <span className="rounded border border-stamp-green/40 px-1 text-stamp-green"
+                          data-testid="history-shared-badge" title="已有活跃分享链接">
+                      已分享
+                    </span>
+                  )}
                   {STATUS_LABELS[item.status] ?? item.status}
                   {item.moderation_status && item.moderation_status !== 'cleared' && (
                     <span className="rounded border border-stamp-amber/40 px-1 text-stamp-amber"
