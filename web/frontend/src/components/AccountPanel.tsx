@@ -9,6 +9,7 @@ import { formatBytes, formatCny } from '../lib/format'
 import type { Quota, RagChunk, RagDoc, SessionUser } from '../types/api'
 import FeedbackModal from './FeedbackModal'
 import HelpModal from './HelpModal'
+import ShareManageModal from './ShareManageModal'
 import Modal from './Modal'
 import { ReportView } from './ReportView'
 import SecurityPanel from './SecurityPanel'
@@ -38,6 +39,8 @@ type Props = {
   authRequired: boolean
   activeRunId: string | null
   running: boolean
+  /** 需求 26：报告分享开关（透传给历史面板，控制分享入口显示）。 */
+  shareEnabled?: boolean
 }
 
 /**
@@ -46,7 +49,7 @@ type Props = {
  * - 鉴权开启（authRequired）且未登录时渲染全屏登录门；
  * - 未开启鉴权时保持匿名可用（历史/上传仍可用，配额由后端按匿名口径返回）。
  */
-export default function AccountPanel({ authRequired, activeRunId, running }: Props) {
+export default function AccountPanel({ authRequired, activeRunId, running, shareEnabled = false }: Props) {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [checked, setChecked] = useState(false)
   const [quota, setQuota] = useState<Quota | null>(null)
@@ -75,6 +78,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
   // 需求 25：帮助中心 / 站内反馈
   const [helpOpen, setHelpOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [shareManageOpen, setShareManageOpen] = useState(false)
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
   // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login / 重置链接直达登录页
@@ -400,6 +404,12 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
           反馈
         </button>
       )}
+      {user && shareEnabled && (
+        <button type="button" className="rounded-full border border-rule px-3 py-1.5 text-ink hover:border-stamp-blue/50"
+                onClick={() => setShareManageOpen(true)} data-testid="share-manage-toggle">
+          分享管理
+        </button>
+      )}
       {uploadState && (
         <span className="text-ink-muted" role="status" aria-live="polite"
               data-testid="upload-state">{uploadState}</span>
@@ -419,7 +429,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
         <span className="text-ink-muted">未登录（本地模式）</span>
       )}
 
-      <HistoryPanel key={historyEpoch} open={historyOpen} />
+      <HistoryPanel key={historyEpoch} open={historyOpen} shareEnabled={shareEnabled} />
 
       {kbOpen && (
         <div className="surface-card-muted mt-2 w-full max-w-sm p-3 sm:ml-auto" data-testid="kb-panel">
@@ -698,6 +708,7 @@ export default function AccountPanel({ authRequired, activeRunId, running }: Pro
       {legalModal}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
+      {shareManageOpen && <ShareManageModal onClose={() => setShareManageOpen(false)} />}
     </div>
   )
 }

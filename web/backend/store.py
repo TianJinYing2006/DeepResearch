@@ -431,7 +431,9 @@ class RunStore:
         where = f"WHERE {' AND '.join(clauses)}"
         params.extend([limit, offset])
         sql = (
-            "SELECT r.*, EXISTS (SELECT 1 FROM run_artifacts a WHERE a.run_id = r.run_id) AS has_report "
+            "SELECT r.*, EXISTS (SELECT 1 FROM run_artifacts a WHERE a.run_id = r.run_id) AS has_report, "
+            "EXISTS (SELECT 1 FROM report_shares s WHERE s.run_id = r.run_id AND s.revoked_at IS NULL "
+            "AND (s.expires_at IS NULL OR s.expires_at > now())) AS shared "
             f"FROM runs r {where} "
             "ORDER BY r.pinned_at DESC NULLS LAST, r.created_at DESC, r.run_id DESC "
             "LIMIT %s OFFSET %s"
@@ -1596,6 +1598,21 @@ class RunStore:
             cur.execute(
                 f"SELECT * FROM report_shares {clause} ORDER BY created_at DESC LIMIT %s",
                 (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def list_report_shares_for_user(self, user_id: str,
+                                    limit: int = 50) -> list[dict[str, Any]]:
+        """需求 26：当前用户的活跃分享（管理页用；含 run 主题）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT s.share_id, s.run_id, s.created_at, s.expires_at, "
+                "s.last_accessed_at, s.access_count, r.topic "
+                "FROM report_shares s JOIN runs r ON r.run_id = s.run_id "
+                "WHERE s.created_by = %s AND s.revoked_at IS NULL "
+                "AND (s.expires_at IS NULL OR s.expires_at > now()) "
+                "ORDER BY s.created_at DESC LIMIT %s",
+                (user_id, limit),
             )
             return [dict(row) for row in cur.fetchall()]
 

@@ -117,3 +117,22 @@ def test_share_view_rate_limited(client: TestClient, monkeypatch):
 
     monkeypatch.setattr(api, "SHARE_LIMITER", _DenyLimiter())
     assert client.get(f"/api/share/{token}").status_code == 429
+
+
+def test_runs_list_and_manage_endpoints_expose_share_state(client: TestClient):
+    """需求 26：历史列表「已分享」徽标数据源 + 集中管理页列表/撤销。"""
+    assert client.post("/api/runs/run-share-1/share", json={"expires_days": 7}).status_code == 200
+
+    briefs = client.get("/api/runs").json()["runs"]
+    row = next(item for item in briefs if item["run_id"] == "run-share-1")
+    assert row["shared"] is True
+
+    shares = client.get("/api/shares").json()["shares"]
+    assert len(shares) == 1
+    assert shares[0]["run_id"] == "run-share-1" and shares[0]["permanent"] is False
+
+    assert client.delete("/api/runs/run-share-1/share").status_code == 200
+    assert client.get("/api/shares").json()["shares"] == []
+    after = next(item for item in client.get("/api/runs").json()["runs"]
+                 if item["run_id"] == "run-share-1")
+    assert after["shared"] is False

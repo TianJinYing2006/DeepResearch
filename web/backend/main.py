@@ -681,6 +681,8 @@ def _run_brief(row: dict) -> dict:
         "token_used": row.get("token_used") or 0,
         "cost_estimate_cny": float(row.get("cost_estimate_cny") or 0.0),
         "has_report": bool(row.get("has_report")),
+        # 需求 26：是否已有活跃分享（历史列表「已分享」徽标）
+        "shared": bool(row.get("shared")),
         "moderation_status": row.get("moderation_status"),
         # 需求 22：置顶 / 软归档（NULL=未设置）
         "pinned_at": _iso(row.get("pinned_at")),
@@ -2352,6 +2354,32 @@ def revoke_run_share(run_id: str, request: Request) -> dict:
         _audit("share_revoked", request=request, actor_user_id=_run_owner(run_id),
                target_id=run_id)
     return {"ok": True, "revoked": revoked}
+
+
+@app.get("/api/shares")
+def list_my_shares(request: Request) -> dict:
+    """当前用户的活跃分享列表（需求 26 集中管理页）。
+
+    注意：token 明文不可恢复（只存 hash）——管理页只提供状态与撤销；
+    重新生成请到对应报告/历史预览的「分享」入口。
+    """
+    _share_enabled_or_404()
+    user_id = _require_user(request)
+    if store is None:
+        raise http_error("persistence_unavailable", "分享需要任务库（DR_DATABASE_URL）")
+    rows = (_store_call(store.list_report_shares_for_user, user_id) if user_id
+            else _store_call(store.list_report_shares, active_only=True))
+    return {"shares": [{
+        "share_id": row["share_id"],
+        "run_id": row["run_id"],
+        "topic": row.get("topic"),
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "permanent": row.get("expires_at") is None,
+        "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
+        "last_accessed_at": (row["last_accessed_at"].isoformat()
+                             if row.get("last_accessed_at") else None),
+        "access_count": row.get("access_count", 0),
+    } for row in rows]}
 
 
 @app.get("/api/share/{token}")

@@ -371,7 +371,8 @@ export default function App() {
           </div>
         </div>
         <div className="mx-auto max-w-[1600px] px-4 pb-3 sm:px-6 lg:px-8">
-          <AccountPanel authRequired={authRequired} activeRunId={runId ?? null} running={running} />
+          <AccountPanel authRequired={authRequired} activeRunId={runId ?? null} running={running}
+                        shareEnabled={Boolean(options?.share_enabled)} />
         </div>
       </header>
 

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Modal from '../../components/Modal'
 import { ReportView } from '../../components/ReportView'
+import ShareModal from '../../components/ShareModal'
 import { SkeletonRows } from '../../components/ui'
 import { csrfHeaders, readErrorMessage } from '../../lib/api'
 import { filenameFromDisposition } from '../../lib/download'
@@ -25,7 +26,7 @@ const HISTORY_PAGE_SIZE = 10
 /** 需求 22：可一键重试的终态（与后端 RETRYABLE_STATUSES 同口径） */
 const RETRYABLE_STATUSES = new Set(['FAILED', 'LOST', 'TIMED_OUT'])
 
-export default function HistoryPanel({ open }: { open: boolean }) {
+export default function HistoryPanel({ open, shareEnabled = false }: { open: boolean; shareEnabled?: boolean }) {
   const [history, setHistory] = useState<RunBrief[] | null>(null)
   const [historyError, setHistoryError] = useState('')
   const [historyAppendError, setHistoryAppendError] = useState('')
@@ -43,6 +44,8 @@ export default function HistoryPanel({ open }: { open: boolean }) {
   const [previewError, setPreviewError] = useState('')
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null)
   const [previewExporting, setPreviewExporting] = useState(false)
+  // 需求 26：历史报告分享（复用 ShareModal：创建/复制/撤销/永久确认）
+  const [shareRunId, setShareRunId] = useState<string | null>(null)
 
   async function loadHistory(reset: boolean, statusOverride?: string) {
     const status = statusOverride !== undefined ? statusOverride : historyStatus
@@ -265,6 +268,12 @@ export default function HistoryPanel({ open }: { open: boolean }) {
                   {item.pinned_at && (
                     <span className="rounded border border-stamp-blue/40 px-1 text-stamp-blue">置顶</span>
                   )}
+                  {item.shared && (
+                    <span className="rounded border border-stamp-green/40 px-1 text-stamp-green"
+                          data-testid="history-shared-badge" title="已有活跃分享链接">
+                      已分享
+                    </span>
+                  )}
                   {STATUS_LABELS[item.status] ?? item.status}
                   {item.moderation_status && item.moderation_status !== 'cleared' && (
                     <span className="rounded border border-stamp-amber/40 px-1 text-stamp-amber"
@@ -343,6 +352,13 @@ export default function HistoryPanel({ open }: { open: boolean }) {
               历史报告 {preview?.runId}
             </h3>
             <div className="flex items-center gap-3">
+              {preview && shareEnabled && (
+                <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+                        data-testid="history-share"
+                        onClick={() => setShareRunId(preview.runId)}>
+                  分享
+                </button>
+              )}
               {preview && (
                 <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
                         data-testid="history-export" disabled={previewExporting}
@@ -362,6 +378,7 @@ export default function HistoryPanel({ open }: { open: boolean }) {
           )}
         </Modal>
       )}
+      {shareRunId && <ShareModal runId={shareRunId} onClose={() => setShareRunId(null)} />}
     </>
   )
 }

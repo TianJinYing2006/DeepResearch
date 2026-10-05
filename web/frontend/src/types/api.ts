@@ -19,6 +19,8 @@ export type RunBrief = {
   stop_reason: string | null
   created_at: string | null
   has_report: boolean
+  /** 需求 26：已有活跃分享（历史列表「已分享」徽标） */
+  shared?: boolean
   moderation_status?: string | null
   /** 需求 22：置顶 / 软归档（后端已返回；NULL=未设置） */
   pinned_at?: string | null
