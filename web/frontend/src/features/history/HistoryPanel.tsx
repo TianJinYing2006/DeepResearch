@@ -4,6 +4,7 @@ import Modal from '../../components/Modal'
 import { ReportView } from '../../components/ReportView'
 import { SkeletonRows } from '../../components/ui'
 import { csrfHeaders, readErrorMessage } from '../../lib/api'
+import { filenameFromDisposition } from '../../lib/download'
 import { formatDateTime } from '../../lib/format'
 import type { RunBrief } from '../../types/api'
 
@@ -41,6 +42,7 @@ export default function HistoryPanel({ open }: { open: boolean }) {
   const [preview, setPreview] = useState<{ runId: string; markdown: string } | null>(null)
   const [previewError, setPreviewError] = useState('')
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null)
+  const [previewExporting, setPreviewExporting] = useState(false)
 
   async function loadHistory(reset: boolean, statusOverride?: string) {
     const status = statusOverride !== undefined ? statusOverride : historyStatus
@@ -136,6 +138,35 @@ export default function HistoryPanel({ open }: { open: boolean }) {
       setPreviewError('网络错误，请重试')
     } finally {
       setPreviewLoadingId(null)
+    }
+  }
+
+  /** 历史报告导出（走后端导出端点：正文 + 审计元数据 + 引用清单）。 */
+  async function exportPreview(runId: string) {
+    if (previewExporting) return
+    setPreviewExporting(true)
+    setPreviewError('')
+    try {
+      const response = await fetch(`/api/research/${runId}/report?format=md`)
+      if (!response.ok) {
+        setPreviewError(await readErrorMessage(response))
+        return
+      }
+      const blob = await response.blob()
+      const filename = filenameFromDisposition(response.headers.get('content-disposition'))
+        ?? `deepresearch-${runId}.md`
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setPreviewError('网络错误，请重试')
+    } finally {
+      setPreviewExporting(false)
     }
   }
 
@@ -304,15 +335,24 @@ export default function HistoryPanel({ open }: { open: boolean }) {
           onClose={() => { setPreview(null); setPreviewError('') }}
           labelledBy="preview-title"
           testId="history-preview"
-          overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4 "
+          overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4 "
           panelClassName="surface-card my-6 w-full max-w-3xl p-6"
         >
           <div className="flex items-center justify-between">
             <h3 id="preview-title" className="text-sm font-semibold text-ink">
               历史报告 {preview?.runId}
             </h3>
-            <button type="button" className="text-xs text-ink-muted hover:text-ink"
-                    onClick={() => { setPreview(null); setPreviewError('') }}>关闭</button>
+            <div className="flex items-center gap-3">
+              {preview && (
+                <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+                        data-testid="history-export" disabled={previewExporting}
+                        onClick={() => void exportPreview(preview.runId)}>
+                  {previewExporting ? '导出中…' : '导出 .md'}
+                </button>
+              )}
+              <button type="button" className="text-xs text-ink-muted hover:text-ink"
+                      onClick={() => { setPreview(null); setPreviewError('') }}>关闭</button>
+            </div>
           </div>
           {previewError && <p role="alert" className="mt-3 text-sm text-stamp-red">{previewError}</p>}
           {preview && (

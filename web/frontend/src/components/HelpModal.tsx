@@ -33,7 +33,7 @@ export default function HelpModal({ onClose }: Props) {
       onClose={onClose}
       labelledBy="help-title"
       testId="help-modal"
-      overlayClassName="z-50 flex justify-center overflow-y-auto bg-ink/35 p-4"
+      overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4"
       panelClassName="surface-card my-6 w-full max-w-3xl p-6"
     >
       <div className="flex items-center justify-between">
