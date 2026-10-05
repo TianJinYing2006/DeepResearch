@@ -184,19 +184,32 @@ class VectorStore:
                    scope: Optional[RagScope] = None) -> List[dict]:
         """滚动获取全部点（用于 BM25）。Qdrant 不可用时返回空。
 
-        P5：`scope` 非空时在返回前按作用域过滤（BM25 需要全量语料，故不下推服务端过滤）。
+        审计 P2#7：
+        - 服务端下推 `active != false`（退役代不进 BM25 语料，减少传输）；
+        - **跟随 `next_page_offset` 翻页**直到取满 limit（此前只读第一页，数据量大时
+          有效资料会被其他用户/退役版本挤出这一页 → 知识库有答案却搜不到）；
+        - `scope` 仍按 :func:`payload_matches` 后置过滤（命中判定唯一实现，避免双份语义漂移）。
         """
         client = self._get_client()
         if client is None:
             return []
-        points, _ = client.scroll(
-            collection_name=self.collection,
-            limit=limit,
-            with_payload=True,
+        active_filter = Filter(
+            must_not=[FieldCondition(key="active", match=MatchValue(value=False))],
         )
-        payloads = [p.payload or {} for p in points]
-        # 需求 23：BM25 语料同样只取活动版本（退役点 active=false 被排除；历史点无字段放行）
-        payloads = [p for p in payloads if p.get("active") is not False]
+        payloads: List[dict] = []
+        offset = None
+        while len(payloads) < limit:
+            points, next_offset = client.scroll(
+                collection_name=self.collection,
+                limit=min(limit - len(payloads), 1000),
+                with_payload=True,
+                offset=offset,
+                scroll_filter=active_filter,
+            )
+            payloads.extend(p.payload or {} for p in points)
+            if next_offset is None or not points:
+                break
+            offset = next_offset
         if scope is not None:
             payloads = [p for p in payloads if payload_matches(p, scope)]
         return payloads
