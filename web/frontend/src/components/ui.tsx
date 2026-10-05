@@ -96,14 +96,25 @@ export const TimelineItem = memo(function TimelineItem({ event }: { event: AguiE
 
 export const CitationCard = memo(function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
   const verified = citation.verified
+  const failed = Boolean(citation.verification_failed)
+  const tone = failed
+    ? 'border-stamp-red/30 bg-stamp-red/[0.04]'
+    : verified
+      ? 'border-stamp-green/30 bg-stamp-green/[0.04]'
+      : 'border-stamp-amber/30 bg-stamp-amber/[0.04]'
+  const badgeTone = failed
+    ? 'bg-stamp-red/10 text-stamp-red'
+    : verified
+      ? 'bg-stamp-green/10 text-stamp-green'
+      : 'bg-stamp-amber/10 text-stamp-amber'
   return (
     <article style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-             className={`animate-rise rounded-lg border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_200px] ${verified ? 'border-stamp-green/30 bg-stamp-green/[0.04]' : 'border-stamp-amber/30 bg-stamp-amber/[0.04]'}`}>
+             className={`animate-rise rounded-lg border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_200px] ${tone}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] text-ink-muted">#{index + 1}</span>
-          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${verified ? 'bg-stamp-green/10 text-stamp-green' : 'bg-stamp-amber/10 text-stamp-amber'}`}>
-            {verified ? '严格通过' : citation.verified_relaxed ? '宽松通过' : '待复核'}
+          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${badgeTone}`}>
+            {failed ? '校验未完成' : verified ? '严格通过' : citation.verified_relaxed ? '宽松通过' : '待复核'}
           </span>
         </div>
         <span className="font-mono text-xs text-ink-muted">{Math.round(citation.confidence * 100)}%</span>

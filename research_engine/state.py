@@ -131,6 +131,9 @@ class Citation(BaseModel):
     note: str = Field(default="", description="校验说明/失败原因（grill Q3=A，不再丢弃）")
     existence: bool = Field(default=False, description="本地来源存在性判定（grill Q6=A 双口径之一）")
     verified_relaxed: bool = Field(default=False, description="W7 宽松口径：existence AND (faithful OR supported)，仅呈现不改动 verified 语义")
+    verification_failed: bool = Field(
+        default=False,
+        description="审计 P1#2：校验未能完成（LLM 失败/无反馈/结论错位）——不视为通过，仅保留存在性结论")
     is_meta: bool = Field(default=False, description="自指/元描述复核结果（R2.4 Q5=A：validator verdict 兜底）")
 
 

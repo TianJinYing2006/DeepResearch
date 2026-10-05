@@ -77,9 +77,11 @@ def test_f2_claim_echo_mismatch_degraded():
     assert len(citations) == 1
     c = citations[0]
     assert isinstance(c, Citation)
-    assert c.verified is True  # 降级保守通过
+    # 审计 P1#2：结论错位 ⇒ 校验未完成，不再降级判通过
+    assert c.verified is False
+    assert c.verification_failed is True
     assert "claim_echo 错位" in c.note
-    assert c.verified_relaxed is True  # 保守通过应传导到宽松口径（Bug-1 修复）
+    assert c.verified_relaxed is False
 
 
 def test_f2_claim_echo_match_normal():
