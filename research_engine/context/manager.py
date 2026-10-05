@@ -35,14 +35,15 @@ class ContextManager:
         if len(findings) <= self.max_findings:
             return findings
 
-        # 按来源分组，每组压缩
-        by_source: dict = {}
+        # 审计 P1#3：按 (来源, 子问题) 分组压缩 —— 同一文件下不同子问题的材料
+        # 不得混合（否则摘要跨子问题串接属性，并被错误归因到首个 sq_id）
+        by_group: dict = {}
         for f in findings:
-            by_source.setdefault(f.source, []).append(f)
+            by_group.setdefault((f.source, f.sq_id), []).append(f)
 
         compressed: List[ResearchFinding] = []
         router = get_router()
-        for source, group in by_source.items():
+        for (source, group_sq_id), group in by_group.items():
             texts = "\n".join(f"- {f.content}" for f in group)
             system = "你是研究信息压缩助手。将以下关于同一来源的研究发现压缩为简洁摘要，保留关键事实与数字，不要丢失重要信息。"
             user = f"研究主题：{topic}\n\n来源：{source}\n\n内容：\n{texts}"
@@ -58,8 +59,8 @@ class ContextManager:
                             meta[k] = meta.get(k, []) + v
                         else:
                             meta.setdefault(k, v)
-                # Bug-3 修复：压缩后 sq_id 取所有子问题中首个非空值（非 group[0]，防跨子问题合并时归属丢失）
-                merged_sq_id = next((f.sq_id for f in group if f.sq_id), group[0].sq_id)
+                # Bug-3 兜底：组内 sq_id 已一致（P1#3 分组键），首个非空值即组归属
+                merged_sq_id = next((f.sq_id for f in group if f.sq_id), group_sq_id)
                 compressed.append(
                     ResearchFinding(
                         content=summary,
