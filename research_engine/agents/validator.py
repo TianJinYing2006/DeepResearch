@@ -74,6 +74,8 @@ VALIDATOR_SYSTEM = """你是研究事实核查员。你的任务是校验报告�
       "claim_echo": "逐字回显输入中该条目的 claim 原文（word-by-word，不可改写或缩写）",
       "faithful": true/false,
       "supported": true/false,
+      "supporting_evidence_ids": ["支持该论断的证据编号（必须来自研究发现清单，禁止编造；无则空列表）"],
+      "contradicting_evidence_ids": ["与该论断冲突或反对的证据编号（只记录；无则空列表）"],
       "confidence": 0.0-1.0,
       "is_meta": true/false,
       "note": "说明"
@@ -83,7 +85,8 @@ VALIDATOR_SYSTEM = """你是研究事实核查员。你的任务是校验报告�
 
 判定规则：
 - faithful: 论断是否能**直接由该 finding 内容推断**（不夸大、不曲解、不张冠李戴；包含明确数值/日期/名称的算术推断视为忠实）
-- supported: 论断是否被至少 {min_sources} 个独立来源支持（多源印证）
+- supported: 论断是否被至少 {min_sources} 个**独立来源**支持（同一文档的多个分块不算独立来源）；若为 true，必须在 supporting_evidence_ids 中列出这些支持证据的编号（编号必须真实存在于清单中，系统会做代码复核）
+- contradicting_evidence_ids: 清单中若存在与该论断冲突/反对的证据，列出其编号（只记录，不影响 supported 判定）
 - is_meta: 该论断/来源是否在描述 DeepResearch 系统自身（自指/元描述，如"本系统""本Agent""Planner→Researcher→Writer→Validator"四节点编排等）——是则 true
 - confidence: 综合置信度 0-1
 - note: 说明；faithful=false 时必须给出具体原因
@@ -146,6 +149,15 @@ class CitationVerdictItem(BaseModel):
     claim_echo: str = Field(default="", description="W7 回显字段：必须逐字回显原 claim（word-by-word），本地核对用")
     faithful: bool = Field(description="论断是否忠实于该 finding 内容")
     supported: bool = Field(default=False, description="是否通过多源印证")
+    # F12（审计）：多源印证必须给出可复核的支持证据编号（代码验证存在性 + 独立来源数）
+    supporting_evidence_ids: List[str] = Field(
+        default_factory=list,
+        description="F12：支持该论断的证据编号（须来自研究发现清单；代码复核独立来源数）",
+    )
+    contradicting_evidence_ids: List[str] = Field(
+        default_factory=list,
+        description="F12：反对/冲突证据编号（只记录，不参与 supported 判定）",
+    )
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="校验置信度 0-1")
     is_meta: bool = Field(default=False, description="是否自指/元描述（描述本系统自身）")
     note: str = Field(default="", description="说明；faithful=false 时必须写原因")
@@ -578,6 +590,13 @@ class Validator:
                         else:
                             unused_verdicts.append(item)
 
+        # F12（审计）：多源印证的代码复核基础 —— 编号→finding（支持证据必须真实存在），
+        # 并统计 claimed / verified / downgraded 三个口径（审计可见性）
+        by_number = {str(i): f for i, f in enumerate(findings, 1)}
+        min_sources = config_min_sources()
+        ms_claimed = ms_verified = ms_downgraded = 0
+        fixes_enabled = config.experiment.validator_fixes_enabled
+
         result: List[Citation] = []
         for r in local_results:
             if not r["existence"]:
@@ -617,7 +636,6 @@ class Validator:
                     False, False, False, 0.5, "LLM 校验失败：校验未完成（不视为通过）")
                 verification_failed = True
             elif verdict is not None:
-                fixes_enabled = config.experiment.validator_fixes_enabled
                 # W7 F2：claim_echo 回显对齐；不一致 ⇒ 校验未完成（P1#2：不再降级判通过）
                 echo = verdict.get("claim_echo", "") or verdict.get("claim", "")
                 if fixes_enabled and echo and self._claim_similarity(echo, r["claim"]) < 0.6:
@@ -638,6 +656,28 @@ class Validator:
                     False, False, False, 0.5, "忠实度未获 LLM 反馈：校验未完成（不视为通过）")
                 verification_failed = True
 
+            # F12（审计）：多源印证的**代码复核** —— LLM 声称 supported 时必须给出真实存在、
+            # 且达到 min_sources 个独立来源（不同 source；同文档多分块不算）的证据编号；
+            # 不满足则降级 supported=False（应用侧自此可复核 supported=true 的达成依据）。
+            citation_supporting: List[str] = []
+            citation_contradicting: List[str] = []
+            independent_count = 0
+            if verdict is not None and fixes_enabled:
+                citation_supporting = self._norm_evidence_ids(
+                    verdict.get("supporting_evidence_ids"), by_number)
+                citation_contradicting = self._norm_evidence_ids(
+                    verdict.get("contradicting_evidence_ids"), by_number)
+                independent_count = len({by_number[sid].source for sid in citation_supporting})
+                if supported_flag:
+                    ms_claimed += 1
+                if supported_flag and independent_count < min_sources:
+                    supported_flag = False
+                    note = (f"{note.rstrip('；')}；多源印证未过代码复核"
+                            f"（独立来源 {independent_count}/{min_sources}）").strip("；")
+                    ms_downgraded += 1
+                elif supported_flag:
+                    ms_verified += 1
+
             # W7 TBD-5：宽松口径 = 存在性 AND (忠实 OR 多源印证)；校验未完成不进入宽松通过
             verified_relaxed = (True and (faithful or supported_flag)
                                 and not verification_failed)
@@ -652,6 +692,9 @@ class Validator:
                 verification_failed=verification_failed,
                 is_meta=bool(verdict.get("is_meta", False)) if verdict is not None else False,
                 claim_start=r.get("claim_start", -1), claim_end=r.get("claim_end", -1),
+                supporting_evidence_ids=citation_supporting,
+                contradicting_evidence_ids=citation_contradicting,
+                independent_source_count=independent_count,
             ))
         self.last_validation_stats.update({
             "validated_citation_count": len(result),
@@ -659,6 +702,10 @@ class Validator:
             # F07（审计）：证据回原文的显式健康度（截断头尾保留 / 原文缺失回落摘要）
             "evidence_truncated_count": evidence_stats.get("truncated", 0),
             "evidence_missing_count": evidence_stats.get("missing", 0),
+            # F12（审计）：多源印证三口径 —— LLM 声称数 / 代码复核通过数 / 复核降级数
+            "multi_source_claimed_count": ms_claimed,
+            "multi_source_verified_count": ms_verified,
+            "multi_source_downgraded_count": ms_downgraded,
         })
         return result
 
@@ -669,6 +716,16 @@ class Validator:
             return 0.0
         from difflib import SequenceMatcher
         return SequenceMatcher(None, a.strip(), b.strip()).ratio()
+
+    @staticmethod
+    def _norm_evidence_ids(raw: Any, by_number: Dict[str, ResearchFinding]) -> List[str]:
+        """F12：规范化支持/反对证据编号 —— 去 ``#`` 前缀、保序去重、只保留清单中真实存在的编号。"""
+        out: List[str] = []
+        for token in raw if isinstance(raw, (list, tuple)) else []:
+            sid = str(token or "").strip().lstrip("#").strip()
+            if sid in by_number and sid not in out:
+                out.append(sid)
+        return out
 
 
 def config_min_sources(cfg=None) -> int:

@@ -27,7 +27,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from config import config
-from research_engine.agents.planner import Planner
+from research_engine.agents.planner import Planner, build_research_spec
 from research_engine.agents.researcher import Researcher, format_tool_detail
 from research_engine.agents.validator import Validator
 from research_engine.agents.writer import Writer
@@ -173,6 +173,10 @@ class DeepResearchGraph:
                 "subquestions": subs,
                 "frontier": frontier,
                 "per_subq_hop": per_subq_hop,
+                # F14（审计）：规划时固化研究规格（用户附加要求 + 验收条件），
+                # writer/critic/replan 消费同一份；plan_version 标识计划身份
+                "research_spec": build_research_spec(state.user_instructions),
+                "plan_version": 1,
                 # Planner 策略事件与故障分流：事件只进 planner_events，不推导 degraded。
                 "planner_events": self.planner.drain_planner_events(),
                 # W8 Arm 1：planner 降级记录（如 LLM 失败退化为「主题即子问题」）交给 reducer
@@ -329,10 +333,41 @@ class DeepResearchGraph:
                 )
                 new_frontier = [{"sq_id": s.id, "query": s.question} for s in new_subs]
                 new_per = {s.id: 0 for s in new_subs}
+                # F14（审计）：旧证据按**显式映射**重分配归属 ——
+                # 映射延续 → 改写 sq_id；未映射/幽灵 ID → 转未归类（""），绝不
+                # 「沿用旧 ID 但语义已变」地错配到新章节。降级（沿用旧计划）不做重映射。
+                fallback = bool(getattr(self.planner, "last_replan_fallback", False))
+                mapping = ({} if fallback
+                           else dict(getattr(self.planner, "last_replan_mapping", {}) or {}))
+                remap_delta: Dict[str, Any] = {}
+                remap_note = "；重规划降级：沿用旧计划（不递增版本）" if fallback else ""
+                if not fallback:
+                    new_ids = {s.id for s in new_subs}
+                    remapped = unassigned = 0
+                    remapped_findings: List[Any] = []
+                    for f in state.findings:
+                        sid = f.sq_id or ""
+                        if not sid:
+                            remapped_findings.append(f)
+                            continue
+                        target = mapping.get(sid, "")
+                        if target and target in new_ids:
+                            if target != sid:
+                                remapped += 1
+                            remapped_findings.append(f.model_copy(update={"sq_id": target}))
+                        else:
+                            unassigned += 1
+                            remapped_findings.append(f.model_copy(update={"sq_id": ""}))
+                    remap_delta = {
+                        "findings": remapped_findings,
+                        "plan_version": state.plan_version + 1,
+                    }
+                    remap_note = (f"；旧证据重映射 {remapped} 条、转未归类 {unassigned} 条")
                 return {
                     "subquestions": new_subs,
                     "frontier": new_frontier,
                     "per_subq_hop": new_per,
+                    **remap_delta,
                     "replan_count": state.replan_count + 1,
                     "needs_replan": False,
                     "next_queries": [],
@@ -341,7 +376,7 @@ class DeepResearchGraph:
                     "degradation_log": self.planner.drain_degradations(),
                     "token_used": state.token_used,  # Q6-B：replan 的 LLM token 累计写回
                     "progress": [
-                        {"stage": "revise", "msg": f"重分解：{len(new_subs)} 个子问题（replan_count={state.replan_count + 1}）"}
+                        {"stage": "revise", "msg": f"重分解：{len(new_subs)} 个子问题（replan_count={state.replan_count + 1}{remap_note}）"}
                     ],
                 }
             # Q2-A 常态：next_queries 追回 frontier 队尾，继续研究同一子问题

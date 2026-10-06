@@ -143,6 +143,13 @@ class Citation(BaseModel):
     # F11（审计 3b）：返工定位——claim 与引用标记在报告中的原始偏移（-1 = 未知/不参与返工）
     claim_start: int = Field(default=-1, description="F11：claim 句起始偏移（返工删除定位）")
     claim_end: int = Field(default=-1, description="F11：引用标记结束偏移（返工删除定位）")
+    # F12（审计）：多源印证的代码复核产物 —— 应用侧可复核 supported=true 的达成依据
+    supporting_evidence_ids: List[str] = Field(
+        default_factory=list, description="F12：支持该论断且经代码复核存在的证据编号")
+    contradicting_evidence_ids: List[str] = Field(
+        default_factory=list, description="F12：反对/冲突证据编号（只记录，不影响判定）")
+    independent_source_count: int = Field(
+        default=0, description="F12：支持证据的独立来源数（source 去重；同文档多分块不重复计）")
 
 
 class ResearchState(BaseModel):
@@ -150,6 +157,15 @@ class ResearchState(BaseModel):
     # 输入
     topic: str = Field(description="研究主题")
     user_instructions: str = Field(default="", description="用户附加要求")
+
+    # ---- F14（审计）：研究规格与计划身份 ----
+    research_spec: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="F14：规划时固化的研究规格（user_instructions + 验收条件），全节点消费同一份",
+    )
+    plan_version: int = Field(
+        default=0, description="F14：计划版本号（初始 plan=1；成功 replan 递增，降级沿用不递增）"
+    )
 
     # 规划
     subquestions: List[SubQuestion] = Field(default_factory=list)

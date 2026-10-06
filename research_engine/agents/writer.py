@@ -9,6 +9,7 @@ import re
 from typing import Any, List
 
 from config import config
+from research_engine.agents.planner import research_spec_text  # F14：研究规格（单一来源）
 from research_engine.context.manager import ContextManager
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
@@ -92,9 +93,13 @@ class Writer:
         subq_text = "\n".join(f"- {s.question}" for s in subquestions)
         # W8 Arm 6：system 由 build_writer_system() 产出（唯一产生点，含开关选版）
         system = build_writer_system()
+        # F14（审计）：用户附加要求/验收条件必须进入写作输入（不再只依赖初始分解）
+        spec_text = research_spec_text(state)
+        spec_block = f"{spec_text}\n\n" if spec_text else ""
         if sectioned:
             user = (
                 f"研究主题：{topic}\n\n"
+                f"{spec_block}"
                 f"子问题清单：\n{subq_text}\n\n"
                 f"研究发现（按子问题分节，每条以 Finding N: 开头，N 为编号）：\n{context_text}\n\n"
                 "请严格按子问题分节撰写研究报告。"
@@ -102,6 +107,7 @@ class Writer:
         else:
             user = (
                 f"研究主题：{topic}\n\n"
+                f"{spec_block}"
                 f"子问题：\n{subq_text}\n\n"
                 f"研究发现：\n{context_text}\n\n"
                 "请撰写研究报告。"

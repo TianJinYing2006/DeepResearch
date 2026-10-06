@@ -33,27 +33,83 @@ PLANNER_SYSTEM = """你是一位资深研究规划专家。你的任务是将用
 
 
 REPLAN_SYSTEM = """你是一位资深研究规划专家。之前的子问题分解在研究中被 critic 判定为方向跑偏。
-请基于【研究主题】【现有子问题】【已收集发现】【重规划原因】重新分解出更优的子问题集合。
+请基于【研究主题】【研究规格】【现有子问题】【已收集发现】【重规划原因】重新分解出更优的子问题集合。
 
 要求：
 1. 数量控制在 {max_subquestions} 个以内
 2. 修正之前方向跑偏的问题，保留仍有价值的角度
 3. 每个子问题聚焦一个可独立检索的方面
 4. 严格按重要性降序输出；超过上限时**尾部**会被系统丢弃
+5. 必须遵守【研究规格】中的用户附加要求
+6. 若某新子问题延续了某个旧子问题的研究方向，必须在 id_mapping 中显式给出映射（旧 ID → 新 ID）；
+   未延续的旧子问题不要映射（其旧材料将由系统转为未归类材料，不得错配到新章节）
 
 请以 JSON 格式输出：
 {{
   "subquestions": [
     {{"id": "q1", "question": "子问题内容", "rationale": "研究理由"}}
-  ]
+  ],
+  "id_mapping": {{"旧子问题ID": "新子问题ID"}}
 }}
 """
+
+# ---- F14（审计）：研究规格（规划时固化，所有决策/产出节点消费同一份）----
+
+#: 固定验收条件（与 Writer 系统提示的报告契约一致；规划时固化进规格）
+RESEARCH_SPEC_ACCEPTANCE = (
+    "覆盖全部子问题（无材料小节必须显式写“信息不足”）；",
+    "关键论断必须带可核验引用 [来源: N]；",
+    "严格遵守用户附加要求（语言/格式/排除主题/时间范围等）；",
+    "只使用研究发现，不引入外部知识。",
+)
+
+
+def build_research_spec(user_instructions: str) -> Dict[str, Any]:
+    """F14：把用户附加要求固化为研究规格（state.research_spec 的构造入口）。
+
+    规格是**单一来源**：planner/writer/critic/replan 消费同一份，
+    避免「用户要求只进了初始分解，后续节点各自丢失」。
+    """
+    return {
+        "user_instructions": (user_instructions or "").strip(),
+        "acceptance_criteria": list(RESEARCH_SPEC_ACCEPTANCE),
+    }
+
+
+def format_research_spec(spec: Any) -> str:
+    """把研究规格渲染为提示词片段；空规格返回空串（不污染既有 prompt）。"""
+    if not isinstance(spec, dict):
+        return ""
+    lines: List[str] = []
+    ui = str(spec.get("user_instructions", "") or "").strip()
+    if ui:
+        lines.append(f"用户附加要求（必须遵守）：{ui}")
+    criteria = spec.get("acceptance_criteria") or []
+    if criteria:
+        lines.append("验收条件：" + "；".join(str(c) for c in criteria))
+    return "\n".join(lines)
+
+
+def research_spec_text(state: Any) -> str:
+    """从 state 取规格文本（F14 统一入口）。
+
+    优先级：``state.research_spec``（规划时固化）→ 用 ``state.user_instructions``
+    现场构造（旧快照/直读场景兜底）→ 空串。
+    """
+    if state is None:
+        return ""
+    spec = getattr(state, "research_spec", None)
+    if not spec:
+        spec = build_research_spec(getattr(state, "user_instructions", "") or "")
+    return format_research_spec(spec)
 
 
 # Planner 规范化事件：这是策略/治理审计流，不是 FailureReason。
 PLANNER_EVENT_SUBQUESTIONS_TRUNCATED = "subquestions_truncated"
 PLANNER_EVENT_EMPTY_QUESTION_DROPPED = "empty_question_dropped"
 PLANNER_EVENT_DUPLICATE_ID_REWRITTEN = "duplicate_id_rewritten"
+#: F14：重规划显式映射（旧→新子问题 ID）；未映射的旧 ID 进 unmapped（其材料转未归类）
+PLANNER_EVENT_REPLAN_ID_MAPPING = "replan_id_mapping"
 
 
 def build_planner_system(cfg=None) -> str:
@@ -84,6 +140,10 @@ class Planner:
         self.degradations = DegradationSink()
         # 规范化/策略事件与故障分流：只进入 planner_events，不影响 run_status。
         self._planner_events: List[Dict[str, Any]] = []
+        # F14：最近一次 replan 的显式 ID 映射（旧→新）；供 graph 重分配旧证据归属
+        self.last_replan_mapping: Dict[str, str] = {}
+        # F14：replan 是否走了降级路径（LLM 失败/解析为空 ⇒ 沿用旧计划，版本号不递增）
+        self.last_replan_fallback: bool = False
 
     def drain_degradations(self) -> List[DegradationEntry]:
         """取走并清空降级记录（graph 节点调用）。"""
@@ -212,14 +272,23 @@ class Planner:
         reason: str,
         state: Any = None,
     ) -> List[SubQuestion]:
-        """方向跑偏时的全量重分解（Q2-B 兜底，受 max_replan 限次）。"""
+        """方向跑偏时的全量重分解（Q2-B 兜底，受 max_replan 限次）。
+
+        F14（审计）：① 研究规格（用户附加要求）随 prompt 下发，重规划不再丢失约束；
+        ② 要求 LLM 输出 ``id_mapping``（旧→新子问题 ID）——「沿用旧 ID 但语义已变」
+        的重用陷阱由显式映射消解：未映射的旧材料由 graph 转未归类，不错配到新章节。
+        """
+        self.last_replan_mapping = {}
+        self.last_replan_fallback = False
         router = get_router()
         system = build_replan_system()
         subs_text = "\n".join(f"- {s.id}: {s.question}" for s in subs) or "（无）"
         find_text = "\n".join(f"- {getattr(f, 'content', '')[:150]}" for f in findings[:12]) or "（无）"
+        spec_text = research_spec_text(state)
         user = (
             f"研究主题：{topic}\n\n"
-            f"现有子问题：\n{subs_text}\n\n"
+            + (f"研究规格：\n{spec_text}\n\n" if spec_text else "")
+            + f"现有子问题：\n{subs_text}\n\n"
             f"已收集发现：\n{find_text}\n\n"
             f"重规划原因：{reason}\n\n请重新分解。"
         )
@@ -229,6 +298,7 @@ class Planner:
             if not new_subs:
                 # 解析后为空与 LLM 异常的后果相同：沿用上一版子问题，
                 # 但必须留痕，不能让 replan 静默成功。
+                self.last_replan_fallback = True
                 self.degradations._record_degradation(
                     component="llm",
                     reason=FailureReason.LLM_ERROR.value,
@@ -237,12 +307,29 @@ class Planner:
                     node="planner",
                 )
                 return subs
-            return self._bound_subquestions(new_subs, phase="replan") or subs
+            new_subs = self._bound_subquestions(new_subs, phase="replan") or subs
+            # F14：解析显式映射（键 ⊆ 旧 ID、值 ⊆ 新 ID；非法项丢弃），并记录治理事件
+            old_ids = {s.id for s in subs}
+            new_ids = {s.id for s in new_subs}
+            raw_map = data.get("id_mapping") if isinstance(data, dict) else None
+            self.last_replan_mapping = {
+                str(k).strip(): str(v).strip()
+                for k, v in (raw_map.items() if isinstance(raw_map, dict) else [])
+                if str(k).strip() in old_ids and str(v).strip() in new_ids
+            }
+            self._record_planner_event(
+                PLANNER_EVENT_REPLAN_ID_MAPPING,
+                "replan",
+                mapping=dict(self.last_replan_mapping),
+                unmapped=sorted(old_ids - set(self.last_replan_mapping)),
+            )
+            return new_subs
         except UsageSinkError:
             # F06：strict 记账失败必须上抛（不得静默沿用旧计划）
             raise
         except Exception as e:  # noqa: BLE001
             # 真故障：replan 的 LLM 失败必须进入 degradation_log，不能静默沿用旧计划。
+            self.last_replan_fallback = True
             self.degradations._record_degradation(
                 component="llm",
                 reason=FailureReason.LLM_ERROR.value,

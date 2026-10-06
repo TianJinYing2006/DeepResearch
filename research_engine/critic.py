@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.agents.planner import research_spec_text  # F14：研究规格（单一来源）
 from research_engine.budget import research_token_ceiling
 from research_engine.runtime_profile import effective_llm_model, effective_research_config
 from research_engine.state import ResearchFinding, ResearchState, SubQuestion
@@ -404,9 +405,13 @@ class Critic:
                     f"（去重 {last.get('dropped_duplicates', 0)} 条）；"
                     f"若连续多跳无新证据，应考虑换查询或停止。\n"
                 )
+        # F14（审计）：裁决输入携带研究规格（用户附加要求/验收条件）——避免只凭
+        # 初始分解间接判断充分度，导致「用户要求未满足」被判成 sufficient
+        spec_text = research_spec_text(state)
         user = (
             f"研究主题：{state.topic}\n"
-            f"子问题集合：{subs}\n"
+            + (f"{spec_text}\n" if spec_text else "")
+            + f"子问题集合：{subs}\n"
             f"当前已检索跳数：{state.depth}，发现条数：{len(state.findings)}"
             f"（其中自指/元描述 {meta_count} 条不作为证据）\n"
             f"{novelty_note}"
