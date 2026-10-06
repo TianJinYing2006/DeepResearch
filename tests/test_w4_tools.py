@@ -195,11 +195,14 @@ def test_pool_and_trim_cap_and_code_priority():
     code = [ResearchFinding(content="c", source="code:abc", source_type="code_exec", confidence=0.8)]
 
     pooled, stats = pool_and_trim({"web": web, "rag": rag, "arxiv": arxiv, "code": code})
-    assert stats["web"] == 8 and stats["arxiv"] == 6  # stats = 原始产出数
+    assert stats["web"] == 8 and stats["arxiv"] == 6  # stats 既有键 = 原始产出数（兼容）
     assert len(pooled) == POOL_TOTAL_CAP
     assert pooled[0].source_type == "code_exec"  # code 豁免过滤 → 优先保留
-    assert sum(1 for f in pooled if f.source_type == "web") == 5  # 文本 Top-5
+    # F09：多样性优先轮转 —— 9 个文本名额由三源轮转分享（旧实现按固定顺序 arxiv 只剩 1 条）
+    assert stats["adopted"] == {"web": 3, "rag": 3, "arxiv": 3, "code": 1}
+    assert sum(1 for f in pooled if f.source_type == "web") == 3
     assert sum(1 for f in pooled if f.source_type == "rag") == 3
+    assert sum(1 for f in pooled if f.source_type == "arxiv") == 3
 
 
 def test_search_once_parallel_tool_failure_isolated():
@@ -243,20 +246,12 @@ def test_run_provenance_four_buckets():
 
 
 def test_graph_snapshot_message_format():
-    """Q8：状态快照消息格式（新增/工具明细/累计/hop 进度，零新增字段）。"""
-    from research_engine.graph import config
+    """Q8/F09：工具明细为**采用/产出**双计数（不再把截断前条数冒充采用数）。"""
+    from research_engine.agents.researcher import format_tool_detail
 
-    rc = config.research
-    # 直接调用半成品：仅验证消息组装逻辑（跳过真实检索）
-    merged = ["f1", "f2", "f3"]
-    new_depth = 3
-    tool_stats = {"web": 5, "rag": 2, "arxiv": 3, "code": 1, "code_failed": 1}
-    tool_detail = " / ".join(
-        f"{k} {tool_stats.get(k, 0)}" + ("(失败)" if k == "code" and tool_stats.get("code_failed", 0) else "")
-        for k in ("web", "rag", "arxiv", "code") if k in tool_stats
-    )
-    snapshot = (f"第 {new_depth}/{rc.max_total_hops} 跳 [sq1]："
-                f"+{len(merged)} 条新发现（{tool_detail}），累计 {len(merged)} 条")
-    assert "第 3/20 跳 [sq1]" in snapshot
-    assert "web 5 / rag 2 / arxiv 3 / code 1(失败)" in snapshot
-    assert "累计 3 条" in snapshot
+    tool_stats = {"web": 8, "rag": 2, "arxiv": 3, "code": 1, "code_failed": 1,
+                  "adopted": {"web": 5, "rag": 2, "arxiv": 3, "code": 1}}
+    assert format_tool_detail(tool_stats) == "web 5/8 / rag 2/2 / arxiv 3/3 / code 1/1(失败)"
+    # 旧 stats 形状（无 adopted）→ 回退 x/x，兼容
+    assert format_tool_detail({"web": 5}) == "web 5/5"
+    assert format_tool_detail({}) == ""

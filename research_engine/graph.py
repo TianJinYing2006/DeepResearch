@@ -28,12 +28,12 @@ from langgraph.graph import END, StateGraph
 
 from config import config
 from research_engine.agents.planner import Planner
-from research_engine.agents.researcher import Researcher
+from research_engine.agents.researcher import Researcher, format_tool_detail
 from research_engine.agents.validator import Validator
 from research_engine.agents.writer import Writer
 from research_engine.context.manager import ContextManager
 from research_engine.critic import Critic, route_critic
-from research_engine.evidence import ensure_evidence_identity  # F08：原文层证据身份
+from research_engine.evidence import dedupe_new_findings, ensure_evidence_identity  # F08/F10
 from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
 from research_engine.observability import (  # W3：可观测层（Q1~Q7）
@@ -231,22 +231,38 @@ class DeepResearchGraph:
             f.sq_id = sq_id or ""
         # F08（审计）：原文层证据身份（内容寻址 ID / hash / 检索时间）；只写空字段 ⇒ 幂等
         ensure_evidence_identity(new_findings)
+        # F10（审计）：按证据身份 (evidence_id, sq_id) 去重 —— 同一片段跨跳/跳内不再重复累积，
+        # 跨子问题保留归属；dedup_stats 供本跳新证据率（Critic 停止/换查询参考）
+        new_findings, dedup_stats = dedupe_new_findings(new_findings, state.findings)
 
         merged_findings = list(state.findings) + new_findings
         seen = set(state.visited_sources)
-        new_sources = [f.source for f in new_findings if f.source not in seen]
+        new_sources: List[str] = []
+        for f in new_findings:
+            if f.source not in seen:
+                seen.add(f.source)  # F10：跳内同步更新（旧实现漏 ⇒ 同 source 重复入列）
+                new_sources.append(f.source)
         merged_visited = list(state.visited_sources) + new_sources
 
         new_depth = state.depth + 1
         per_subq_hop[sq_id] = per_subq_hop.get(sq_id, 0) + 1
 
-        # W4 Q8：状态快照消息（新增条数 / 工具明细 / 累计条数 / hop 进度）——零新增 state 字段
-        tool_detail = " / ".join(
-            f"{k} {tool_stats.get(k, 0)}" + ("(失败)" if k == "code" and tool_stats.get("code_failed", 0) else "")
-            for k in ("web", "rag", "arxiv", "code") if k in tool_stats
-        )
+        # W4 Q8/F09：状态快照消息（新增条数 / 工具采用·产出双计数 / 累计条数 / hop 进度）
+        tool_detail = format_tool_detail(tool_stats)
+        dedup_note = (f"去重 {dedup_stats['dropped_duplicates']} 条；"
+                      if dedup_stats["dropped_duplicates"] else "")
         snapshot = (f"第 {new_depth}/{rc.max_total_hops} 跳 [{sq_id}]："
-                    f"+{len(new_findings)} 条新发现（{tool_detail}），累计 {len(merged_findings)} 条")
+                    f"+{len(new_findings)} 条新发现（{dedup_note}{tool_detail}），累计 {len(merged_findings)} 条")
+        # F10：本跳新证据率（纯追加审计流；不参与硬闸，供 Critic 判断是否换查询/停止）
+        novelty_entry = {
+            "depth": new_depth,
+            "sq_id": sq_id or "",
+            "considered": dedup_stats["considered"],
+            "kept": dedup_stats["kept"],
+            "dropped_duplicates": dedup_stats["dropped_duplicates"],
+            "ratio": (round(dedup_stats["kept"] / dedup_stats["considered"], 4)
+                      if dedup_stats["considered"] else None),
+        }
 
         # W8 Arm 1：把本跳工具降级记录交给 `degradation_log` 的 add reducer 入 state
         # （节点只 return 增量，不读不写全量 —— 与 progress 同构，并发安全）
@@ -258,6 +274,7 @@ class DeepResearchGraph:
             "visited_sources": merged_visited,
             "depth": new_depth,
             "per_subq_hop": per_subq_hop,
+            "evidence_novelty": [novelty_entry],  # F10：add reducer 追加
             "degradation_log": degradations,
             "status": "researching",
             "progress": [
@@ -328,14 +345,27 @@ class DeepResearchGraph:
                     ],
                 }
             # Q2-A 常态：next_queries 追回 frontier 队尾，继续研究同一子问题
-            appended = list(state.next_queries)
+            # F10：待办队列内按 (sq_id, query) 去重（critic 重复建议同一查询不再叠加；
+            # 「已执行查询」的重复由 evidence_novelty 新证据率反馈给 Critic 换查询）
+            pending = {(q.get("sq_id", ""), q.get("query", "")) for q in state.frontier}
+            appended: List[Dict[str, Any]] = []
+            for q in state.next_queries:
+                key = (q.get("sq_id", ""), q.get("query", ""))
+                if key in pending:
+                    continue
+                pending.add(key)
+                appended.append(q)
+            dropped_q = len(state.next_queries) - len(appended)
+            msg = f"换角度再搜：回填 {len(appended)} 条 next_queries"
+            if dropped_q:
+                msg += f"（队列内去重 {dropped_q} 条）"
             return {
                 "frontier": list(state.frontier) + appended,
                 "needs_replan": False,
                 "next_queries": [],
                 "token_used": state.token_used,  # Q6-B：本步无新 LLM 调用，原样写回保持最新累计
                 "progress": [
-                    {"stage": "revise", "msg": f"换角度再搜：回填 {len(appended)} 条 next_queries"}
+                    {"stage": "revise", "msg": msg}
                 ],
             }
 

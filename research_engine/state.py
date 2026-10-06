@@ -192,6 +192,12 @@ class ResearchState(BaseModel):
     )
     # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
     reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
+    # F10（审计）：每跳新证据率（considered/kept/dropped_duplicates/ratio），纯追加；
+    # 供 Critic 判断「是否还在获得新证据」（停止或换查询的参考信号），不参与硬闸。
+    evidence_novelty: Annotated[List[Dict[str, Any]], operator.add] = Field(
+        default_factory=list,
+        description="每跳新证据率审计流（去重后 kept/considered），非故障、不推导 degraded",
+    )
     # 规划 / 裁决治理事件：纯追加，但不属于故障，不参与 run_status 判定。
     planner_events: Annotated[List[Dict[str, Any]], operator.add] = Field(
         default_factory=list,
