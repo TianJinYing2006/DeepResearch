@@ -17,7 +17,7 @@ export const STAGES = [
   { name: '规划', nodes: ['plan'] },
   { name: '检索', nodes: ['research', 'critic', 'revise'] },
   { name: '撰写', nodes: ['write'] },
-  { name: '校验', nodes: ['validate'] },
+  { name: '校验', nodes: ['validate', 'repair'] },
   { name: '渲染', nodes: ['render'] },
 ] as const
 

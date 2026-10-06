@@ -43,6 +43,7 @@ from research_engine.observability import (  # W3：可观测层（Q1~Q7）
     start_trace,
 )
 from research_engine.render import ReportRenderer
+from research_engine.repair import repair_report  # F11（3b）：有界返工
 from research_engine.runtime_profile import effective_research_config
 from research_engine.state import ResearchState, SubQuestion
 from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行载体
@@ -52,6 +53,23 @@ from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行
     STOP_RUNNING,
     RunStep,
 )
+
+#: F11（3b）：引用返工的最大执行次数（硬上限，防「修复-校验」振荡；1 = 只返工一次）
+MAX_REPAIR_PASSES = 1
+
+
+def route_repair(state: ResearchState) -> str:
+    """纯函数：校验后是否进入有界返工。
+
+    - 已达返工上限 / 无报告 → ``"render"``
+    - 存在未通过校验的引用 → ``"repair"``（确定性移除/降格后重走校验）
+    - 否则 → ``"render"``
+    """
+    if state.repair_count >= MAX_REPAIR_PASSES or not state.report:
+        return "render"
+    if any(not citation.verified for citation in state.citations):
+        return "repair"
+    return "render"
 
 
 def effective_per_subq_hop_cap(state: ResearchState, rc: Any = None) -> int:
@@ -114,6 +132,7 @@ class DeepResearchGraph:
         g.add_node("revise", self._revise)
         g.add_node("write", self._write)
         g.add_node("validate", self._validate)
+        g.add_node("repair", self._repair)  # F11（3b）：有界返工（失败论断确定性移除/降格）
         g.add_node("render", self._render)  # W2（Q1=A）：validate 后渲染，可审计展示不回流 report
 
         g.set_entry_point("plan")
@@ -127,7 +146,14 @@ class DeepResearchGraph:
         )
         g.add_edge("revise", "research")  # 回填 next_queries 或 replan 后，继续研究
         g.add_edge("write", "validate")
-        g.add_edge("validate", "render")  # W2：先校验后渲染（修正文档旧稿"write 之前"时序倒置）
+        # F11（3b）：校验后有未通过论断 → 至多一次返工（repair），随后重走校验；
+        # 其余情况直接渲染（W2：先校验后渲染，修正文档旧稿"write 之前"时序倒置）
+        g.add_conditional_edges(
+            "validate",
+            route_repair,
+            {"repair": "repair", "render": "render"},
+        )
+        g.add_edge("repair", "validate")  # 二次校验（repair_count 封顶，绝不成环）
         g.add_edge("render", END)
 
         # 有循环 → 必须挂 checkpointer + 设 recursion_limit（run 时传）
@@ -353,6 +379,31 @@ class DeepResearchGraph:
                 {"stage": "validate",
                  "msg": f"校验完成：{verified}/{len(citations)} 条引用通过（存在性 AND 忠实度）"}
             ],
+        }
+
+    def _repair(self, state: ResearchState) -> Dict[str, Any]:
+        """F11（3b）：有界返工 —— 确定性移除未通过校验的论断（含引用标记），随后重走校验。
+
+        为什么确定性（而非 LLM 重写/自动补检索）：见 ``research_engine/repair.py``
+        模块注释（LLM 重写引入不可验证文本；补检索需新回环，均超出本批不变量）。
+        """
+        with span_node("修复引用", node="repair",
+                       input={"failed": sum(1 for c in state.citations if not c.verified)}):
+            repaired, stats = repair_report(state.report, state.citations)
+        return {
+            "report": repaired,
+            "repair_count": state.repair_count + 1,
+            "repair_log": [{
+                "depth": state.depth,
+                "removed_claims": stats["removed_claims"],
+                "failed_before": stats["failed_before"],
+                "citation_count": len(state.citations),
+            }],
+            "progress": [{
+                "stage": "repair",
+                "msg": (f"引用返工（第 {state.repair_count + 1}/{MAX_REPAIR_PASSES} 次）："
+                        f"移除 {stats['removed_claims']} 条未通过论断，重新校验"),
+            }],
         }
 
     def _render(self, state: ResearchState) -> Dict[str, Any]:

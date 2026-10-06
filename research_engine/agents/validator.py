@@ -251,7 +251,7 @@ class Validator:
     _CLAIM_SEP = "。！？；\n"          # 句子边界字符（W2.1）
     _CLAIM_MAX = 200                  # 引用前最多取 200 字符的窗口（W2.1）
 
-    def _claim_text(self, report: str, end: int, start: int = 0) -> str:
+    def _claim_text(self, report: str, end: int, start: int = 0) -> Tuple[str, int]:
         """取引用前的一段文本做 claim（W2.1 待办 + W7 F4：保留上下文/主语兜底）。
 
         - start 用于隔离多个引用：只取上一个引用结束位置到当前引用之间的文本；
@@ -260,12 +260,16 @@ class Validator:
           前补前一句完整内容，使论断自包含（RAGAS "self-contained" 精神，W7 F4）；
         - 退化为 200 字符窗口；再退化 80 字符（保原行为兜底）；
         - 清理行内 markdown 残留（** ` # 行首 - | 等），纯展示层，不影响校验。
+
+        F11（审计 3b）：同时返回 ``raw_start``（claim 句在 report 中的原始起始偏移，
+        供返工删除定位；代词兜底时仍指向被校验句本身）。
         """
         window_start = max(start, end - self._CLAIM_MAX)
         window = report[window_start:end]
         rel = max(window.rfind(c) for c in self._CLAIM_SEP)
         # claim 在 report 中的真实起始位置，用于 F4 主语兜底时精确截取前一句
         claim_start_in_report = window_start + rel + 1 if rel >= 0 else window_start
+        raw_start = claim_start_in_report
         claim = window[rel + 1:] if rel >= 0 else window
         claim = re.sub(r"[*_`]{1,3}", "", claim)                                   # ** 加粗/_斜体_/`代码`
         claim = re.sub(r"^\s*#\s*", "", claim, flags=re.M)                          # 行首 # 标题（Bug-12：不删行内 #）
@@ -283,7 +287,8 @@ class Validator:
         if not claim.strip():  # 边界切分到空（窗口尾恰为句号等）才退回 80 字符硬截断兜底
             fallback_start = max(start, end - 80)
             claim = report[fallback_start:end].strip().replace("\n", " ")
-        return claim
+            raw_start = fallback_start
+        return claim, raw_start
 
     def _extract_citations(self, report: str) -> List[dict]:
         """从报告中提取 [来源: N] 形式的引用（W7 F3：过滤非论断句）。
@@ -305,7 +310,8 @@ class Validator:
         for m in re.finditer(pattern, report):
             # 取论断（引用前的一段文本，W2.1 按句子边界 + 清理 markdown）
             # W7 F3：start=last_end 隔离多个引用，避免后一个 claim 混入前一个引用标记
-            claim = self._claim_text(report, m.start(), last_end)
+            # F11：同时记录 claim 起始偏移与引用标记结束偏移（返工删除定位）
+            claim, claim_start = self._claim_text(report, m.start(), last_end)
             last_end = m.end()
             refs = self._split_ref(m.group(1))
             raw_citation_count += len(refs)
@@ -313,7 +319,8 @@ class Validator:
                 filtered_citation_count += len(refs)
                 continue  # W7 F3: non-assertive fragments stay out of validation
             for ref in refs:
-                citations.append({"claim": claim, "source": ref})
+                citations.append({"claim": claim, "source": ref,
+                                  "claim_start": claim_start, "claim_end": m.end()})
         self.last_validation_stats.update({
             "filter_enabled": filter_enabled,
             "raw_citation_count": raw_citation_count,
@@ -566,6 +573,7 @@ class Validator:
                     finding_id=r["finding_id"], source_type=r["source_type"],
                     confidence=0.0, note=r["note"], existence=False,
                     verified_relaxed=False,
+                    claim_start=r.get("claim_start", -1), claim_end=r.get("claim_end", -1),
                 ))
                 continue
 
@@ -628,6 +636,7 @@ class Validator:
                 verified_relaxed=verified_relaxed,
                 verification_failed=verification_failed,
                 is_meta=bool(verdict.get("is_meta", False)) if verdict is not None else False,
+                claim_start=r.get("claim_start", -1), claim_end=r.get("claim_end", -1),
             ))
         self.last_validation_stats.update({
             "validated_citation_count": len(result),
