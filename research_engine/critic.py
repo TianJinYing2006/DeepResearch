@@ -393,11 +393,23 @@ class Critic:
         meta_count = sum(1 for f in state.findings if f.is_meta)
         subs = "; ".join(f"{sq.id}: {sq.question}" for sq in state.subquestions)
         reflection_round = len(state.reflection_log) + 1
+        # F10：最近一跳新证据率（去重后）——「重复检索不再带来新信息」的显式信号
+        novelty_note = ""
+        if state.evidence_novelty:
+            last = state.evidence_novelty[-1] or {}
+            considered = last.get("considered")
+            if considered:
+                novelty_note = (
+                    f"最近一跳新增证据 {last.get('kept', 0)}/{considered} 条"
+                    f"（去重 {last.get('dropped_duplicates', 0)} 条）；"
+                    f"若连续多跳无新证据，应考虑换查询或停止。\n"
+                )
         user = (
             f"研究主题：{state.topic}\n"
             f"子问题集合：{subs}\n"
             f"当前已检索跳数：{state.depth}，发现条数：{len(state.findings)}"
             f"（其中自指/元描述 {meta_count} 条不作为证据）\n"
+            f"{novelty_note}"
             f"这是第 {reflection_round}/{MAX_GAP_REFLECTIONS} 轮反思。\n\n"
             f"{digest}\n\n"
             f"请基于以上证据正文（而非仅条数）判断：发现是否已充分支撑报告？"

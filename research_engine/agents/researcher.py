@@ -2,8 +2,10 @@
 
 W4 重构（grill Q1/Q5/Q6/Q8）：
 - 并行调度：ThreadPoolExecutor 并行 web/rag/arxiv/(code 命中时)，单工具挂不影响其余（return_exceptions 语义）
-- 结果池择优（Q1=E）：文本结果按 provider 已排序相关性取 Top-5/工具；code 结果整条保留（豁免相似度过滤）
-  但计入总量 Top-10 封顶（防 Monte Carlo 多结果失控）；总量封顶 10 条
+- 结果池择优（Q1=E，审计 F09 升级为多样性优先）：文本结果按 provider 已排序相关性取 Top-5/工具，
+  多工具间按 rank **轮转**入池（不再固定 web→rag→arxiv 顺序截断饿死学术源）；
+  code 结果整条保留（豁免相似度过滤）但计入总量 Top-10 封顶（防 Monte Carlo 多结果失控）；
+  stats 既有键=原始产出条数、adopted=实际采用条数（快照消息双计数）
 - 体积截断（Q5）：web 300 / arxiv abstract 1000 / code stdout 头 8KB+尾 4KB；rag 源 chunk 已控(800)
 - 择优的诚实简化：不重复打分——providers（Bocha/arXiv/RAG）自身已做 relevance 排序，
   取工具内 Top-N 即"择优"（Q1 择优目的是防总量爆炸而非重新排序）
@@ -369,20 +371,68 @@ def _default_code_script() -> str:
     )
 
 
-# ---- Q5 结果池择优（纯函数，可单测）----
+# ---- Q5/F09 结果池择优（纯函数，可单测）----
 
-def pool_and_trim(all_findings: Dict[str, List[ResearchFinding]]) -> Tuple[List[ResearchFinding], Dict[str, int]]:
-    """合并各工具 finding：截断（已在上游做）+ 择优（文本 Top-5/工具，code 豁免过滤但计入总量 10）。
+#: source_type → 工具键（stats["adopted"] 统计用；code_exec 的 finding 属于 "code" 池）
+_TOOL_KEY_BY_SOURCE_TYPE = {"web": "web", "rag": "rag", "arxiv": "arxiv", "code_exec": "code"}
 
-    返回 (pooled, tool_stats)；pooled 保持顺序稳定（code 优先 → 文本按工具序）。
+
+def pool_and_trim(all_findings: Dict[str, List[ResearchFinding]]) -> Tuple[List[ResearchFinding], Dict[str, Any]]:
+    """合并各工具 finding：截断（已在上游做）+ **来源多样性优先**择优（审计 F09）。
+
+    旧实现把 web→rag→arxiv 固定顺序拼接后截断：web/rag 各满 5 条且无 code 时，
+    arXiv 即使召回优质结果也被**整源删除**（调用成本已发生、证据却丢）。且
+    ``stats`` 只有截断前条数，不能当作实际采用条数。
+
+    新实现（无跨源统一打分的诚实替代 —— 统一排序需要独立标定）：
+
+    - **轮转**：按 rank 逐层轮转 web/rag/arxiv（rank1 轮完再 rank2…），
+      每源都有机会入池，不再按固定顺序饿死后排来源；
+    - 每工具仍限 ``POOL_TEXT_TOP_K``（provider 已 relevance 排序，工具内取 Top 不重排）；
+    - code 整条保留（豁免过滤语义）且优先进池，总量仍封顶 ``POOL_TOTAL_CAP``；
+    - ``stats`` 既有键 = 原始产出条数（兼容旧消费方/诊断），
+      新增 ``stats["adopted"]`` = 各工具**实际采用**条数（快照消息用，见
+      :func:`format_tool_detail`）。
     """
-    stats: Dict[str, int] = {k: len(v) for k, v in all_findings.items()}
-    code_findings = all_findings.get("code", [])
-    text_findings: List[ResearchFinding] = []
-    for key in ("web", "rag", "arxiv"):
-        text_findings.extend(all_findings.get(key, [])[:POOL_TEXT_TOP_K])  # provider 已 relevance 排序
+    stats: Dict[str, Any] = {k: len(v) for k, v in all_findings.items()}
+    code_findings = list(all_findings.get("code", []))
+    text_tools = ("web", "rag", "arxiv")
+    per_tool = {k: list(all_findings.get(k, []))[:POOL_TEXT_TOP_K] for k in text_tools}
 
-    pooled = code_findings + text_findings  # code 优先（豁免过滤的语义）
-    if len(pooled) > POOL_TOTAL_CAP:
-        pooled = pooled[:POOL_TOTAL_CAP]
+    pooled: List[ResearchFinding] = list(code_findings)
+    max_len = max((len(v) for v in per_tool.values()), default=0)
+    for rank in range(max_len):
+        if len(pooled) >= POOL_TOTAL_CAP:
+            break
+        for tool in text_tools:
+            if len(pooled) >= POOL_TOTAL_CAP:
+                break
+            if rank < len(per_tool[tool]):
+                pooled.append(per_tool[tool][rank])
+    pooled = pooled[:POOL_TOTAL_CAP]
+
+    adopted = {k: 0 for k in all_findings}
+    for f in pooled:
+        key = _TOOL_KEY_BY_SOURCE_TYPE.get(getattr(f, "source_type", ""), "")
+        if key in adopted:
+            adopted[key] += 1
+    stats["adopted"] = adopted
     return pooled, stats
+
+
+def format_tool_detail(tool_stats: Dict[str, Any]) -> str:
+    """快照消息的工具明细（F09：**采用/产出** 双计数，不再把截断前条数冒充采用数）。
+
+    例：``web 4/8 / rag 3/3 / arxiv 3/6``；code 失败附加 ``(失败)``。
+    无 ``adopted`` 键时回退为 ``x/x``（旧 stats 形状兼容）。
+    """
+    adopted = tool_stats.get("adopted") or {}
+    parts: List[str] = []
+    for k in ("web", "rag", "arxiv", "code"):
+        if k not in tool_stats:
+            continue
+        raw = tool_stats.get(k, 0)
+        used = adopted.get(k, raw)
+        suffix = "(失败)" if k == "code" and tool_stats.get("code_failed", 0) else ""
+        parts.append(f"{k} {used}/{raw}{suffix}")
+    return " / ".join(parts)

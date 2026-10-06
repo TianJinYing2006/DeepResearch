@@ -60,6 +60,43 @@ def ensure_evidence_identity(findings: List[ResearchFinding]) -> int:
     return filled
 
 
+def dedupe_new_findings(
+    new_findings: List[ResearchFinding],
+    existing_findings: List[ResearchFinding],
+) -> Tuple[List[ResearchFinding], Dict[str, int]]:
+    """F10（审计）：按**证据身份** ``(evidence_id, sq_id)`` 去重新发现。
+
+    旧行为：graph 层无条件追加 new_findings，同一片段被反复检索即反复累积
+    （发现条数虚增、上下文被重复材料挤占）。按 URL 去重又会误删同文档不同
+    chunk —— 内容寻址的 ``evidence_id`` 恰好区分「同一片段」与「同文档不同片段」。
+
+    规则：
+
+    - 同一 ``(evidence_id, sq_id)`` 只保留首个（**跨跳**与**跳内**皆然）；
+    - **跨子问题保留**：同一片段对不同子问题有归属意义（``sq_id`` 不同 ⇒ 不判重）；
+    - 无 ``evidence_id``（旧数据/异常路径）**保守保留**，不误删。
+
+    返回 ``(kept, stats)``；stats = ``{considered, kept, dropped_duplicates}``，
+    供 graph 记录本跳新证据率（Critic 停止/换查询的参考信号）。
+    """
+    seen = {(f.evidence_id, f.sq_id) for f in existing_findings if f.evidence_id}
+    kept: List[ResearchFinding] = []
+    dropped = 0
+    for f in new_findings:
+        key = (getattr(f, "evidence_id", ""), getattr(f, "sq_id", ""))
+        if key[0]:
+            if key in seen:
+                dropped += 1
+                continue
+            seen.add(key)  # 跳内同步更新（同一批重复同样只留首个）
+        kept.append(f)
+    return kept, {
+        "considered": len(new_findings),
+        "kept": len(kept),
+        "dropped_duplicates": dropped,
+    }
+
+
 def build_evidence_index(findings: List[ResearchFinding]) -> Dict[str, ResearchFinding]:
     """``evidence_id → 原文 finding`` 索引；空 ID 现场补齐，保证可查。"""
     index: Dict[str, ResearchFinding] = {}
