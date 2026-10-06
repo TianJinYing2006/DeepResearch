@@ -80,6 +80,12 @@ class CodeExecConfig:
     max_output_bytes: int = 128 * 1024     # stdout/stderr 各截断上限，超限标 [TRUNCATED]
     concurrency: int = 2                   # code 同时执行上限（信号量默认 2，可配 4；防 CPU 密集抢占主进程）
     use_job_object: bool = field(default_factory=lambda: _env("CODE_EXEC_USE_JOB", "false").lower() == "true")  # Windows Job Object 可选增强
+    #: 审计 F03：当前模板是固定 n=8192 的 FLOPs 示例，不消费 query 的数值/单位/公式，
+    #: 「运行成功」≠「回答了问题」——作为事实证据会污染报告（且高置信度优先入池）。
+    #: 在结构化计算协议（指定目标/输入/单位/公式 + 受限脚本）落地前默认关闭；
+    #: 打开仅用于调试工具链（旧 W4/W8 行为），不应用于真实研究。
+    evidence_enabled: bool = field(
+        default_factory=lambda: _env("CODE_EXEC_EVIDENCE_ENABLED", "false").lower() == "true")
 
 
 @dataclass

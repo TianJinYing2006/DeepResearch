@@ -100,8 +100,11 @@ def test_reflection_cap_stops_forcing_continue():
 
 
 def test_hard_gate_stop_reason():
-    """硬闸触发时 stop_reason = hard_stop。"""
-    state = _state(frontier=[])
+    """硬闸触发时 stop_reason = hard_stop（F02 后 frontier 空不再是硬闸，用 depth 触顶）。"""
+    from config import config
+
+    state = _state()
+    state.depth = config.research.max_total_hops
     critic = Critic(llm_fn=lambda s: _verdict(sufficient=False))
     signal = critic.decide(state)
     assert signal == "stop"

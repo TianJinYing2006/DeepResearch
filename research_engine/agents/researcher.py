@@ -7,7 +7,9 @@ W4 重构（grill Q1/Q5/Q6/Q8）：
 - 体积截断（Q5）：web 300 / arxiv abstract 1000 / code stdout 头 8KB+尾 4KB；rag 源 chunk 已控(800)
 - 择优的诚实简化：不重复打分——providers（Bocha/arXiv/RAG）自身已做 relevance 排序，
   取工具内 Top-N 即"择优"（Q1 择优目的是防总量爆炸而非重新排序）
-- code 触发（Q1 P2）：关键词启发式 should_execute()；失败产物也进 findings（note 不吞，Q2/Q4）
+- code 触发（Q1 P2）：关键词启发式 should_execute()；失败产物也进 findings（note 不吞，Q2/Q4）。
+  审计 F03：模板是固定 n=8192 的 FLOPs 示例，不能回答任意计算问题，默认关闭其
+  证据资格（`config.code_exec.evidence_enabled=False`：不执行、不入池）。
 - 返回 (findings, tool_stats)：tool_stats 供 graph 层组装"状态快照"消息（Q8）
 """
 from __future__ import annotations
@@ -229,6 +231,11 @@ class Researcher:
     def _search_code(self, query: str) -> List[ResearchFinding]:
         """代码执行（Q1 P2 触发 + Q6 源协议 code:{hash}；失败 note 进 finding 不吞）。
 
+        审计 F03：当前模板是固定 n=8192 的 FLOPs 示例，query 只进 hash/metadata、
+        不参与计算 ⇒ 任何命中关键词的问题都会得到同一结果，「运行成功」≠「回答了
+        用户的问题」。故默认不把它当事实证据：``search_once`` 经
+        ``config.code_exec.evidence_enabled`` 门槛后才调用本方法（默认 False）。
+
         W8 Arm 2（§5.2）：脚本**不含** query 文本；query 只经
         `exec_code(script, query=query)` 进 `script_hash`（保证 50 条 code 证据
         各自唯一，见 §5.2 预检第 3 条）与 `metadata`，**从不进入被执行的代码**。
@@ -276,7 +283,7 @@ class Researcher:
 
         返回 (pooled_findings, tool_stats)——tool_stats 供"状态快照"消息（Q8）。
         """
-        code_enabled = should_execute(query)
+        code_enabled = config.code_exec.evidence_enabled and should_execute(query)
         targets: Dict[str, Any] = {"web": self._search_web, "rag": self._search_rag}
         # 学术检索（arXiv）可关：出口不通时它会每跳记一条 provider_error 降级，
         # 用户明确不需要学术源时关掉，可让 run_status 回到 success。
@@ -325,6 +332,11 @@ def _classify_code_exec_failure(note: str) -> str:
 
 def _default_code_script() -> str:
     """返回确定性计算脚本模板（当前为固定模板，未来由 LLM 生成增强）。
+
+    审计 F03：模板只验证沙箱链路（跑通固定 FLOPs 计算），**不消费 query 的数值、
+    单位与公式**，因此默认不作为事实证据（见 CodeExecConfig.evidence_enabled）。
+    真实计算协议应结构化指定：计算目标、输入数值、单位、公式及对应证据，
+    再生成/选择受限脚本，并区分「运行成功」与「正确回答问题」。
 
     模板覆盖：序列长度 × 常数 → 数值；打印 key=value（Q6 structured_match 呈现层数据源）。
 
