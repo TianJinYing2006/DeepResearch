@@ -77,6 +77,7 @@ def test_llm_default_timeout_and_deadline_narrowing(monkeypatch):
     client = LLMClient(model="m", role="r")
     fake = MagicMock()
     fake.chat.completions.create.return_value = _fake_response()
+    fake.with_options.return_value = fake  # R05：有时限时经 with_options(max_retries=0)
     monkeypatch.setattr(client, "_get_client", lambda: fake)
 
     client.chat([{"role": "user", "content": "hi"}])
@@ -92,16 +93,23 @@ def test_llm_default_timeout_and_deadline_narrowing(monkeypatch):
     assert 0 < narrowed <= 3, "任务时限更紧时必须收窄调用超时"
 
 
-def test_llm_explicit_timeout_wins(monkeypatch):
+def test_llm_explicit_timeout_narrowed_by_deadline(monkeypatch):
+    """R05：显式 timeout 也不能越过任务时限（旧行为 7 > 剩余 2，是缺陷）。"""
     client = LLMClient(model="m", role="r")
     fake = MagicMock()
     fake.chat.completions.create.return_value = _fake_response()
+    fake.with_options.return_value = fake
     monkeypatch.setattr(client, "_get_client", lambda: fake)
     token = set_task_deadline(2)
     try:
         client.chat([{"role": "user", "content": "hi"}], timeout=7)
     finally:
         reset_task_deadline(token)
+    narrowed = fake.chat.completions.create.call_args.kwargs["timeout"]
+    assert 0 < narrowed <= 2, "显式 timeout 必须被剩余时限收窄"
+
+    # 无任务时限时显式 timeout 仍优先（CLI / 工具直调语义不变）
+    client.chat([{"role": "user", "content": "hi"}], timeout=7)
     assert fake.chat.completions.create.call_args.kwargs["timeout"] == 7
 
 

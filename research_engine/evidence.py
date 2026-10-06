@@ -117,7 +117,9 @@ def resolve_evidence_text(
     """取工作证据对应的原文文本；返回 ``(text, status)``。
 
     status ∈ ``"raw"``（原文直出）/ ``"truncated"``（超预算头尾保留 + 标记）/
-    ``"missing"``（声明的原文证据缺失——回落摘要正文并显式暴露，由调用方计入 stats）。
+    ``"missing"``（声明的原文证据**全部**缺失）/ ``"partial"``（声明的原文证据**部分**
+    缺失）。R04（审计）：origin 链必须**逐项**解析——``missing`` / ``partial`` 均不得
+    静默：调用方（Validator）拒绝把工作摘要当原始事实依据，对应引用判 UNKNOWN。
     无 origin 链（未压缩路径）时以工作 finding 自身正文为原文。
     """
     if max_chars is None:
@@ -128,15 +130,18 @@ def resolve_evidence_text(
         status = "raw"
     else:
         parts = [evidence_index[eid].content for eid in origin_ids if eid in evidence_index]
+        missing_count = sum(1 for eid in origin_ids if eid not in evidence_index)
         if not parts:
+            # 声明的 origin 一个都解不出来：回落摘要仅供展示，语义上不可作为核验依据
             return working.content or "", "missing"
         text = "\n---\n".join(parts)
-        status = "raw"
+        status = "partial" if missing_count else "raw"
     if len(text) > max_chars:
         head = max(1, int(max_chars * 0.75))
         tail = max(0, max_chars - head)
         text = text[:head] + EVIDENCE_TRUNCATION_MARK + (text[-tail:] if tail else "")
-        status = "truncated"
+        if status == "raw":
+            status = "truncated"
     return text, status
 
 

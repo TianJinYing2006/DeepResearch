@@ -339,9 +339,12 @@ class FakeStore:
         candidates.sort(key=lambda row: (row["queued_at"] or row["created_at"], row["run_id"]))
         return self.claim_run(candidates[0]["run_id"], worker_id, lease_seconds)
 
-    def renew_lease(self, run_id, worker_id, lease_seconds):
+    def renew_lease(self, run_id, worker_id, lease_seconds, *, attempt=None):
+        """R10：与 RunStore 同语义 —— 可选 attempt 必须与 ownership 一致。"""
         row = self.runs.get(run_id)
         if row is None or row["worker_id"] != worker_id:
+            return False
+        if attempt is not None and row.get("attempt") != attempt:
             return False
         if row["status"] not in ("RUNNING", "CANCEL_REQUESTED"):
             return False

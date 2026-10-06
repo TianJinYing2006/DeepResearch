@@ -14,7 +14,13 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from config import config
-from research_engine.budget import DeadlineExceeded, admit_call
+from research_engine.budget import (
+    DeadlineExceeded,
+    add_charged_usage,
+    estimate_messages_tokens,
+    reserve_call,
+    settle_call,
+)
 from research_engine.runtime_profile import task_deadline_remaining
 from research_engine.usage import UsageRecord, emit_usage
 
@@ -66,45 +72,70 @@ class LLMClient:
         W5（Q4）：timeout 透传给 openai SDK（judge 调用设 60s 治"LLM 层无超时"僵尸源）。
         F13（审计）：调用前预算准入（`admit_call`）；未显式传 timeout 时使用默认值并按
         任务剩余时限收窄（时限已过抛 `DeadlineExceeded`，不发起调用）。
+        R05（审计）：state 非空时按「输入估计 + 输出上限」**原子预占**额度并把输出上限
+        写进 `max_tokens`；调用结束按真实用量结算。缺 usage 时按预占保守计入，
+        并发 / 重试不再能一起越过预算线。任务时限存在时禁用 SDK 内部重试
+        （`max_retries=0`），保证单次调用（含重试）不越过整场 deadline。
         """
-        admit_call(state)  # F13：预算耗尽不再发起外部调用（state 为空时不检查）
+        # 先解析时限（已过期直接拒绝，不预占、不调用），再预占预算
+        has_deadline = task_deadline_remaining() is not None
+        resolved_timeout = self._resolve_timeout(timeout)
+        reservation = None
+        if state is not None:
+            reservation = reserve_call(
+                state,
+                input_tokens=estimate_messages_tokens(messages),
+                desired_output=max_tokens,
+            )
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else config.llm.temperature,
         }
-        if max_tokens:
+        if reservation is not None:
+            kwargs["max_tokens"] = reservation.output_tokens
+        elif max_tokens:
             kwargs["max_tokens"] = max_tokens
         if response_format:
             kwargs["response_format"] = response_format
-        resolved_timeout = self._resolve_timeout(timeout)
         if resolved_timeout is not None:
             kwargs["timeout"] = resolved_timeout
 
-        resp = self._get_client().chat.completions.create(**kwargs)
+        client = self._get_client()
+        try:
+            if has_deadline:
+                client = client.with_options(max_retries=0)
+            resp = client.chat.completions.create(**kwargs)
+        except BaseException:
+            # 调用失败（超时/网络）：预占按保守口径计入（可能已消耗输入 token），
+            # 由 settle_call 的默认语义完成记账后原样抛出。
+            settle_call(reservation)
+            raise
         content = resp.choices[0].message.content or ""
-        self._accumulate_usage(resp, state)  # D'：无条件调用（内部处理 state=None）
+        self._accumulate_usage(resp, state, reservation)  # D'：无条件调用（内部处理 state=None）
         return content
 
     @staticmethod
     def _resolve_timeout(explicit: Optional[float]) -> Optional[float]:
-        """F13：显式 timeout 优先；否则用默认值并按任务剩余时限收窄。
+        """F13/R05：显式 timeout 与默认值都必须服从任务剩余时限。
 
-        - 默认值 `config.llm.request_timeout_seconds`（0 = 不设，仅显式 timeout 生效）；
         - 任务时限已过 ⇒ 抛 :class:`DeadlineExceeded`（不发起调用）；
-        - 时限更紧时取 ``min(默认值, 剩余秒数)`` —— 单个节点不会活过任务时限。
+        - 有剩余时限 ⇒ 返回 ``min(显式或默认, 剩余秒数)`` —— **显式 timeout 也不能越界**；
+        - 无时限 ⇒ 显式 timeout 优先，否则用默认值（0 = 不设）。
         """
-        if explicit is not None:
-            return explicit
         base = float(getattr(config.llm, "request_timeout_seconds", 0.0) or 0.0)
         remaining = task_deadline_remaining()
         if remaining is None:
+            if explicit is not None:
+                return explicit
             return base if base > 0 else None
         if remaining <= 0:
             raise DeadlineExceeded("task deadline reached before LLM call")
+        if explicit is not None:
+            return min(float(explicit), remaining)
         return min(base, remaining) if base > 0 else remaining
 
-    def _accumulate_usage(self, resp, state) -> None:
+    def _accumulate_usage(self, resp, state, reservation=None) -> None:
         """把响应里的 token 用量累加进 state.token_used（Q6-B 可观测+控闸）。
 
         W3（Q3=D'）：tokens_total（类级）**无条件**累加（不管 state 是否传入）；
@@ -113,15 +144,19 @@ class LLMClient:
         审计 F06：区分「provider 缺 usage」（安全跳过）与「业务记账失败」——
         `emit_usage` 在 `DR_USAGE_STRICT=true` 下抛出的 `UsageSinkError` 绝不吞，
         按契约向调用方传播。
+        R05：带 ``reservation`` 时按真实 total 结算预占；缺 usage / 字段异常时按预占
+        保守计入（不释放），保证预算硬边界。
         """
         u = getattr(resp, "usage", None)
         if u is None:
+            settle_call(reservation)
             return
         try:
             total = int(getattr(u, "total_tokens", 0) or 0)
             inp = int(getattr(u, "prompt_tokens", 0) or 0)
             out = int(getattr(u, "completion_tokens", 0) or 0)
         except Exception:  # noqa: BLE001 —— provider usage 字段形态异常：按「无 usage」处理
+            settle_call(reservation)
             return
         # 需求 19 / #76：validator 分批并行后本方法会被多线程调用 →
         # 类级计数与 state.token_used 的读-改-写必须加锁，否则并发丢账。
@@ -132,8 +167,10 @@ class LLMClient:
             io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
             io["input"] += inp
             io["output"] += out
-            if state is not None:
-                state.token_used = getattr(state, "token_used", 0) + total
+        if reservation is not None:
+            settle_call(reservation, total)
+        elif state is not None:
+            add_charged_usage(state, total)
         # P1-4 / F06：逐调用记账（无 sink 时 no-op；strict 失败由 emit_usage 上抛）
         emit_usage(UsageRecord(
             kind="llm", provider="dashscope", model=self.model, role=self.role,

@@ -62,12 +62,16 @@ def route_repair(state: ResearchState) -> str:
     """纯函数：校验后是否进入有界返工。
 
     - 已达返工上限 / 无报告 → ``"render"``
-    - 存在未通过校验的引用 → ``"repair"``（确定性移除/降格后重走校验）
+    - 存在未通过校验的引用，或正文存在未引用事实句 → ``"repair"``
+      （确定性移除/降格后重走校验；R03：无引用事实不再零成本绕过闭环）
     - 否则 → ``"render"``
     """
     if state.repair_count >= MAX_REPAIR_PASSES or not state.report:
         return "render"
     if any(not citation.verified for citation in state.citations):
+        return "repair"
+    stats = state.validator_stats or {}
+    if int(stats.get("uncited_fact_sentence_count") or 0) > 0:
         return "repair"
     return "render"
 
@@ -454,7 +458,9 @@ class DeepResearchGraph:
         """
         with span_node("修复引用", node="repair",
                        input={"failed": sum(1 for c in state.citations if not c.verified)}):
-            repaired, stats = repair_report(state.report, state.citations)
+            # R03：未引用事实明细随 validator_stats 落库（含 span），返工对其降格标注
+            uncited = list((state.validator_stats or {}).get("uncited_fact_spans") or [])
+            repaired, stats = repair_report(state.report, state.citations, uncited)
         return {
             "report": repaired,
             "repair_count": state.repair_count + 1,
@@ -462,12 +468,16 @@ class DeepResearchGraph:
                 "depth": state.depth,
                 "removed_claims": stats["removed_claims"],
                 "failed_before": stats["failed_before"],
+                "kept_unknown": stats.get("kept_unknown", 0),
+                "downgraded_uncited": stats.get("downgraded_uncited", 0),
                 "citation_count": len(state.citations),
             }],
             "progress": [{
                 "stage": "repair",
                 "msg": (f"引用返工（第 {state.repair_count + 1}/{MAX_REPAIR_PASSES} 次）："
-                        f"移除 {stats['removed_claims']} 条未通过论断，重新校验"),
+                        f"移除 {stats['removed_claims']} 条未通过论断、"
+                        f"降格标注 {stats.get('downgraded_uncited', 0)} 条未引用事实、"
+                        f"保留 {stats.get('kept_unknown', 0)} 条未完成校验，重新校验"),
             }],
         }
 
