@@ -39,6 +39,10 @@ class LLMConfig:
 
     temperature: float = 0.2
     max_tokens: int = 4096
+    #: F13（审计）：LLM 调用默认超时（秒）；0 = 不设（仅显式 timeout 生效）。
+    #: 任务时限（worker/RunManager 注入）更紧时自动收窄，避免单次调用挂死整个节点。
+    request_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("LLM_REQUEST_TIMEOUT_SECONDS", "180")))
 
     # W3（grill Q6）：分层定价表（元/1K tokens，取 output 最贵档做保守上界）。
     # ⚠️ 价格有时效，默认值以阿里云官网为准，失效请更新——不要相信任何写死的长期价。
@@ -80,18 +84,48 @@ class CodeExecConfig:
     max_output_bytes: int = 128 * 1024     # stdout/stderr 各截断上限，超限标 [TRUNCATED]
     concurrency: int = 2                   # code 同时执行上限（信号量默认 2，可配 4；防 CPU 密集抢占主进程）
     use_job_object: bool = field(default_factory=lambda: _env("CODE_EXEC_USE_JOB", "false").lower() == "true")  # Windows Job Object 可选增强
+    #: 审计 F03：当前模板是固定 n=8192 的 FLOPs 示例，不消费 query 的数值/单位/公式，
+    #: 「运行成功」≠「回答了问题」——作为事实证据会污染报告（且高置信度优先入池）。
+    #: 在结构化计算协议（指定目标/输入/单位/公式 + 受限脚本）落地前默认关闭；
+    #: 打开仅用于调试工具链（旧 W4/W8 行为），不应用于真实研究。
+    evidence_enabled: bool = field(
+        default_factory=lambda: _env("CODE_EXEC_EVIDENCE_ENABLED", "false").lower() == "true")
 
 
 @dataclass
 class RAGConfig:
-    """RAG 配置。"""
+    """RAG 配置（需求 23：三层数据 / 分块 v2 / 双路召回 + RRF / 云端 rerank / 证据预算）。"""
     qdrant_url: str = field(default_factory=lambda: _env("QDRANT_URL", "http://127.0.0.1:6333"))
     collection: str = "deepresearch_docs"
     embedding_model: str = "text-embedding-v3"
-    chunk_size: int = 800
-    chunk_overlap: int = 100
-    top_k: int = 5
-    use_rerank: bool = False  # rerank 先评测再决定去留
+    chunk_size: int = 800          # 兼容保留：字符级资源口径（旧分块器/兜底）
+    chunk_overlap: int = 100       # 兼容保留（v2 的 overlap 以 token 计，见 chunk_overlap_tokens）
+    top_k: int = 5                 # 证据组装后最终入 prompt 的条数
+    # ---- 需求 23：分块 v2（结构保真；尺寸用 token 预算，字符仅用于限额）----
+    chunk_tokens: int = field(default_factory=lambda: int(_env("RAG_CHUNK_TOKENS", "400")))
+    chunk_overlap_tokens: int = field(
+        default_factory=lambda: int(_env("RAG_CHUNK_OVERLAP_TOKENS", "60")))
+    chunker_version: str = "v2"
+    # ---- 需求 23：双路召回 + RRF 融合（参数为初始值，由评测调整）----
+    recall_per_route: int = field(default_factory=lambda: int(_env("RAG_RECALL_PER_ROUTE", "20")))
+    rrf_k: int = field(default_factory=lambda: int(_env("RAG_RRF_K", "60")))
+    max_per_doc: int = field(default_factory=lambda: int(_env("RAG_MAX_PER_DOC", "2")))
+    evidence_max_tokens: int = field(
+        default_factory=lambda: int(_env("RAG_EVIDENCE_MAX_TOKENS", "1500")))
+    # ---- 需求 23：云端 rerank（DashScope gte-rerank；fail-open）----
+    use_rerank: bool = field(default_factory=lambda: _env("DR_RAG_RERANK", "false").lower() == "true")
+    rerank_model: str = field(default_factory=lambda: _env("DR_RAG_RERANK_MODEL", "gte-rerank-v2"))
+    rerank_url: str = field(default_factory=lambda: _env(
+        "DR_RAG_RERANK_URL",
+        "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"))
+    rerank_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("DR_RAG_RERANK_TIMEOUT", "8")))
+    # P0-8a 解析限额（防资源耗尽 / 压缩炸弹；超限抛 IngestLimitExceeded）
+    max_pages: int = field(default_factory=lambda: int(_env("RAG_MAX_PAGES", "200")))
+    max_chars: int = field(default_factory=lambda: int(_env("RAG_MAX_CHARS", "2000000")))
+    max_chunks: int = field(default_factory=lambda: int(_env("RAG_MAX_CHUNKS", "2000")))
+    parse_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("RAG_PARSE_TIMEOUT_SECONDS", "60")))
 
 
 @dataclass
@@ -114,6 +148,18 @@ class ResearchConfig:
     per_subq_hop_cap: int = 5   # 每子问题跳数上限的静态兜底（max_total_hops/max_subquestions，Q5=A）
     max_replan: int = 1         # revise 触发 Planner.replan 的最大次数，硬上限防空转（Q2-B 兜底）
     token_budget: int = 200_000 # LLM token 总预算，作为硬闸停止条件之一（Q6-B）；正常等价预算下不先于 hop 触发
+    # ---- F13（审计）：预算准入与压缩边界 ----
+    #: 为写作/校验预留的 token 额度：研究循环（critic 硬闸）在
+    #: `token_budget - token_budget_reserve` 处提前停止，保证报告/验证仍有预算；
+    #: `token_budget` 仍是**每次外部调用的绝对准入线**（耗尽即不再发起调用）。
+    token_budget_reserve: int = field(
+        default_factory=lambda: int(_env("TOKEN_BUDGET_RESERVE", "40000")))
+    #: 压缩触发：findings 总字符超过该值也触发（不再只看条数——token 体积口径）
+    compress_trigger_chars: int = field(
+        default_factory=lambda: int(_env("COMPRESS_TRIGGER_CHARS", "60000")))
+    #: 单次 compress 的 LLM 调用组数上限（超出部分保持原文，单节点调用数有界）
+    compress_max_groups: int = field(
+        default_factory=lambda: int(_env("COMPRESS_MAX_GROUPS", "40")))
 
 
 @dataclass
@@ -130,6 +176,50 @@ class LangfuseConfig:
     sample_rate: float = field(default_factory=lambda: float(_env("LANGFUSE_SAMPLE_RATE", "1.0")))
     mask_sensitive: bool = field(default_factory=lambda: _env("LANGFUSE_MASK_SENSITIVE", "false").lower() == "true")
     truncate_len: int = 4000  # Q7：常量级配置（策略进代码，不见开关）
+
+
+@dataclass
+class MailConfig:
+    """需求 24：邮件通道（SMTP-first，任意服务商；stdlib 实现）。
+
+    ``host`` / ``sender`` 为空 = 未配置：``/api/auth/forgot`` 返回结构化
+    ``mail_unavailable``（503），管理员 CLI 兜底路径不变。
+    """
+
+    host: str = field(default_factory=lambda: _env("DR_SMTP_HOST"))
+    port: int = field(default_factory=lambda: int(_env("DR_SMTP_PORT", "465")))
+    user: str = field(default_factory=lambda: _env("DR_SMTP_USER"))
+    password: str = field(default_factory=lambda: _env("DR_SMTP_PASSWORD"))
+    sender: str = field(default_factory=lambda: _env("DR_SMTP_FROM"))
+    tls: str = field(default_factory=lambda: _env("DR_SMTP_TLS", "ssl").lower())
+    base_url: str = field(default_factory=lambda: _env("DR_MAIL_BASE_URL", "http://localhost:5173"))
+    reset_cooldown_seconds: int = field(
+        default_factory=lambda: int(_env("DR_RESET_COOLDOWN_SECONDS", "60")))
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.host and self.sender)
+
+
+@dataclass
+class ObservabilityConfig:
+    """需求 25：错误追踪（Sentry 协议；DSN 空 = 关闭）。
+
+    只依赖 Sentry 协议：DSN 可指向自托管 GlitchTip（默认，数据不出境）/
+    阿里云 ARMS RUM / Sentry Cloud（需数据出境评审）。PII 策略见
+    ``web/backend/observability.py``（不采内容、清洗凭据）。
+    """
+
+    sentry_dsn: str = field(default_factory=lambda: _env("DR_SENTRY_DSN"))
+    sentry_dsn_frontend: str = field(default_factory=lambda: _env("DR_SENTRY_DSN_FRONTEND"))
+    sentry_environment: str = field(default_factory=lambda: _env("DR_SENTRY_ENVIRONMENT", "staging"))
+    sentry_release: str = field(default_factory=lambda: _env("DR_SENTRY_RELEASE"))
+    sentry_traces_sample_rate: float = field(
+        default_factory=lambda: float(_env("DR_SENTRY_TRACES_SAMPLE_RATE", "0")))
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.sentry_dsn)
 
 
 @dataclass
@@ -167,6 +257,8 @@ class Config:
     langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
     code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
+    mail: MailConfig = field(default_factory=MailConfig)
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
 
 config = Config()

@@ -1,0 +1,386 @@
+# L3-A staging 骨架（P1）：PostgreSQL + Redis + 迁移 + API。
+# 设计口径见 docs/requirements/10-l3-production.md §5.1/§5.13 与 docs/operations/production-readiness.md §7。
+#
+# 起停：
+#   docker compose -f docker-compose.staging.yml up -d --build   # 自动等依赖健康 → 跑迁移 → 起 API
+#   docker compose -f docker-compose.staging.yml down            # 停服（加 -v 连数据卷一起删）
+#   docker compose --profile proxy up -d                         # 额外起 Caddy（自动 HTTPS）
+#   docker compose --profile local-s3 up -d                      # 额外起 MinIO（本地对象存储）
+# 探针：
+#   curl http://127.0.0.1:8000/api/health/ready
+#
+# P0-9 启动自检（staging 默认）：API 要求显式配置
+#   DR_CORS_ORIGINS（不得沿用 localhost 默认）、DASHSCOPE_API_KEY、
+#   DR_COOKIE_SECURE=true、DR_AUTH_REQUIRED=true —— 缺失即启动失败（fail fast）。
+# 纯本地 HTTP 调试：DR_ENV=local DR_COOKIE_SECURE=false DR_AUTH_REQUIRED=false。
+#
+# 说明：
+# - Qdrant 已于 2026-09-30 纳入本文件（此前默认指向宿主机 host.docker.internal，
+#   云上一键部署时宿主机没有实例 ⇒ RAG 上传直接不可用）。现默认指向 compose 内服务，
+#   仍可用 QDRANT_URL 覆盖为外部实例。
+# - Worker 服务在 P3 增加；API 现在仍走请求进程内 RunManager（P2/P3 迁移到队列）。
+# - 境外服务按推荐基线 v2 默认关闭（LANGFUSE_ENABLED=false / ENABLE_ARXIV=false）。
+#
+# 内存预算（面向 4 GB 轻量机，2026-09-30 实测估算）：
+#   常驻约 2.6 GB（Worker ~600 + Qdrant ~500 + 系统/Docker ~400 + API ~400
+#   + PostgreSQL ~350 + MinIO ~300 + Redis ~100），余量约 1.4 GB。
+#   🚨 各服务的 deploy.resources.limits.memory 是**硬上限**：目的是让某个服务失控时
+#   只杀它自己，而不是由内核 OOM killer 挑一个——后者最常挑中 PostgreSQL（内存占用最大
+#   且是唯一有状态服务），代价是数据损坏。用云上 COS 时不启动 MinIO，可再省 ~300 MB。
+#   另建议给宿主机加 2 GB swap（轻量机默认无 swap）。
+
+name: deepresearch-staging
+
+# api 与 worker 共用的应用环境（YAML 锚点；worker 同样需要 provider / 任务库 / Redis 配置）
+x-app-environment: &app-environment
+  DR_DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
+  DR_REDIS_URL: "redis://redis:6379/0"
+  # 需求 24/25/26：邮件通道 / 错误追踪 / 报告分享 —— .env 调参必须在此透传，
+  # 否则容器内取代码默认值（如 DR_SHARE_ENABLED 恒 false、SMTP 恒未配置）
+  DR_SMTP_HOST: "${DR_SMTP_HOST:-}"
+  DR_SMTP_PORT: "${DR_SMTP_PORT:-465}"
+  DR_SMTP_USER: "${DR_SMTP_USER:-}"
+  DR_SMTP_PASSWORD: "${DR_SMTP_PASSWORD:-}"
+  DR_SMTP_FROM: "${DR_SMTP_FROM:-}"
+  DR_SMTP_TLS: "${DR_SMTP_TLS:-ssl}"
+  DR_MAIL_BASE_URL: "${DR_MAIL_BASE_URL:-}"
+  DR_RESET_COOLDOWN_SECONDS: "${DR_RESET_COOLDOWN_SECONDS:-60}"
+  DR_SENTRY_DSN: "${DR_SENTRY_DSN:-}"
+  DR_SENTRY_DSN_FRONTEND: "${DR_SENTRY_DSN_FRONTEND:-}"
+  DR_SENTRY_ENVIRONMENT: "${DR_SENTRY_ENVIRONMENT:-staging}"
+  DR_SENTRY_RELEASE: "${DR_SENTRY_RELEASE:-}"
+  DR_SENTRY_TRACES_SAMPLE_RATE: "${DR_SENTRY_TRACES_SAMPLE_RATE:-0}"
+  DR_SHARE_ENABLED: "${DR_SHARE_ENABLED:-false}"
+  DR_SHARE_RATE_PER_MINUTE: "${DR_SHARE_RATE_PER_MINUTE:-30}"
+  QDRANT_URL: "${QDRANT_URL:-http://qdrant:6333}"
+  # P0-8b：RAG 隔离区（api 写入、worker 读取）—— 两服务共享同一卷
+  DR_RAG_QUARANTINE_DIR: "/var/lib/deepresearch/rag-quarantine"
+  # P4-B：配额与预算（2026-09-30 修：此前 compose 未透传，.env 调参对容器无效；
+  #         值仍由 .env 覆盖，默认与代码默认一致）
+  DR_MAX_USER_CONCURRENT: "${DR_MAX_USER_CONCURRENT:-1}"
+  DR_DAILY_RUNS_PER_USER: "${DR_DAILY_RUNS_PER_USER:-1}"
+  DR_RUN_BUDGET_CNY: "${DR_RUN_BUDGET_CNY:-1.50}"
+  DR_MONTHLY_BUDGET_CNY: "${DR_MONTHLY_BUDGET_CNY:-1500}"
+  DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
+  DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+  SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
+  BOCHA_API_KEY: "${BOCHA_API_KEY:-}"
+  ENABLE_ARXIV: "${ENABLE_ARXIV:-false}"
+  LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
+  LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+  LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+  LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+  # P1-8：OpenTelemetry（默认关闭；设置 OTLP 端点或打开 Prometheus 抓取才启用）
+  OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+  DR_METRICS_PROMETHEUS: "${DR_METRICS_PROMETHEUS:-false}"
+  # P1-6：对象存储。**置空 DR_S3_ENDPOINT 即完全关闭，报告回落 PostgreSQL**（双轨）。
+  # 三个供应商的取值差异见 web/backend/objectstore.py 模块 docstring：
+  #   腾讯云 COS（同地域用内网域名免流量费）：
+  #     DR_S3_ENDPOINT=https://cos-internal.ap-beijing.myqcloud.com
+  #     DR_S3_REGION=ap-beijing
+  #     DR_S3_BUCKET=deepresearch-125xxxxxxx      ← COS 桶名必须带 appid 后缀
+  #   阿里云 OSS（注意与 COS 不同）：
+  #     DR_S3_ENDPOINT=https://oss-cn-beijing.aliyuncs.com
+  #     DR_S3_SIGNATURE_VERSION=s3                ← 必须 V2，boto3 的 V4 与 OSS 不兼容
+  #     DR_S3_ADDRESSING_STYLE=virtual            ← OSS 不支持 path-style
+  #   MinIO（本地）：默认即下列值，需 --profile local-s3 启动 minio 服务。
+  DR_S3_ENDPOINT: "${DR_S3_ENDPOINT:-http://minio:9000}"
+  DR_S3_ACCESS_KEY: "${DR_S3_ACCESS_KEY:-deepresearch}"
+  DR_S3_SECRET_KEY: "${DR_S3_SECRET_KEY:-deepresearch-local}"
+  DR_S3_BUCKET: "${DR_S3_BUCKET:-deepresearch}"
+  DR_S3_REGION: "${DR_S3_REGION:-us-east-1}"
+  DR_S3_SIGNATURE_VERSION: "${DR_S3_SIGNATURE_VERSION:-s3v4}"
+  DR_S3_ADDRESSING_STYLE: "${DR_S3_ADDRESSING_STYLE:-auto}"
+  DR_S3_REPORT_RETENTION_DAYS: "${DR_S3_REPORT_RETENTION_DAYS:-90}"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deepresearch
+      POSTGRES_PASSWORD: "${DR_POSTGRES_PASSWORD:-deepresearch-local}"
+      POSTGRES_DB: deepresearch
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepresearch -d deepresearch"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DR_POSTGRES_PORT:-5432}:5432"
+    # 硬上限见文件头「内存预算」：超限只杀本容器，不让内核 OOM 挑中 PostgreSQL
+    deploy:
+      resources:
+        limits:
+          memory: 900M
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # 显式设 maxmemory：Redis 未设上限会一直增长；本实例只用作队列信号与限流键
+    command: ["redis-server", "--appendonly", "yes",
+              "--maxmemory", "200mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:${DR_REDIS_PORT:-6379}:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # RAG 向量库（P5 多租户隔离：检索按 user_id / tenant_id / visibility 过滤）。
+  # 2026-09-30 纳入本文件 —— 此前默认指向宿主机，云上无实例时 RAG 上传功能不可用。
+  # ⚠️ 镜像用 latest 与既有 minio 服务一致；上生产前应固定具体 tag 并记入变更记录。
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    healthcheck:
+      # qdrant 镜像内无 curl / wget（2026-09-30 实测 1.19.1 仅有 bash）：
+      # 用 bash 原生 /dev/tcp 探测 REST 端口，避免容器「运行正常却判 unhealthy」
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:${DR_QDRANT_PORT:-6333}:6333"
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/deepresearch"
+    volumes:
+      - ./migrations:/migrations:ro
+      - ./tools/migrate.sh:/usr/local/bin/migrate.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/migrate.sh"]
+    restart: "no"
+
+  # P1-6：S3 兼容对象存储（报告 / 导出；私有桶 + runs/ 前缀生命周期）
+  # ⚠️ 默认**不启动**（profiles: local-s3）：上云时用腾讯云 COS / 阿里云 OSS，
+  #    只需设环境变量 DR_S3_*，不必再跑 MinIO（省 ~300 MB 内存与一份存储）。
+  #    本地要用：docker compose --profile local-s3 up -d
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    profiles: ["local-s3"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${DR_S3_ACCESS_KEY:-deepresearch}"
+      MINIO_ROOT_PASSWORD: "${DR_S3_SECRET_KEY:-deepresearch-local}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:${DR_MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${DR_MINIO_CONSOLE_PORT:-9001}:9001"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # 需求 24：邮件沙箱（本地/联调专用，捕获全部外发邮件，不真实投递）
+  # 用法：docker compose --profile local-mail up -d mailhog
+  #      api 侧配 DR_SMTP_HOST=mailhog、DR_SMTP_PORT=1025、DR_SMTP_TLS=none
+  #      Web UI：http://127.0.0.1:8025
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    restart: unless-stopped
+    profiles: ["local-mail"]
+    ports:
+      - "127.0.0.1:${DR_MAILHOG_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${DR_MAILHOG_UI_PORT:-8025}:8025"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # 需求 25：错误追踪（Sentry 协议；默认部署形态，数据不出境）
+  # 用法：docker compose -f docker-compose.staging.yml --profile errors up -d glitchtip-db-init glitchtip
+  #   首次启动前设置 DR_GLITCHTIP_SECRET_KEY（随机长串）；控制台建项目后配 DR_SENTRY_DSN[_FRONTEND]
+  glitchtip-db-init:
+    image: postgres:16-alpine
+    profiles: ["errors"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: "${DR_POSTGRES_PASSWORD:-deepresearch-local}"
+    entrypoint: ["sh", "-c",
+                 "psql -h postgres -U deepresearch -d deepresearch -c 'CREATE DATABASE glitchtip' || true"]
+
+  glitchtip:
+    image: glitchtip/glitchtip:v5
+    restart: unless-stopped
+    profiles: ["errors"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://deepresearch:${DR_POSTGRES_PASSWORD:-deepresearch-local}@postgres:5432/glitchtip"
+      REDIS_URL: "redis://redis:6379/1"
+      SECRET_KEY: "${DR_GLITCHTIP_SECRET_KEY:-change-me-before-enable}"
+      GLITCHTIP_DOMAIN: "${DR_GLITCHTIP_DOMAIN:-http://127.0.0.1:8081}"
+    ports:
+      - "127.0.0.1:${DR_GLITCHTIP_PORT:-8081}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # 不依赖 minio：它已移入 profiles: local-s3（用云上 COS/OSS 时不存在该服务）
+      qdrant:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-environment
+      # P3：staging 默认「队列模式」（API 只创建 QUEUED 任务，Worker 执行）
+      DR_EXECUTION_MODE: "${DR_EXECUTION_MODE:-queue}"
+      DR_CORS_ORIGINS: "${DR_CORS_ORIGINS:-}"
+      # P4-A：staging 默认开启鉴权与邀请制（本地开发不设，行为与 P3 一致）
+      DR_AUTH_REQUIRED: "${DR_AUTH_REQUIRED:-true}"
+      DR_INVITE_ONLY: "${DR_INVITE_ONLY:-true}"
+      # P0-9：staging 启动硬校验（Secure Cookie / CORS / 密钥缺失即 fail fast）；
+      # 纯 HTTP 本地调试可显式设 DR_ENV=local 并关掉 DR_COOKIE_SECURE。
+      DR_ENV: "${DR_ENV:-staging}"
+      DR_COOKIE_SECURE: "${DR_COOKIE_SECURE:-true}"
+      DR_SESSION_TTL_SECONDS: "${DR_SESSION_TTL_SECONDS:-604800}"
+      # 空闲超时（秒；0 = 仅绝对超时）。内测建议 43200（12h）——P0-4（需求 20）
+      DR_SESSION_IDLE_SECONDS: "${DR_SESSION_IDLE_SECONDS:-0}"
+      # P1-2 / P0-10：反代信任。优先 DR_TRUSTED_PROXY_CIDRS（只信任可信 hop 的
+      # X-Forwarded-*）；DR_TRUST_PROXY=true 为历史兼容（无 CIDR 时取 XFF 首跳）。
+      DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"
+      DR_TRUSTED_PROXY_CIDRS: "${DR_TRUSTED_PROXY_CIDRS:-}"
+      DR_PROXY_HOPS: "${DR_PROXY_HOPS:-1}"
+      # P0-9：运维接口（/api/metrics、/api/ops/*）应用层鉴权；staging/生产未配置即 401
+      DR_OPS_TOKEN: "${DR_OPS_TOKEN:-}"
+      # P0-3：审核 provider 降级策略（quarantine 默认 / fail_closed / allow）
+      DR_MODERATION_DEGRADED_POLICY: "${DR_MODERATION_DEGRADED_POLICY:-quarantine}"
+      # P0-8：usage 落账失败严格模式（true 时中断主链路；默认记录 + 告警不静默）
+      DR_USAGE_STRICT: "${DR_USAGE_STRICT:-false}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - rag_quarantine:/var/lib/deepresearch/rag-quarantine
+    ports:
+      - "${DR_API_BIND:-127.0.0.1}:${DR_API_PORT:-8000}:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 450M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # P3-A：独立 Worker（与 API 同镜像、不同入口；不单独维护 Dockerfile.worker）。
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    command: ["python", "-m", "web.backend.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # 同 api：不依赖 minio（profiles: local-s3）
+      qdrant:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-environment
+      # P2-6：告警外送（未配置 webhook 时只维护 alert_states，零外呼）
+      DR_ALERT_WEBHOOK_URL: "${DR_ALERT_WEBHOOK_URL:-}"
+      DR_ALERT_REPEAT_MINUTES: "${DR_ALERT_REPEAT_MINUTES:-30}"
+      DR_ALERT_MAX_ATTEMPTS: "${DR_ALERT_MAX_ATTEMPTS:-5}"
+      # P0-3 / P0-8：与 API 同一策略口径（Worker 也会触发审核与记账）
+      DR_MODERATION_DEGRADED_POLICY: "${DR_MODERATION_DEGRADED_POLICY:-quarantine}"
+      DR_USAGE_STRICT: "${DR_USAGE_STRICT:-false}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - rag_quarantine:/var/lib/deepresearch/rag-quarantine
+    # Worker 跑研究图时内存峰值最高（state 累积 + LangGraph），上限给到最大档
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+
+  # 反向代理（Caddy 自动签发并续期 HTTPS 证书）。默认**不启动**，用 profile 打开：
+  #   DR_DOMAIN=your.domain docker compose --profile proxy up -d
+  #   IP 直访（备案前过渡，内部 CA）：DR_DOMAIN=https://<公网IP> DR_DEFAULT_SNI=<公网IP>
+  # 自己已有 Nginx / 网关时不需要它 —— 配置口径见 docs/operations/production-readiness.md §7.1。
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["proxy"]
+    healthcheck:
+      # caddy admin API（容器内 localhost:2019）——镜像内无 curl，用 busybox wget
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      # Caddyfile 用 {$DR_DOMAIN} 取；未设置时回落到 localhost（仅本地 HTTP 调试）
+      DR_DOMAIN: "${DR_DOMAIN:-localhost}"
+      # IP 直访（无域名）：无 SNI 客户端证书选择回退名（Caddyfile 用）
+      DR_DEFAULT_SNI: "${DR_DEFAULT_SNI:-}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  qdrant_data:
+  caddy_data:
+  caddy_config:
+  pg_data:
+  redis_data:
+  rag_quarantine:
+  minio_data:

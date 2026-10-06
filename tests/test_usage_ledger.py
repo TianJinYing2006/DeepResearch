@@ -1,0 +1,289 @@
+"""P1-4 用量账本单测（FakeStore / 假图，零 PostgreSQL / LLM）。
+
+覆盖：emit no-op、LLMClient 发射、sink 计价与精度标注、RunManager/Worker/摄取
+三条执行路径的 sink 注入。
+"""
+from __future__ import annotations
+
+import time
+
+import pytest
+from fakes import FakeQueue, FakeStore
+
+from research_engine.llm.client import LLMClient
+from research_engine.usage import (
+    UsageRecord,
+    UsageSinkError,
+    emit_usage,
+    sink_failure_count,
+    use_usage_sink,
+)
+from web.backend.runner import RunManager
+from web.backend.usage import make_store_sink
+from web.backend.worker import Worker
+
+
+def test_emit_without_sink_is_noop():
+    emit_usage(UsageRecord(kind="llm", provider="x"))  # 不抛即通过
+
+
+def test_llm_client_emits_usage_record():
+    class _Usage:
+        total_tokens = 120
+        prompt_tokens = 100
+        completion_tokens = 20
+
+    class _Resp:
+        usage = _Usage()
+        id = "cmpl-1"
+
+    records: list[UsageRecord] = []
+    client = LLMClient(model="qwen-plus", role="critic")
+    with use_usage_sink(records.append):
+        client._accumulate_usage(_Resp(), None)
+
+    assert records == [UsageRecord(
+        kind="llm", provider="dashscope", model="qwen-plus", role="critic",
+        input_tokens=100, output_tokens=20, total_tokens=120, request_id="cmpl-1")]
+
+
+def test_make_store_sink_prices_llm_and_labels_others():
+    store = FakeStore()
+    sink = make_store_sink(store, run_id="r1", attempt=2)
+    sink(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus",
+                     role="critic", total_tokens=1000))
+    sink(UsageRecord(kind="search", provider="bocha", role="web"))
+
+    rows = store.list_usage(run_id="r1")
+    llm = next(row for row in rows if row["kind"] == "llm")
+    assert llm["cost_source"] == "estimate"
+    assert llm["cost_estimate_cny"] == 0.002  # qwen-plus output 0.002/1k × 1k
+    assert llm["attempt"] == 2
+    search = next(row for row in rows if row["kind"] == "search")
+    assert search["cost_source"] == "per_call" and search["cost_estimate_cny"] == 0
+
+
+class _UsageGraph:
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        from research_engine.state import ResearchState
+        from research_engine.streaming import STOP_COMPLETED, RunStep
+        emit_usage(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus",
+                               role="planner", total_tokens=100))
+        state = ResearchState(topic=topic)
+        yield RunStep(index=0, node=None, state=state, terminal=True,
+                      stop_reason=STOP_COMPLETED)
+
+
+def _wait_terminal(store: FakeStore, run_id: str, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if store.get_run(run_id)["status"] in ("SUCCEEDED", "FAILED", "CANCELLED",
+                                               "TIMED_OUT", "LOST"):
+            return
+        time.sleep(0.01)
+    raise AssertionError("run not terminal in time")
+
+
+def test_run_manager_wires_usage_sink():
+    store = FakeStore()
+    manager = RunManager(graph_factory=lambda: _UsageGraph(), store=store,
+                         max_concurrent_runs=4)
+    run_id = manager.start("t")
+    _wait_terminal(store, run_id)
+
+    rows = store.list_usage(run_id=run_id)
+    assert rows and rows[0]["kind"] == "llm" and rows[0]["run_id"] == run_id
+    assert rows[0]["attempt"] == 1
+
+
+def test_worker_wires_usage_sink_with_attempt():
+    store = FakeStore()
+    store.create_run("usage-run-1", "t", {}, status="QUEUED")
+    worker = Worker(store, FakeQueue(), graph_factory=lambda: _UsageGraph(),
+                    worker_id="w-usage", lease_seconds=60, heartbeat_seconds=5,
+                    poll_seconds=0)
+
+    assert worker.run_once("usage-run-1") is True
+    rows = store.list_usage(run_id="usage-run-1")
+    assert rows and rows[0]["kind"] == "llm" and rows[0]["attempt"] == 1
+
+
+def test_usage_sink_failure_is_visible_and_strict_raises(monkeypatch, caplog):
+    """P0-8：落账失败不再静默 —— 计数 + ERROR 日志 + 审计；strict 模式上抛。"""
+
+    class _FailingStore(FakeStore):
+        def record_usage(self, **kwargs):
+            raise RuntimeError("ledger down")
+
+    store = _FailingStore()
+    sink = make_store_sink(store, run_id="r-fail", attempt=1)
+
+    before = sink_failure_count()
+    with use_usage_sink(sink), caplog.at_level("ERROR", logger="deepresearch.usage"):
+        emit_usage(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus"))
+
+    assert sink_failure_count() == before + 1
+    assert "usage sink failed" in caplog.text
+    assert store.list_audit(action="usage_sink_failed")
+
+    monkeypatch.setenv("DR_USAGE_STRICT", "true")
+    with use_usage_sink(sink):
+        with pytest.raises(UsageSinkError):
+            emit_usage(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus"))
+
+
+def test_ingestion_worker_wires_usage_sink(monkeypatch, tmp_path):
+    monkeypatch.setenv("DR_RAG_QUARANTINE_DIR", str(tmp_path))
+    import web.backend.ingestion as ingestion_module
+
+    store = FakeStore()
+    path = ingestion_module.quarantine_path("f.md")
+    with open(path, "wb") as handle:
+        handle.write(b"# doc\n\nhello world")
+    store.create_ingestion("ing-usage-1", "u:abc", user_id="u", source="f.md",
+                           sha256="abc", size_bytes=5, stored_name="f.md")
+
+    class _FakeVectorStore:
+        def __init__(self):
+            self.points: list = []
+            self.active: dict = {}
+            self.unavailable_reason = None
+
+        def upsert(self, points):
+            self.points.extend(points)
+
+        def count_by_generation(self, doc_id, generation):
+            return sum(1 for point in self.points
+                       if point.payload["doc_id"] == doc_id
+                       and point.payload["generation"] == generation)
+
+        def set_generation_active(self, doc_id, generation, active, *, wait=True):
+            self.active[(doc_id, generation)] = active
+
+    class _EmittingIngester:
+        """需求 23 管道 v2 协议：embed + store（版本化落库）。"""
+
+        def __init__(self):
+            self.store = _FakeVectorStore()
+
+        def embed(self, texts):
+            emit_usage(UsageRecord(kind="embedding", provider="dashscope",
+                                   model="text-embedding-v3", total_tokens=50))
+            return [[0.1, 0.2] for _ in texts]
+
+    summary = ingestion_module.process_ingestions_once(
+        store, ingester_factory=lambda: _EmittingIngester())
+
+    assert summary["ready"] == 1
+    rows = store.list_usage()
+    assert rows and rows[0]["kind"] == "embedding"
+    assert rows[0]["run_id"] is None
+    assert rows[0]["detail"]["doc_id"] == "u:abc"
+
+
+# ---------------------------------------------------------------- 审计 F05/F06
+
+def test_researcher_tool_threads_inherit_usage_sink():
+    """F05：工具线程必须继承父线程 usage sink（search/embedding 用量不再漏账）。"""
+    from research_engine.agents.researcher import Researcher
+
+    def _web(query):
+        emit_usage(UsageRecord(kind="search", provider="bocha", role="web"))
+        return []
+
+    def _rag(query):
+        emit_usage(UsageRecord(kind="embedding", provider="dashscope",
+                               model="text-embedding-v3"))
+        return []
+
+    res = Researcher.__new__(Researcher)  # 不走 __init__（避免网络/嵌入）
+    res._search_web = _web
+    res._search_rag = _rag
+    res._search_arxiv = lambda q: []
+    res._search_code = lambda q: []
+
+    records: list[UsageRecord] = []
+    with use_usage_sink(records.append):
+        pooled, _stats = res.search_once("q1")
+
+    assert pooled == []
+    assert {row.kind for row in records} == {"search", "embedding"}, (
+        f"工具线程漏账（copy_context 未生效）：{records}")
+
+
+def test_llm_client_strict_sink_error_propagates(monkeypatch):
+    """F06：strict 模式下 LLMClient 不得吞掉 UsageSinkError（账务契约上抛）。"""
+
+    class _Usage:
+        total_tokens = 10
+        prompt_tokens = 8
+        completion_tokens = 2
+
+    class _Resp:
+        usage = _Usage()
+        id = "cmpl-strict"
+
+    def _failing_sink(record):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setenv("DR_USAGE_STRICT", "true")
+    client = LLMClient(model="qwen-plus", role="critic")
+    with use_usage_sink(_failing_sink):
+        with pytest.raises(UsageSinkError):
+            client._accumulate_usage(_Resp(), None)
+
+
+def test_llm_client_non_strict_sink_failure_is_contained(monkeypatch):
+    """F06：非 strict 时记账失败只留痕（计数+日志），不打断调用。"""
+
+    class _Usage:
+        total_tokens = 5
+        prompt_tokens = 4
+        completion_tokens = 1
+
+    class _Resp:
+        usage = _Usage()
+        id = "cmpl-soft"
+
+    def _failing_sink(record):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setenv("DR_USAGE_STRICT", "false")
+    client = LLMClient(model="qwen-plus", role="critic")
+    before = sink_failure_count()
+    with use_usage_sink(_failing_sink):
+        client._accumulate_usage(_Resp(), None)  # 不抛即通过
+    assert sink_failure_count() == before + 1
+
+
+def test_planner_does_not_swallow_usage_sink_error(monkeypatch):
+    """F06：strict 记账失败必须穿透 planner 的降级兜底（不得退化为 topic_only）。"""
+    import research_engine.agents.planner as planner_mod
+    from research_engine.agents.planner import Planner
+
+    class _StrictRouter:
+        def strategic_json(self, system, user, state=None):
+            raise UsageSinkError("sink down")
+
+    monkeypatch.setattr(planner_mod, "get_router", lambda: _StrictRouter())
+    planner = Planner()
+    with pytest.raises(UsageSinkError):
+        planner.plan("主题")
+    assert planner.drain_degradations() == []
+
+
+def test_writer_does_not_swallow_usage_sink_error(monkeypatch):
+    """F06：strict 记账失败必须穿透 writer 的兜底报告路径。"""
+    import research_engine.agents.writer as writer_mod
+    from research_engine.agents.writer import Writer
+    from research_engine.state import SubQuestion
+
+    class _StrictRouter:
+        def smart_chat(self, system, user, state=None):
+            raise UsageSinkError("sink down")
+
+    monkeypatch.setattr(writer_mod, "get_router", lambda: _StrictRouter())
+    writer = Writer()
+    with pytest.raises(UsageSinkError):
+        writer.write("主题", [SubQuestion(id="q1", question="问题", rationale="r")], [])
+    assert writer.drain_degradations() == []

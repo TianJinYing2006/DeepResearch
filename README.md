@@ -124,9 +124,50 @@ cd web/frontend && npm ci && npm run dev
 
 打开 http://localhost:5173 。生产模式下由 FastAPI 直接托管 `web/frontend/dist/`，只需启动后端。
 
+**Docker 方式（staging 骨架，P1 部署底座）：**
+```bash
+# 一条命令：PostgreSQL + Redis + 迁移 + API（前端构建产物打进镜像，由 FastAPI 托管）
+docker compose -f docker-compose.staging.yml up -d --build
+curl http://127.0.0.1:8000/api/health/ready     # {"status":"ready","checks":{"postgres":"ok","redis":"ok"}}
+
+# 端口冲突时用环境变量覆盖（本机 5432/6379/8000 常被其他项目占用）
+# DR_POSTGRES_PORT=15432 DR_REDIS_PORT=16379 DR_API_PORT=18080 docker compose -f docker-compose.staging.yml up -d --build
+docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数据卷一起删
+```
+
+- 迁移**只前向**执行（`migrations/NNNN_slug.sql` + `schema_migrations` 记录），重复执行全部 `skip`（CI 锁幂等：第二次必须 `applied=0`）；
+- 探针：`/api/health/live`（进程活着）与 `/api/health/ready`（PG/Redis **未配置时不算失败**，配置了但探不通返回 503）；
+- **执行模式**：compose 默认 `DR_EXECUTION_MODE=queue` —— API 只创建 `QUEUED` 任务并投递 Redis，独立 `worker` 服务领取执行（同镜像不同入口，`python -m web.backend.worker`）；本地开发默认 `inprocess`（请求进程内执行，行为与 P1/P2 一致）；
+- **租约与重试**（P3-B）：Worker 每 30s 清扫过期租约 —— 用户已取消的收口为 `CANCELLED`，其余按 `attempt+1` 重新入队（默认重试 1 次），耗尽记 `LOST`；单 run 预算闸在节点边界检查，超限停止（`stop_reason=budget_exceeded`）；
+- 容器冒烟（2026-09-26）：api + worker + PG + Redis 全栈，真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s）；
+- CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
+- Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
+- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）；
+- **账号（P4-A）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（httpOnly Session + CSRF 双提交）；邀请码与账号用 CLI 管理：`python -m web.backend.admin create-invite` / `create-user` / `ban-user`；本地默认全关（行为与 P3 一致）。
+- **配额与限流（P4-B）**：单用户 `DR_DAILY_RUNS_PER_USER=1` 次/日、并发 `DR_MAX_USER_CONCURRENT=1`；单次预算 `DR_RUN_BUDGET_CNY=¥1.50`、全局月度 `DR_MONTHLY_BUDGET_CNY=¥1,500`（100% 熔断新任务，查询/导出不受影响）；`GET /api/quota` 查余量；登录/注册/提交限流（进程内，多实例部署前需迁 Redis）。
+- **RAG 隔离（P5-A）**：知识库块带 `user_id`/`tenant_id`/`visibility`；每次研究按 run 所有者设检索作用域（owner 只见本人 private，匿名只见无主历史块，绝不跨用户）；HTTP 上传面（携带当前用户）属 P6。
+- **内容安全与隐私（P7-A）**：输入预检词表（`DR_MODERATION_BLOCKLIST`，命中即拒）；输出命中仅标记 `flagged` **不自动拦截**（等人工复核）；申诉入口与审核记录（CLI `moderation-list`）；账号注销（验密 + 清理知识库向量，任务匿名保留）；隐私政策/用户协议草案见 `docs/legal/`。⚠️ 规则预检**不是审核服务**，正式开放前必须接入有资质服务。
+- **可观测与恢复（P8-A）**：`GET /api/metrics`（HTTP/SSE 计量 + 任务状态分布与成功率、队列积压、过期租约、月度成本）；`GET /api/ops/alerts`（`DR_ALERT_*` 阈值判定，触达渠道留部署方）；`tools/backup.sh` / `tools/restore.sh`，CI 每次 PR 真实执行「备份 → 清库 → 恢复」演练。
+
 Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数上限、搜索引擎、学术检索）、实时查看阶段进度与降级事件、
 查看 token/cost、**随时取消**（节点边界协作式取消，实测停止耗时中位 14.4s / 最大 31.4s）、查看带引用的报告与引用溯源、
-**后端导出报告**（正文 + run_id / run_status / 降级条数等审计元数据 + 引用清单）。
+**后端导出报告**（正文 + run_id / run_status / 降级条数等审计元数据 + 引用清单）、**刷新页面恢复当前运行**、
+**历史任务列表**（`GET /api/runs`，需配置任务库；支持状态筛选与分页）、**账号条**（P6：鉴权开启时登录门；邀请链接 `?invite=CODE`；配额 chip；历史报告预览；知识库上传与清单）、
+查看**运行摘要**（总耗时 / 完成节点 / 检索跳数 / 降级条目 / 报告字数 / 成本估算）。
+
+> **断线重连语义**：短暂断网由浏览器 `EventSource` 自动重连，并带 `Last-Event-ID` 续传；
+> 刷新页面凭 `sessionStorage` 里的 run_id + `GET /api/research/{id}` 状态快照 + **从 0 回放全部帧**恢复
+> （回放已发生事件，**不产生新的 LLM 调用**）。**终局后保留**最近一次 run 的 id ⇒ 刷新仍能回看最终报告或错误卡；
+> **可补发** = 进程存活期间产生的全部事件帧（内存保留，事件 id = 帧下标）；配置任务库（`DR_DATABASE_URL`）后，
+> **进程重启也能续上** —— `GET /stream` 从 `run_events` 按同一序号回放，**并继续尾随新事件直到终局**（P3：每秒轮询任务库）。
+> **仍不可补发** = 跨标签页恢复（`sessionStorage` 按标签页隔离）；未配置任务库时行为与 D-19 相同（重启即失）。
+>
+> **资源边界（诚实口径）**：单次 run 的事件帧、结果与报告**常驻内存**，随 run 数线性增长；
+> 配置任务库后同步落库（事件 / 终局状态 / 报告产物），重启后仍可查询与导出，**但任务不会被续跑**
+> —— 单实例内存态执行的残留非终局任务在服务启动时被标记为 `LOST`（租约接管属 P3）。未配置任务库时进程重启即消失。
+> 客户端断开只停止**投递**，不会杀掉后端运行（取消必须显式调用 `POST /cancel`）；
+> SSE 等待由心跳（15s）兜底超时，不会永久占住执行器线程；工作线程为 daemon，三条终局路径均释放，
+> 强制收口后线程随节点自然收尾退出。
 
 > 事件语义对齐 [AG-UI](https://docs.ag-ui.com/)；取消采用**协作式**而非抢占式 —— 取消请求立即生效，
 > 执行停止在下一个节点安全边界，取消后不再启动新的研究节点与 LLM 调用。详见 `docs/requirements/9-web-ui-rewrite.md`。
@@ -151,8 +192,8 @@ Web UI 支持：提交研究主题与运行选项（多跳深度、子问题数�
 强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
 会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
 
-**浏览器 E2E（本机门禁）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，8 条用例（主流程 / 降级可见 / 导出 / 取消语义 /
-结构化错误 + 重试 / 窄屏无横向滚动）约 30s。
+**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，10 条用例（主流程 / **刷新恢复** / **完成后续看** /
+降级可见 / 导出 / 取消语义 / 结构化错误 + 重试 + **详情折叠** / 窄屏无横向滚动）约 41s。
 
 ```bash
 cd web/frontend
@@ -162,8 +203,9 @@ DR_PYTHON=<项目 venv 的 python> npm run e2e
 # 换浏览器：E2E_CHANNEL=msedge npm run e2e（默认用本机 Chrome，不下载浏览器）
 ```
 
-⚠️ 当前**未接进 CI**：GitHub-hosted runner 上需要装 Python 依赖 + Chromium，成本与稳定性未经实测，
-不假装它 green；要接进去需先验证 `npx playwright install --with-deps chromium` 在该 runner 上的耗时。
+CI 里的 `e2e` job 用**官方 Chromium**（`E2E_CHANNEL=chromium` + `playwright install --with-deps chromium`），
+不依赖 runner 预装浏览器。**首轮实测**（run `36006923861`）：job 总耗时 **109s**（含 Python 依赖 + npm ci +
+build + Chromium 安装），用例 **10 passed / 45.0s** —— 成本远低于接入前的预估（原估 4~6 分钟）。
 
 ## 目录结构
 
@@ -202,7 +244,11 @@ DeepResearch/
 │   │   └── src/lib/progress.ts  # 分层进度（不做假进度条）
 │   └── app.py                # ⚠️ 已废弃：W9 之前的 Streamlit 旧入口
 ├── tools/
-│   └── check_frontend_boundary.py  # CI 边界守卫：前端目录不得 import research_engine
+│   ├── check_frontend_boundary.py  # CI 边界守卫：前端目录不得 import research_engine
+│   └── migrate.sh            # 迁移执行器（只前向 + schema_migrations 记录，CI 锁幂等）
+├── migrations/               # 数据库迁移（NNNN_slug.sql；业务表从 P2 起）
+├── Dockerfile.api            # API 镜像（node 构建前端 + python 运行时，多阶段）
+├── docker-compose.staging.yml # staging 骨架：PostgreSQL + Redis + 迁移 + API
 ├── cli.py                    # CLI 入口
 ├── config.py                 # 配置
 └── requirements.txt
@@ -326,7 +372,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **441 项全绿** | 2026-09-24 本机 Python 3.13.14 完整复验（28 个测试文件，零 LLM、零 key）；CI 继续覆盖 3.11/3.12/3.13。其中 Web 层 49 条 = 流式 15 + HTTP 8 + **P1 运行护栏 26**（含 2 条强制收口交错回归）；另有 `frontend` job 跑 `tsc --noEmit` + `vite build`，**浏览器 E2E 8 条**当前为本机门禁（见下节） |
+| 单元测试 | **566 项收集 = 539 通过 + 27 跳过** | 2026-09-26 本机 Python 3.13.14 完整复验（零 LLM、零 key）；CI：3.11/3.12/3.13 + `frontend` + `infra`（真实 PG/Redis：仓储 23 + 队列/Worker 集成 4 + **恢复演练**）+ `e2e`。**浏览器 E2E 18 条** |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |

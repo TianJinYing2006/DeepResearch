@@ -25,16 +25,26 @@ import queue
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from research_engine.evidence import serialize_evidence_index
 from research_engine.graph import DeepResearchGraph, create_graph
+from research_engine.rag.scope import set_scope
+from research_engine.runtime_profile import (
+    RuntimeProfile,
+    effective_research_config,
+    reset_task_deadline,
+    set_profile,
+    set_task_deadline,
+)
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
     STOP_TIMEOUT,
     RunStep,
 )
+from research_engine.usage import pop_usage_sink, push_usage_sink
 
 from .agui import (
     DEGRADATION,
@@ -45,8 +55,13 @@ from .agui import (
     STEP_FINISHED,
     sse_frame,
 )
+from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
+from .moderation import ModerationDecision, apply_output_gate, evaluate_output
+from .persistence import persist_forced, persist_terminal
+from .store import QuotaExceeded, RunStore
+from .usage import make_store_sink
 
 # --- P1-2 / P1-3 默认值 --------------------------------------------------------
 # 依据：单轮实测 48~51 分钟（W8 after 基线）⇒ 时限必须给出**真实运行的余量**，
@@ -94,8 +109,11 @@ class RunManager:
     def __init__(self, graph_factory: Callable[[], DeepResearchGraph] = create_graph,
                  run_timeout_seconds: Optional[int] = None,
                  max_concurrent_runs: Optional[int] = None,
-                 forced_stop_grace_seconds: Optional[int] = None):
+                 forced_stop_grace_seconds: Optional[int] = None,
+                 store: Optional[RunStore] = None):
         self._graph_factory = graph_factory
+        # P2-C：可选持久化仓储。不传（本地 / 测试 / DR_DEMO）时行为与 P1 完全一致。
+        self._store = store
         self.run_timeout_seconds = (
             run_timeout_seconds
             if run_timeout_seconds is not None
@@ -128,20 +146,41 @@ class RunManager:
         self._timed_out: set[str] = set()
         self._forced: set[str] = set()
         self._active: set[str] = set()
+        #: run_id → 所有者 user_id（P4-A 越权隔离；None = 匿名/未启用鉴权）
+        self._owners: Dict[str, Optional[str]] = {}
 
     # ------------------------------------------------------------------ 生命周期
 
-    def start(self, topic: str, instructions: str = "", max_total_hops: int | None = None,
-              search_provider: str | None = None,
-              enable_arxiv: bool | None = None,
-              max_subquestions: int | None = None) -> str:
+    def start(self, topic: str, instructions: str = "",
+              profile: Optional[RuntimeProfile] = None,
+              idempotency_key: str | None = None,
+              user_id: str | None = None,
+              budget_limit_cny: float | None = None,
+              ignored_overrides: Optional[dict] = None,
+              admission: Optional[dict] = None,
+              request_hash: Optional[str] = None,
+              retry_of: Optional[str] = None) -> str:
         """启动一次研究，立即返回 `run_id`（不阻塞）。
 
+        配置了仓储（P2-C）时：
+        - 先落 `runs`（携带 `idempotency_key`），重复提交返回**既有 run_id** 且不重复执行；
+        - 随后把状态推进到 `RUNNING`；持久化失败按 `persistence_error` 记入运行画像，
+          不打断研究本身（读接口的降级语义见 main.py）。
+
         Raises:
-            ApiError: 并发上限已满（`concurrency_limit`，HTTP 429）。
+            ApiError: 并发上限已满（`concurrency_limit`）或仓储不可用（`persistence_unavailable`）。
         """
         run_id = uuid.uuid4().hex[:12]
         now = time.monotonic()
+        if self._store is not None and idempotency_key is not None:
+            # 幂等命中先于并发检查：重复提交是同一个逻辑请求，不应被并发闸拒绝。
+            existing = self._persist_call(run_id, "get_run_by_idempotency", user_id, idempotency_key)
+            if existing is not None:
+                stored = existing.get("request_hash")
+                if (request_hash is not None and stored is not None
+                        and stored != request_hash):
+                    raise ApiError("idempotency_conflict", "该幂等键已用于不同请求")
+                return existing["run_id"]
         with self._lock:
             if len(self._active) >= self.max_concurrent_runs:
                 raise ApiError(
@@ -149,20 +188,65 @@ class RunManager:
                     f"已有 {len(self._active)} 个研究在运行，上限 {self.max_concurrent_runs}",
                     detail=f"active={len(self._active)}; limit={self.max_concurrent_runs}",
                 )
+            run_timeout_seconds = (
+                profile.timeout_seconds if profile is not None else self.run_timeout_seconds)
+            if self._store is not None:
+                request_payload = {
+                    "instructions": instructions,
+                    "profile": profile.snapshot() if profile is not None else None,
+                    "ignored_overrides": ignored_overrides or None,
+                    # P1-9：数据流向快照（谁收到了什么；不含密钥）
+                    "egress": build_egress_snapshot(profile),
+                }
+                try:
+                    if admission:
+                        # P0-3：准入检查与插入同一事务（advisory lock 串行化）
+                        row, created = self._store.create_run_admitted(
+                            run_id, topic, request_payload,
+                            user_id=user_id,
+                            idempotency_key=idempotency_key,
+                            request_hash=request_hash,
+                            retry_of=retry_of,
+                            timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
+                            budget_limit_cny=budget_limit_cny,
+                            **admission)
+                    else:
+                        row, created = self._store.create_run(
+                            run_id, topic, request_payload,
+                            user_id=user_id,
+                            idempotency_key=idempotency_key,
+                            request_hash=request_hash,
+                            retry_of=retry_of,
+                            timeout_at=datetime.now(UTC) + timedelta(seconds=run_timeout_seconds),
+                            budget_limit_cny=budget_limit_cny,
+                        )
+                except QuotaExceeded as exc:
+                    code = ("concurrency_limit" if exc.kind == "global_concurrency"
+                            else "quota_exceeded")
+                    raise ApiError(code, exc.detail) from exc
+                except Exception as exc:  # noqa: BLE001 —— 持久化是硬前提，失败即明确报错
+                    raise ApiError(
+                        "persistence_unavailable",
+                        f"任务创建失败：{type(exc).__name__}: {exc}"[:300],
+                    ) from exc
+                if not created:
+                    return row["run_id"]
+                run_id = row["run_id"]
             self._frames[run_id] = []
             self._queues[run_id] = queue.Queue()
             self._cancel[run_id] = threading.Event()
             self._active.add(run_id)
-            self._deadlines[run_id] = now + self.run_timeout_seconds
+            self._owners[run_id] = user_id
+            self._deadlines[run_id] = now + run_timeout_seconds
             self._hard_deadlines[run_id] = (
-                now + self.run_timeout_seconds + self.forced_stop_grace_seconds)
+                now + run_timeout_seconds + self.forced_stop_grace_seconds)
             self._status[run_id] = {
                 "run_id": run_id,
                 "topic": topic,
                 "status": "running",
                 "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "_started_monotonic": now,
-                "timeout_seconds": self.run_timeout_seconds,
+                "timeout_seconds": run_timeout_seconds,
                 "stop_reason": None,
                 "cancelled": False,
                 "run_status": None,
@@ -174,11 +258,21 @@ class RunManager:
                 "event_count": 0,
                 "last_event_type": None,
                 "has_report": False,
+                # P1-9：导出载荷随附数据流向快照
+                "egress": build_egress_snapshot(profile),
             }
+            if self._store is not None:
+                try:
+                    self._store.update_status(
+                        run_id, "RUNNING", allowed_from=("CREATED",),
+                        started_at=datetime.now(UTC),
+                    )
+                except Exception as exc:  # noqa: BLE001 —— 不打断研究，画像里留痕
+                    self._status[run_id]["persistence_error"] = (
+                        f"{type(exc).__name__}: {exc}"[:300])
             t = threading.Thread(
                 target=self._worker,
-                args=(run_id, topic, instructions, max_total_hops,
-                      search_provider, enable_arxiv, max_subquestions),
+                args=(run_id, topic, instructions, profile),
                 name=f"research-{run_id}",
                 daemon=True,
             )
@@ -200,6 +294,8 @@ class RunManager:
             forced = time.monotonic() + self.forced_stop_grace_seconds
             current = self._hard_deadlines.get(run_id)
             self._hard_deadlines[run_id] = forced if current is None else min(current, forced)
+        # P2-C：取消请求落库（CREATED/QUEUED → CANCELLED；RUNNING → CANCEL_REQUESTED）。
+        self._persist_call(run_id, "request_cancel", run_id)
         return True
 
     def queue(self, run_id: str) -> Optional[queue.Queue]:
@@ -207,6 +303,11 @@ class RunManager:
 
     def exists(self, run_id: str) -> bool:
         return run_id in self._frames
+
+    def owner(self, run_id: str) -> Optional[str]:
+        """run 的所有者 user_id（内存态）。调用方应先用 `exists()` 区分「不存在」。"""
+        with self._lock:
+            return self._owners.get(run_id)
 
     def is_finished(self, run_id: str) -> bool:
         return run_id in self._finished
@@ -296,16 +397,13 @@ class RunManager:
                 return None
             self._forced.add(run_id)
             seq = len(self._frames.get(run_id, []))
-            frame = sse_frame(
-                event_id=seq,
-                event_type=RUN_ERROR,
-                payload=error_payload(
-                    "stop_forced",
-                    f"研究未在宽限期内响应停止请求（reason={reason}），已在传输层强制收口",
-                    detail=f"reason={reason}; grace_seconds={self.forced_stop_grace_seconds}",
-                    retryable=True,
-                ),
+            payload = error_payload(
+                "stop_forced",
+                f"研究未在宽限期内响应停止请求（reason={reason}），已在传输层强制收口",
+                detail=f"reason={reason}; grace_seconds={self.forced_stop_grace_seconds}",
+                retryable=True,
             )
+            frame = sse_frame(event_id=seq, event_type=RUN_ERROR, payload=payload)
             self._frames.setdefault(run_id, []).append(frame)
             self._finished.add(run_id)
             st = self._status.get(run_id)
@@ -315,6 +413,7 @@ class RunManager:
             self._active.discard(run_id)
             self._condition.notify_all()
         self._queues[run_id].put(None)
+        self._persist_forced(run_id, seq, payload, reason)
         return frame
 
     # ------------------------------------------------------------------ 报告导出（P1-6）
@@ -323,14 +422,15 @@ class RunManager:
         return run_id in self._results
 
     def export_payload(self, run_id: str) -> Optional[Dict[str, Any]]:
-        """导出的结构化载荷（元数据 + result），没有终局结果时返回 ``None``。"""
+        """导出的结构化载荷（元数据 + result + 数据流向快照），没有终局结果时返回 ``None``。"""
         with self._lock:
             result = self._results.get(run_id)
             meta = self._meta.get(run_id)
             st = self._status.get(run_id)
         if result is None or meta is None or st is None:
             return None
-        return build_export_payload(run_id=run_id, topic=st["topic"], meta=meta, result=result)
+        return build_export_payload(run_id=run_id, topic=st["topic"], meta=meta, result=result,
+                                    egress=st.get("egress"))
 
     def export_markdown(self, run_id: str) -> Optional[str]:
         payload = self.export_payload(run_id)
@@ -338,7 +438,7 @@ class RunManager:
 
     # ------------------------------------------------------------------ 工作线程
 
-    def _append_locked(self, run_id: str, event_type: str, payload: Dict[str, Any]) -> str:
+    def _append_locked(self, run_id: str, event_type: str, payload: Dict[str, Any]) -> tuple[str, int]:
         seq = len(self._frames[run_id])
         frame = sse_frame(event_id=seq, event_type=event_type, payload=payload)
         self._frames[run_id].append(frame)
@@ -346,7 +446,7 @@ class RunManager:
         if st is not None:
             st["event_count"] = seq + 1
             st["last_event_type"] = event_type
-        return frame
+        return frame, seq
 
     def _emit(self, run_id: str, event_type: str, payload: Dict[str, Any]) -> None:
         with self._condition:
@@ -356,28 +456,31 @@ class RunManager:
             # late terminal frame could overwrite the forced-stop semantics.
             if run_id in self._forced or run_id in self._finished:
                 return
-            frame = self._append_locked(run_id, event_type, payload)
+            frame, seq = self._append_locked(run_id, event_type, payload)
             self._condition.notify_all()
         self._queues[run_id].put(frame)
+        self._persist_call(run_id, "append_event", run_id, event_type, payload, sequence=seq)
 
     def _emit_terminal_frame(self, run_id: str, event_type: str, payload: Dict[str, Any], *,
                              status_fields: Dict[str, Any],
                              result: Optional[Dict[str, Any]] = None,
                              report: Optional[str] = None,
-                             meta: Optional[Dict[str, Any]] = None) -> None:
+                             meta: Optional[Dict[str, Any]] = None) -> Optional[int]:
         """终局帧与其结果/状态写入必须原子完成（同一把 condition 锁）。
 
         否则会与 `force_stop_if_overdue()` 形成 TOCTOU：强制收口后仍导出迟到报告，
         或在其后追加第二个终局帧、覆盖 stop_reason。
+
+        返回终局帧的序号（`seq`）；被强制收口抢先时返回 `None`（调用方据此跳过落库）。
         """
         with self._condition:
             if run_id in self._forced or run_id in self._finished:
-                return
+                return None
             if result is not None:
                 self._results[run_id] = result
                 self._reports[run_id] = report or ""
                 self._meta[run_id] = meta or {}
-            frame = self._append_locked(run_id, event_type, payload)
+            frame, seq = self._append_locked(run_id, event_type, payload)
             st = self._status.get(run_id)
             if st is not None:
                 st.update(status_fields)
@@ -387,6 +490,7 @@ class RunManager:
             self._active.discard(run_id)
             self._condition.notify_all()
         self._queues[run_id].put(frame)
+        return seq
 
     def _update_status(self, run_id: str, **fields: Any) -> None:
         with self._lock:
@@ -394,27 +498,101 @@ class RunManager:
             if st is not None:
                 st.update(fields)
 
+    # ------------------------------------------------------------------ 持久化（P2-C）
+
+    def _set_persistence_error(self, run_id: str, exc: Exception) -> None:
+        """持久化失败只留痕（运行画像 `persistence_error`），绝不打断研究本身。"""
+        with self._lock:
+            st = self._status.get(run_id)
+            if st is not None:
+                st["persistence_error"] = f"{type(exc).__name__}: {exc}"[:300]
+
+    def _persist_call(self, run_id: str, method: str, *args: Any, **kwargs: Any) -> Any:
+        if self._store is None:
+            return None
+        try:
+            return getattr(self._store, method)(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            self._set_persistence_error(run_id, exc)
+            return None
+
+    def _persist_terminal(self, run_id: str, seq: int, event_type: str,
+                          payload: Dict[str, Any],
+                          result: Optional[Dict[str, Any]] = None,
+                          report: Optional[str] = None,
+                          meta: Optional[Dict[str, Any]] = None,
+                          moderation: Optional[ModerationDecision] = None) -> None:
+        """终局落库（P3 起实现抽到 `persistence.persist_terminal`；失败只留痕）。
+
+        P0-4：`moderation` 是本次运行唯一一次审核决定的不可变结果，随终局同事务
+        写入状态与 `moderation_records` 证据；不再有独立的事后 `flag_report` 扫描。
+
+        ⚠️ 时序：本方法在**内存终局之后**执行（不在 condition 锁内做 DB I/O，避免
+        持久化抖动拖住传输层）。因此同一进程内，内存已 `finished` 与库中已终局之间
+        可能有几十毫秒窗口；读侧的「重启后查询」场景不受影响（那时内存早已没有该 run）。
+        """
+        store = self._store
+        if store is None:
+            return
+        try:
+            with self._lock:
+                topic = (self._status.get(run_id) or {}).get("topic", "")
+                egress = (self._status.get(run_id) or {}).get("egress")
+            finalized = persist_terminal(store, run_id, seq, event_type, payload,
+                                         result=result, report=report, meta=meta, topic=topic,
+                                         moderation=moderation, egress=egress)
+            if not finalized:
+                # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
+                self._set_persistence_error(run_id, RuntimeError("terminal_conflict"))
+        except Exception as exc:  # noqa: BLE001
+            self._set_persistence_error(run_id, exc)
+
+    def _persist_forced(self, run_id: str, seq: int, payload: Dict[str, Any], reason: str) -> None:
+        """传输层强制收口落库（与内存语义一致：不写 research_status）。"""
+        store = self._store
+        if store is None:
+            return
+        try:
+            persist_forced(store, run_id, seq, payload, reason)
+        except Exception as exc:  # noqa: BLE001
+            self._set_persistence_error(run_id, exc)
+
+    def _elapsed_seconds(self, run_id: str) -> float:
+        """运行已跑时长（秒，一位小数）。未记录 `_finished_monotonic` 时按当前时刻计。"""
+        with self._lock:
+            st = self._status.get(run_id)
+            if st is None:
+                return 0.0
+            started = st["_started_monotonic"]
+            ended = st.get("_finished_monotonic")
+            finished = run_id in self._finished
+        now = ended if (finished and ended is not None) else time.monotonic()
+        return round(max(0.0, now - started), 1)
+
     def _worker(self, run_id: str, topic: str, instructions: str,
-                max_total_hops: int | None,
-                search_provider: str | None = None,
-                enable_arxiv: bool | None = None,
-                max_subquestions: int | None = None) -> None:
+                profile: Optional[RuntimeProfile] = None) -> None:
+        usage_token = None
+        deadline_token = None
+        if self._store is not None:
+            # P1-4：本线程的逐调用用量落进 usage_ledger（无 store 时为 no-op）
+            usage_token = push_usage_sink(
+                make_store_sink(self._store, run_id=run_id, attempt=1))
         try:
             from config import config
 
-            if max_total_hops is not None:
-                config.research.max_total_hops = max_total_hops
-            # 子问题数上限：与跳数同构的运行期覆盖。Planner 在 plan() 里现读
-            # config 拼 system prompt（build_planner_system），所以同样必须设在建图前。
-            if max_subquestions is not None:
-                config.research.max_subquestions = max_subquestions
-            # 搜索引擎 / 学术检索：本次 run 的运行期覆盖。
-            # ⚠️ 必须设在 `self._graph_factory()` **之前** —— Researcher 在 __init__
-            # 里由工厂装配 provider，建图后再改 config 对本场 run 无效。
-            if search_provider is not None:
-                config.search.provider = search_provider
-            if enable_arxiv is not None:
-                config.search.enable_arxiv = enable_arxiv
+            # P0 profile 固化：档位装进**本线程**运行作用域（不再改全局 config，
+            # 并发 / 串行 run 之间互不污染）；无档位时核心链路回落全局 config。
+            set_profile(profile)
+            effective = effective_research_config()
+
+            # P5：把本 run 的所有者写进 RAG 检索作用域（须在 create_graph **之前**：
+            # Researcher 构建时捕获作用域，避免 LangGraph 并行线程丢失 ContextVar）；
+            # 修订号从任务库读（VectorStore 无此方法，缓存键必须拿真实修订号才失效）
+            try:
+                rag_revision = self._store.get_rag_revision()
+            except Exception:  # noqa: BLE001 —— 无库/替身缺方法时退化为 0
+                rag_revision = 0
+            set_scope(user_id=self.owner(run_id), revision=rag_revision)
 
             graph = self._graph_factory()
             # 把跳数上限随 RUN_STARTED 下发 ⇒ 前端才能算**真实的**检索阶段进度
@@ -424,15 +602,19 @@ class RunManager:
             self._emit(run_id, RUN_STARTED, {
                 "run_id": run_id,
                 "topic": topic,
-                "max_total_hops": config.research.max_total_hops,
-                "max_subquestions": config.research.max_subquestions,
+                "max_total_hops": effective.max_total_hops,
+                "max_subquestions": effective.max_subquestions,
                 "search_provider": config.search.provider,
                 "enable_arxiv": config.search.enable_arxiv,
-                "timeout_seconds": self.run_timeout_seconds,
+                "timeout_seconds": (
+                    profile.timeout_seconds if profile is not None else self.run_timeout_seconds),
             })
 
             cancel_event = self._cancel[run_id]
             deadline = self._deadlines.get(run_id)
+            if deadline is not None:
+                # F13（审计）：任务剩余时限注入运行作用域（LLM 调用按剩余时间收窄超时）
+                deadline_token = set_task_deadline(deadline - time.monotonic())
 
             def should_stop() -> bool:
                 """取消（用户意图）与超时（系统闸）共用同一个节点边界检查点。"""
@@ -440,6 +622,7 @@ class RunManager:
                     return True
                 return deadline is not None and time.monotonic() >= deadline
 
+            # P5：作用域已在 create_graph 之前设置（见上）
             seen_progress = 0
             for step in graph.iter_run(topic, instructions, thread_id=run_id,
                                        should_cancel=should_stop):
@@ -490,12 +673,15 @@ class RunManager:
                         "fallback_action": d.fallback_action,
                     })
         except Exception as exc:  # noqa: BLE001 —— 兜底：不得让工作线程静默死掉
-            self._emit_terminal_frame(
-                run_id, RUN_ERROR,
-                error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500]),
-                status_fields={},
-            )
+            payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
+            seq = self._emit_terminal_frame(run_id, RUN_ERROR, payload, status_fields={})
+            if seq is not None:
+                self._persist_terminal(run_id, seq, RUN_ERROR, payload)
         finally:
+            if deadline_token is not None:
+                reset_task_deadline(deadline_token)
+            if usage_token is not None:
+                pop_usage_sink(usage_token)
             with self._condition:
                 self._finished.add(run_id)
                 self._active.discard(run_id)
@@ -514,16 +700,19 @@ class RunManager:
         """
         if step.stop_reason == STOP_ERROR:
             err = step.state.error or {}
-            self._emit_terminal_frame(
-                run_id, RUN_ERROR, error_payload(
-                    err.get("code", "unknown") if err else "unknown",
-                    err.get("message", "") if err else "",
-                    node=err.get("node") if err else None,
-                    component="graph",
-                ),
+            payload = error_payload(
+                err.get("code", "unknown") if err else "unknown",
+                err.get("message", "") if err else "",
+                node=err.get("node") if err else None,
+                component="graph",
+            )
+            seq = self._emit_terminal_frame(
+                run_id, RUN_ERROR, payload,
                 status_fields={"stop_reason": STOP_ERROR, "cancelled": False,
                                "has_report": False},
             )
+            if seq is not None:
+                self._persist_terminal(run_id, seq, RUN_ERROR, payload)
             return
 
         timed_out = run_id in self._timed_out
@@ -537,22 +726,43 @@ class RunManager:
             "depth": step.state.depth,
             "visited_sources": list(step.state.visited_sources),
             "reflection_log": list(step.state.reflection_log),
+            # F08（审计）：轻量证据索引（稳定 ID/内容 hash/定位/检索时间，不含正文）
+            # —— 与 Worker 路径同口径，导出可复核证据链
+            "evidence_index": serialize_evidence_index(step.state.findings),
         }
         cost = _estimate_cost_cny(step.state.token_used)
-        self._emit_terminal_frame(
-            run_id, RUN_FINISHED, {
-                # 取消与否由 stop_reason 表达，**不新增 run_status 第四态**；
-                # 超时是协作式闸触发的停止，同样不是「取消」，也不是故障。
-                "cancelled": cancelled,
-                "stop_reason": stop_reason,
-                "run_status": step.state.run_status,
-                "token_used": step.state.token_used,
-                # 成本估算（元）。口径见 _estimate_cost_cny：按最贵 output 单价计的**上界**。
-                "cost_estimate_cny": cost,
-                "degradation_count": len(step.state.degradation_log),
-                "has_report": bool(report),
-                "result": result,
-            },
+        elapsed = self._elapsed_seconds(run_id)
+        payload = {
+            # 取消与否由 stop_reason 表达，**不新增 run_status 第四态**；
+            # 超时是协作式闸触发的停止，同样不是「取消」，也不是故障。
+            "cancelled": cancelled,
+            "stop_reason": stop_reason,
+            "run_status": step.state.run_status,
+            "token_used": step.state.token_used,
+            # 成本估算（元）。口径见 _estimate_cost_cny：按最贵 output 单价计的**上界**。
+            "cost_estimate_cny": cost,
+            # 运行级统计（#14）：总耗时由后端出，刷新回放后同样权威
+            "elapsed_seconds": elapsed,
+            "degradation_count": len(step.state.degradation_log),
+            "has_report": bool(report),
+            "result": result,
+        }
+        meta = {
+            "run_status": step.state.run_status,
+            "stop_reason": stop_reason,
+            "cancelled": cancelled,
+            "token_used": step.state.token_used,
+            "cost_estimate_cny": cost,
+            "elapsed_seconds": elapsed,
+            "degradation_count": len(step.state.degradation_log),
+            "depth": step.state.depth,
+        }
+        # P0-4：输出侧统一闸 —— **唯一一次**审核调用（不可变决定），
+        # 事件流 / 传输层按决定脱敏后再发帧；正文只留产物，供审核/管理员复核。
+        decision = evaluate_output(report)
+        apply_output_gate(payload, decision)
+        seq = self._emit_terminal_frame(
+            run_id, RUN_FINISHED, payload,
             status_fields={
                 "stop_reason": stop_reason,
                 "cancelled": cancelled,
@@ -561,13 +771,9 @@ class RunManager:
             },
             result=result,
             report=report,
-            meta={
-                "run_status": step.state.run_status,
-                "stop_reason": stop_reason,
-                "cancelled": cancelled,
-                "token_used": step.state.token_used,
-                "cost_estimate_cny": cost,
-                "degradation_count": len(step.state.degradation_log),
-                "depth": step.state.depth,
-            },
+            meta=meta,
         )
+        if seq is not None:
+            self._persist_terminal(run_id, seq, RUN_FINISHED, payload,
+                                   result=result, report=report, meta=meta,
+                                   moderation=decision)

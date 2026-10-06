@@ -20,15 +20,22 @@ Validator 将编号映射回真实来源再做校验（ADR-0002/0005 不变）�
 """
 from __future__ import annotations
 
+import contextvars
+import os
 import re
-from typing import Any, Dict, List, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.budget import CallAdmissionDenied, admit_call
+from research_engine.evidence import build_evidence_index, resolve_evidence_text
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.client import LLMClient
+from research_engine.runtime_profile import effective_llm_model
 from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
+from research_engine.usage import UsageSinkError
 
 # W7 Arm3：validator 修复关闭时（TBD-8 基线对照）回退到 v1.1 提示与行为
 VALIDATOR_SYSTEM_LEGACY = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
@@ -105,8 +112,30 @@ def validator_model_name(cfg=None) -> str:
     生产里叫「validator 模型」，若两处各写一遍，改配置时容易只改一处 ——
     而这两个名字指的是**同一次 LLM 调用**。
     """
-    c = cfg if cfg is not None else config
-    return c.llm.validator_model
+    if cfg is not None:
+        return cfg.llm.validator_model
+    return effective_llm_model("validator")
+
+
+def validator_batch_size() -> int:
+    """单次 LLM 忠实度判定的最大引用条数（≤0 = 关闭分批，回退单次调用）；需求 19 / #76。"""
+    try:
+        return int(os.getenv("DR_VALIDATE_BATCH_SIZE", "16"))
+    except ValueError:
+        return 16
+
+
+def validator_concurrency() -> int:
+    """分批并行度（clamp 1..4）。
+
+    依据（2026-09-30 调研）：sharding 研究（arXiv 2608.06422）显示把判定拆成子批
+    不降低反而提升一致性（κ 0.86 @ 32/批 vs 0.73 @ 1/批），并发度主要受供应商限流约束。
+    """
+    try:
+        value = int(os.getenv("DR_VALIDATE_CONCURRENCY", "3"))
+    except ValueError:
+        value = 3
+    return max(1, min(4, value))
 
 
 class CitationVerdictItem(BaseModel):
@@ -148,9 +177,16 @@ class Validator:
 
     @staticmethod
     def _build_findings_text(
-        findings: List[ResearchFinding], to_check: List[Dict[str, Any]]
+        findings: List[ResearchFinding], to_check: List[Dict[str, Any]],
+        evidence_index: Optional[Dict[str, ResearchFinding]] = None,
+        stats: Optional[Dict[str, int]] = None,
     ) -> tuple[str, bool]:
         """W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号。
+
+        F07/F08（审计）：不再对证据做 500 字符静默截断 —— 按工作摘要的
+        ``metadata["origin_evidence_ids"]`` 回到**原文层**取正文（``evidence_index``），
+        超出预算时头尾保留 + 显式 ``[证据截断]`` 标记；原文缺失时回落摘要并计入
+        ``stats["missing"]``（调用方写入 validator_stats，不静默）。
 
         返回 (text, trimmed)。
         三条硬约束：
@@ -160,10 +196,18 @@ class Validator:
         """
         import warnings
 
+        index = evidence_index or {}
+
+        def _text_for(f: ResearchFinding) -> str:
+            text, status = resolve_evidence_text(f, index)
+            if stats is not None and status in ("truncated", "missing"):
+                stats[status] = stats.get(status, 0) + 1
+            return text
+
         # W7 Arm5：喂料裁剪可通过 VALIDATOR_TRIM_ENABLED 关闭（TBD-8 基线对照）
         if not config.experiment.validator_trim_enabled:
             lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
+                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
                 for i, f in enumerate(findings, 1)
             ]
             return "\n".join(lines), False
@@ -186,7 +230,7 @@ class Validator:
 
         if trimmed:
             lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
+                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
                 for i, f in enumerate(findings, 1)
                 if str(i) in used_ids
             ]
@@ -200,7 +244,7 @@ class Validator:
 
         # 未触发裁剪或触发安全阀：回退全量
         lines = [
-            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
+            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
             for i, f in enumerate(findings, 1)
         ]
         return "\n".join(lines), False
@@ -208,7 +252,7 @@ class Validator:
     _CLAIM_SEP = "。！？；\n"          # 句子边界字符（W2.1）
     _CLAIM_MAX = 200                  # 引用前最多取 200 字符的窗口（W2.1）
 
-    def _claim_text(self, report: str, end: int, start: int = 0) -> str:
+    def _claim_text(self, report: str, end: int, start: int = 0) -> Tuple[str, int]:
         """取引用前的一段文本做 claim（W2.1 待办 + W7 F4：保留上下文/主语兜底）。
 
         - start 用于隔离多个引用：只取上一个引用结束位置到当前引用之间的文本；
@@ -217,12 +261,16 @@ class Validator:
           前补前一句完整内容，使论断自包含（RAGAS "self-contained" 精神，W7 F4）；
         - 退化为 200 字符窗口；再退化 80 字符（保原行为兜底）；
         - 清理行内 markdown 残留（** ` # 行首 - | 等），纯展示层，不影响校验。
+
+        F11（审计 3b）：同时返回 ``raw_start``（claim 句在 report 中的原始起始偏移，
+        供返工删除定位；代词兜底时仍指向被校验句本身）。
         """
         window_start = max(start, end - self._CLAIM_MAX)
         window = report[window_start:end]
         rel = max(window.rfind(c) for c in self._CLAIM_SEP)
         # claim 在 report 中的真实起始位置，用于 F4 主语兜底时精确截取前一句
         claim_start_in_report = window_start + rel + 1 if rel >= 0 else window_start
+        raw_start = claim_start_in_report
         claim = window[rel + 1:] if rel >= 0 else window
         claim = re.sub(r"[*_`]{1,3}", "", claim)                                   # ** 加粗/_斜体_/`代码`
         claim = re.sub(r"^\s*#\s*", "", claim, flags=re.M)                          # 行首 # 标题（Bug-12：不删行内 #）
@@ -240,7 +288,8 @@ class Validator:
         if not claim.strip():  # 边界切分到空（窗口尾恰为句号等）才退回 80 字符硬截断兜底
             fallback_start = max(start, end - 80)
             claim = report[fallback_start:end].strip().replace("\n", " ")
-        return claim
+            raw_start = fallback_start
+        return claim, raw_start
 
     def _extract_citations(self, report: str) -> List[dict]:
         """从报告中提取 [来源: N] 形式的引用（W7 F3：过滤非论断句）。
@@ -262,7 +311,8 @@ class Validator:
         for m in re.finditer(pattern, report):
             # 取论断（引用前的一段文本，W2.1 按句子边界 + 清理 markdown）
             # W7 F3：start=last_end 隔离多个引用，避免后一个 claim 混入前一个引用标记
-            claim = self._claim_text(report, m.start(), last_end)
+            # F11：同时记录 claim 起始偏移与引用标记结束偏移（返工删除定位）
+            claim, claim_start = self._claim_text(report, m.start(), last_end)
             last_end = m.end()
             refs = self._split_ref(m.group(1))
             raw_citation_count += len(refs)
@@ -270,7 +320,8 @@ class Validator:
                 filtered_citation_count += len(refs)
                 continue  # W7 F3: non-assertive fragments stay out of validation
             for ref in refs:
-                citations.append({"claim": claim, "source": ref})
+                citations.append({"claim": claim, "source": ref,
+                                  "claim_start": claim_start, "claim_end": m.end()})
         self.last_validation_stats.update({
             "filter_enabled": filter_enabled,
             "raw_citation_count": raw_citation_count,
@@ -329,15 +380,52 @@ class Validator:
             return tokens
         return [ref.strip()]
 
-    def validate(self, report: str, findings: List[ResearchFinding], state: Any = None) -> List[Citation]:
+    #: F11（审计 3a）：事实句最短长度（字符）——过滤标题/碎片，控制统计噪声
+    _FACT_MIN_CHARS = 20
+
+    @staticmethod
+    def _fact_coverage_stats(report: str) -> Dict[str, Any]:
+        """审计 F11（3a 部分）：无引用事实句覆盖率（零 LLM、只看不判）。
+
+        - 事实句：去掉标题行后按句切分、长度 ≥ ``_FACT_MIN_CHARS`` 的句子；
+        - 有引用：同句内出现 ``[来源: ...]`` 标记（多编号/URL 协议同计）；
+        - ``citation_coverage`` = 有引用句 / 事实句 —— 仅作统计与评测输入，
+          不做门禁（3b 返工闭环再消费该口径）。
+        """
+        text = "\n".join(
+            line for line in (report or "").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        total = 0
+        cited = 0
+        for sentence in re.split(r"[。！？!?\n]+", text):
+            if len(sentence.strip()) < Validator._FACT_MIN_CHARS:
+                continue
+            total += 1
+            if "[来源:" in sentence:
+                cited += 1
+        return {
+            "fact_sentence_count": total,
+            "uncited_fact_sentence_count": total - cited,
+            "citation_coverage": round(cited / total, 4) if total else 1.0,
+        }
+
+    def validate(self, report: str, findings: List[ResearchFinding], state: Any = None,
+                 *, evidence: Optional[List[ResearchFinding]] = None) -> List[Citation]:
         """校验报告引用。
 
         双段式（Q3=A）：
         1. 本地存在性（无 LLM）：编号映射到真实来源 + 来源存在性判定，存在性 False 短路；
         2. LLM 忠实度：仅存在性 True 的引用进 LLM，判定"论断是否忠实于被引 finding 内容"；
            verified = 存在性 AND 忠实度，输出按 finding_id 对齐。
+
+        F07/F08（审计）：``findings`` 为**工作摘要层**（编号协议基准，与 Writer 同一份）；
+        ``evidence`` 为**原文层**（可选）——忠实度判定按 origin 链回原文取正文，
+        长文后段事实不再因 500 字符截断被误拒/漏判。
         """
         extracted = self._extract_citations(report)
+        # F11（审计 3a）：无引用事实句覆盖率随 stats 落库（不进 LLM、不做门禁）
+        self.last_validation_stats.update(self._fact_coverage_stats(report))
         index = self._build_index(findings)
         known = {src for src, _ in index.values()}
 
@@ -368,13 +456,19 @@ class Validator:
             self.last_validation_stats.update({
                 "validated_citation_count": 0,
                 "existence_pass_count": 0,
+                "evidence_truncated_count": 0,
+                "evidence_missing_count": 0,
             })
             return []
 
         # ---- 阶段 2：LLM 忠实度判定（仅存在性 True 的引用；Q3=A 短路）----
         to_check = [r for r in local_results if r["existence"]]
         # W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号；存在性校验仍用全量 index
-        findings_text, _ = self._build_findings_text(findings, to_check)
+        # F07/F08：证据索引来自原文层；截断/缺失显式计入 evidence_stats（随 stats 落库）
+        evidence_index = build_evidence_index(evidence or [])
+        evidence_stats: Dict[str, int] = {}
+        findings_text, _ = self._build_findings_text(findings, to_check, evidence_index,
+                                                     evidence_stats)
         # W7 F1：claim 不再截断；F2：LLM 输出需 claim_echo 回显原文
         fixes_enabled = config.experiment.validator_fixes_enabled
         if fixes_enabled:
@@ -384,24 +478,28 @@ class Validator:
             claim_field = "claim_truncated"
             for r in to_check:
                 r["claim_truncated"] = r["claim"][:100]
-        citations_json = "\n".join(
-            f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
-            for r in to_check
-        )
         # W8 Arm 6：唯一产生点（含开关选版 + min_sources 渲染），与 prompt_hash 逐字一致
         system_prompt = build_validator_system()
-        user = (
-            f"研究发现：\n{findings_text}\n\n"
-            f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
-            "请输出校验结果。"
-        )
-        if fixes_enabled:
-            user += "对每条引用，`claim_echo` 字段必须逐字回显上面的 claim 原文。"
 
-        verdicts: Dict[str, List[Dict[str, Any]]] = {}
-        unused_verdicts: List[Dict[str, Any]] = []
-        llm_failed = False
-        if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
+        def _judge_batch(
+            batch: List[Tuple[int, Dict[str, Any]]],
+        ) -> Tuple[List[Dict[str, Any]], List[int], str]:
+            """单批判定（需求 19 / #76）：同款判据 / schema / 提示词，只把 verdict 范围收窄到本批。
+
+            返回 ``(verdict_items, 失败下标, 错误信息)``；**降级留痕不在此处** ——
+            统一由主线程收集后写入，避免多线程并发修改 degradation 缓冲。
+            """
+            citations_json = "\n".join(
+                f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
+                for _, r in batch
+            )
+            user = (
+                f"研究发现：\n{findings_text}\n\n"
+                f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
+                "请输出校验结果。"
+            )
+            if fixes_enabled:
+                user += "对每条引用，`claim_echo` 字段必须逐字回显上面的 claim 原文。"
             try:
                 # 与 critic.py 同款：Pydantic schema + 纠错重试，防漏 key 静默默认
                 # W5（Q2）：role="validator" 进职责桶（直建实例不传 state 的漏计由类级差值补全）
@@ -418,26 +516,67 @@ class Validator:
                     state=state,
                     schema=CitationVerdict,
                 )
-                # Q3=A：按 finding_id 对齐，不再按序 zip
-                # Bug-7 修复：同编号多论断共享同一 verdict → 改用 list 存储，按 claim 匹配
-                for item in data.get("citations", []):
-                    fid = item.get("finding_id", "")
-                    if fid and fid in {r["finding_id"] for r in to_check}:
-                        verdicts.setdefault(fid, []).append(item)
-                    else:
-                        unused_verdicts.append(item)
+                return list(data.get("citations", [])), [], ""
+            except UsageSinkError:
+                # F06：strict 记账失败必须上抛（不得按批次降级为 existence_only）
+                raise
             except Exception as e:  # noqa: BLE001
-                # 降级：仅返回存在性校验结果（保 W1 行为）
-                # W8 Arm 1：这是全链路最要命的一次静默降级 —— 它会让「忠实度」整项失效，
-                # 但产物里看不出来。留痕（existence_only）。
-                llm_failed = True
+                return [], [idx for idx, _ in batch], str(e)
+
+        verdicts: Dict[str, List[Dict[str, Any]]] = {}
+        unused_verdicts: List[Dict[str, Any]] = []
+        failed_row_ids: set = set()
+        expected_fids = {r["finding_id"] for r in to_check}
+        if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
+            # F13（审计）：忠实度阶段预算/时限准入 —— 耗尽则整体跳过（保留存在性结论并留痕）
+            try:
+                admit_call(state)
+            except CallAdmissionDenied as exc:
                 self.degradations._record_degradation(
                     component="llm",
-                    reason=FailureReason.LLM_ERROR.value,
-                    detail=str(e),
+                    reason=FailureReason.TOKEN_LIMIT.value,
+                    detail=f"validator fidelity phase skipped: {exc}"[:300],
                     fallback_action="existence_only",
                     node="validator",
                 )
+                to_check = []
+            if to_check:
+                batch_size = validator_batch_size()
+                indexed = list(enumerate(to_check))
+                batches: List[List[Tuple[int, Dict[str, Any]]]] = (
+                    [indexed[i:i + batch_size] for i in range(0, len(indexed), batch_size)]
+                    if batch_size > 0 else [indexed]
+                )
+                if len(batches) > 1:
+                    # 需求 19 / #76：分批并行。上下文必须显式注入线程 —— usage sink 与运行档位
+                    # 都是 contextvars，不注入会导致 validator 调用漏记账、档位模型回落全局默认。
+                    base_ctx = contextvars.copy_context()
+                    with ThreadPoolExecutor(
+                        max_workers=min(validator_concurrency(), len(batches))
+                    ) as pool:
+                        futures = [pool.submit(base_ctx.copy().run, _judge_batch, b)
+                                   for b in batches]
+                        batch_results = [future.result() for future in futures]
+                else:
+                    batch_results = [_judge_batch(batches[0])]
+                for items, failed_idxs, err in batch_results:
+                    if failed_idxs:
+                        failed_row_ids.update(id(to_check[idx]) for idx in failed_idxs)
+                        # W8 Arm 1：忠实度失效必须留痕（existence_only），按批隔离（每失败批一条）
+                        self.degradations._record_degradation(
+                            component="llm",
+                            reason=FailureReason.LLM_ERROR.value,
+                            detail=(f"phase=validator batch idx={failed_idxs[0]}..{failed_idxs[-1]}; "
+                                    f"error={err}"),
+                            fallback_action="existence_only",
+                            node="validator",
+                        )
+                    for item in items:
+                        fid = item.get("finding_id", "")
+                        if fid and fid in expected_fids:
+                            verdicts.setdefault(fid, []).append(item)
+                        else:
+                            unused_verdicts.append(item)
 
         result: List[Citation] = []
         for r in local_results:
@@ -449,6 +588,7 @@ class Validator:
                     finding_id=r["finding_id"], source_type=r["source_type"],
                     confidence=0.0, note=r["note"], existence=False,
                     verified_relaxed=False,
+                    claim_start=r.get("claim_start", -1), claim_end=r.get("claim_end", -1),
                 ))
                 continue
 
@@ -470,34 +610,37 @@ class Validator:
                         unused_verdicts.pop(j)
                         break
 
-            unreliable = False
-            if llm_failed:
-                # 整体降级：忠实度未知，按存在性通过（保 W1 行为）
-                verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "LLM 校验失败，降级为存在性判定"
+            verification_failed = False
+            if id(r) in failed_row_ids:
+                # 审计 P1#2：LLM 失败 ⇒ 校验未完成（不视为通过）；仅保留存在性结论
+                verified, faithful, supported_flag, confidence, note = (
+                    False, False, False, 0.5, "LLM 校验失败：校验未完成（不视为通过）")
+                verification_failed = True
             elif verdict is not None:
                 fixes_enabled = config.experiment.validator_fixes_enabled
-                # W7 F2：claim_echo 回显对齐；不一致标 unreliable 并降级通过
+                # W7 F2：claim_echo 回显对齐；不一致 ⇒ 校验未完成（P1#2：不再降级判通过）
                 echo = verdict.get("claim_echo", "") or verdict.get("claim", "")
                 if fixes_enabled and echo and self._claim_similarity(echo, r["claim"]) < 0.6:
-                    unreliable = True
                     faithful = False
                     supported_flag = bool(verdict.get("supported", False))
                     confidence = float(verdict.get("confidence", 0.5))
                     note = f"claim_echo 错位（相似度低）：{verdict.get('note', '') or ' verdict 与原文 claim 不匹配'}".strip()
+                    verification_failed = True
                 else:
                     faithful = bool(verdict.get("faithful", True))
                     supported_flag = bool(verdict.get("supported", False))
                     confidence = float(verdict.get("confidence", 0.5))
                     note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
                 verified = faithful
-                if unreliable:
-                    verified = True  # 降级为保守通过，但 note 留痕
             else:
-                # 单条缺失：来源存在但未获 LLM 反馈 → 保守通过 + 提示（贴近 W1 行为）
-                verified, faithful, supported_flag, confidence, note = True, True, False, 0.5, "忠实度未获 LLM 反馈（按存在性通过）"
+                # 单条缺失：来源存在但未获 LLM 反馈 ⇒ 校验未完成（P1#2：不视为通过）
+                verified, faithful, supported_flag, confidence, note = (
+                    False, False, False, 0.5, "忠实度未获 LLM 反馈：校验未完成（不视为通过）")
+                verification_failed = True
 
-            # W7 TBD-5：宽松口径 = 存在性 AND (忠实 OR 多源印证 OR 保守通过)
-            verified_relaxed = True and (faithful or supported_flag or verified)
+            # W7 TBD-5：宽松口径 = 存在性 AND (忠实 OR 多源印证)；校验未完成不进入宽松通过
+            verified_relaxed = (True and (faithful or supported_flag)
+                                and not verification_failed)
 
             result.append(Citation(
                 claim=r["claim"], source=r["source"],
@@ -506,11 +649,16 @@ class Validator:
                 finding_id=r["finding_id"], source_type=r["source_type"],
                 confidence=confidence, note=note, existence=True,
                 verified_relaxed=verified_relaxed,
+                verification_failed=verification_failed,
                 is_meta=bool(verdict.get("is_meta", False)) if verdict is not None else False,
+                claim_start=r.get("claim_start", -1), claim_end=r.get("claim_end", -1),
             ))
         self.last_validation_stats.update({
             "validated_citation_count": len(result),
             "existence_pass_count": sum(1 for c in result if c.existence),
+            # F07（审计）：证据回原文的显式健康度（截断头尾保留 / 原文缺失回落摘要）
+            "evidence_truncated_count": evidence_stats.get("truncated", 0),
+            "evidence_missing_count": evidence_stats.get("missing", 0),
         })
         return result
 

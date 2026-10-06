@@ -32,7 +32,7 @@ def _state(**overrides) -> Dict[str, Any]:
         "depth": 3,
         "token_used": 1000,
         "replan_count": 0,
-        "frontier": [{"sq_id": "s1", "query": "q"}],  # P1 Bug-6：非空 frontier → 不触发 frontier_empty hard_stop
+        "frontier": [{"sq_id": "s1", "query": "q"}],  # F02：frontier 空不再是 hard_stop（不再是硬闸）
         "critic_signal": "stop",
         "reflection_log": [{"decision": "continue"}, {"decision": "continue"}, {"decision": "stop"}],
         "findings": [],
@@ -160,14 +160,15 @@ def test_reflection_hard_stop(mock_cfg):
 
 
 @patch("research_engine.eval.metrics.config")
-def test_reflection_hard_stop_frontier_empty(mock_cfg):
-    """P1 Bug-6：frontier 空应计为 hard_stop，与 critic.py hard_gate 行为一致。"""
+def test_reflection_frontier_empty_is_critic_stop(mock_cfg):
+    """F02：frontier 空不再是硬闸 —— 因队列空而收敛属 critic_stop（no_new_queries）。"""
     mock_cfg.research.max_total_hops = 20
     mock_cfg.research.token_budget = 200_000
     mock_cfg.research.max_replan = 1
     res = M.compute_reflection(_state(frontier=[], depth=3, token_used=1000), coverage=0.5)
-    assert res["stop_type"] == "hard_stop"
-    assert "frontier_empty" in res["hard_reasons"]
+    assert res["stop_type"] == "critic_stop"
+    assert "frontier_empty" not in res["hard_reasons"]
+    assert res["hard_reasons"] == []
 
 
 @patch("research_engine.eval.metrics.config")
@@ -265,3 +266,64 @@ def test_compute_all_without_judge_failure():
     assert res["coverage"]["coverage"] == 0.0
     assert res["completion"]["complete"] is True  # 局部失败不影响完成率
     assert res["retrieval_hit"]["matched_by"]["keyword"] >= 0
+
+
+# ---------- Planner 治理事件：运行级聚合（W9 后续增量②）----------
+
+def test_planner_governance_groups_counts_by_phase():
+    events = [
+        {"event": "subquestions_truncated", "phase": "plan",
+         "returned": 9, "accepted": 5, "dropped": 4, "limit": 5},
+        {"event": "subquestions_truncated", "phase": "replan",
+         "returned": 7, "accepted": 5, "dropped": 2, "limit": 5},
+        {"event": "empty_question_dropped", "phase": "plan", "count": 2},
+        {"event": "duplicate_id_rewritten", "phase": "replan",
+         "original_id": "q1", "rewritten_id": "q6"},
+    ]
+    res = M.compute_planner_governance({"planner_events": events})
+    assert res["totals"] == {
+        "events": 4, "truncation_count": 2, "returned": 16, "accepted": 10,
+        "dropped": 6, "empty_question_dropped": 2, "duplicate_id_rewritten": 1,
+    }
+    assert res["by_phase"]["plan"] == {
+        "events": 2, "truncation_count": 1, "returned": 9, "accepted": 5,
+        "dropped": 4, "empty_question_dropped": 2, "duplicate_id_rewritten": 0,
+    }
+    assert res["by_phase"]["replan"]["dropped"] == 2
+    assert res["by_phase"]["replan"]["duplicate_id_rewritten"] == 1
+
+
+def test_planner_governance_absent_is_zero_not_error():
+    res = M.compute_planner_governance({})
+    assert res["totals"] == {
+        "events": 0, "truncation_count": 0, "returned": 0, "accepted": 0,
+        "dropped": 0, "empty_question_dropped": 0, "duplicate_id_rewritten": 0,
+    }
+    assert res["by_phase"] == {}
+
+
+def test_planner_governance_tolerates_malformed_events():
+    res = M.compute_planner_governance({"planner_events": [
+        "not-a-dict",
+        {"event": "subquestions_truncated", "phase": "plan"},  # 缺数字字段
+        {"event": "unknown_event", "phase": "replan"},
+    ]})
+    assert res["totals"]["events"] == 2
+    assert res["totals"]["truncation_count"] == 1
+    assert res["totals"]["returned"] == 0
+    assert res["by_phase"]["replan"]["events"] == 1
+
+
+def test_compute_all_includes_planner_governance():
+    """`compute_all` 必须带上运行级治理计数（供后续与 coverage 按 run join）。"""
+    row = {"expected_subquestions": ["子问题1"], "gold_keywords": []}
+    state = _state(
+        findings=[],
+        planner_events=[{"event": "subquestions_truncated", "phase": "plan",
+                         "returned": 6, "accepted": 5, "dropped": 1, "limit": 5}],
+    )
+    res = M.compute_all(state, row)
+    assert res["planner_governance"]["totals"] == {
+        "events": 1, "truncation_count": 1, "returned": 6, "accepted": 5,
+        "dropped": 1, "empty_question_dropped": 0, "duplicate_id_rewritten": 0,
+    }

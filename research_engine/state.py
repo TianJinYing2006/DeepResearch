@@ -108,8 +108,13 @@ class ResearchFinding(BaseModel):
     confidence: float = Field(default=0.5, description="置信度 0-1")
     is_meta: bool = Field(default=False, description="是否自指/元描述（R2.4：描述本系统自身），绝不作为正文证据")
     sq_id: str = Field(default="", description="W7 Arm4 G1：所属子问题 ID，用于 writer 分节喂料")
+    # F08（审计）：稳定证据身份——内容寻址 ID / 正文 hash / 检索时间。原文层只增不改；
+    # 工作摘要层通过 metadata["origin_evidence_ids"] 回指这些 ID，Validator 据此回原文。
+    evidence_id: str = Field(default="", description="稳定证据 ID（内容寻址 ev_<hash16>）")
+    content_hash: str = Field(default="", description="正文 sha256（完整性/版本复核）")
+    retrieved_at: float = Field(default=0.0, description="证据检索时间戳（秒）")
     # W4 Q3（统一证据抽象）：富元数据桶——arxiv: {arxiv_id, primary_category, citation_count, structured_match}；
-    #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match}
+    #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match, origin_evidence_ids}
     metadata: dict = Field(default_factory=dict, description="W4 扩展元数据（结构化保留，供呈现层展示，LLM 校验不消费）")
 
 
@@ -131,7 +136,13 @@ class Citation(BaseModel):
     note: str = Field(default="", description="校验说明/失败原因（grill Q3=A，不再丢弃）")
     existence: bool = Field(default=False, description="本地来源存在性判定（grill Q6=A 双口径之一）")
     verified_relaxed: bool = Field(default=False, description="W7 宽松口径：existence AND (faithful OR supported)，仅呈现不改动 verified 语义")
+    verification_failed: bool = Field(
+        default=False,
+        description="审计 P1#2：校验未能完成（LLM 失败/无反馈/结论错位）——不视为通过，仅保留存在性结论")
     is_meta: bool = Field(default=False, description="自指/元描述复核结果（R2.4 Q5=A：validator verdict 兜底）")
+    # F11（审计 3b）：返工定位——claim 与引用标记在报告中的原始偏移（-1 = 未知/不参与返工）
+    claim_start: int = Field(default=-1, description="F11：claim 句起始偏移（返工删除定位）")
+    claim_end: int = Field(default=-1, description="F11：引用标记结束偏移（返工删除定位）")
 
 
 class ResearchState(BaseModel):
@@ -144,7 +155,16 @@ class ResearchState(BaseModel):
     subquestions: List[SubQuestion] = Field(default_factory=list)
 
     # 检索
-    findings: List[ResearchFinding] = Field(default_factory=list)
+    findings: List[ResearchFinding] = Field(
+        default_factory=list,
+        description="原文层：append-only，compress 不再覆写（F08）；消费方默认用工作摘要层",
+    )
+    # F08（审计）：工作摘要层——compress 产物，Writer/Validator/Render 的编号协议基准；
+    # 空时消费方回退 findings（未压缩 / 旧快照 / 直读场景）。
+    working_findings: List[ResearchFinding] = Field(
+        default_factory=list,
+        description="工作摘要层（compress 产物）；原文层 findings 保持 append-only",
+    )
     visited_sources: List[str] = Field(default_factory=list, description="已访问来源，去重（Q8 启用）")
 
     # ---- W1 新增：循环 / 硬闸状态（呼应 grill Q1/Q3/Q5/Q6）----
@@ -153,6 +173,12 @@ class ResearchState(BaseModel):
     per_subq_hop: Dict[str, int] = Field(default_factory=dict, description="每子问题已消耗跳数，防 starvation（Q5）")
     token_used: int = Field(default=0, description="LLM token 累计消耗（Q6 观测+控闸）")
     replan_count: int = Field(default=0, description="已触发 replan 次数（Q2-B 兜底）")
+    # F11（审计 3b）：有界返工——失败论断的确定性移除/降格，重走一次校验
+    repair_count: int = Field(default=0, description="引用返工已执行次数（上限 graph.MAX_REPAIR_PASSES）")
+    repair_log: Annotated[List[Dict[str, Any]], operator.add] = Field(
+        default_factory=list,
+        description="返工审计流（纯追加；非故障，不参与 run_status 判定）",
+    )
     # critic 节点的结构化输出，供路由函数纯函数读取（Q3 分层）
     critic_signal: str = Field(default="", description="条件边路由信号：continue/revise/stop")
     sufficient: bool = Field(default=False, description="critic 判研究是否充分")
@@ -160,12 +186,16 @@ class ResearchState(BaseModel):
     next_queries: List[Dict[str, Any]] = Field(default_factory=list, description="critic 产出的新查询，回填 frontier（Q2=A）")
     critic_gap: str = Field(default="", description="W7 Arm1：critic 识别的知识缺口文本")
     critic_stop_reason: str = Field(default="", description="W7 Arm1：本轮 critic 停止原因（hard_stop/gap_unresolved/no_next_queries/critic_stop/continue/gap_continue/revise）")
+    critic_cited_evidence_ids: List[str] = Field(
+        default_factory=list,
+        description="F01：critic 裁决引用且经代码复核存在的证据 ID（E1…，清单外 ID 已过滤）",
+    )
     # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
     reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
-    # Planner 规范化/策略事件：纯追加，但不属于故障，不参与 run_status 判定。
+    # 规划 / 裁决治理事件：纯追加，但不属于故障，不参与 run_status 判定。
     planner_events: Annotated[List[Dict[str, Any]], operator.add] = Field(
         default_factory=list,
-        description="Planner 治理事件流（截断/空问题过滤/重复 ID 重写），不推导 degraded",
+        description="治理事件流（Planner 截断/空问题过滤/重复 ID 重写；Critic next_queries sq_id 归一化），不推导 degraded",
     )
 
     # 报告

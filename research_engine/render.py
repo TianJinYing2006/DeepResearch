@@ -248,6 +248,42 @@ class ReportRenderer:
             "> - 处置：确认搜索 key 有效且有额度、向量库可达后重跑",
         ])
 
+    # ---- 术语偏离告警（确定性；需求 14 / #73）----
+
+    def build_term_drift_warning(self, state: Any) -> str:
+        """报告顶部告警：主题术语疑似在检索材料中整体偏离（缩写被纠错/联想）。
+
+        行业背景（内测实测）：搜索引擎把「JEV」纠错成「EVA」并返回 EVA 语料，
+        流程照常完成且引用校验「严格通过」——偏题发生在检索层，引用层无感知。
+        本方法用**确定性规则**兜底告警（零 LLM）：
+        全大写缩写在语料 0 命中（强信号），或主题术语整体命中率低于阈值（弱信号）。
+
+        ⚠️ 只影响展示文本，不改 ``run_status``、不写 ``degradation_log``。
+        """
+        from research_engine.term_ambiguity import analyze_term_drift, drift_threshold
+
+        findings = list(getattr(state, "findings", []) or [])
+        if not findings:
+            return ""
+        corpus = [getattr(f, "content", "") for f in findings]
+        corpus += [str(s) for s in (getattr(state, "visited_sources", []) or [])]
+        report = analyze_term_drift(str(getattr(state, "topic", "") or ""), corpus)
+        if not report.suspicious:
+            return ""
+
+        if report.reason == "acronym_missing":
+            detail = ("主题缩写 " + "、".join(f"「{t}」" for t in report.missing_acronyms)
+                      + " 在检索材料中 0 次命中")
+        else:
+            detail = (f"主题术语整体命中率仅 {report.ratio:.0%}"
+                      f"（阈值 {drift_threshold():.0%}）")
+        return "\n".join([
+            "\n\n> ⚠️ 术语偏离警示（动态生成，非 LLM 自述）",
+            f"> - {detail}",
+            "> - 可能原因：搜索引擎对缩写做拼写纠错/联想（内测实测 JEV→EVA），导致来源偏题",
+            "> - 处置：在主题中补充术语全称 / 领域限定词后重跑；本次结论请对照来源核验",
+        ])
+
     # ---- 主入口 ----
 
     def render(self, report: str, citations: List[Citation],
@@ -264,8 +300,14 @@ class ReportRenderer:
             display += self.build_run_provenance(state)
             # 检索健康告警**置顶**：降级明细默认折叠在 UI 里，不置顶等于没有告警
             warning = self.build_retrieval_warning(state)
+            drift = self.build_term_drift_warning(state)
+            prefix = ""
             if warning:
-                display = warning + "\n" + display
+                prefix += warning + "\n"
+            if drift:
+                prefix += drift + "\n"
+            if prefix:
+                display = prefix + display
             return display
         except Exception:  # noqa: BLE001
             return report

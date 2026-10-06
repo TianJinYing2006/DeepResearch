@@ -18,6 +18,13 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from config import config
+from research_engine.agents.planner import (
+    PLANNER_EVENT_DUPLICATE_ID_REWRITTEN,
+    PLANNER_EVENT_EMPTY_QUESTION_DROPPED,
+    PLANNER_EVENT_SUBQUESTIONS_TRUNCATED,
+)
+from research_engine.budget import research_token_ceiling
+from research_engine.eval.citation_judge import compute_citation_judge  # F15：独立裁判
 from research_engine.llm.client import LLMClient, build_messages
 
 # judge 档位 = smart（Q3），直建实例 role="judge" 独立进职责桶（Q2）；60s 治 LLM 层无超时（Q4）
@@ -111,6 +118,65 @@ def compute_insufficient(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# ---------- 1c. Planner 治理事件：运行级聚合（W9 后续增量②）----------
+
+_PLANNER_BUCKET_KEYS = (
+    "events",
+    "truncation_count",
+    "returned",
+    "accepted",
+    "dropped",
+    "empty_question_dropped",
+    "duplicate_id_rewritten",
+)
+
+
+def _empty_planner_bucket() -> Dict[str, int]:
+    return {key: 0 for key in _PLANNER_BUCKET_KEYS}
+
+
+def _planner_int(value: Any) -> int:
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def compute_planner_governance(state: Dict[str, Any]) -> Dict[str, Any]:
+    """把 `planner_events` 聚合为运行级计数（plan / replan 分桶 + 总计）。
+
+    口径：`returned` / `accepted` / `dropped` 只在截断事件上累加；
+    `empty_question_dropped` 累加被过滤的**问题条数**（事件里 `count` 字段），
+    不是事件条数；`duplicate_id_rewritten` 按事件条数计。
+
+    ⚠️ 纯计数**答不了**「截断是否伤质量」——那要把本指标与 coverage 等按 run
+    join 后看相关性，属后续 eval 分析；这里只提供可 join 的结构化计数，
+    不参与判定、不进 `metrics_status`。历史 raw 无 `planner_events` 时如实全零。
+    """
+    events = state.get("planner_events") or []
+    by_phase: Dict[str, Dict[str, int]] = {}
+    totals = _empty_planner_bucket()
+
+    def _bump(bucket: Dict[str, int], key: str, amount: int = 1) -> None:
+        bucket[key] += amount
+        totals[key] += amount
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        phase = str(event.get("phase") or "unknown")
+        bucket = by_phase.setdefault(phase, _empty_planner_bucket())
+        name = str(event.get("event") or "")
+        _bump(bucket, "events")
+        if name == PLANNER_EVENT_SUBQUESTIONS_TRUNCATED:
+            _bump(bucket, "truncation_count")
+            _bump(bucket, "returned", _planner_int(event.get("returned")))
+            _bump(bucket, "accepted", _planner_int(event.get("accepted")))
+            _bump(bucket, "dropped", _planner_int(event.get("dropped")))
+        elif name == PLANNER_EVENT_EMPTY_QUESTION_DROPPED:
+            _bump(bucket, "empty_question_dropped", _planner_int(event.get("count")))
+        elif name == PLANNER_EVENT_DUPLICATE_ID_REWRITTEN:
+            _bump(bucket, "duplicate_id_rewritten")
+    return {"totals": totals, "by_phase": by_phase}
+
+
 # ---------- 2. 引用准确率（直读 state.citations）----------
 
 def compute_citation(
@@ -162,9 +228,11 @@ def compute_citation(
 # ---------- 3. 信息覆盖度（LLM 对查）----------
 
 _COVERAGE_SYSTEM = (
-    "你是评测裁判。给定一组该研究期望回答的子问题，以及系统实际检索到的研究发现，"
+    "你是评测裁判。给定一组该研究期望回答的子问题（带序号），以及系统实际检索到的研究发现，"
     "请逐个子问题判断：研究发现是否足以回答该子问题。"
-    '只输出 JSON：{"results": [{"subquestion": str, "covered": bool, "reason": str}]}。'
+    '只输出 JSON：{"results": [{"index": 子问题序号（整数，从 1 开始，原样回填）, '
+    '"covered": true/false, "reason": str}]}。'
+    "必须为每个子问题给出且仅给出一条结果，不得遗漏、重复或编造序号。"
 )
 
 
@@ -192,42 +260,106 @@ def compute_coverage(
     findings: List[Dict[str, Any]],
     judge: Optional[LLMClient] = None,
 ) -> Dict[str, Any]:
-    """覆盖度 LLM 对查（Q2：1 prompt/条，逐子问题判覆盖；smart 档语义判定，零阈值）。"""
+    """覆盖度 LLM 对查（F15：按序号对齐 + 唯一 / 齐备 / 布尔类型校验）。
+
+    - 裁判输出按 ``index``（1-based）对齐期望子问题；
+    - 重复序号只取首条（``duplicate_count``）；越界 / 非布尔 / 非法项计入 ``invalid_count``；
+    - 缺项（``missing_indices``）或非法项 ⇒ ``judge_failed=True``（显式失败，不静默）；
+    - ``coverage`` 恒在 [0,1]（缺项按未覆盖计，重复项不重复计数）。
+    """
+    total = len(expected_subquestions)
+    base: Dict[str, Any] = {
+        "covered_count": 0, "total": total, "coverage": 0.0, "per_sub": [],
+        "judge_failed": False, "missing_indices": [], "duplicate_count": 0,
+        "invalid_count": 0,
+    }
     if not expected_subquestions:
-        return {"covered_count": 0, "total": 0, "coverage": 0.0, "per_sub": [], "judge_failed": False}
+        return base
     if not findings:
         return {
-            "covered_count": 0, "total": len(expected_subquestions), "coverage": 0.0,
-            "per_sub": [{"subquestion": s, "covered": False, "reason": "无任何研究发现"} for s in expected_subquestions],
-            "judge_failed": False,
+            **base,
+            "per_sub": [{"index": i, "subquestion": s, "covered": False,
+                         "reason": "无任何研究发现"}
+                        for i, s in enumerate(expected_subquestions, 1)],
         }
     judge = judge or _make_judge()
     find_summary = "\n".join(
         f"- {f.get('content', '')[:300]}" for f in findings[:40]
     )
-    subs_text = "\n".join(f"- {s}" for s in expected_subquestions)
-    user = f"期望回答的子问题：\n{subs_text}\n\n系统实际检索到的研究发现：\n{find_summary}\n\n请逐个子问题给出判定。"
+    subs_text = "\n".join(f"{i}. {s}" for i, s in enumerate(expected_subquestions, 1))
+    user = (f"期望回答的子问题（带序号）：\n{subs_text}\n\n"
+            f"系统实际检索到的研究发现：\n{find_summary}\n\n请逐个子问题给出判定。")
     try:
         data = judge.chat_json(build_messages(_COVERAGE_SYSTEM, user), timeout=JUDGE_TIMEOUT_S)
-        per_sub = []
-        covered = 0
-        for item in data.get("results", []):
-            ok = bool(item.get("covered"))
-            covered += 1 if ok else 0
-            per_sub.append({"subquestion": item.get("subquestion", ""), "covered": ok, "reason": item.get("reason", "")})
-        return {
-            "covered_count": covered,
-            "total": len(expected_subquestions),
-            "coverage": round(covered / len(expected_subquestions), 4),
-            "per_sub": per_sub,
-            "judge_failed": False,
-        }
     except Exception:  # noqa: BLE001
         # 局部失败（Q4 Level 2）：记录缺失项，由 run.py 标 partial + missing_metrics
-        return {
-            "covered_count": 0, "total": len(expected_subquestions), "coverage": 0.0,
-            "per_sub": [], "judge_failed": True, "error": "coverage judge 超时/失败",
-        }
+        return {**base, "judge_failed": True, "error": "coverage judge 超时/失败"}
+
+    by_index: Dict[int, Dict[str, Any]] = {}
+    duplicate = invalid = 0
+    for item in (data.get("results", []) if isinstance(data, dict) else []):
+        if not isinstance(item, dict):
+            invalid += 1
+            continue
+        try:
+            idx = int(item.get("index"))
+        except (TypeError, ValueError):
+            invalid += 1
+            continue
+        if not (1 <= idx <= total):
+            invalid += 1
+            continue
+        if idx in by_index:
+            duplicate += 1
+            continue
+        if not isinstance(item.get("covered"), bool):
+            invalid += 1
+            continue
+        by_index[idx] = item
+
+    missing = [i for i in range(1, total + 1) if i not in by_index]
+    per_sub = []
+    covered = 0
+    for i, question in enumerate(expected_subquestions, 1):
+        item = by_index.get(i)
+        ok = bool(item.get("covered")) if item else False
+        covered += 1 if ok else 0
+        per_sub.append({
+            "index": i, "subquestion": question, "covered": ok,
+            "reason": (item or {}).get("reason", "") if item else "裁判未返回该子问题",
+        })
+    return {
+        "covered_count": covered,
+        "total": total,
+        "coverage": round(min(1.0, max(0.0, covered / total)), 4),
+        "per_sub": per_sub,
+        "judge_failed": bool(missing or invalid),
+        "missing_indices": missing,
+        "duplicate_count": duplicate,
+        "invalid_count": invalid,
+    }
+
+
+# ---------- 3b. 最终回答完整性（F15）----------
+
+def compute_answer_integrity(state: Dict[str, Any]) -> Dict[str, Any]:
+    """审计 F15：无引用事实占比 + 证据健康度（直读主链路 validator_stats，只看不判）。
+
+    - ``uncited_fact_ratio`` = ``1 - citation_coverage``（无引用事实句占比，F11 口径）；
+    - 证据健康度（F07）：回原文校验时的截断 / 缺失计数；
+    - 旧 raw 无这些字段时如实返回 None，不伪造 0。
+    """
+    stats = state.get("validator_stats") or {}
+    coverage = stats.get("citation_coverage")
+    ratio = round(1.0 - float(coverage), 4) if isinstance(coverage, (int, float)) else None
+    return {
+        "fact_sentence_count": stats.get("fact_sentence_count"),
+        "uncited_fact_sentence_count": stats.get("uncited_fact_sentence_count"),
+        "citation_coverage": coverage,
+        "uncited_fact_ratio": ratio,
+        "evidence_truncated_count": stats.get("evidence_truncated_count"),
+        "evidence_missing_count": stats.get("evidence_missing_count"),
+    }
 
 
 # ---------- 4. 检索命中率（第 7 项：关键词优先 + 嵌入回退）----------
@@ -365,25 +497,24 @@ def compute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
 def compute_reflection(state: Dict[str, Any], coverage: float) -> Dict[str, Any]:
     """结构性口径 + 交叉信号（Q2/TBD-8 拍板，不标期望跳数）。
 
-    - hard_stop：终态任一硬闸触顶（frontier 空 / depth / token_used）
+    - hard_stop：终态任一资源硬闸触顶（depth / token_used）
     - critic_stop：未触顶且 critic_signal == "stop"
     - 早停候选：critic_stop ∧ 覆盖度 < 90%；晚停候选：critic_stop ∧ 轮数 > 5
 
-    P1 Bug-6 修复：增加 frontier_empty 到 hard_stop 判定，
-    与 critic.py 的 hard_gate() 保持一致。replan_count 不再
-    作为全局 hard_stop（P1 max_replan 语义修正）。
+    F02 语义变更：frontier 空**不再是硬闸**（critic.py hard_gate 已移除该维度），
+    否则「单子问题最后一跳后由 Critic 语义收敛」会被误记为 hard_stop。
+    因队列空而停止属于 critic_stop（stop_reason=no_new_queries）。
+    replan_count 不再作为全局 hard_stop（P1 max_replan 语义修正）。
     """
     rc = config.research
     depth = state.get("depth", 0)
     token_used = state.get("token_used", 0)
     signal = state.get("critic_signal", "")
     hard_reasons: List[str] = []
-    frontier = state.get("frontier") or []
-    if not frontier:
-        hard_reasons.append("frontier_empty")
     if depth >= rc.max_total_hops:
         hard_reasons.append("max_total_hops")
-    if token_used >= rc.token_budget:
+    # F13：与研究循环硬闸同口径（budget - reserve），避免「指标与代码分叉」
+    if token_used >= research_token_ceiling(rc):
         hard_reasons.append("token_budget")
     is_hard = bool(hard_reasons)
     is_critic = (not is_hard) and signal == "stop"
@@ -426,9 +557,20 @@ def compute_all(
     coverage_res = compute_coverage(dataset_row.get("expected_subquestions") or [], findings, court)
     coverage = coverage_res.get("coverage", 0.0)
 
+    # F15：主链路口径（对照） + 独立裁判口径（可比、可复算）；差值即「裁判效应」可见量
+    citation_metrics = compute_citation(citations, state.get("validator_stats"))
+    judge_metrics = compute_citation_judge(state, court)
+    total_citations = citation_metrics.get("total_citations") or 0
+    main_e2e = (citation_metrics.get("verified", 0) / total_citations) if total_citations else 0.0
+    if judge_metrics.get("end_to_end_pass_rate") is not None:
+        judge_metrics["end_to_end_delta_vs_main_link"] = round(
+            judge_metrics["end_to_end_pass_rate"] - main_e2e, 4)
+
     return {
         "completion": compute_completion(state),
-        "citation": compute_citation(citations, state.get("validator_stats")),
+        "citation": citation_metrics,
+        "citation_judge": judge_metrics,
+        "answer_integrity": compute_answer_integrity(state),
         "coverage": coverage_res,
         "retrieval_hit": compute_retrieval_hit(dataset_row.get("gold_keywords") or [], findings, embed_fn),
         "cost": compute_cost(
@@ -440,5 +582,6 @@ def compute_all(
         "steps": compute_steps(state),
         "reflection": compute_reflection(state, coverage),
         "insufficient": compute_insufficient(state),
+        "planner_governance": compute_planner_governance(state),
         "raw_complete": state.get("status") == "done",
     }

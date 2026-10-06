@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def build_export_payload(
@@ -19,9 +19,13 @@ def build_export_payload(
     topic: str,
     meta: Dict[str, Any],
     result: Dict[str, Any],
+    egress: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """组装导出载荷：元数据 + 结果，**结构即导出契约**。"""
-    return {
+    """组装导出载荷：元数据 + 结果，**结构即导出契约**。
+
+    `egress`（P1-9）：run 创建时固化的数据流向快照（谁收到了什么；不含密钥）。
+    """
+    payload = {
         "run_id": run_id,
         "topic": topic,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -30,10 +34,14 @@ def build_export_payload(
         "cancelled": bool(meta.get("cancelled")),
         "token_used": meta.get("token_used", 0),
         "cost_estimate_cny": meta.get("cost_estimate_cny", 0.0),
+        "elapsed_seconds": meta.get("elapsed_seconds", 0),
         "degradation_count": meta.get("degradation_count", 0),
         "depth": meta.get("depth", result.get("depth", 0)),
         "result": result,
     }
+    if egress is not None:
+        payload["egress"] = egress
+    return payload
 
 
 def _citation_lines(citations: List[Dict[str, Any]]) -> List[str]:
@@ -67,6 +75,7 @@ def render_markdown(payload: Dict[str, Any]) -> str:
         f"> run_status **{payload.get('run_status')}** · 停止原因 **{payload.get('stop_reason')}**"
         f"{' · 已取消' if payload.get('cancelled') else ''}",
         f"> token {payload.get('token_used')} · 成本估算 ¥{payload.get('cost_estimate_cny')}"
+        f" · 耗时 {payload.get('elapsed_seconds')}s"
         f" · 降级条目 {payload.get('degradation_count')} · 检索深度 {payload.get('depth')}",
         "",
         "---",

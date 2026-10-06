@@ -49,6 +49,7 @@ def _register() -> None:
     from research_engine.agents.validator import build_validator_system
     from research_engine.agents.writer import build_writer_system
     from research_engine.critic import build_critic_system
+    from research_engine.eval.citation_judge import build_citation_judge_system
     from research_engine.eval.metrics import build_coverage_judge_system
 
     PROMPT_SLOT_BUILDERS.update(
@@ -59,6 +60,7 @@ def _register() -> None:
             "writer": build_writer_system,
             "validator": build_validator_system,
             "coverage_judge": build_coverage_judge_system,
+            "citation_judge": build_citation_judge_system,  # F15：独立引用裁判
         }
     )
 

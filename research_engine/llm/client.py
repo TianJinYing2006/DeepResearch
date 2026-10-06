@@ -7,12 +7,16 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from config import config
+from research_engine.budget import DeadlineExceeded, admit_call
+from research_engine.runtime_profile import task_deadline_remaining
+from research_engine.usage import UsageRecord, emit_usage
 
 
 class LLMClient:
@@ -27,6 +31,8 @@ class LLMClient:
     model_stats: Dict[str, int] = {}
     role_stats: Dict[str, int] = {}
     model_io_stats: Dict[str, Dict[str, int]] = {}
+    # 并发记账锁（需求 19 / #76）：validator 分批并行时保护上方类级计数器与 state.token_used
+    _stats_lock = threading.Lock()
 
     def __init__(self, model: Optional[str] = None, role: Optional[str] = None):
         self.model = model or config.llm.smart_model
@@ -58,7 +64,10 @@ class LLMClient:
         W3（Q3=D' 修复）：_accumulate_usage **无条件**调用——tokens_total（类级）任何调用都累计；
         state.token_used 仅当 state 非 None 时累计（内部判断）。跑完差值 = 漏传 state 的调用路径。
         W5（Q4）：timeout 透传给 openai SDK（judge 调用设 60s 治"LLM 层无超时"僵尸源）。
+        F13（审计）：调用前预算准入（`admit_call`）；未显式传 timeout 时使用默认值并按
+        任务剩余时限收窄（时限已过抛 `DeadlineExceeded`，不发起调用）。
         """
+        admit_call(state)  # F13：预算耗尽不再发起外部调用（state 为空时不检查）
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -68,13 +77,32 @@ class LLMClient:
             kwargs["max_tokens"] = max_tokens
         if response_format:
             kwargs["response_format"] = response_format
-        if timeout is not None:
-            kwargs["timeout"] = timeout
+        resolved_timeout = self._resolve_timeout(timeout)
+        if resolved_timeout is not None:
+            kwargs["timeout"] = resolved_timeout
 
         resp = self._get_client().chat.completions.create(**kwargs)
         content = resp.choices[0].message.content or ""
         self._accumulate_usage(resp, state)  # D'：无条件调用（内部处理 state=None）
         return content
+
+    @staticmethod
+    def _resolve_timeout(explicit: Optional[float]) -> Optional[float]:
+        """F13：显式 timeout 优先；否则用默认值并按任务剩余时限收窄。
+
+        - 默认值 `config.llm.request_timeout_seconds`（0 = 不设，仅显式 timeout 生效）；
+        - 任务时限已过 ⇒ 抛 :class:`DeadlineExceeded`（不发起调用）；
+        - 时限更紧时取 ``min(默认值, 剩余秒数)`` —— 单个节点不会活过任务时限。
+        """
+        if explicit is not None:
+            return explicit
+        base = float(getattr(config.llm, "request_timeout_seconds", 0.0) or 0.0)
+        remaining = task_deadline_remaining()
+        if remaining is None:
+            return base if base > 0 else None
+        if remaining <= 0:
+            raise DeadlineExceeded("task deadline reached before LLM call")
+        return min(base, remaining) if base > 0 else remaining
 
     def _accumulate_usage(self, resp, state) -> None:
         """把响应里的 token 用量累加进 state.token_used（Q6-B 可观测+控闸）。
@@ -82,23 +110,36 @@ class LLMClient:
         W3（Q3=D'）：tokens_total（类级）**无条件**累加（不管 state 是否传入）；
         state.token_used 只累加传 state 的调用。按 run 对齐后差值 = 漏传 state 的调用路径累计。
         W5（Q2）：模型名桶 + 职责桶同步累加（双轨成本报告）。
+        审计 F06：区分「provider 缺 usage」（安全跳过）与「业务记账失败」——
+        `emit_usage` 在 `DR_USAGE_STRICT=true` 下抛出的 `UsageSinkError` 绝不吞，
+        按契约向调用方传播。
         """
+        u = getattr(resp, "usage", None)
+        if u is None:
+            return
         try:
-            u = resp.usage
-            if u is not None:
-                total = int(getattr(u, "total_tokens", 0) or 0)
-                inp = int(getattr(u, "prompt_tokens", 0) or 0)
-                out = int(getattr(u, "completion_tokens", 0) or 0)
-                LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
-                LLMClient.model_stats[self.model] = LLMClient.model_stats.get(self.model, 0) + total
-                LLMClient.role_stats[self.role] = LLMClient.role_stats.get(self.role, 0) + total
-                io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
-                io["input"] += inp
-                io["output"] += out
-                if state is not None:
-                    state.token_used = getattr(state, "token_used", 0) + total
-        except Exception:  # noqa: BLE001
-            pass
+            total = int(getattr(u, "total_tokens", 0) or 0)
+            inp = int(getattr(u, "prompt_tokens", 0) or 0)
+            out = int(getattr(u, "completion_tokens", 0) or 0)
+        except Exception:  # noqa: BLE001 —— provider usage 字段形态异常：按「无 usage」处理
+            return
+        # 需求 19 / #76：validator 分批并行后本方法会被多线程调用 →
+        # 类级计数与 state.token_used 的读-改-写必须加锁，否则并发丢账。
+        with LLMClient._stats_lock:
+            LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
+            LLMClient.model_stats[self.model] = LLMClient.model_stats.get(self.model, 0) + total
+            LLMClient.role_stats[self.role] = LLMClient.role_stats.get(self.role, 0) + total
+            io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
+            io["input"] += inp
+            io["output"] += out
+            if state is not None:
+                state.token_used = getattr(state, "token_used", 0) + total
+        # P1-4 / F06：逐调用记账（无 sink 时 no-op；strict 失败由 emit_usage 上抛）
+        emit_usage(UsageRecord(
+            kind="llm", provider="dashscope", model=self.model, role=self.role,
+            input_tokens=inp, output_tokens=out, total_tokens=total,
+            request_id=getattr(resp, "id", None),
+        ))
 
     @staticmethod
     def reset_stats() -> None:

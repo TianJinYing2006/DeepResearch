@@ -2,10 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 方向 B「研究档案」：浅色纸面 + 单一 stamp-blue 强调（docs/web-frontend-redesign-directions.md）。
+   规则：无渐变 / 无玻璃拟态 / 无浮夸阴影；分层靠 1px rule 与留白；颜色只表达状态。 */
+
 @layer base {
   :root {
-    color-scheme: dark;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color-scheme: light;
+    font-family: "Noto Sans SC", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei",
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
   }
@@ -16,18 +20,18 @@
 
   html {
     min-width: 320px;
-    background: #07100f;
+    background: #f4f6f3;
   }
 
   body {
     min-width: 320px;
     min-height: 100vh;
     margin: 0;
-    color: #e8f0ed;
-    background:
-      radial-gradient(circle at 12% 4%, rgba(49, 196, 141, 0.13), transparent 27rem),
-      radial-gradient(circle at 88% 18%, rgba(54, 131, 255, 0.10), transparent 25rem),
-      linear-gradient(180deg, #07100f 0%, #081211 42%, #060b0b 100%);
+    color: #171b19;
+    background-color: #f4f6f3;
+    /* 纸纹：极低对比的噪声，给平铺底色一点触感（纯装饰，不进入可访问树） */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.09 0 0 0 0 0.11 0 0 0 0 0.10 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
   }
 
   button,
@@ -42,9 +46,26 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* R4b（审计 U47）：触控设备去掉双击缩放等待，交互响应更跟手 */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+  }
+
   ::selection {
-    color: #f3fffa;
-    background: rgba(52, 211, 153, 0.34);
+    color: #ffffff;
+    background: rgba(30, 90, 216, 0.35);
+  }
+
+  /* 无障碍兜底（fixing-accessibility / Vercel WIG）：任何可交互元素都必须有可见焦点。
+     组件类里的 focus-visible ring 优先；未单独定义的（药丸按钮、文字按钮、链接、radio）走这里。 */
+  :where(button, a, input, select, textarea, [role='radio']):focus-visible {
+    outline: 2px solid rgba(30, 90, 216, 0.55);
+    outline-offset: 2px;
   }
 
   ::-webkit-scrollbar {
@@ -53,60 +74,94 @@
   }
 
   ::-webkit-scrollbar-track {
-    background: #091211;
+    background: #eef1ed;
   }
 
   ::-webkit-scrollbar-thumb {
-    border: 3px solid #091211;
+    border: 3px solid #eef1ed;
     border-radius: 999px;
-    background: #29443d;
+    background: #b9c2bc;
   }
 }
 
 @layer components {
+  /* 层次：纸面卡片 + 两级柔和投影（近处 1px 接触阴影 + 远处大半径扩散），保持轻、不油 */
   .surface-card {
-    @apply rounded-2xl border border-white/[0.08] bg-[#0d1816]/90 shadow-[0_22px_70px_rgba(0,0,0,0.22)] backdrop-blur-xl;
+    @apply rounded-lg border border-rule bg-sheet;
+    box-shadow:
+      0 1px 2px rgba(23, 27, 25, 0.05),
+      0 14px 36px -24px rgba(23, 27, 25, 0.25);
+    /* 入场编排：所有纸面卡片错峰浮现（mount 一次，不循环）；模态内面板由 utilities 层覆盖 */
+    animation: rise 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  main aside > .surface-card:nth-child(2) {
+    animation-delay: 60ms;
+  }
+
+  main aside > .surface-card:nth-child(3) {
+    animation-delay: 120ms;
+  }
+
+  main > div > section.surface-card:nth-of-type(3) {
+    animation-delay: 60ms;
+  }
+
+  main > div > section.surface-card:nth-of-type(4),
+  main > div > section.surface-card:nth-of-type(5) {
+    animation-delay: 120ms;
   }
 
   .surface-card-muted {
-    @apply rounded-xl border border-white/[0.07] bg-white/[0.025];
+    @apply rounded-lg border border-rule/70 bg-rule/25;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
 
   .field-label {
-    @apply mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100/55;
+    @apply mb-2 block text-xs font-medium text-ink-muted;
   }
 
   .field-control {
-    @apply w-full rounded-xl border border-white/10 bg-black/20 px-3.5 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-emerald-400/60 focus:ring-4 focus:ring-emerald-400/10 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply w-full rounded-lg border border-rule bg-sheet px-3.5 py-3 text-sm text-ink outline-none transition placeholder:text-ink-muted/70 hover:border-ink-muted/50 focus:border-stamp-blue focus:ring-2 focus:ring-stamp-blue/20 disabled:cursor-not-allowed disabled:bg-rule/20 disabled:opacity-70;
+    box-shadow: inset 0 1px 2px rgba(23, 27, 25, 0.04);
   }
 
   .primary-button {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-emerald-950 shadow-[0_10px_30px_rgba(52,211,153,0.18)] transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 disabled:shadow-none;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-stamp-blue px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:bg-stamp-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stamp-blue/40 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-rule disabled:text-ink-muted disabled:hover:translate-y-0;
+    box-shadow: 0 1px 2px rgba(30, 90, 216, 0.25), 0 10px 22px -14px rgba(30, 90, 216, 0.55);
   }
 
   .secondary-button {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-white/20 hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-rule bg-sheet px-4 py-3 text-sm font-semibold text-ink transition hover:-translate-y-px hover:border-ink-muted/50 hover:bg-rule/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stamp-blue/30 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0;
+    box-shadow: 0 1px 2px rgba(23, 27, 25, 0.05);
   }
 
   .danger-button {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:border-amber-300/35 hover:bg-amber-300/15 disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-stamp-red/40 bg-stamp-red/5 px-4 py-3 text-sm font-semibold text-stamp-red transition hover:-translate-y-px hover:border-stamp-red/60 hover:bg-stamp-red/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stamp-red/30 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0;
   }
 
+  /* 报告正文：衬线长文（阅读模式），17px / 1.85，行宽由容器控制在 ≤68ch */
   .report-prose {
-    @apply text-[15px] leading-7 text-slate-300;
+    @apply font-serif text-[17px] leading-[1.85] text-ink;
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
+  }
+
+  /* 登录门/档案场景的衬线标题（与报告正文同族，仅用于编辑性时刻） */
+  .archive-serif {
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
   }
 
   /* P1-7 移动端：标题与代码块在窄屏上要能装下，否则会把整页撑出横向滚动条 */
   .report-prose h1 {
-    @apply mb-5 mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl;
+    @apply mb-5 mt-2 text-2xl font-bold tracking-tight text-ink sm:text-3xl;
   }
 
   .report-prose h2 {
-    @apply mb-3 mt-9 border-b border-white/10 pb-2 text-lg font-semibold text-emerald-50 sm:text-xl;
+    @apply mb-3 mt-9 border-b border-rule pb-2 text-lg font-semibold text-ink sm:text-xl;
   }
 
   .report-prose h3 {
-    @apply mb-2 mt-6 text-lg font-semibold text-slate-100;
+    @apply mb-2 mt-6 text-lg font-semibold text-ink;
   }
 
   .report-prose p,
@@ -129,19 +184,19 @@
   }
 
   .report-prose blockquote {
-    @apply rounded-r-lg border-l-2 border-emerald-400/50 bg-emerald-400/[0.06] px-4 py-2 text-slate-300;
+    @apply rounded-r-lg border-l-2 border-stamp-blue/50 bg-stamp-blue/[0.04] px-4 py-2 text-ink-muted;
   }
 
   .report-prose a {
-    @apply break-all text-emerald-300 underline decoration-emerald-400/30 underline-offset-4 hover:text-emerald-200;
+    @apply break-all text-stamp-blue underline decoration-stamp-blue/30 underline-offset-4 hover:text-stamp-blue/80;
   }
 
   .report-prose code {
-    @apply rounded bg-black/30 px-1.5 py-0.5 font-mono text-[0.9em] text-emerald-200;
+    @apply rounded bg-rule/40 px-1.5 py-0.5 font-mono text-[0.9em] text-ink;
   }
 
   .report-prose pre {
-    @apply my-5 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-4 text-[13px] sm:text-sm;
+    @apply my-5 overflow-x-auto rounded-lg border border-rule bg-rule/30 p-4 text-[13px] sm:text-sm;
   }
 
   .report-prose pre code {
@@ -159,16 +214,31 @@
     overflow-wrap: anywhere;
   }
 
+  /* baseline-ui：标题 balance（避免孤字）、正文 pretty（避免寡行） */
+  .report-prose :where(h1, h2, h3) {
+    text-wrap: balance;
+  }
+
+  .report-prose :where(p, li) {
+    text-wrap: pretty;
+  }
+
+  /* 方向 B：无引用支撑的实质段落 → 点状下划线示警（不改写正文） */
+  .report-prose p.claim-unsourced {
+    text-decoration: underline dotted rgba(154, 107, 31, 0.45);
+    text-underline-offset: 4px;
+  }
+
   .report-prose th {
-    @apply border border-white/10 bg-white/[0.05] px-3 py-2 font-semibold text-slate-100;
+    @apply border border-rule bg-rule/40 px-3 py-2 font-semibold text-ink;
   }
 
   .report-prose td {
-    @apply border border-white/10 px-3 py-2 align-top;
+    @apply border border-rule px-3 py-2 align-top;
   }
 
   .report-prose hr {
-    @apply my-8 border-white/10;
+    @apply my-8 border-rule;
   }
 }
 
@@ -185,9 +255,159 @@
   }
 }
 
+/* ---- 动效增强（方向 B）：只用于「入场」与「状态」，全部走 transform/opacity ----
+   ⚠️ 编排原则：一次编排好的入场（错峰 rise），而不是每个元素各自乱动；
+   全局 `prefers-reduced-motion` 已把动画时长压到 0.01ms。 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0.4;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 运行中徽标的「心跳」：只扩散外圈阴影，不改文字透明度（不干扰读数） */
+@keyframes ripple {
+  0% {
+    box-shadow: 0 0 0 0 rgba(46, 125, 91, 0.28);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(46, 125, 91, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 125, 91, 0);
+  }
+}
+
+/* ---- 登录门动效（参考 LinkResume：光标闪烁 / 虚线流动 / 卡片漂浮）----
+   原则：一次编排好的入场 + 永不抢焦点的循环微动；全部走 transform/opacity。 */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes trace-flow {
+  to {
+    stroke-dashoffset: -160;
+  }
+}
+
+@keyframes card-drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--drift-rot, 0deg));
+  }
+  50% {
+    transform: translateY(-6px) rotate(calc(var(--drift-rot, 0deg) + 0.5deg));
+  }
+}
+
+/* 落地页 marquee：内容双份、位移 -50% 实现无缝循环 */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
 @layer utilities {
   .animate-shimmer {
     animation: shimmer 1.8s ease-in-out infinite;
+  }
+
+  .animate-rise {
+    animation: rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 200ms ease-out both;
+  }
+
+  .badge-live {
+    animation: ripple 2.2s ease-out infinite;
+  }
+
+  /* 登录门：标题光标 / 轨迹虚线 / 报告卡漂浮 */
+  .animate-caret {
+    animation: caret-blink 1s steps(1, end) infinite;
+  }
+
+  .trace-dash {
+    animation: trace-flow 24s linear infinite;
+  }
+
+  .card-drift {
+    animation: card-drift 18s ease-in-out infinite;
+  }
+
+  .animate-marquee {
+    animation: marquee 36s linear infinite;
+  }
+
+  /* 滚动进入（滚动扫描挂 is-visible；--reveal-delay 控制错峰）
+     虚化预加载：先模糊下沉，滚动进入视口后「由虚转实」 */
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px) scale(0.995);
+    filter: blur(12px);
+    transition:
+      opacity 720ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 720ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 720ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 300ms ease,
+      box-shadow 300ms ease;
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  /* 揭示信号用 data-* 而非 class：工作流等元素的 className 由 React 动态生成，
+     重渲染会整体重写 className，把命令式加的类抹掉（曾导致卡片卡在模糊态）。
+     data-* 不在 React props 里，重渲染不会触碰。 */
+  .reveal[data-reveal-visible='true'] {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+
+  /* ⚠️ surface-card 自带 `rise` 入场动画（fill: both）会把最终 opacity/transform
+     永久盖在 .reveal 初始态上 → 未进入视口的卡片会变成「不透明+重度模糊」的幽灵块。
+     reveal 卡片一律禁用该动画，由 .reveal 全权接管入场。 */
+  .reveal.surface-card {
+    animation: none;
   }
 }
 
@@ -199,5 +419,21 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  /* 循环微动直接关闭（光标保持常亮、轨迹与卡片静止） */
+  .animate-caret,
+  .trace-dash,
+  .card-drift,
+  .animate-marquee {
+    animation: none;
+  }
+
+  /* 滚动进入不做位移/虚化过渡，直接呈现 */
+  .reveal {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
   }
 }

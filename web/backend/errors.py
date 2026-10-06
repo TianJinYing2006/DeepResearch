@@ -47,11 +47,15 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         400, False,
         "该搜索源未配置 API key：在 .env 中补上后**重启服务**再试（配置只在启动时读取）。",
         component="search"),
+    "invalid_request": ErrorSpec(
+        422, False,
+        "请求参数不合法（如导出 format 只接受 md|json）：按 detail 里的字段提示修正后重发。",
+        component="web"),
     # --- 资源不存在 / 不可用（HTTP 404 / 409 / 429） ----------------------
     "run_id_not_found": ErrorSpec(
         404, False,
-        "run_id 只存在于**当前进程内存**（D-19 明确不做任务持久化）；"
-        "服务重启后不可恢复，请重新发起一次研究。",
+        "run_id 既不在当前进程内存中，也不在任务库中：确认 id 是否拼错，或重新发起一次研究。"
+        "（任务库只保存已落库的运行；服务重启后内存中未落库的运行不可恢复。）",
         component="web"),
     "report_not_ready": ErrorSpec(
         409, True, "研究尚未结束，报告还没生成。等 RUN_FINISHED 后再导出。",
@@ -60,11 +64,114 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         404, False,
         "本次运行没有产出报告（被取消 / 超时 / 失败）。可调整参数后重新运行。",
         component="web"),
+    # --- 任务列表管理（需求 22） ------------------------------------------
+    "run_not_retryable": ErrorSpec(
+        409, False,
+        "仅失败 / 失联 / 超时的任务支持一键重试：进行中任务请等它结束，成功或已取消的任务请重新提交。",
+        component="web"),
+    "run_active": ErrorSpec(
+        409, False,
+        "进行中的任务不能归档：等待任务结束或先取消，再归档。",
+        component="web"),
     "concurrency_limit": ErrorSpec(
         429, True,
         "已有研究在运行：前台模型下一次只跑一个（D-19）。等它结束或点「停止」后再启动；"
         "确需并发请调大 DR_MAX_CONCURRENT_RUNS。",
         component="web"),
+    "persistence_unavailable": ErrorSpec(
+        503, True,
+        "任务持久化不可用（PostgreSQL 未配置或连接失败）：检查 DR_DATABASE_URL 与数据库状态。",
+        component="web"),
+    # --- 账号与会话（P4-A） ----------------------------------------------
+    "unauthenticated": ErrorSpec(
+        401, False, "请先登录（httpOnly Session Cookie 已失效或未携带）。",
+        component="auth"),
+    "invalid_credentials": ErrorSpec(
+        401, False, "邮箱或密码不正确（不区分用户不存在 / 密码错 / 已封禁）。",
+        component="auth"),
+    "email_taken": ErrorSpec(
+        409, False, "该邮箱已注册：直接登录，或更换邮箱。", component="auth"),
+    "invite_invalid": ErrorSpec(
+        400, False, "邀请码无效、已使用或已过期：向管理员索取新邀请码。", component="auth"),
+    "csrf_failed": ErrorSpec(
+        403, False,
+        "CSRF 校验失败：写操作需携带与 dr_csrf Cookie 一致的 X-CSRF-Token。",
+        component="auth"),
+    "quota_exceeded": ErrorSpec(
+        429, True,
+        "已超出配额（每日运行次数 / 单用户并发 / 月度预算）：等预算周期或已有任务结束后再试。",
+        component="web"),
+    "rate_limited": ErrorSpec(
+        429, True, "请求过于频繁（登录 / 提交限流）：稍后再试。", component="web"),
+    "mail_unavailable": ErrorSpec(
+        503, True,
+        "邮件通道未配置或不可用：联系管理员用 create-reset-token 兜底，或稍后再试。",
+        component="auth"),
+    "help_unavailable": ErrorSpec(
+        503, True, "帮助文档尚未准备：稍后再试或联系管理员。", component="web"),
+    "share_not_found": ErrorSpec(
+        404, False, "分享链接无效或已过期。", component="web"),
+    "idempotency_conflict": ErrorSpec(
+        409, False,
+        "幂等键已用于不同请求：换一个新 key 重试，或原样重发首次请求（同键不同载荷会被拒绝）。",
+        component="web"),
+    # --- RAG 知识库（P6-A） ----------------------------------------------
+    "rag_unavailable": ErrorSpec(
+        503, True,
+        "知识库不可用：确认 QDRANT_URL 可达、embedding key 已配置后重试。",
+        component="rag"),
+    "rag_ingest_failed": ErrorSpec(
+        503, True,
+        "文档摄取失败（解析 / embedding / 向量库）：按 message 排查后可重试同一文件。",
+        component="rag"),
+    # --- 内容安全（P7-A / P0-4）------------------------------------------
+    "content_blocked": ErrorSpec(
+        400, False,
+        "输入命中内容安全预检：请修改主题或附加要求后重试；如认为误判可提交申诉。",
+        component="moderation"),
+    "output_under_review": ErrorSpec(
+        403, False,
+        "报告命中内容安全预检，正在等待人工复核：复核通过或申诉处理前不开放查看与导出；"
+        "如认为误判可提交申诉。",
+        component="moderation"),
+    "appeal_not_applicable": ErrorSpec(
+        409, False,
+        "该任务没有需要复核的标记（未被 flagged）：无需申诉；如对输入预检有异议可不带 run_id 提交申诉。",
+        component="moderation"),
+    "appeal_duplicate": ErrorSpec(
+        409, False,
+        "同一任务的申诉已在处理中：请等待复核结果，不要重复提交。",
+        component="moderation"),
+    "https_required": ErrorSpec(
+        400, False,
+        "生产环境仅接受 HTTPS 请求：请通过 TLS 入口（反向代理）访问，并确保透传 X-Forwarded-Proto。",
+        component="web"),
+    "unsupported_file_type": ErrorSpec(
+        400, False,
+        "不支持的文件类型或文件内容与扩展名不符：只接受 PDF / DOCX / Markdown / 纯文本。",
+        component="rag"),
+    "payload_too_large": ErrorSpec(
+        413, False,
+        "文件或文档规模超过上限：压缩/拆分后重试（大小上限见 DR_RAG_MAX_FILE_MB）。",
+        component="rag"),
+    "document_limit_exceeded": ErrorSpec(
+        422, False,
+        "文档超过解析限额（页数 / 字符数 / 分块数 / 解析时长）：拆分文档或联系管理员调整限额。",
+        component="rag"),
+    "ingestion_not_found": ErrorSpec(
+        404, False,
+        "摄取记录不存在（或不属于当前用户）：确认 ingestion_id，或重新上传。",
+        component="rag"),
+    # --- 需求 23：知识库管理与版本重建 -----------------------------------
+    "rag_no_snapshot": ErrorSpec(
+        409, False,
+        "该文档没有解析快照（历史文档）：无法重新分块，请重新上传该文档。"
+        "（分块预览与重新嵌入仍可用）",
+        component="rag"),
+    "rag_not_ready": ErrorSpec(
+        409, False,
+        "文档当前状态不允许该操作（处理中 / 已失败）：等状态就绪后重试。",
+        component="rag"),
     # --- 运行期（SSE，不是 HTTP 错误） -----------------------------------
     "run_timeout": ErrorSpec(
         None, False,

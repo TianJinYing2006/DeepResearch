@@ -29,14 +29,14 @@ class _FakeStore:
         self._unavailable = unavailable
         self._err = err
 
-    def search(self, vector, top_k=5):
+    def search(self, vector, top_k=5, scope=None):
         if self._unavailable:
             return []  # 复刻真实行为：不可用时静默返回空
         if self._err:
             raise RuntimeError(self._err)
         return self._hits
 
-    def scroll_all(self, limit=10000):
+    def scroll_all(self, limit=10000, scope=None):
         return self._payloads
 
     @property
@@ -56,19 +56,22 @@ def _make_retriever(monkeypatch, store, texts=(), sources=(), embed_ok=True, api
     r = HybridRetriever.__new__(HybridRetriever)
     r.store = store
     r._client = None
-    r._all_texts = list(texts)
-    r._all_sources = list(sources)
-    r._bm25 = None
-    if r._all_texts:
-        from rank_bm25 import BM25Okapi
+    from rank_bm25 import BM25Okapi
 
-        from research_engine.rag.tokenizer import tokenize
+    from research_engine.rag.tokenizer import tokenize
 
-        r._bm25 = BM25Okapi([tokenize(t) for t in r._all_texts])
+    bm25 = BM25Okapi([tokenize(t) for t in texts]) if texts else None
+    # 需求 23：语料缓存键 = (作用域, revision)，语料为 payload 形态（含身份元数据）
+    source_list = list(sources) if sources else ["" for _ in texts]
+    metas = [{"text": t, "source": s} for t, s in zip(texts, source_list)]
+    r._bm25_cache = {(None, None, 0): (metas, bm25)}
     # 与真实环境解耦：不依赖 .env 里有没有 DASHSCOPE_API_KEY
     monkeypatch.setattr(R, "config", SimpleNamespace(
         llm=SimpleNamespace(api_key=api_key),
-        rag=SimpleNamespace(top_k=5),
+        rag=SimpleNamespace(
+            top_k=5, recall_per_route=20, rrf_k=60, use_rerank=False,
+            max_per_doc=2, evidence_max_tokens=1500,
+        ),
     ))
     if embed_ok:
         r.embed_query = lambda q: [0.1, 0.2]
@@ -220,6 +223,7 @@ def test_retrieve_partial_backend_failure_keeps_failures(monkeypatch):
 def test_researcher_derives_partial_failure_with_component(monkeypatch):
     """researcher 单向派生：部分失败 ⇒ component 带 backend 名（`rag_search:vector`）。"""
     from research_engine.agents.researcher import Researcher
+    from research_engine.rag.scope import RagScope
     from research_engine.state import DegradationSink
 
     store = _FakeStore(payloads=[{"text": "chunk A", "source": "doc_a.md"},
@@ -227,6 +231,7 @@ def test_researcher_derives_partial_failure_with_component(monkeypatch):
                                  {"text": "third C", "source": "doc_c.md"}])
     r = Researcher.__new__(Researcher)
     r.degradations = DegradationSink()
+    r._rag_scope = RagScope()
     r.retriever = _make_retriever(monkeypatch, store,
                                   texts=["chunk A", "other B", "third C"],
                                   sources=["doc_a.md", "doc_b.md", "doc_c.md"], embed_ok=False)
@@ -242,11 +247,13 @@ def test_researcher_derives_partial_failure_with_component(monkeypatch):
 def test_researcher_zero_hit_writes_no_degradation(monkeypatch):
     """D-03 端到端：零命中不写降级条目 ⇒ run_status 仍为 success。"""
     from research_engine.agents.researcher import Researcher
+    from research_engine.rag.scope import RagScope
     from research_engine.state import DegradationSink
 
     store = _FakeStore(hits=[], payloads=[])
     r = Researcher.__new__(Researcher)
     r.degradations = DegradationSink()
+    r._rag_scope = RagScope()
     r.retriever = _make_retriever(monkeypatch, store)
 
     assert r._search_rag("q") == []

@@ -50,16 +50,41 @@ export interface SearchProviderOption {
   available: boolean
 }
 
+/** 运行档位（P0 profile 固化）：底层参数由服务端固定，前端只提交 value。 */
+export interface ProfileOption {
+  value: string
+  label: string
+  max_total_hops: number
+  max_subquestions: number
+  token_budget: number
+  timeout_seconds: number
+  run_budget_cny: number
+}
+
 export interface RunOptions {
   search_providers: SearchProviderOption[]
   default_provider: string
   enable_arxiv_default: boolean
   max_total_hops_default: number
   max_subquestions_default: number
+  /** P0：服务端档位列表（前端只展示 / 选择 value） */
+  profiles?: ProfileOption[]
+  /** P0：默认档位（缺省 quick） */
+  default_profile?: string
   /** P1-2：后端生效的运行时限（秒） */
   run_timeout_seconds?: number
   /** P1-3：后端生效的单进程并发上限 */
   max_concurrent_runs?: number
+  /** P4-A / P6-A：是否开启鉴权（前端据此决定是否展示登录门） */
+  auth_required?: boolean
+  /** P4-A：注册是否需要邀请码 */
+  invite_only?: boolean
+  /** 需求 25：错误追踪（DSN 空 = 前端不初始化） */
+  sentry_dsn?: string | null
+  sentry_environment?: string | null
+  release?: string | null
+  /** 需求 26：报告只读分享开关（隐藏分享入口） */
+  share_enabled?: boolean
 }
 
 export interface StepFinishedEvent extends AguiEvent {
@@ -100,6 +125,8 @@ export interface CitationResult {
   note: string
   existence: boolean
   verified_relaxed: boolean
+  /** 审计 P1#2：校验未完成（LLM 失败/无反馈/结论错位）——不视为通过 */
+  verification_failed?: boolean
   is_meta: boolean
 }
 
@@ -122,14 +149,14 @@ export interface RunFinishedEvent extends AguiEvent {
   run_status: RunStatus
   token_used: number
   /** LLM 成本估算（元）。口径：无 input/output 拆分，按最贵 output 单价计的**上界**。 */
-  cost_estimate_cny?: number
+  cost_estimate_cny: number
+  /** #14：后端记录的总耗时（秒）——刷新回放后同样权威，不依赖前端计时器 */
+  elapsed_seconds?: number
   degradation_count: number
   has_report: boolean
+  /** P0-4：报告命中内容安全预检 ⇒ 正文已从事件流脱敏，等待人工复核 */
+  output_under_review?: boolean
   result: ResearchResult
-}
-
-export interface RunErrorEvent extends StructuredError {
-  type: 'RUN_ERROR'
 }
 
 export function isAguiEvent(value: unknown): value is AguiEvent {

@@ -1,0 +1,26 @@
+# Docker 构建上下文瘦身：研究产物、前端依赖、本地配置一律不进镜像
+.git
+.github
+.deps
+.pytest_cache
+.ruff_cache
+.reasonix
+.workbuddy
+local-artifacts
+samples
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.venv
+.env
+.env.*
+node_modules
+**/node_modules
+web/frontend/dist
+web/frontend/e2e
+web/frontend/test-results
+web/frontend/playwright-report
+**/results
+.tmp
+*.log

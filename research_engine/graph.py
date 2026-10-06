@@ -33,6 +33,7 @@ from research_engine.agents.validator import Validator
 from research_engine.agents.writer import Writer
 from research_engine.context.manager import ContextManager
 from research_engine.critic import Critic, route_critic
+from research_engine.evidence import ensure_evidence_identity  # F08：原文层证据身份
 from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
 from research_engine.observability import (  # W3：可观测层（Q1~Q7）
@@ -42,6 +43,8 @@ from research_engine.observability import (  # W3：可观测层（Q1~Q7）
     start_trace,
 )
 from research_engine.render import ReportRenderer
+from research_engine.repair import repair_report  # F11（3b）：有界返工
+from research_engine.runtime_profile import effective_research_config
 from research_engine.state import ResearchState, SubQuestion
 from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行载体
     STOP_CANCELLED,
@@ -50,6 +53,23 @@ from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行
     STOP_RUNNING,
     RunStep,
 )
+
+#: F11（3b）：引用返工的最大执行次数（硬上限，防「修复-校验」振荡；1 = 只返工一次）
+MAX_REPAIR_PASSES = 1
+
+
+def route_repair(state: ResearchState) -> str:
+    """纯函数：校验后是否进入有界返工。
+
+    - 已达返工上限 / 无报告 → ``"render"``
+    - 存在未通过校验的引用 → ``"repair"``（确定性移除/降格后重走校验）
+    - 否则 → ``"render"``
+    """
+    if state.repair_count >= MAX_REPAIR_PASSES or not state.report:
+        return "render"
+    if any(not citation.verified for citation in state.citations):
+        return "repair"
+    return "render"
 
 
 def effective_per_subq_hop_cap(state: ResearchState, rc: Any = None) -> int:
@@ -112,6 +132,7 @@ class DeepResearchGraph:
         g.add_node("revise", self._revise)
         g.add_node("write", self._write)
         g.add_node("validate", self._validate)
+        g.add_node("repair", self._repair)  # F11（3b）：有界返工（失败论断确定性移除/降格）
         g.add_node("render", self._render)  # W2（Q1=A）：validate 后渲染，可审计展示不回流 report
 
         g.set_entry_point("plan")
@@ -125,7 +146,14 @@ class DeepResearchGraph:
         )
         g.add_edge("revise", "research")  # 回填 next_queries 或 replan 后，继续研究
         g.add_edge("write", "validate")
-        g.add_edge("validate", "render")  # W2：先校验后渲染（修正文档旧稿"write 之前"时序倒置）
+        # F11（3b）：校验后有未通过论断 → 至多一次返工（repair），随后重走校验；
+        # 其余情况直接渲染（W2：先校验后渲染，修正文档旧稿"write 之前"时序倒置）
+        g.add_conditional_edges(
+            "validate",
+            route_repair,
+            {"repair": "repair", "render": "render"},
+        )
+        g.add_edge("repair", "validate")  # 二次校验（repair_count 封顶，绝不成环）
         g.add_edge("render", END)
 
         # 有循环 → 必须挂 checkpointer + 设 recursion_limit（run 时传）
@@ -157,7 +185,7 @@ class DeepResearchGraph:
             }
 
     def _research(self, state: ResearchState) -> Dict[str, Any]:
-        rc = config.research
+        rc = effective_research_config()
         frontier = list(state.frontier)
         per_subq_hop = dict(state.per_subq_hop)
         effective_cap = effective_per_subq_hop_cap(state, rc)
@@ -177,7 +205,8 @@ class DeepResearchGraph:
             break
 
         if head is None:
-            # 剩余查询全被 per_cap 过滤 → 队列实质性空，交给 critic 判 stop。
+            # 剩余查询全被 per_cap 过滤 → 队列实质性空。F02 后 frontier 空不再是硬闸：
+            # 仍需过 Critic（它可能给出其他子问题的补充查询；确实无新查询才收敛停止）。
             # ⚠️ 消息必须带上 cap 数值：否则用户/日志只看到「无待检索查询」，会误判成
             # 「搜不到东西」，而真实原因是局部跳数上限掐断（P0-5）。
             return {
@@ -185,8 +214,8 @@ class DeepResearchGraph:
                 "status": "researching",
                 "progress": [
                     {"stage": "research",
-                     "msg": f"剩余查询均达每子问题跳数上限（cap={effective_cap}，"
-                            f"子问题数={len(state.subquestions)}），停止检索"}
+                     "msg": f"本跳无可用查询：剩余查询均达每子问题跳数上限（cap={effective_cap}，"
+                            f"子问题数={len(state.subquestions)}），交由 Critic 裁决"}
                 ],
             }
 
@@ -200,6 +229,8 @@ class DeepResearchGraph:
         # W7 Arm4 G1：把当前查询归属的子问题 ID 写回 finding（post-tag，覆盖所有工具路径）
         for f in new_findings:
             f.sq_id = sq_id or ""
+        # F08（审计）：原文层证据身份（内容寻址 ID / hash / 检索时间）；只写空字段 ⇒ 幂等
+        ensure_evidence_identity(new_findings)
 
         merged_findings = list(state.findings) + new_findings
         seen = set(state.visited_sources)
@@ -247,6 +278,7 @@ class DeepResearchGraph:
             "needs_replan": state.needs_replan,
             "knowledge_gap": state.critic_gap,
             "next_queries": state.next_queries,
+            "cited_evidence_ids": state.critic_cited_evidence_ids,  # F01：裁决引用证据（可复核）
             "stop_reason": state.critic_stop_reason,
         }
         return {
@@ -255,9 +287,12 @@ class DeepResearchGraph:
             "needs_replan": state.needs_replan,
             "critic_gap": state.critic_gap,
             "critic_stop_reason": state.critic_stop_reason,
+            "critic_cited_evidence_ids": state.critic_cited_evidence_ids,
             "next_queries": state.next_queries,
             "token_used": state.token_used,  # Q6-B：critic 的 LLM token 累计写回
             "reflection_log": [entry],  # add reducer 追加（Q7）
+            # 需求 16：critic 治理事件（next_queries sq_id 归一化）并入同一治理事件流
+            "planner_events": self.critic.drain_events(),
             "progress": [
                 {"stage": "critic", "msg": f"depth={state.depth} 裁决={signal}"
                  + ("（需重分解）" if state.needs_replan else "")
@@ -266,7 +301,7 @@ class DeepResearchGraph:
         }
 
     def _revise(self, state: ResearchState) -> Dict[str, Any]:
-        rc = config.research
+        rc = effective_research_config()
         with span_node(f"R{state.depth}-修订", node="revise",
                        input={"needs_replan": state.needs_replan, "replan_count": state.replan_count}):
             # Q2-B 兜底：方向跑偏且未达 replan 上限 → 全量重分解、重新 seed frontier
@@ -305,23 +340,30 @@ class DeepResearchGraph:
             }
 
     def _write(self, state: ResearchState) -> Dict[str, Any]:
-        # 先压缩再写作；压缩结果写回 state.findings（ADR-0004 引用编号契约，保持覆写语义）
+        # F08（审计）：压缩产物写入**工作摘要层** working_findings；原文层 findings 保持
+        # append-only（不再被覆写）。ADR-0004 编号一致性不变量保留：Writer 与 Validator
+        # 消费的仍是同一份 working_findings。
         with span_node("写作", node="write"):
-            compressed = self.context.compress(state.findings, state.topic, state)
-            report = self.writer.write(state.topic, state.subquestions, compressed, state)
+            working = self.context.compress(state.findings, state.topic, state)
+            report = self.writer.write(state.topic, state.subquestions, working, state)
         return {
             "report": report,
-            "findings": compressed,  # 不加 reducer → 覆写（Q7=A）
+            "working_findings": working,  # 编号协议基准（Writer/Validator/Render 共用）
             # W8 Arm 1：writer 降级记录（如 LLM 失败走兜底报告）交给 reducer
             "degradation_log": self.writer.drain_degradations(),
             "status": "writing",
             "token_used": state.token_used,  # Q6-B：writer+compress 的 LLM token 累计写回
-            "progress": [{"stage": "write", "msg": "报告生成完成"}],
+            "progress": [{"stage": "write",
+                          "msg": f"报告生成完成（工作证据 {len(working)} 条 / 原文 {len(state.findings)} 条）"}],
         }
 
     def _validate(self, state: ResearchState) -> Dict[str, Any]:
         with span_node("校验", node="validate"):
-            citations = self.validator.validate(state.report, state.findings, state)
+            # F08（审计）：编号协议基准 = 工作摘要层（Writer 所见同一份）；原文层作为
+            # evidence 传入 —— Validator 按 origin 链回原文校验（长文后段事实可核验）
+            working = state.working_findings or state.findings
+            citations = self.validator.validate(state.report, working, state,
+                                                evidence=state.findings)
         verified = sum(1 for c in citations if c.verified)
         return {
             "citations": citations,
@@ -339,12 +381,39 @@ class DeepResearchGraph:
             ],
         }
 
+    def _repair(self, state: ResearchState) -> Dict[str, Any]:
+        """F11（3b）：有界返工 —— 确定性移除未通过校验的论断（含引用标记），随后重走校验。
+
+        为什么确定性（而非 LLM 重写/自动补检索）：见 ``research_engine/repair.py``
+        模块注释（LLM 重写引入不可验证文本；补检索需新回环，均超出本批不变量）。
+        """
+        with span_node("修复引用", node="repair",
+                       input={"failed": sum(1 for c in state.citations if not c.verified)}):
+            repaired, stats = repair_report(state.report, state.citations)
+        return {
+            "report": repaired,
+            "repair_count": state.repair_count + 1,
+            "repair_log": [{
+                "depth": state.depth,
+                "removed_claims": stats["removed_claims"],
+                "failed_before": stats["failed_before"],
+                "citation_count": len(state.citations),
+            }],
+            "progress": [{
+                "stage": "repair",
+                "msg": (f"引用返工（第 {state.repair_count + 1}/{MAX_REPAIR_PASSES} 次）："
+                        f"移除 {stats['removed_claims']} 条未通过论断，重新校验"),
+            }],
+        }
+
     def _render(self, state: ResearchState) -> Dict[str, Any]:
         # W2（Q1=A/Q4=A/Q6=A/R2.5）：render 节点统一 post-process：
         # 类型标注 + 失败 ⚠️ + 可信声明（双口径）+ 失败附录 + 运行溯源。
         # 展示层增强写 report_display，不回流 report（Writer 纯编号协议保持字节级不变）。
         with span_node("渲染", node="render"):
-            display = self.renderer.render(state.report, state.citations, state.findings, state)
+            # F08：类型标注的编号基准与 Writer/Validator 一致（工作摘要层）
+            display = self.renderer.render(state.report, state.citations,
+                                           state.working_findings or state.findings, state)
         return {
             "report_display": display,
             "status": "done",
@@ -371,7 +440,7 @@ class DeepResearchGraph:
             thread_id = f"dr-{uuid.uuid4().hex[:12]}"
         initial = ResearchState(topic=topic, user_instructions=user_instructions)
         cfg = {"configurable": {"thread_id": thread_id},
-               "recursion_limit": config.research.max_total_hops * 2 + 20}
+               "recursion_limit": effective_research_config().max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
         token_base = LLMClient.tokens_total  # Q3=D'：run 级对账基线（类级累计跨 run 增长）
         self.last_exception = None
@@ -474,7 +543,7 @@ class DeepResearchGraph:
             thread_id = f"dr-{uuid.uuid4().hex[:12]}"
         initial = ResearchState(topic=topic, user_instructions=user_instructions)
         cfg = {"configurable": {"thread_id": thread_id},
-               "recursion_limit": config.research.max_total_hops * 2 + 20}
+               "recursion_limit": effective_research_config().max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
         token_base = LLMClient.tokens_total  # Q3=D'：与 run() 同一对账口径
         self.last_exception = None

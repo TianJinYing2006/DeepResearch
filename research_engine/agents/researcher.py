@@ -7,12 +7,15 @@ W4 重构（grill Q1/Q5/Q6/Q8）：
 - 体积截断（Q5）：web 300 / arxiv abstract 1000 / code stdout 头 8KB+尾 4KB；rag 源 chunk 已控(800)
 - 择优的诚实简化：不重复打分——providers（Bocha/arXiv/RAG）自身已做 relevance 排序，
   取工具内 Top-N 即"择优"（Q1 择优目的是防总量爆炸而非重新排序）
-- code 触发（Q1 P2）：关键词启发式 should_execute()；失败产物也进 findings（note 不吞，Q2/Q4）
+- code 触发（Q1 P2）：关键词启发式 should_execute()；失败产物也进 findings（note 不吞，Q2/Q4）。
+  审计 F03：模板是固定 n=8192 的 FLOPs 示例，不能回答任意计算问题，默认关闭其
+  证据资格（`config.code_exec.evidence_enabled=False`：不执行、不入池）。
 - 返回 (findings, tool_stats)：tool_stats 供 graph 层组装"状态快照"消息（Q8）
 """
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any, Dict, List, Tuple
 
 from config import config
@@ -21,11 +24,15 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     classify_exception,
     is_fault_reason,
 )
+from research_engine.rag.identity import extract_entities, hit_matches_entities
 from research_engine.rag.retriever import HybridRetriever
+from research_engine.rag.scope import current_scope
+from research_engine.sanitize import strip_invisible
 from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.base import SearchProvider, create_search_provider
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.tools.code_exec import exec_code, should_execute
+from research_engine.usage import UsageRecord, UsageSinkError, emit_usage
 
 # R2.4 Q5=A 第一层：自指/元描述关键词启发式初标（漏标由 validator verdict 兜底复核）
 META_KEYWORDS = (
@@ -62,6 +69,16 @@ def _is_meta_content(content: str) -> bool:
     return any(k in c for k in META_KEYWORDS)
 
 
+#: 审计 P2#6：RAG 证据置信度按召回排序分档（不再一刀切 0.7）
+_RAG_CONFIDENCE_TIERS = (0.85, 0.75, 0.65)
+
+
+def _rag_confidence(rank: int) -> float:
+    if rank < len(_RAG_CONFIDENCE_TIERS):
+        return _RAG_CONFIDENCE_TIERS[rank]
+    return 0.6
+
+
 class Researcher:
     """单跳检索器（并行全工具）。"""
 
@@ -72,6 +89,10 @@ class Researcher:
         self.search: SearchProvider = create_search_provider(config.search.provider)
         self.arxiv: ArxivSearchProvider = ArxivSearchProvider()
         self.retriever = HybridRetriever()
+        # 检索作用域在**构建时捕获**（runner/worker 在 create_graph 之前 set_scope）：
+        # LangGraph 并行执行节点时线程不继承 ContextVar，运行期 current_scope() 会丢；
+        # 捕获后由 _search_rag 显式传入，保证多租户过滤在任意线程都生效。
+        self._rag_scope = current_scope()
         # W8 Arm 1：降级记录缓冲区（共享实现，见 state.DegradationSink）
         self.degradations = DegradationSink()
 
@@ -106,10 +127,15 @@ class Researcher:
         """网络搜索。失败 → 空列表（Q1 并行 + Q4 读型 retries=1 在调度层）。"""
         try:
             resp = self.search.search(query, max_results=8)
+            emit_usage(UsageRecord(kind="search", provider=config.search.provider, role="web"))
+        except UsageSinkError:
+            # F06：strict 记账失败必须上抛（账务契约优先于「工具失败不进降级」语义）
+            raise
         except Exception as e:  # noqa: BLE001
             # Arm 4 后 provider 已结构化返回失败原因；能抛到这里的属**未预期**内部错误，
             # 按非工具类归类（llm_error/token_limit/recursion_limit/internal），
             # 不再凭异常文本猜工具层 5 值。
+            emit_usage(UsageRecord(kind="search", provider=config.search.provider, role="web"))
             self._record_degradation("web_search", classify_exception(e), detail=str(e))
             return []
         # 单向派生：reason 直接取 resp.failure_reason，禁止在此手写第二个字面量
@@ -117,7 +143,8 @@ class Researcher:
             self._record_degradation("web_search", resp.failure_reason, detail=resp.failure_detail)
         findings = []
         for r in resp.results:
-            content = f"{r.title}\n{r.snippet}"
+            # P2-1a：剥离不可见 Unicode（外部内容统一净化，防走私指令）
+            content = strip_invisible(f"{r.title}\n{r.snippet}")
             findings.append(
                 ResearchFinding(
                     content=_truncate_head(content, WEB_SNIPPET_MAX),
@@ -137,8 +164,19 @@ class Researcher:
         ``[]`` 不再同时表达「没命中」与「向量库不可用」。故障条目**单向派生**自
         ``resp.faults()``；**零命中（``empty_result``）不进降级日志**（D-03）。
         """
+        # 审计 P1#1：人物查询先做身份硬闸 —— 证据必须包含查询实体，否则丢弃
+        # （阻止「问 A 返回 B」；证据被清空时自然走「信息不足」路径）
+        entities = extract_entities(query)
+        # 作用域兼容：测试替身可能以 __new__ 构造（无 _rag_scope）且 retrieve 不接受 scope 参数
+        scope = getattr(self, "_rag_scope", None)
         try:
-            resp = self.retriever.retrieve(query, top_k=5)
+            if scope is not None:
+                resp = self.retriever.retrieve(query, top_k=5, scope=scope)
+            else:
+                resp = self.retriever.retrieve(query, top_k=5)
+        except UsageSinkError:
+            # F06：检索链路里的 embedding 记账失败（strict）必须上抛
+            raise
         except Exception as e:  # noqa: BLE001
             # 同上：能抛到这里的属未预期内部错误，按非工具类归类
             self._record_degradation("rag_search", classify_exception(e), detail=str(e))
@@ -147,16 +185,29 @@ class Researcher:
             component = "rag_search" if bf.backend == "all" else f"rag_search:{bf.backend}"
             self._record_degradation(component, bf.reason, detail=bf.detail)
         findings = []
-        for h in resp.items:
+        for rank, h in enumerate(resp.items):
             doc = h.get("doc") or h.get("source") or "unknown"
-            text = h["text"]
+            text = strip_invisible(h["text"])  # P2-1a：检索侧净化（历史数据兜底）
+            if not hit_matches_entities(text, entities):
+                continue
+            # 审计 P2#6：证据身份保留 —— 标题路径进正文（人物/章节靠标题区分）、
+            # 完整身份元数据进 metadata（doc_id/chunk_id/定位），置信度按排序分档
+            title_path = [str(part) for part in (h.get("title_path") or []) if part]
+            content = (" > ".join(title_path) + "\n\n" + text) if title_path else text
             findings.append(
                 ResearchFinding(
-                    content=text,  # 源 chunk_size=800 已控，Q5 不再截
+                    content=content,  # 源 chunk_size=800 已控，Q5 不再截
                     source=f"rag:{doc}",
                     source_type="rag",
-                    confidence=0.7,
+                    confidence=_rag_confidence(rank),
                     is_meta=_is_meta_content(text),
+                    metadata={
+                        "doc_id": h.get("doc_id"),
+                        "chunk_id": h.get("chunk_id"),
+                        "title_path": title_path,
+                        "locator": h.get("locator") or {},
+                        "rank": rank,
+                    },
                 )
             )
         return findings
@@ -164,6 +215,7 @@ class Researcher:
     def _search_arxiv(self, query: str) -> List[ResearchFinding]:
         """arXiv 学术检索（Q3：provider 已 relevance 排序 + 3s 限流）。"""
         resp = self.arxiv.search(query)  # provider 内部失败返回带 failure_reason 的空响应
+        emit_usage(UsageRecord(kind="search", provider="arxiv", role="arxiv"))
         # 单向派生：reason 直接取 resp.failure_reason。零命中（empty_result）不上抛降级（D-03）。
         if is_fault_reason(resp.failure_reason):
             self._record_degradation(
@@ -173,7 +225,7 @@ class Researcher:
         for r in resp.results:
             findings.append(
                 ResearchFinding(
-                    content=_truncate_head(r.snippet, ARXIV_ABSTRACT_MAX),
+                    content=_truncate_head(strip_invisible(r.snippet), ARXIV_ABSTRACT_MAX),
                     source=r.url,  # abs URL 作 source（Q6 去重契约）
                     source_type="arxiv",
                     confidence=0.65,
@@ -185,6 +237,11 @@ class Researcher:
 
     def _search_code(self, query: str) -> List[ResearchFinding]:
         """代码执行（Q1 P2 触发 + Q6 源协议 code:{hash}；失败 note 进 finding 不吞）。
+
+        审计 F03：当前模板是固定 n=8192 的 FLOPs 示例，query 只进 hash/metadata、
+        不参与计算 ⇒ 任何命中关键词的问题都会得到同一结果，「运行成功」≠「回答了
+        用户的问题」。故默认不把它当事实证据：``search_once`` 经
+        ``config.code_exec.evidence_enabled`` 门槛后才调用本方法（默认 False）。
 
         W8 Arm 2（§5.2）：脚本**不含** query 文本；query 只经
         `exec_code(script, query=query)` 进 `script_hash`（保证 50 条 code 证据
@@ -233,7 +290,7 @@ class Researcher:
 
         返回 (pooled_findings, tool_stats)——tool_stats 供"状态快照"消息（Q8）。
         """
-        code_enabled = should_execute(query)
+        code_enabled = config.code_exec.evidence_enabled and should_execute(query)
         targets: Dict[str, Any] = {"web": self._search_web, "rag": self._search_rag}
         # 学术检索（arXiv）可关：出口不通时它会每跳记一条 provider_error 降级，
         # 用户明确不需要学术源时关掉，可让 run_status 回到 success。
@@ -244,10 +301,17 @@ class Researcher:
 
         all_findings: Dict[str, List[ResearchFinding]] = {k: [] for k in targets}
         with ThreadPoolExecutor(max_workers=len(targets)) as ex:
-            futs = {ex.submit(fn, query): key for key, fn in targets.items()}
+            # 审计 F05：工具线程不继承父线程 ContextVar（usage sink 会丢账）——
+            # 每次提交独立 copy_context()（Context 对象不可被并发进入，不能复用同一份）。
+            futs = {
+                ex.submit(copy_context().run, fn, query): key for key, fn in targets.items()
+            }
             for fut, key in futs.items():
                 try:
                     all_findings[key] = fut.result() or []
+                except UsageSinkError:
+                    # F06：strict 记账失败必须上抛（账务契约优先于「单工具不绊倒整跳」）
+                    raise
                 except Exception:  # noqa: BLE001 — 单工具异常不绊倒整跳（Q1 return_exceptions 语义）
                     all_findings[key] = []
 
@@ -282,6 +346,11 @@ def _classify_code_exec_failure(note: str) -> str:
 
 def _default_code_script() -> str:
     """返回确定性计算脚本模板（当前为固定模板，未来由 LLM 生成增强）。
+
+    审计 F03：模板只验证沙箱链路（跑通固定 FLOPs 计算），**不消费 query 的数值、
+    单位与公式**，因此默认不作为事实证据（见 CodeExecConfig.evidence_enabled）。
+    真实计算协议应结构化指定：计算目标、输入数值、单位、公式及对应证据，
+    再生成/选择受限脚本，并区分「运行成功」与「正确回答问题」。
 
     模板覆盖：序列长度 × 常数 → 数值；打印 key=value（Q6 structured_match 呈现层数据源）。
 

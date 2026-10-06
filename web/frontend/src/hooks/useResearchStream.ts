@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { computeProgress, summarize } from '../lib/progress'
+import { csrfHeaders, httpError, toStructuredError } from '../lib/api'
+import { applyEvent, computeProgress, emptySummary, type ProgressSummary } from '../lib/progress'
 import {
   AGUI_EVENT_TYPES,
   isAguiEvent,
@@ -21,53 +22,34 @@ export type StreamStatus =
   | 'error'
 export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
-/** 把任意来源的错误归一成 `StructuredError`（P1-5）。
+/** 本标签页最近一次 run 的会话存储键（`sessionStorage`：只在本标签页存活，新标签页不串台）。
 
- 后端已统一返回 `{code, message, component, node, detail, retryable, hint}`；
- 但网络中断、JSON 解析失败这类**前端侧**错误没有后端载荷 ⇒ 在这里补齐同构字段，
- 让错误卡片只需处理一种形状，不必到处判断「这次有没有 code」。 */
-function toStructuredError(value: unknown, code: string, hint: string): StructuredError {
-  const message = value instanceof Error ? value.message : typeof value === 'string' ? value : ''
-  if (value && typeof value === 'object' && 'code' in value) {
-    const parsed = value as Partial<StructuredError>
-    return {
-      code: parsed.code ?? code,
-      message: parsed.message ?? message,
-      component: parsed.component ?? null,
-      node: parsed.node ?? null,
-      detail: parsed.detail ?? null,
-      retryable: parsed.retryable ?? false,
-      hint: parsed.hint ?? hint,
-    }
-  }
-  return {
-    code,
-    message: message || hint,
-    component: null,
-    node: null,
-    detail: null,
-    retryable: false,
-    hint,
+语义是「最近一次」而不是「活跃中」：**终局后保留** ⇒ 刷新页面仍可回看最终报告或错误卡；
+进程重启后快照 404 时清空；手动发起新研究会覆盖。 */
+const ACTIVE_RUN_KEY = 'dr.lastRunId'
+
+function readStoredRun(): string | null {
+  try {
+    return sessionStorage.getItem(ACTIVE_RUN_KEY)
+  } catch {
+    return null
   }
 }
 
-async function httpError(response: Response, code: string, hint: string): Promise<StructuredError> {
-  let body: { detail?: unknown } | null = null
+function storeRun(runId: string): void {
   try {
-    body = (await response.json()) as { detail?: unknown }
+    sessionStorage.setItem(ACTIVE_RUN_KEY, runId)
   } catch {
-    body = null
+    /* 隐私模式禁用 storage 时静默降级：只影响「刷新后恢复」，不影响本次运行 */
   }
-  // FastAPI 的结构化 `detail` 是**对象**；历史版本 / 第三方中间件可能是字符串。
-  const detail = body?.detail
-  if (detail && typeof detail === 'object') {
-    return toStructuredError(detail, code, hint)
+}
+
+function clearStoredRun(): void {
+  try {
+    sessionStorage.removeItem(ACTIVE_RUN_KEY)
+  } catch {
+    /* 同上 */
   }
-  return toStructuredError(
-    typeof detail === 'string' ? new Error(detail) : new Error(`${hint}（HTTP ${response.status}）`),
-    code,
-    hint,
-  )
 }
 
 export function useResearchStream() {
@@ -77,9 +59,14 @@ export function useResearchStream() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [error, setError] = useState<StructuredError | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
+  // R5（审计 U50）：进度增量累加（每事件 O(1)），不再每次全量重扫事件流
+  const [summary, setSummary] = useState<ProgressSummary>(emptySummary)
   const sourceRef = useRef<EventSource | null>(null)
+  const summaryRef = useRef<ProgressSummary>(emptySummary())
   const terminalRef = useRef(false)
   const seenEventIdsRef = useRef(new Set<string>())
+  // 本页是否手动发起过研究：防止「恢复上一场运行」的异步请求抢在手动发起之后回填
+  const manualStartRef = useRef(false)
 
   const closeSource = useCallback(() => {
     sourceRef.current?.close()
@@ -88,20 +75,77 @@ export function useResearchStream() {
 
   useEffect(() => closeSource, [closeSource])
 
+  const attachStream = useCallback((nextRunId: string) => {
+    closeSource()
+    // 新流（含刷新回放）从头累加：清空旧运行的进度摘要
+    summaryRef.current = emptySummary()
+    setSummary(summaryRef.current)
+    const source = new EventSource(`/api/research/${nextRunId}/stream`)
+    sourceRef.current = source
+
+    const handleEvent = (rawEvent: Event) => {
+      const message = rawEvent as MessageEvent<string>
+      if (message.lastEventId) {
+        if (seenEventIdsRef.current.has(message.lastEventId)) return
+        seenEventIdsRef.current.add(message.lastEventId)
+      }
+
+      try {
+        const parsed: unknown = JSON.parse(message.data)
+        if (!isAguiEvent(parsed)) throw new Error('未知事件类型')
+        setEvents((previous) => [...previous, parsed])
+        summaryRef.current = applyEvent(summaryRef.current, parsed)
+        setSummary(summaryRef.current)
+
+        if (parsed.type === 'RUN_FINISHED') {
+          const finished = parsed as RunFinishedEvent
+          terminalRef.current = true
+          setResult(finished.result)
+          setStatus(
+            finished.cancelled
+              ? 'cancelled'
+              : finished.stop_reason === 'timeout'
+                ? 'timeout'
+                : 'done',
+          )
+          setConnectionStatus('closed')
+          source.close()
+        } else if (parsed.type === 'RUN_ERROR') {
+          terminalRef.current = true
+          setError(toStructuredError(parsed, 'run_error', '研究运行失败，可调整参数后重试'))
+          setStatus('error')
+          setConnectionStatus('closed')
+          source.close()
+        }
+      } catch (eventError) {
+        terminalRef.current = true
+        setError(toStructuredError(eventError, 'event_parse_failed', '事件解析失败，请刷新页面后重试'))
+        setStatus('error')
+        setConnectionStatus('closed')
+        source.close()
+      }
+    }
+
+    for (const eventType of AGUI_EVENT_TYPES) {
+      source.addEventListener(eventType, handleEvent)
+    }
+    source.onopen = () => setConnectionStatus('live')
+    source.onerror = () => {
+      if (!terminalRef.current) setConnectionStatus('reconnecting')
+    }
+  }, [closeSource])
+
   const start = useCallback(async (
     topic: string,
     instructions: string,
-    maxTotalHops: number,
-    maxSubquestions: number,
-    searchProvider?: string,
-    enableArxiv?: boolean,
+    profile: string,
   ) => {
-    closeSource()
-    terminalRef.current = false
-    seenEventIdsRef.current.clear()
-    setEvents([])
-    setRunId(null)
-    setResult(null)
+    manualStartRef.current = true
+    // R3（审计 U11）：启动失败不得摧毁上一份报告 —— 先记录当前视图，
+    // 只有 POST 成功才清空并挂新流；失败时保留原状态与 sessionStorage 恢复点。
+    const hadPrevious = runId !== null
+    const previousStatus = status
+    const previousConnection = connectionStatus
     setError(null)
     setStatus('starting')
     setConnectionStatus('connecting')
@@ -109,87 +153,76 @@ export function useResearchStream() {
     try {
       const response = await fetch('/api/research', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
         body: JSON.stringify({
           topic: topic.trim(),
           instructions: instructions.trim(),
-          max_total_hops: maxTotalHops,
-          max_subquestions: maxSubquestions,
-          search_provider: searchProvider,
-          enable_arxiv: enableArxiv,
+          profile,
         }),
       })
       if (!response.ok) throw await httpError(response, 'start_failed', '启动研究失败')
       const { run_id: nextRunId } = (await response.json()) as { run_id: string }
 
+      closeSource()
+      terminalRef.current = false
+      seenEventIdsRef.current.clear()
+      setEvents([])
+      setResult(null)
       setRunId(nextRunId)
       setStatus('running')
-
-      const source = new EventSource(`/api/research/${nextRunId}/stream`)
-      sourceRef.current = source
-
-      const handleEvent = (rawEvent: Event) => {
-        const message = rawEvent as MessageEvent<string>
-        if (message.lastEventId) {
-          if (seenEventIdsRef.current.has(message.lastEventId)) return
-          seenEventIdsRef.current.add(message.lastEventId)
-        }
-
-        try {
-          const parsed: unknown = JSON.parse(message.data)
-          if (!isAguiEvent(parsed)) throw new Error('未知事件类型')
-          setEvents((previous) => [...previous, parsed])
-
-          if (parsed.type === 'RUN_FINISHED') {
-            const finished = parsed as RunFinishedEvent
-            terminalRef.current = true
-            setResult(finished.result)
-            setStatus(
-              finished.cancelled
-                ? 'cancelled'
-                : finished.stop_reason === 'timeout'
-                  ? 'timeout'
-                  : 'done',
-            )
-            setConnectionStatus('closed')
-            source.close()
-          } else if (parsed.type === 'RUN_ERROR') {
-            terminalRef.current = true
-            setError(toStructuredError(parsed, 'run_error', '研究运行失败，可调整参数后重试'))
-            setStatus('error')
-            setConnectionStatus('closed')
-            source.close()
-          }
-        } catch (eventError) {
-          terminalRef.current = true
-          setError(toStructuredError(eventError, 'event_parse_failed', '事件解析失败，请刷新页面后重试'))
-          setStatus('error')
-          setConnectionStatus('closed')
-          source.close()
-        }
-      }
-
-      for (const eventType of AGUI_EVENT_TYPES) {
-        source.addEventListener(eventType, handleEvent)
-      }
-      source.onopen = () => setConnectionStatus('live')
-      source.onerror = () => {
-        if (!terminalRef.current) setConnectionStatus('reconnecting')
-      }
+      storeRun(nextRunId)
+      attachStream(nextRunId)
     } catch (startError) {
-      closeSource()
-      setStatus('error')
-      setConnectionStatus('closed')
+      if (!hadPrevious) closeSource()
+      setConnectionStatus(hadPrevious ? previousConnection : 'closed')
+      setStatus(hadPrevious ? previousStatus : 'error')
       setError(toStructuredError(startError, 'start_failed', '启动研究失败'))
     }
-  }, [closeSource])
+  }, [attachStream, closeSource, connectionStatus, runId, status])
+
+  /** 刷新后恢复：读 sessionStorage 的 run_id → 快照确认存在 → 从 0 回放全部帧。
+
+  可恢复：进程存活期间产生的**全部**事件帧（后端 `_frames` 内存保留，事件 id = 帧下标），
+  **终局后同样保留** ⇒ 刷新仍能回看最终报告或错误卡。
+  不可恢复：后端进程重启（D-19 内存态、不做持久化）⇒ 快照 404，清存储回 idle；
+  关标签页后在新标签打开也恢复不了（sessionStorage 按标签页隔离，D-19 明确接受该代价）。 */
+  const resume = useCallback(async (): Promise<{ runId: string; elapsedSeconds: number } | null> => {
+    if (manualStartRef.current) return null
+    const stored = readStoredRun()
+    if (!stored) return null
+    try {
+      const response = await fetch(`/api/research/${stored}`)
+      if (!response.ok) {
+        clearStoredRun()
+        return null
+      }
+      const snapshot = (await response.json()) as { elapsed_seconds?: number }
+      if (manualStartRef.current) return null
+      terminalRef.current = false
+      seenEventIdsRef.current.clear()
+      setEvents([])
+      setResult(null)
+      setError(null)
+      setRunId(stored)
+      setStatus('running')
+      setConnectionStatus('connecting')
+      attachStream(stored)
+      return { runId: stored, elapsedSeconds: Number(snapshot.elapsed_seconds) || 0 }
+    } catch {
+      // 网络错误：保留存储（可能只是临时断开），本次不恢复
+      return null
+    }
+  }, [attachStream])
 
   const cancel = useCallback(async () => {
     if (!runId || terminalRef.current) return
     setError(null)
     setStatus('stopping')
     try {
-      const response = await fetch(`/api/research/${runId}/cancel`, { method: 'POST' })
+      const response = await fetch(`/api/research/${runId}/cancel`, {
+        method: 'POST',
+        headers: csrfHeaders(),
+      })
       if (!response.ok) throw await httpError(response, 'cancel_failed', '取消请求失败')
     } catch (cancelError) {
       if (!terminalRef.current) setStatus('running')
@@ -198,7 +231,7 @@ export function useResearchStream() {
     }
   }, [runId])
 
-  const progress = useMemo(() => computeProgress(summarize(events)), [events])
+  const progress = useMemo(() => computeProgress(summary), [summary])
 
   return {
     runId,
@@ -209,6 +242,7 @@ export function useResearchStream() {
     result,
     progress,
     start,
+    resume,
     cancel,
   }
 }

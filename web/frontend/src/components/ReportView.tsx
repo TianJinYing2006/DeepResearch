@@ -8,14 +8,14 @@ import remarkGfm from 'remark-gfm'
  需要整篇 parse + 建 AST 再渲染，**同步**占用主线程。一次性喂进去几万字时，
  页面会在这段时间里完全无响应（点不动停止按钮）。分段 + `useDeferredValue`
  让首屏先出、后续按需追加，把一次长任务拆成几次短任务。 */
-export const CHUNK_CHARS = 20_000
+const CHUNK_CHARS = 20_000
 
 /** 在**安全边界**处切分：优先空行，且绝不切在围栏代码块内部。
 
  直接按字符数硬切会把 ``` 代码块拦腰截断 ⇒ 后半段被当成普通段落渲染出来，
  报告看起来「格式崩了」。这里扫一遍行，跟踪围栏开关，只在围栏外取最后一个
  不超过 limit 的空行位置。 */
-export function sliceAtSafeBoundary(text: string, limit: number): number {
+function sliceAtSafeBoundary(text: string, limit: number): number {
   if (text.length <= limit) return text.length
   let inFence = false
   let blankCut = 0
@@ -35,6 +35,17 @@ export function sliceAtSafeBoundary(text: string, limit: number): number {
   if (blankCut > 0) return blankCut
   if (lineCut > 0) return lineCut
   return Math.min(limit, text.length)
+}
+
+/** 取 React 节点的纯文本（用于「无引用段落」示警判定）。 */
+function nodeText(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join('')
+  if (typeof node === 'object' && 'props' in node) {
+    return nodeText((node as { props?: { children?: ReactNode } }).props?.children)
+  }
+  return ''
 }
 
 export function ReportView({ report }: { report: string }) {
@@ -64,14 +75,20 @@ export function ReportView({ report }: { report: string }) {
                 <table>{children}</table>
               </div>
             ),
+            // 方向 B 签名：无引用支撑的实质段落用点状下划线示警（不改写正文、不伪造结论）
+            p: ({ children }: { children?: ReactNode }) => {
+              const text = nodeText(children).trim()
+              const unsourced = text.length >= 30 && !text.includes('[来源:')
+              return <p className={unsourced ? 'claim-unsourced' : undefined}>{children}</p>
+            },
           }}
         >
           {deferred}
         </ReactMarkdown>
       </article>
       {remaining > 0 && (
-        <div className="mx-auto mt-6 max-w-4xl rounded-xl border border-white/10 bg-white/[0.03] p-4 text-center">
-          <p className="text-xs leading-5 text-slate-500">
+        <div className="mx-auto mt-6 max-w-4xl rounded-lg border border-rule bg-rule/30 p-4 text-center">
+          <p className="text-xs leading-5 text-ink-muted">
             为避免一次性解析超长 Markdown 卡住页面，已按段落分段渲染（已显示 {visible.length.toLocaleString('zh-CN')} / {report.length.toLocaleString('zh-CN')} 字符）。
           </p>
           <button

@@ -8,8 +8,10 @@ from __future__ import annotations
 from typing import Any, List
 
 from config import config
+from research_engine.budget import CallAdmissionDenied, admit_call
 from research_engine.llm.router import get_router
 from research_engine.state import ResearchFinding, SubQuestion
+from research_engine.usage import UsageSinkError
 
 
 class ContextManager:
@@ -31,18 +33,34 @@ class ContextManager:
         """当发现过多时，用 fast LLM 压缩为保留引用的摘要。
 
         借鉴 ODR 的 compress_research：压缩但保留引用，供 Writer 使用。
+        F13（审计）：触发条件加入 token 体积口径（总字符数）；单次压缩的 LLM 调用
+        组数有上限；预算/时限耗尽时保持原文（不再发起调用）。
         """
-        if len(findings) <= self.max_findings:
+        total_chars = sum(len(f.content or "") for f in findings)
+        if (len(findings) <= self.max_findings
+                and total_chars <= config.research.compress_trigger_chars):
             return findings
 
-        # 按来源分组，每组压缩
-        by_source: dict = {}
+        # 审计 P1#3：按 (来源, 子问题) 分组压缩 —— 同一文件下不同子问题的材料
+        # 不得混合（否则摘要跨子问题串接属性，并被错误归因到首个 sq_id）
+        by_group: dict = {}
         for f in findings:
-            by_source.setdefault(f.source, []).append(f)
+            by_group.setdefault((f.source, f.sq_id), []).append(f)
 
         compressed: List[ResearchFinding] = []
         router = get_router()
-        for source, group in by_source.items():
+        max_groups = int(getattr(config.research, "compress_max_groups", 0) or 0)
+        for index, ((source, group_sq_id), group) in enumerate(by_group.items()):
+            if max_groups > 0 and index >= max_groups:
+                # F13：组数上限之外保持原文 —— 单节点 LLM 调用数有界
+                compressed.extend(group)
+                continue
+            try:
+                admit_call(state)
+            except CallAdmissionDenied:
+                # F13：预算/时限耗尽 ⇒ 原文兜底（不再发起调用）
+                compressed.extend(group)
+                continue
             texts = "\n".join(f"- {f.content}" for f in group)
             system = "你是研究信息压缩助手。将以下关于同一来源的研究发现压缩为简洁摘要，保留关键事实与数字，不要丢失重要信息。"
             user = f"研究主题：{topic}\n\n来源：{source}\n\n内容：\n{texts}"
@@ -58,8 +76,13 @@ class ContextManager:
                             meta[k] = meta.get(k, []) + v
                         else:
                             meta.setdefault(k, v)
-                # Bug-3 修复：压缩后 sq_id 取所有子问题中首个非空值（非 group[0]，防跨子问题合并时归属丢失）
-                merged_sq_id = next((f.sq_id for f in group if f.sq_id), group[0].sq_id)
+                # Bug-3 兜底：组内 sq_id 已一致（P1#3 分组键），首个非空值即组归属
+                merged_sq_id = next((f.sq_id for f in group if f.sq_id), group_sq_id)
+                # F08（审计）：摘要携带原文证据链——Validator 据此回到原文层校验
+                # （不再只读摘要；origin 缺失时回退摘要自身正文）
+                origin_ids = [f.evidence_id for f in group if getattr(f, "evidence_id", "")]
+                if origin_ids:
+                    meta["origin_evidence_ids"] = origin_ids
                 compressed.append(
                     ResearchFinding(
                         content=summary,
@@ -71,6 +94,9 @@ class ContextManager:
                         metadata=meta,  # W4 Q5：metadata 不透传会丢 citation_count/retry_history
                     )
                 )
+            except UsageSinkError:
+                # F06：strict 记账失败必须上抛（不得静默改用未压缩原文）
+                raise
             except Exception:  # noqa: BLE001
                 compressed.extend(group)
 
@@ -95,10 +121,13 @@ class ContextManager:
         lines: List[str] = []
         current_sq: str | None = None
         for i, f in enumerate(findings, 1):
-            if sectioned and f.sq_id != current_sq:
-                header = sq_map.get(f.sq_id, f.sq_id or "未分类材料")
+            # L3 渲染防御（需求 16 / bug #75）：未知 sq_id 不再冒充「子问题」标题
+            # （归「未分类材料」）；连续未知 id 合并为一组，避免每个幽灵 id 各开一节。
+            group_key = f.sq_id if f.sq_id in sq_map else ""
+            if sectioned and group_key != current_sq:
+                header = sq_map.get(group_key) or "未分类材料"
                 lines.append(f"\n--- 子问题：{header} ---")
-                current_sq = f.sq_id
+                current_sq = group_key
             meta = "，自指/方法论" if f.is_meta else ""  # R2.4：is_meta 仅用于方法论说明小节
             # P0 引用协议统一：用 Finding N: 编号，彻底避免 #、[] 等符号被 LLM 模仿到引用中
             lines.append(f"Finding {i}: 来源: {f.source} (类型: {f.source_type}, 置信度: {f.confidence:.2f}{meta})")

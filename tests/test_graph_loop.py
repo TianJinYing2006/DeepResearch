@@ -26,12 +26,12 @@ def make_state(**kw) -> ResearchState:
     return ResearchState(**kw)
 
 
-# ---------- 1) 硬闸四维度 + 正常 ----------
+# ---------- 1) 硬闸两维度 + 正常 ----------
 def test_hard_gate():
     seed = [{"sq_id": "s1", "query": "q"}]
 
-    # frontier 空 → 没有待检索查询，必须 stop
-    assert hard_gate(make_state(frontier=[])) == "stop", "frontier 空必须 stop"
+    # F02：frontier 空不再是硬闸——最后一跳后仍需让 Critic 语义裁决（可补充查询）
+    assert hard_gate(make_state(frontier=[])) is None, "frontier 空应交 LLM 裁决，不再硬停"
 
     # depth 达全局上限 → stop
     assert hard_gate(make_state(frontier=seed, depth=config.research.max_total_hops)) == "stop"
@@ -45,7 +45,7 @@ def test_hard_gate():
 
     # 全部在预算内 → 不触发（返回 None，交 LLM 裁决）
     assert hard_gate(make_state(frontier=seed)) is None
-    print("  ✅ hard_gate：frontier空/depth/token 三维度均触发 stop；replan 不全局 stop；正常返回 None")
+    print("  ✅ hard_gate：depth/token 两维度触发 stop；frontier 空不再硬停；正常返回 None")
 
 
 # ---------- 2) 路由纯函数四态（P1：新增 augment） ----------
@@ -91,11 +91,11 @@ def test_hard_gate_short_circuits_llm():
         raise RuntimeError("硬闸未触发时不应调用 LLM")
 
     c = Critic(llm_fn=boom)
-    # frontier 空 → 硬闸直接 stop，llm_fn 不应被调用
-    assert c.decide(make_state(frontier=[])) == "stop"
-    # depth 超限 → 同样短路
+    # depth 超限 → 硬闸直接 stop，llm_fn 不应被调用
     assert c.decide(make_state(frontier=[{"sq_id": "s1", "query": "q"}], depth=config.research.max_total_hops)) == "stop"
-    print("  ✅ 硬闸短路：frontier 空 / depth 超限时 LLM 完全不被调用（安全由代码兜底，Q3）")
+    # token 超预算 → 同样短路
+    assert c.decide(make_state(frontier=[], token_used=config.research.token_budget)) == "stop"
+    print("  ✅ 硬闸短路：depth 超限 / token 超预算时 LLM 完全不被调用（安全由代码兜底，Q3）")
 
 
 # ---------- 4b) Q6-B：LLMClient._accumulate_usage 把 token 累加进 state（可观测+控闸数据源）----------

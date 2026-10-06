@@ -134,8 +134,10 @@ def test_llm_failure_fallback_to_existence(findings, monkeypatch):
     v = Validator()
     cits = v.validate("论断 [来源: 22]。", findings)  # 编号 22 > 20：旧实现截断后无从判
     assert cits[0].existence is True
-    assert cits[0].verified is True, "整体降级：保 W1 存在性行为"
-    assert "降级" in cits[0].note
+    # 审计 P1#2：LLM 失败 ⇒ 校验未完成，不视为通过（仅保留存在性结论）
+    assert cits[0].verified is False
+    assert cits[0].verification_failed is True
+    assert "校验未完成" in cits[0].note
 
 
 # ============ Q1/Q4：render 附录 + 类型标注 ============

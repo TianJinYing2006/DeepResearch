@@ -17,6 +17,21 @@ jieba>=0.42.1
 fastapi>=0.141,<0.142
 uvicorn>=0.52,<0.53
 
+# 任务持久化（L3 P2-B：RunStore 访问 PostgreSQL；[binary] 免编译，各平台均有 wheel）
+psycopg[binary]>=3.2,<4
+
+# 连接池（P2-3：进程内复用连接；statement_timeout 与慢查询日志随池配置）
+psycopg-pool>=3.2,<4
+
+# 任务队列（L3 P3：Redis 队列 / 租约加速层；不作为唯一事实来源）
+redis>=8,<9
+
+# 账号与会话（L3 P4：Argon2id 密码哈希）
+argon2-cffi>=25,<26
+
+# 文件上传（L3 P6-A：FastAPI multipart 表单解析）
+python-multipart>=0.0.20,<0.1
+
 # 工具
 python-dotenv>=1.0.0
 pydantic>=2.7.0
@@ -24,3 +39,22 @@ requests>=2.31.0
 
 # 可观测（W3：Langfuse 全链路 trace；版本锁定防 wrap 机制漂移，grill Q1）
 langfuse>=4.15,<5
+
+# 错误追踪（需求 25：Sentry 协议；DSN 空 = 关闭，默认自托管 GlitchTip）
+sentry-sdk[fastapi]>=2.71,<3
+
+# 可观测（P1-8：OpenTelemetry SDK + OTLP / Prometheus 导出 + FastAPI/httpx 自动埋点；
+# 默认关闭，设置 OTEL_EXPORTER_OTLP_ENDPOINT 或 DR_METRICS_PROMETHEUS=true 才启用）
+opentelemetry-api>=1.30,<2
+opentelemetry-sdk>=1.30,<2
+opentelemetry-exporter-otlp-proto-http>=1.30,<2
+opentelemetry-exporter-prometheus>=0.51b0,<1
+opentelemetry-instrumentation-fastapi>=0.51b0,<1
+opentelemetry-instrumentation-httpx>=0.51b0,<1
+
+# 对象存储（P1-6：报告 / 导出迁 S3 兼容存储 —— MinIO 自托管；未配置时回落 PostgreSQL）
+boto3>=1.35,<2
+
+# 需求 23：知识库格式扩展（pptx / xlsx 结构解析；html 走已有 beautifulsoup4）
+python-pptx>=1.0,<2
+openpyxl>=3.1,<4

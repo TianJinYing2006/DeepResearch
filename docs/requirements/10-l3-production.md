@@ -1,0 +1,517 @@
+# 需求 10：L3 多用户生产化（首发边界、架构迁移与上线准入）
+
+> 状态：**草稿（P0 推荐基线 v2；外部事实部分确认、部分待定）**。本文件是 L3 的**需求与参数决策载体**；
+> 实施进度以 `docs/project-status.md` 为唯一看板（D-01），架构决策见
+> `docs/decisions/0009-l3-multiuser-production.md`（ADR-0009）。
+> 前置事实：截至 2026-09-24，pytest **455 全绿**、浏览器 E2E **10/10**、
+> Web MVP 与 P1 运行护栏已交付；L3 差距是**平台底座**而非研究算法。
+> 飞书镜像：待同步（`lark-cli` 由主理人执行；本文件为立项类需求，命名按本地 `10-l3-production`）。
+
+## 1. 元信息
+
+| 项 | 值 |
+|---|---|
+| 编号 | 10 |
+| 标题 | L3 多用户生产化（首发边界、架构迁移与上线准入） |
+| 优先级 | P0 |
+| 状态 | 草稿（§3.1 推荐基线 v2，待最终确认） |
+| 负责人 | TianJinYing2006 |
+| 关联 Issue | [#9](https://github.com/TianJinYing2006/DeepResearch/issues/9)（GitHub；PR 与 Issue 共用编号空间，故 Issue 号与需求编号不一致，映射以本行为准） |
+| 关联 PR |  |
+| 关联文档 | `docs/decisions/0009-l3-multiuser-production.md`、`docs/operations/production-readiness.md` |
+| 创建 / 更新 | 2026-09-24 |
+
+## 2. 问题背景
+
+### 2.1 现状一句话
+
+> **核心 Agent 产品已经成型，正式多用户产品还处于架构迁移前阶段。**
+
+当前价值链已成立：用户提交研究问题 → 系统规划 → 多跳检索 → 交叉验证 → 生成带引用报告 → 前端实时展示；
+但运行底座是单进程内存态，任务随进程重启消失，且没有用户、配额、审核与部署工程（逐项证据见需求 §4）。
+
+### 2.2 为什么现在要做
+
+- D-19 / D-20 拍板时的前提是「单用户、前台运行、内存态」；项目要对外（哪怕只是邀请制内测），该前提不再成立。
+- P1 运行护栏（超时闸 / 并发限制 / 结构化错误 / 报告导出）与浏览器 E2E 已把**单用户质量**拉满，
+  下一步瓶颈明确落在**任务底座**上。
+- 实测单轮 48~51 分钟、成本 ¥0.79~0.92（上界口径）：这两个数字直接决定公开形态下必须做档位与预算闸。
+
+### 2.3 与既有决策的关系
+
+见 ADR-0009「背景·边界解除」。要点：本需求在 L3 范围内解除 D-19 的「任务随页面丢失」与
+D-20 硬边界②的「不做用户系统 / 任务队列 / 持久化 / 多租户 / 云端部署」，**不删改历史决策原文**；
+`research_engine/` 判定口径与 W8 冻结纪律继续有效。
+
+## 3. 需求分析
+
+### 3.1 首发参数决策表（P0 退出条件，推荐基线 v2）
+
+> **v2 依据 2026-09-24 主理人确认的四项外部事实收缩范围**：① 暂无企业主体（个人主体）；② 可准备独立域名（先 staging/内部）；③ 不接受 ¥3,000/月级预算；④ 倾向禁用境外服务。
+> 因此首发从「L3 正式多用户生产版」下调为 **「个人主体下的云端内部版（L3-A）+ 小规模封闭验证版（L3-B，10 人）」**，**L3-C 暂缓**（前置：企业主体、合规书面确认、预算与供应商条件）。
+> 除下列已确认事实外，最终域名、云报价、供应商授权与属地合规书面口径仍需确认；确认前 ADR-0009 保持「草稿」，不进入生产实现。
+> 表中数值作为 L3-A/B 的默认上限，首批 10 次真实运行后只允许收紧，放宽必须重新评审预算、并发与合规影响。
+
+| # | 决策项 | 候选 / 建议（依据） | 拍板值（推荐基线 v2，待外部项确认） |
+|---|--------|--------------------|----------------------------------------|
+| 1 | 首批用户规模 | L3-A 内部 1~5 人；L3-B 邀请制 20~50 人 | **L3-A 5 人；L3-B 10 人（封闭邀请，满额暂停发码）**。暂不规划 20~50 人规模；L3-C 暂缓 |
+| 2 | 峰值并发运行数 | 3~5 个 | **L3-A 2 个；L3-B 3 个**。3 个必须先通过压测；未通过前全局闸保持 2 |
+| 3 | 单用户并发 | 1 个（沿用当前前台模型） | **1 个**。已有运行处于 `QUEUED/RUNNING/CANCEL_REQUESTED` 时不得新建第二个 |
+| 4 | 每日运行次数上限 | 1~3 次/用户 | **1 次/日/用户**。超限直接拒绝，不进入队列；管理员可临时授予一次额度并留审计记录 |
+| 5 | 单次运行预算 | 现状上界估算 ¥0.79~0.92/轮（`runner.py:74`）；正式环境建议另加缓冲 | **硬上限 ¥1.50/次，¥1.00 预警**。按服务端实际 usage 记账；达到硬上限停止新节点并收口，不以客户端估算为准 |
+| 6 | 月度云资源预算 | 云主机 + PostgreSQL + Redis + 对象存储 + LLM + 搜索 + 域名（含 ICP） | **L3-A ¥1,500/月；L3-B ¥2,000/月（控制上限，待云厂商实际报价复核）**。若实际报价超过额度，应重新拍板而不是静默压缩模型预算；达到 80% 告警，100% 停止新任务但保留查询/导出 |
+| 7 | 开放方式 | 邀请制（首版不开放自由注册） | **邀请制**。邀请码一次性、可过期、可撤销；L3-C 前不开放公开注册，不做公开投放 |
+| 8 | 登录方式与实名 | 邮箱 + 密码（httpOnly Session）；是否手机实名待定 | **邮箱 + 密码 + httpOnly Session Cookie + Argon2id + CSRF**。L3-A/B 不自行收集手机号和身份证；若属地/供应商书面要求实名，先补合规方案再开放 |
+| 9 | 主体类型 | 个人 / 企业（直接影响 ICP 备案与合规路径） | **个人主体（现状：暂无企业主体）**。仅允许内部使用 + 封闭邀请验证（L3-A/L3-B），不进入自由注册、公开推广与收费；**企业主体是 L3-C 的前置条件** |
+| 10 | 域名 | 待定（ICP 备案前置；域名实名信息须与主体一致） | **可准备独立域名，先用于 staging 与内部访问；具体域名待定**。个人主体下的备案与域名实名口径须向接入商确认；域名未定前不进入生产公网，也不做公开宣传 |
+| 11 | 云厂商与地域 | 单云、单地域（国内） | **建议阿里云中国内地单地域**，API/Worker/Redis/PostgreSQL/Qdrant 同地域；具体地域以已选模型、搜索服务和备案主体可用区交集为准，云账号/地域待确认，不预先锁定上海，不做跨地域部署 |
+| 12 | 模型供应商 | 首版 1 家。现状：阿里云百炼（DashScope）+ qwen 系 | **仅阿里云百炼**；Quick/Standard/Deep 的具体模型 ID 在 L3-A 基准测试后固定到可用快照，初始候选为 Turbo/Plus 档，不把 `latest` 当可复现实验版本。生产接入必须使用百炼业务空间专属域名与选定地域，不沿用通用 DashScope 域名；模型备案、公示与商用授权取得书面/控制台证据后才进入 L3-C |
+| 13 | 搜索供应商 | 1 主 + 1 降级；Tavily 为境外服务需定案 | **主：博查；Tavily 禁用**。降级先采用“无 web 结果 + 明确降级提示”（即单搜索供应商 + 明确降级，不是 1 主 1 备）；**L3-B 前补充国内第二搜索源，否则接受单点降级风险**；不得为凑“1+1”启用境外源 |
+| 14 | 是否允许上传私有文档 | 首版建议仅 `private` | **允许，但仅个人私有空间**；不做共享/公开文档，不允许跨用户检索；文件类型、单文件大小、总容量由服务端封顶，删除用户时同步删除向量与原文件 |
+| 15 | 数据保存期限 | 报告 / 事件日志 / 审计日志 / 上传文件分别定 | **报告与运行元数据 90 天；事件明细 30 天；审计/安全日志 180 天；私有文档 90 天**。用户主动删除立即生效；备份保留 30 天并按删除策略处理 |
+| 16 | 数据是否允许出境 | Langfuse Cloud / Tavily 为境外服务；是否改自托管或国内替代待定案 | **L3-A/B 默认不发送用户内容至境外服务**。Tavily、Langfuse Cloud、Semantic Scholar 默认关闭；arXiv 默认关闭。**不写成永久架构删除**：恢复必须以独立功能开关 + 明确数据流向提示 + 重新评审确认为前置；provider 抽象与 mock 路径保留 |
+| 17 | 是否收费 | 首版建议否（内部额度，不做真实支付/退款） | **不收费，不接支付，不承诺退款**。使用内部额度；L3-C 是否商业化另立决策，不把内测额度解释为计费余额 |
+| 18 | 首发合规形态 | 邀请制/公众服务边界、算法备案 / 安全评估 / 登记以书面确认 | **L3-A 内部使用；L3-B 封闭邀请验证（约 10 人）；L3-C 暂缓**：无自由注册、无公开营销、无收费；进入 L3-C 前必须取得属地网信/云厂商关于所需手续的书面或可核验答复并落档。**邀请制不视为自动豁免**；个人主体下不承诺可进入公开运营 |
+| 19 | 首发是否要求断点续跑 | 建议否（先达「任务不丢」） | **不要求断点续跑**。首发必须做到任务持久化、关页不丢、API 重启可查、Worker 失败可标记/重试；重试从头开始，不承诺从中间节点续跑 |
+| 20 | 运行档位策略 | Quick / Standard / Deep 默认档与各档封顶参数 | **Quick 默认；Standard 推荐（L3-A 手动可用、L3-B 可申请）；Deep 仅管理员审批**。初始封顶见 §5.6：Quick 6 hops/2 子问题/60k token/15 分钟；Standard 12/3/120k/30 分钟；Deep 20/4/200k/60 分钟。所有上限由服务端强制，客户端不可覆盖 |
+
+#### 3.1.1 派生硬闸（由上表自动产生，不另作用户可配置项）
+
+| 闸门 | L3-A | L3-B | 触发后的行为 |
+|------|------|------|--------------|
+| 全局并发 | 2 | 3 | 新任务进入拒绝或明确的 `capacity_exhausted`，不隐式排长队 |
+| 全局每日运行数 | 5 | 10 | 达到上限后停止新建任务；已有任务继续按单次预算运行 |
+| 单用户每日运行数 | 1 | 1 | 第二次请求返回结构化限额错误；管理员可临时授予一次额度并留审计记录 |
+| 单次硬预算 | ¥1.50 | ¥1.50 | 停止新节点并写入 `stop_reason=budget_exceeded`；终态映射在 P2 状态机中定稿，不伪装成 `TIMED_OUT` |
+| 月度预算 | ¥1,500 | ¥2,000 | 80% 预警，100% 熔断新任务；查询、导出、管理操作保持可用 |
+| Deep 档可用性 | 仅管理员 | 仅管理员审批 | 普通用户请求 Deep 直接拒绝或降级为 Standard 并提示 |
+| 境外服务开关 | 默认关闭 | 默认关闭 | Tavily / Langfuse Cloud / arXiv / Semantic Scholar 默认不启用；启用须单独评审与数据流向登记 |
+
+#### 3.1.2 外部事实：已确认与仍待确认
+
+**已确认（2026-09-24 主理人口径）**
+
+| # | 事实 | 对方案的影响 |
+|---|------|-------------|
+| 1 | 暂无企业主体（个人主体） | 首发仅内部使用 + 封闭邀请验证；不公开注册/推广/收费；L3-C 暂缓 |
+| 2 | 可准备独立域名 | 先用于 staging 与内部访问；不公开宣传；个人主体备案口径待接入商确认 |
+| 3 | 不接受 ¥3,000/月级预算 | 规模与预算整体下调：L3-A 5 人 / 2 并发 / 1 次/日 / ¥1,500 月；L3-B 10 人 / 3 并发 / ¥2,000 月 |
+| 4 | 倾向禁用境外服务 | L3-A/B 默认不发送用户内容出境；Tavily / Langfuse Cloud / arXiv / Semantic Scholar 默认关闭（恢复需独立评审） |
+
+**仍待确认（不影响文档评审与成本测算，但阻塞实现）**
+
+1. **域名**：最终域名与实名状态（个人主体备案口径以接入商答复为准）。
+2. **云账号**：云厂商、具体地域与实际报价 —— 复核 ¥1,500/¥2,000 控制上限是否覆盖基础设施与模型/搜索成本。
+3. **供应商**：百炼模型备案与公示口径、博查商用授权、国内第二搜索源采购。
+4. **合规**：属地网信/云厂商对 L3-A/L3-B 服务形态的书面或可核验答复。
+
+> 在仍待确认项闭环前：ADR-0009 保持「草稿」，不进入生产实现；不得把公网 staging 宣称为正式生产服务。
+
+### 3.2 功能目标（分阶段）
+
+- **L3-A 内部可用版**：单云环境；1 个 API + 1 个 Worker；PostgreSQL + Redis + 对象存储；
+  登录 + 邀请码；任务持久化；用户级配额；不开放自由注册。
+- **L3-B 邀请制内测版**：任务历史、管理后台、内容审核、运营日志、用户封禁、任务重试、
+  备份恢复、压测、真实用户反馈。
+- **L3-C 正式公开版（暂缓启动）**：前置 = 企业主体、合规书面确认、预算与供应商条件；内容不变 ——
+  正式备案流程、完整隐私政策与用户协议、更严格审核、公共注册、额度体系、服务状态页、告警、灰度发布、回滚策略、更高并发、商用供应商授权确认。
+
+### 3.3 可量化成功定义
+
+| 指标 | L3-A | L3-B | L3-C（暂缓） |
+|------|------|------|------|
+| 注册用户 | 5（内部） | 10（封闭邀请） | 企业主体与合规就绪后另行规划 |
+| 峰值并发运行 | 2 | 3 | 待定 |
+| 任务丢失率 | 0（API 重启后可查） | 0 | 待定（含 worker 崩溃标记为可重试） |
+| 报告可回看 | 是 | 是（含历史列表） | 是（含导出与检索） |
+| 成本 | 单次 ≤ 预算闸；月 ≤ ¥1,500 | 单次 ≤ 预算闸；月 ≤ ¥2,000 | 全局熔断生效（待定） |
+| 恢复演练 | 未要求 | 通过 1 次（删库 → 恢复 → 越权核验） | 每季度 1 次 |
+| 合规 | 内部使用口径 | 封闭邀请验证口径 | 书面确认 + 公示完成 |
+
+## 4. 当前设计
+
+### 4.1 现状（读码所得，非印象）
+
+| # | 现状 | 代码位置 | 痛点 |
+|---|------|---------|------|
+| 1 | 运行状态 / 事件帧 / 结果 / 报告 / 元数据全在进程内存 | `web/backend/runner.py:114-130` | API 重启、发布、崩溃即全丢；多实例无法共享 |
+| 2 | 状态查询接口自述「内存态，重启即失」 | `web/backend/main.py:166-175` | 无历史、无跨设备 |
+| 3 | 并发闸是进程内集合 | `runner.py:59`、`runner.py:107` | 多实例下形同虚设 |
+| 4 | 无鉴权；任何持有 run_id 者可查询 / 取消 / 导出 | `main.py` 全部路由；`runner.exists()` | 多用户下是越权事故 |
+| 5 | CORS 固定 localhost | `main.py:47-52` | 生产必须环境变量化 |
+| 6 | RAG 全局单 collection、payload 无租户字段、检索无 filter | `config.py:89`、`research_engine/rag/ingest.py:108-113`、`research_engine/rag/retriever.py:83` | 多用户下有数据串扰风险 |
+| 7 | 成本仅运行级上界估算 | `runner.py:74` | 无用户级计量、无熔断 |
+| 8 | 无 Dockerfile / 迁移 / 反代 / 备份 / 回滚 | 仓库根目录 | 无法正式部署 |
+| 9 | 单轮实测 48~51 分钟 | `docs/eval-w8-after-baseline.md` | 公开产品默认档必须可配 |
+
+### 4.2 痛点结论
+
+> 当前真正限制上线的不是研究算法，而是**任务运行底座**：任务、状态、事件、身份、配额、审核、部署。
+
+## 5. 优化方案
+
+### 5.1 目标架构
+
+采用 ADR-0009 §方案 的目标架构：Nginx/网关 → FastAPI（鉴权/配额/审核/SSE）→ PostgreSQL（权威状态）+ Redis（队列/租约/限流/实时加速）→ 独立 Worker（运行同步 graph）→ Qdrant / 模型与搜索 provider；报告与导出文件进对象存储。
+
+### 5.2 数据模型（PostgreSQL 最小集）
+
+`users` / `sessions` / `runs` / `run_events` / `run_checkpoints` / `run_artifacts` / `user_quotas` / `usage_ledger` / `moderation_records` / `audit_logs`。
+
+`runs` 关键字段：`run_id` / `user_id` / `tenant_id` / `status` / `created_at` / `started_at` / `finished_at` / `cancel_requested_at` / `stop_reason` / `current_node` / `token_used` / `cost_estimate` / `idempotency_key`。
+
+**DDL 落点**：`migrations/0001_runs_and_events.sql`（P2-A：`runs` + `run_events`）+ `migrations/0002_run_artifacts.sql`（P2-B：终局产物）；状态机 CHECK / 创建幂等唯一索引 / 租约与预算字段一次到位，`run_checkpoints` 等表随后续迁移增加。仓储层实现 `web/backend/store.py`（RunStore）；结构自检由 `migrations/checks/*.sql` 承担，CI `infra` job 强制执行。
+
+### 5.3 任务状态机
+
+```text
+CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
+                  ↓
+        SUCCEEDED / FAILED / CANCELLED / TIMED_OUT / LOST
+```
+
+独立字段：`research_status`（研究产出侧）、`stop_reason`（停止原因）、`worker_status`（Worker 侧）。
+不把「研究成功」与「是否取消」混在一个字段 —— 这是持久化后最容易产生歧义的地方。
+
+### 5.4 事件与 SSE 恢复
+
+事件表按 `sequence` 单调递增；SSE 连接 = **PostgreSQL 补发缺失事件 + Redis 实时事件加速**，统一按 `sequence` 输出，`Last-Event-ID` 可续传。Redis 不作为唯一事实来源（理由见 ADR-0009）。**P2-C 已落地进程内版本**：内存帧与 `run_events.sequence` 逐帧对齐（显式序号幂等写入），进程重启后 `GET /stream` 从库回放、`GET /report` 从 `run_artifacts` 导出；**P3-A 起回放升级为实时尾随**（每秒轮询任务库直到终局，Worker 模式同样适用），Redis 订阅加速留到后续按需引入。
+
+### 5.5 任务目标分两层
+
+| 层次 | 内容 | 首发 |
+|------|------|------|
+| 第一层：任务不丢 | 关页面不影响任务；API 重启后可查询；worker 挂掉进入失败或可重试；历史报告可见 | 必做 |
+| 第二层：任务可恢复 | 从最后成功节点继续；不重复执行已完成节点；不重复扣费；人工/自动重试 | **不做**（后续立项） |
+
+### 5.6 运行档位（服务端策略）
+
+> 以下是首发的**初始封顶值**，不是对耗时的硬承诺。完成 L3-A 后至少用 10 次真实运行校准墙钟时间、成功率和成本；
+> 校准只能收紧上限，若要放宽必须重新评审第 5、6、18 项决策。前端只能选择档位，不能直接提交底层参数。
+
+| 模式 | 目标耗时（初始目标） | 最大总跳数 | 最大子问题数 | Token budget | 超时闸 | 模型 | 单次预算闸 | 默认 |
+|------|----------------------|------------|--------------|--------------|--------|------|------------|------|
+| Quick | 3~8 分钟 | 6 | 2 | 60,000 | 15 分钟 | `qwen-turbo` | ¥0.75 | **是** |
+| Standard | 10~20 分钟 | 12 | 3 | 120,000 | 30 分钟 | `qwen-plus` | ¥1.25 | 推荐 |
+| Deep | 30~60 分钟 | 20 | 4 | 200,000 | 60 分钟 | `qwen-plus` | ¥1.50 | 否，手动开启 |
+
+- 单次预算闸取服务端 usage 记账结果；前端展示的成本只是提示，不具有裁决权。
+- `max_total_hops`、`max_subquestions`、`token_budget`、模型、搜索次数和超时时间均由服务端 profile 固定；请求体中的同名字段一律拒绝或忽略并记审计。
+- Deep 模式允许输出“任务预计较慢”的明确提示；不把当前 48~51 分钟的深度实测隐藏成普通同步请求。
+- L3-A/B 档位可用性：Quick 全员；Standard L3-A 手动可用、L3-B 可申请；Deep 仅管理员审批（对齐 §3.1 第 20 项与 §3.1.1）。
+- 首批 10 次真实运行的成本与墙钟数据未回来前，不开放新档位、不放宽任何上限。
+### 5.7 实施阶段（P0~P8）
+
+| 阶段 | 内容 | 预计（1 名主力） | 对应版本 |
+|------|------|-----------------|---------|
+| P0 | 立项与边界确认：ADR-0009 + 本需求 + 上线准入清单 + §3.1 拍板 | 2~5 个工作日 | 全部 |
+| P1 | 容器化与部署底座：`Dockerfile.api` / `Dockerfile.worker` / staging compose / 迁移工具（只前向 + `schema_migrations` 幂等；回退走备份恢复）/ 健康检查（readiness+liveness）/ 配置分层 / CORS 环境变量化 / 反向代理（含 SSE 专项配置）。**第一批已落地**：`Dockerfile.api`（多阶段）/ compose（PG+Redis+迁移+API）/ 迁移执行器 / 两个探针 / CORS 环境变量化 / CI `infra` job；待：`Dockerfile.worker`（P3）、反向代理与云上 staging（P8/外部事实） | 3~5 个工作日 | L3-A |
+| P2 | 持久化任务模型：`runs` / `run_events` / `run_artifacts` / `run_checkpoints` 建表与状态机、创建幂等键、查询与历史接口、取消请求持久化 | 5~8 个工作日 | L3-A |
+| P3 | Worker 与队列：API 写 QUEUED 任务 → Redis 队列 → Worker 领取执行 → 持续写事件与状态 → 终局落库；心跳 / 租约 / 超时 / 幂等 / 重试 / 崩溃标记 / 成本闸 / 配额检查。**P3-A 已落地**：Redis 队列 + 独立 Worker（与 API 同镜像、不同入口）/ 原子认领（QUEUED→RUNNING+租约）/ 心跳续租 / 节点边界取消与超时 / 终局落库 / SSE 实时尾随 / compose `worker` 服务。**P3-B 已落地**：租约超时清扫与接管（取消意图→CANCELLED；可重试→QUEUED attempt+1 并重新入队；耗尽→LOST）、单 run 预算闸（节点边界，`budget_used_cny` 回写）。**待 P4**：用户级/全局成本闸与双层并发配额 | 7~12 个工作日 | L3-A |
+| P4 | 账号、配额与隔离：注册/登录/登出/会话/重置/封禁/邀请码；用户级并发、每日次数、token/cost 预算；管理员查看；查询强制 user_id | 5~8 个工作日 | L3-A |
+| P5 | RAG 多租户隔离：单 collection + payload `tenant_id`/`user_id`/`visibility`；检索强制 filter；默认仅 `private`。**P5-A 已落地**：摄入打标（`visibility` 必写、owner/tenant 非空才写）+ 检索作用域（contextvar，`rag/scope.py` 单一判定）+ 向量服务端过滤下推与 Python 后置兜底 + BM25 按作用域缓存 + 执行器（RunManager / Worker）逐 run 设置作用域；**待 P6**：HTTP 上传面（携带当前用户）| 3~6 个工作日 | L3-A |
+| P6 | 前端产品化：登录/邀请页、新建任务、任务列表/详情、取消、历史报告与导出、配额显示、断线重连、筛选。**P6 已完成**：P6-A 账号壳（登录门/注册/退出）+ 账号条（配额 chip / 历史任务 / 知识库上传 / 清单）+ 历史报告预览 + CSRF 接线 + 上传限制；P6-B 邀请链接（`?invite=CODE` 打开即注册并预填）+ 历史状态筛选与分页 + 移动端账号条/历史面板无横向滚动（E2E 覆盖）。任务详情复用现有页面 | 5~10 个工作日 | L3-A/B |
+| P7 | 内容安全、隐私与运营：输入预检、输出审核、Prompt Injection 防护、文件限制、审核记录、申诉与人工复核、封禁；隐私政策/用户协议/注销/删除/日志脱敏。**P7-A 已落地**：规则词表输入预检（命中即拒 + `moderation_records`）+ 输出标记（`flagged`，不自动拦截）+ 申诉接口 + 注销（删账号/会话、清 RAG 向量、任务匿名保留）+ 长度上限 + 隐私政策/用户协议草案 + CLI `moderation-list`/`delete-user`。**待 P7-B**：接入有资质审核服务、输出自动拦截与模型输出标识、Prompt Injection 深度防护、期限到期清理 | 5~10 个工作日 | L3-B |
+| P8 | 监控、备份与正式部署：指标与告警、备份策略、恢复演练、压测、灰度与回滚。**P8-A 已落地**：`GET /api/metrics`（HTTP 分类/延迟、SSE 计量、任务状态分布与成功率、队列积压、过期租约、月度成本）+ `GET /api/ops/alerts`（四类阈值判定，触达渠道留部署方）+ `tools/backup.sh`/`restore.sh`（校验可读 + 保留 N 份）并接入 CI **真实恢复演练**（备份→清库→恢复→种子数据与结构断言）。**待 P8-B**：Prometheus/中心化指标、告警触达（IM/邮件）、压测、灰度与回滚流程、云上 staging | 5~8 个工作日 | L3-B/C |
+
+### 5.8 两条路线（时间预算）
+
+| 路线 | 周期 | 说明 |
+|------|------|------|
+| 封闭验证（L3-A → L3-B） | 约 4~6 周 | L3-A 5 人内部 → L3-B 10 人封闭邀请；不开放自由注册、不做真实收费、不公开宣传 |
+| 正式多用户生产版（L3-C，**暂缓**） | 前置条件满足后另行评估 | 前置 = 企业主体 + 合规书面确认 + 预算与供应商条件；原估计（6~8 周工程，对外 8~12 周）仅作参考 |
+
+**备案/审核时间不由开发控制**，不计入工程周期（详见 §8 与上线准入清单）。
+
+### 5.9 任务模型细化（P2/P3 设计基线）
+
+> 本节把 §5.2/§5.3/§5.4 的原则落成可实现的迁移表：**终态映射与字段命名在 P2 落库时最终定稿**，
+> 但下列语义不允许在实现中悄悄改变（否则历史报表与测试口径会漂移）。
+
+#### 5.9.1 状态迁移表
+
+| 当前状态 | 事件 | 目标状态 | 守卫 / 幂等 | 副作用（同一事务内） |
+|---------|------|---------|------------|---------------------|
+| （无） | 用户创建 | `CREATED` | `idempotency_key` 去重；配额预检通过 | 写 `runs`；写审计 `run_created` |
+| `CREATED` | 入队成功 | `QUEUED` | 并发闸检查（用户级 + 全局） | 写队列；记 `queued_at` |
+| `CREATED`/`QUEUED` | 用户取消 | `CANCELLED` | 仅未开始执行可走此路径 | `stop_reason=user_cancelled`；释放占位 |
+| `QUEUED` | Worker 领取 | `RUNNING` | 租约获取成功 | 记 `started_at`；开始心跳 |
+| `QUEUED` | 领取时发现取消标记 | `CANCELLED` | 以数据库为准（Redis 信号仅加速） | 不执行 graph（保证零 LLM 调用） |
+| `QUEUED` | 排队异常 | `QUEUED`（重试）或 `LOST` | 见 §5.9.3 | 记 `worker_status` |
+| `RUNNING` | 用户取消 | `CANCEL_REQUESTED` | 重复取消幂等不报错 | 记 `cancel_requested_at`；置 Redis 信号；不直接杀线程 |
+| `CANCEL_REQUESTED` | 节点边界停止 | `CANCELLED` | 在飞节点已自然结束（契约 C3） | `stop_reason=user_cancelled`；保留半程报告（若有） |
+| `RUNNING`/`CANCEL_REQUESTED` | 正常完成 | `SUCCEEDED` | 完成先落终局，**之后不得改判**（P1 #10 口径） | 写报告与元数据；记 `finished_at` |
+| `RUNNING`/`CANCEL_REQUESTED` | 协作式超时 | `TIMED_OUT` | 完成先落终局则记 `SUCCEEDED` | `stop_reason=timeout`；不写 `run_status` |
+| `RUNNING` | 预算超限 | `CANCELLED` | 节点边界检查 | `stop_reason=budget_exceeded`（**不伪装成 `TIMED_OUT`**） |
+| `RUNNING` | 节点异常 | `FAILED` | 与取消/超时严格分开 | 走图内错误恢复口径；`stop_reason=error` |
+| `RUNNING` | Worker 崩溃且重试耗尽 | `LOST` | 见 §5.9.3 | 可由用户手动重试（新 run） |
+
+> **状态与语义分离**：`CANCELLED` 表示「未自然完成而终止」，`stop_reason` 区分
+> `user_cancelled` / `budget_exceeded` / `admin_stop`；研究产出质量仍由 `research_status`（W8 三态）表达。
+> 运营报表**禁止**把 `budget_exceeded` 与 `timeout` 合并统计。
+
+#### 5.9.2 幂等与重复提交
+
+- `idempotency_key` 由前端生成（UUID）随创建请求提交；唯一索引 `(user_id, idempotency_key)`，有效期 24 小时。
+- 重复提交返回**既有** `run_id`，不创建第二个 run、不重复扣配额（HTTP 200/202 由 P4 定稿）。
+- 创建时配额预检：单用户并发占用、当日已创建数、月度预算余量；任一不过返回结构化错误，不进入队列。
+
+#### 5.9.3 租约、心跳与崩溃恢复
+
+| 项 | 建议值 | 说明 |
+|----|-------|------|
+| 心跳周期 | 30s 或每节点完成时（先到为准） | 节点耗时实测最大约 31s（需求 9 §5.4.1） |
+| 租约 TTL | 120s | 心跳 4 倍余量，避免慢节点被误判死亡 |
+| 扫描周期 | 30s | 只做状态纠正，不执行研究 |
+| 自动重试 | 最多 1 次（`DR_WORKER_MAX_ATTEMPTS=2`） | 重试 = **从头执行**（不承诺断点续跑）；同 run 内 `attempt+1` 后重新入队（P3-B 已落地） |
+| 重试后仍失败 | `LOST` | 用户可手动重试（新 run，`retry_of` 指向原 run）；清扫具备取消意图时直接 `CANCELLED`（不重跑） |
+| 并发槽释放 | 任一终局即释放 | 沿用 P1「活跃 run」语义，不等线程收尾 |
+
+- 崩溃恢复只保证**任务状态正确**与**可查询/可重试**，不保证在飞节点已产生的结果不丢。
+- `worker_status`（`alive` / `draining` / `stale`）仅供运维排障，不参与用户侧状态判断。
+
+#### 5.9.4 取消、超时与预算的持久化映射
+
+| 机制 | 持久化字段 | 触发点 | 与现 P1 口径的关系 |
+|------|-----------|-------|-------------------|
+| 取消 | `cancel_requested_at` | API 接收即写 | 迁移现 `threading.Event`（`runner.py:116`）；节点边界停止、零新 LLM 调用 |
+| 超时 | `timeout_at` / `hard_deadline_at` | 创建时计算 | 迁移现 `_deadlines` / `_hard_deadlines`（`runner.py:126-127`）；`stop_reason=timeout` |
+| 预算 | `budget_limit_cny` / `budget_used_cny` | 节点边界检查；`budget_used_cny` 每步回写（P3-B） | `stop_reason=budget_exceeded`；不写 `run_status`、不污染故障归因 |
+| 终局 | `finished_at` + `stop_reason` | 原子写入 | 沿用 ADR-0008 纪律：终局帧 / 结果 / 状态一次事务完成 |
+
+**优先级规则**：同一时刻多因竞争，以**先落终局者**为准，后来者不得改判；
+`cancel_requested_at` 早于超时触发时，最终记 `user_cancelled`。
+
+### 5.10 L3-A API 面（设计意图，最终随 P4/P6 定稿）
+
+> 现有 4 条路由（start / stream / cancel / report）继续作为传输层复用；L3 新增认证、历史与配额面。
+> **P2-C 已落地**：`POST /api/research` 幂等键、`GET /api/runs`、内存未命中时的快照 / 导出 / SSE 回放 / 取消回落；
+> 认证、邀请与管理面随 P4 定稿。
+> 路径以最终实现为准，但**所有写操作必须带鉴权与 CSRF，所有读操作必须强制 `user_id` 过滤**。
+
+| 分组 | 端点（建议） | 说明 |
+|------|-------------|------|
+| 认证 | `POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/session` | httpOnly Session；登录失败写审计 |
+| 邀请 | `POST /api/auth/invite/accept` | 邀请码一次性、可过期、可撤销 |
+| 任务 | `POST /api/runs` | 创建（幂等键；服务端档位封顶） |
+| 任务 | `GET /api/runs` | 历史列表（分页、状态筛选、仅本人） |
+| 任务 | `GET /api/runs/{id}` | 快照（沿用现 `/api/research/{id}`） |
+| 任务 | `POST /api/runs/{id}/cancel` | 迁移现取消接口 |
+| 任务 | `GET /api/runs/{id}/events` | 从 `sequence` 回放（替代内存 `Last-Event-ID`） |
+| 任务 | `GET /api/runs/{id}/stream` | SSE（PG 补发 + Redis 加速） |
+| 报告 | `GET /api/runs/{id}/report` | 迁移现导出（`format=md/json`），补鉴权 |
+| 知识库 | `POST /api/rag/ingest`、`GET /api/rag/docs` | **P6-A 已落地**：类型白名单 + 大小上限；按当前用户打标 / 按作用域列出（不泄露他人文档） |
+| 配额 | `GET /api/quota` | 当日次数、并发占用、月度预算余量 |
+| 管理 | `POST /api/admin/invites`、`GET /api/admin/runs`、`POST /api/admin/users/{id}/ban` | 最小管理面；全部写审计 |
+
+**错误契约不退化**：继续使用 `web/backend/errors.py` 的
+`{code, message, component, node, detail, retryable, hint}` 结构；新增
+`unauthenticated` / `forbidden` / `quota_exceeded` / `budget_exceeded` / `idempotency_conflict` /
+`invite_invalid` 等 spec，登记进同一真相源。
+
+### 5.11 审计事件与计量口径
+
+**审计事件（`audit_logs.action` 最小集）**：`login_success` / `login_failed` / `logout` /
+`invite_created` / `invite_revoked` / `invite_redeemed` / `user_banned` / `run_created` /
+`run_cancelled` / `run_exported` / `run_deleted` / `quota_granted` / `admin_viewed_run` /
+`overseas_provider_enabled`。
+
+**计量口径**：
+
+- `usage_ledger` 逐调用记录 `user_id` / `run_id` / `attempt` / `node` / `provider` / `model` /
+  `input_tokens` / `output_tokens` / `cost_cny` / `call_id`（唯一）/ `recorded_at`。
+- 以**服务端实际 usage** 为准；前端展示成本仅是提示，不具裁决权（沿用 P1 口径）。
+- 预算检查在节点边界执行（与取消/超时同一检查点），不中断在飞节点。
+- 对账：provider 账单与账本按周核对，偏差写入运营记录。
+
+### 5.12 前端页面清单（P6 范围）
+
+| 页面 | 内容 | 复用 / 新增 |
+|------|------|------------|
+| 登录 / 邀请 | 登录、邀请码接受、错误提示 | 新增 |
+| 工作台 | 提交研究、档位选择（Quick 默认）、配额与预算余量、并发中提示 | 复用现表单 + 新增配额条 |
+| 运行详情 | SSE 进度、降级面板、报告、引用、导出、取消、重试、运行摘要 | 复用现有全部组件 |
+| 历史列表 | 分页、状态筛选、打开详情 | 新增 |
+| 账户 | 会话信息、数据删除入口、保存期限说明 | 新增 |
+| 管理（最小） | 邀请码、运行记录、封禁 | 新增 |
+
+### 5.13 新增配置项清单（L3-A 建议，名称以 P1/P4 实现为准）
+
+| 配置 | 建议默认 | 用途 |
+|------|---------|------|
+| `DR_DATABASE_URL` | 必填（密钥服务） | PostgreSQL DSN |
+| `DR_REDIS_URL` | 必填（密钥服务） | 队列 / 租约 / 实时加速 |
+| `DR_SESSION_SECRET` | 必填（密钥服务） | Session 签名 |
+| `DR_SESSION_TTL_SECONDS` | 604800 | 会话有效期（7 天） |
+| `DR_AUTH_REQUIRED` | `false`（本地）/ `true`（staging） | 运行类接口是否必须登录（P4-A） |
+| `DR_COOKIE_SECURE` | `false`（本地 http）/ `true`（HTTPS） | Session / CSRF Cookie 的 Secure 标记（P4-A） |
+| `DR_INVITE_ONLY` | `true` | 关闭自由注册（P4-A：注册需一次性邀请码） |
+| `DR_MAX_USER_CONCURRENT` | 1 | 单用户并发 |
+| `DR_DAILY_RUNS_PER_USER` | 1 | 单用户每日运行数 |
+| `DR_GLOBAL_DAILY_RUNS` | 5（L3-A）/ 10（L3-B） | 全局每日运行数 |
+| `DR_RUN_BUDGET_CNY` | 1.50 | 单次硬预算 |
+| `DR_RUN_BUDGET_WARN_CNY` | 1.00 | 单次预警 |
+| `DR_MONTHLY_BUDGET_CNY` | 1500（L3-A）/ 2000（L3-B） | 月度熔断 |
+| `DR_LOGIN_RATE_PER_MINUTE` | 10 | 登录 / 注册限流（进程内固定窗口；多实例需迁 Redis，P4-B） |
+| `DR_SUBMIT_RATE_PER_MINUTE` | 10 | 提交任务限流（P4-B） |
+| `DR_RAG_MAX_FILE_MB` | 10 | 知识库单文件上传上限（P6-A，类型白名单见 API 实现） |
+| `DR_MODERATION_BLOCKLIST` | 空（默认不误伤） | 内容预检词表（逗号分隔；P7-A。**规则预检非审核服务**，正式开放前须接入有资质服务） |
+| `DR_ALERT_5XX_RATE_PCT` | 2.0 | 5xx 比例告警阈值（P8-A） |
+| `DR_ALERT_QUEUE_DEPTH` | 20 | 队列积压告警阈值（P8-A） |
+| `DR_ALERT_STALE_RUNS` | 1 | 过期租约任务数告警阈值（P8-A） |
+| `DR_ALERT_MONTHLY_PCT` | 80.0 | 月度预算消耗告警阈值（P8-A） |
+| `DR_OVERSEAS_PROVIDERS` | `off` | Tavily / Langfuse Cloud / arXiv / Semantic Scholar 总开关（默认关闭） |
+| `DR_RUN_TIMEOUT_SECONDS` | 3600 | 沿用现配置（`runner.py:54`） |
+| `DR_MAX_CONCURRENT_RUNS` | 2（L3-A）/ 3（L3-B） | 沿用现配置（`runner.py:59`） |
+| `DR_FORCED_STOP_GRACE_SECONDS` | 沿用现值 | 传输层硬截止余量 |
+| `DR_DEMO` / `DR_DEMO_STEP_SECONDS` | 沿用现值 | 本地演示路径保留，不接 PG/Redis 也能跑 |
+
+## 6. 设计策略
+
+| 决策 | 选择 | 依据 |
+|------|------|------|
+| 权威状态 | PostgreSQL | Pub/Sub 无历史；审计、回放、对账都要求持久事实 |
+| 实时与队列 | Redis（队列 / 租约 / 限流 / 实时加速） | 成熟队列原语，避免自研调度 |
+| Worker | 独立进程执行同步 `graph.stream()` | 不为「看起来现代」改异步；不触碰 W8 判定口径 |
+| 用户体系 | httpOnly Session Cookie + Argon2id + CSRF + 限流 | 单页同源部署下最简单且可即时吊销 |
+| RAG 隔离 | 单 collection + payload filter | 少量用户更易维护；公共知识未来只需放宽 visibility |
+| 首批恢复目标 | 「任务不丢」不做断点续跑 | 断点续跑需要 7 项前置能力，一次做齐会拖垮首发 |
+| 运行档位 | 服务端策略封顶 | 防止前端自由填写击穿预算与超时 |
+| 与核心链路关系 | Web/Worker 只消费 `iter_run()` | W8 冻结纪律；A 类验收 100% 可归因率不受影响 |
+
+## 7. 验收标准（DoD）
+
+### 7.1 L3-A（内部可用版）
+
+- [x] API 重启后任务可查询（状态 + 报告不丢；P2-C：内存未命中回落任务库）
+- [x] 页面关闭后任务继续执行，刷新可恢复查看
+- [x] SSE 断开后可按 `Last-Event-ID` / `sequence` 恢复，不重跑研究（P2-C：进程重启后从 `run_events` 回放）
+- [x] 任务失败不丢状态（FAILED / TIMED_OUT / CANCELLED / LOST 均落库；LOST 由启动清理产生）
+- [x] 用户不能访问他人任务（查询 / 取消 / 导出 / SSE 订阅四路负向测试；P4-A：非本人一律 404，不泄露存在性）
+- [x] Worker 挂掉后任务不会永久卡住（P3-A 租约 + P3-B 超时清扫接管：可重试→重排、重试耗尽→`LOST`）
+- [x] 成本超限自动停止（单 run 预算闸 P3-B；用户级每日/并发 + 全局月度闸 P4-B；查询与导出不受影响）
+- [x] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期（P4-A；密码重置与限流留 P4-B）
+- [ ] staging 环境一键起停（本地 compose 已具备；云上 staging 待部署）；迁移**只前向**执行且二次幂等（回退走备份恢复，见上线准入 §7.3）
+
+### 7.2 L3-B（邀请制内测版）
+
+- [ ] 任务历史列表 / 详情 / 导出可用
+- [ ] 管理后台可查看运行记录、封禁用户
+- [ ] 输入 / 输出审核链路生效，审核记录可查
+- [ ] 备份恢复演练通过 1 次（删库 → 恢复 → 越权核验）
+- [ ] 规模与配额符合 §3.1：10 人、3 并发、1 次/人/日、月 ≤ ¥2,000
+- [ ] 并发压测：峰值 3 个 run 稳定
+- [ ] 运营日志与审计日志可查
+- [ ] 境外服务默认关闭已验证（配置级检查：无用户内容发往 Tavily / Langfuse Cloud / arXiv / Semantic Scholar）
+
+### 7.3 L3-C（正式公开版）
+
+- [ ] 备案/登记/安全评估路径书面确认并落档
+- [ ] 隐私政策、用户协议、注销与数据删除流程上线
+- [ ] 模型备案号按要求公示
+- [ ] 服务状态页、告警、灰度发布、回滚策略就绪
+- [ ] 商用供应商授权确认（模型 / 搜索 / 可观测）
+
+## 8. 影响范围与风险
+
+### 8.1 影响范围
+
+- 新增：`worker/`、部署与迁移文件、`docs/operations/`、大量新测试。
+- 修改：`web/backend/main.py`（鉴权/CORS/配额）、`web/backend/runner.py`（职责外置）、`web/frontend/`（登录/历史/配额）、CI。
+- 不动：`research_engine/` 判定口径、CLI、`research_engine/eval/results/` 冻结产物、既有 455 条测试基线。
+
+### 8.2 风险清单（按严重度）
+
+| 级别 | 风险 | 缓解 |
+|------|------|------|
+| 高 | 合规路径不确定（备案 / 安全评估 / 登记，属地口径差异） | P0 阶段即向属地网信与云厂商书面确认；邀请制只是风险控制不是豁免（§8.3） |
+| 高 | 数据出境（Langfuse Cloud / Tavily 等境外服务） | L3-A/B 默认不发送用户内容出境，境外服务默认关闭（§3.1 第 16 项）；供应商逐项登记数据流向，恢复须独立评审（上线准入清单 §4） |
+| 高 | 48~51 分钟默认体验 | Quick / Standard / Deep 分档 + 服务端封顶（§5.6） |
+| 中 | 成本失控 | 单次 ¥1.50 硬上限 + L3-A ¥1,500/月、L3-B ¥2,000/月熔断（现行 ¥0.79~0.92 是上界估算，不是商业成本模型） |
+| 中 | SSE 长连接被反向代理掐断 | `proxy_buffering off` + 足够长的 `proxy_read_timeout` + 15s 心跳已验证 + 上线前实测 |
+| 中 | RAG 数据串扰 | 强制租户 filter + 越权负向测试；默认仅 private |
+| 中 | 搜索 provider 额度耗尽 / 不可用（当前仅博查，无第二源） | 启动前 key 校验（已具备）+ 明确降级提示；L3-B 前补国内第二搜索源，否则登记为已知单点 |
+| 低 | 单实例故障 | 单地域备份 + 恢复演练；多实例扩容留到 L3-C |
+
+### 8.3 合规前置口径（必须按此表述，不得简化）
+
+1. **邀请制不等于合规豁免**：邀请制是第一阶段的风险与范围控制策略。是否属于「向境内公众提供服务」需结合访问对象、注册方式、服务功能、用户规模、运营方式与属地要求判断。
+2. **模型已备案不等于应用已合规**：需区分「模型提供商备案」「你的应用备案/登记」「ICP 备案」「公安联网备案」四件事；已上线应用应公示所使用的已备案服务与模型名称、备案号。
+3. 具有舆论属性或社会动员能力的服务，需按规定进行安全评估并履行算法备案等手续。
+4. 正式开放前须向属地网信部门与云厂商确认所需手续，并把结论写入上线准入记录。
+
+### 8.4 境外服务默认关闭的功能影响（已知取舍）
+
+> 结论：关闭的是**冗余能力、学术覆盖与运维可观测性**，不是核心研究链路。
+> Planner / 多跳检索 / Critic / 引用校验 / 报告生成 / SSE / 取消与任务管理 / 配额均不受影响。
+
+| 服务 | 关闭后的影响 | 首发处置 |
+|------|-------------|---------|
+| Tavily | 失去第二搜索源与海外搜索兜底；博查故障时降级更明显 | 关闭；以“明确降级提示”承接；L3-B 前补国内第二源，否则登记为已知单点 |
+| Langfuse Cloud | 用户主流程不受影响；失去 Trace 页面、调用链定位、成本控制台与可视化调试 | 关闭；以 PostgreSQL 运行统计 + 结构化日志替代；自托管会增加 ClickHouse 等运维面，首发不引入 |
+| arXiv | 失去论文检索与学术来源覆盖，学术型问题来源质量下降 | 关闭；后续如需恢复，用独立开关 + 数据流向提示 + 重新评审 |
+| Semantic Scholar | 失去引用数后处理信息 | 关闭；影响较小 |
+
+## 9. 测试策略
+
+| 层次 | 内容 | 命令 / 预期 |
+|------|------|------------|
+| 既有回归 | 455 条 pytest + ruff + 前端 `tsc`/build + 浏览器 E2E 10 条 | 保持全绿（CI 门禁不变） |
+| 新增单测（P2/P3） | 状态机迁移、事件 sequence、幂等键、租约与超时、重试不重复扣费、worker 崩溃标记 | `pytest tests/` 新增文件 |
+| 仓储层（P2-B，已交付） | RunStore 契约：创建幂等 / 乐观状态迁移 / 取消语义（CREATED→CANCELLED、RUNNING→CANCEL_REQUESTED）/ 事件单调与重放 / 产物 upsert 与级联删除 | `DR_TEST_DATABASE_URL` 下跑 `tests/test_run_store.py`（**14 条**，含 RunManager 真实 PG 端到端），CI `infra` job 强制执行 |
+| 持久化接线（P2-C，已交付） | 写透（创建 / 事件 / 终局 / 产物：帧号显式对齐）、幂等创建、取消落库、持久化失败降级（`persistence_error` 留痕不打断研究）；HTTP 读侧回落（快照 / 历史 / 导出 / SSE 回放 / 取消） | `tests/test_web_persistence.py`（**12 条**，FakeStore 零 PG）随主测试矩阵跑；真实 PG 端到端在 `infra` job |
+| 新增单测（P4/P5） | 鉴权、越权负向、CSRF、限流、租户 filter 命中/未命中 | 同上 |
+| 集成 | staging 全链路冒烟（提交 → worker → SSE → 报告 → 导出） | 每阶段手工 + CI staging 可选 |
+| 压测 | 峰值 3 并发 run（L3-B 规模：10 人、1 次/人/日）、SSE 连接数、队列等待时间 | L3-B 前完成 |
+| 恢复演练 | 删库 → 备份恢复 → 任务与报告恢复 → 越权核验 | L3-B 前完成并留记录 |
+
+## 10. 变更记录
+
+| 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
+|---|---|---|---|---|
+| 2026-09-24 | 立项 | L3 多用户生产化 P0 | 初始草稿：现状证据、§3.1 首发参数决策表（待拍板）、P0~P8 阶段、L3-A/B/C DoD、风险与合规口径 | — |
+| 2026-09-24 | P0 推荐基线 | §3.1 / §5.6 | 填入规模、并发、配额、预算、封闭内测、国内数据边界、保存期限与档位初始上限；主体/域名/云账号/合规结论仍待主理人确认。根据百炼官方接入说明，生产端点改为业务空间专属域名，避免沿用即将停止支持新特性的通用 DashScope 域名 | — |
+| 2026-09-24 | P0 推荐基线 v2 | §3.1 / §3.1.1 / §3.1.2 / §3.3 / §5.6 / §5.8 / §7.2 / §8.2 / §8.4 / §9 | 按主理人确认的四项外部事实收缩首发范围：个人主体、规模 L3-A 5 人/L3-B 10 人、并发 2/3、1 次/日、预算 ¥1,500/¥2,000、L3-C 暂缓；境外服务改为「默认关闭 + 恢复须评审」表述并补功能影响取舍；搜索登记为单点并补第二源前置 | — |
+| 2026-09-24 | P0 设计细化 | §5.9~§5.13 | 补 L3-A 可实施设计：状态迁移表（含 `budget_exceeded` 语义分离与终局优先规则）、幂等与租约/心跳/重试、取消/超时/预算持久化映射、API 面、审计与计量口径、前端页面清单、新增配置项清单 | — |
+| 2026-09-24 | P1 第一批 | §5.7 / §7.1 / 代码 | 部署底座本地骨架落地：`Dockerfile.api`（多阶段）/ `docker-compose.staging.yml`（PG+Redis+迁移+API）/ `tools/migrate.sh`（只前向+幂等，CI 锁二次执行 `applied=0`）/ 健康探针（live+ready）/ CORS 环境变量化（`DR_CORS_ORIGINS`）/ CI `infra` job；迁移策略明确为「只前向、回退走备份恢复」；测试 455→461；云上部署与外部事实仍未闭环 | [PR #10](https://github.com/TianJinYing2006/DeepResearch/pull/10) |
+| 2026-09-26 | P2-A 数据模型 | §5.2 / migrations | 任务持久化第一批 DDL：`runs`（9 态状态机 CHECK / 创建幂等部分唯一索引 / 租约·预算·超时字段）与 `run_events`（`(run_id,sequence)` 主键 + 级联删除）；新增结构自检 `migrations/checks/0001_schema_assert.sql` 并接入 CI `infra` job | [PR #11](https://github.com/TianJinYing2006/DeepResearch/pull/11) |
+| 2026-09-26 | P2-B 仓储层 | §5.2 / §9 / 代码 | 新增 `psycopg[binary]`（lock 外科式加锁，零版本漂移）+ `web/backend/store.py`（RunStore：创建幂等 / 乐观状态迁移 / 取消语义 / 事件单调 sequence / 产物 upsert）+ `migrations/0002_run_artifacts.sql` + `tests/test_run_store.py`（10 条，真实 PG）；CI `infra` job 增加 checks 循环与仓储测试 | [PR #12](https://github.com/TianJinYing2006/DeepResearch/pull/12) |
+| 2026-09-26 | P2-C 持久化接线 | §5.4 / §5.9 / §5.10 / §7.1 / §9 / 代码 | RunManager 写透（创建幂等 / 帧号对齐事件 / 终局状态 + 产物 / 取消落库 / 失败降级留痕）；`main.py` 读侧回落（快照 / `/api/runs` 历史 / 导出 / SSE 回放 / 取消）；启动把残留非终局任务标记 `LOST`；readiness 的 PG 探针升级为真实 `SELECT 1`；新增 `persistence_unavailable` 错误码；测试 487 收集（473 通过 + 14 跳过，跳过的为真实 PG 用例） | [PR #13](https://github.com/TianJinYing2006/DeepResearch/pull/13) |
+| 2026-09-26 | P3-A Worker/队列 | §5.4 / §5.7 / §9 / 代码 | `web/backend/queue.py`（Redis LPUSH/BRPOP；redis-py 8 阻塞读超时兜底成「空队列」）+ `web/backend/worker.py`（原子认领 QUEUED→RUNNING+租约 / 心跳续租 / 节点边界取消与超时 / 终局落库 / 崩溃兜底 FAILED）+ 共享终局落库抽到 `persistence.py`（RunManager 与 Worker 同一状态映射）+ API 队列模式（`DR_EXECUTION_MODE=queue`；幂等命中先于并发闸）+ SSE 从任务库实时尾随 + compose `worker` 服务（同镜像不同入口；**不单列 `Dockerfile.worker`**）+ `redis>=8,<9`（lock 外科式 +1 行）；真实 PG+Redis 集成测试接 CI `infra`；容器冒烟：真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s） | [PR #14](https://github.com/TianJinYing2006/DeepResearch/pull/14) |
+| 2026-09-26 | P3-B 清扫/重试/预算 | §5.7 / §5.9.3 / §5.9.4 / §9 / 代码 | `RunStore.sweep_stale_runs`（`FOR UPDATE SKIP LOCKED` 原子接管：取消意图→CANCELLED；`attempt<max`→QUEUED+`attempt+1` 清租约；耗尽→LOST）+ Worker 周期清扫并重新入队 + 单 run 预算闸（节点边界；新增 `update_usage` 只回写计量、**不再覆盖 CANCEL_REQUESTED**——实测踩坑）+ 环境变量 `DR_WORKER_SWEEP_SECONDS` / `DR_WORKER_MAX_ATTEMPTS`；真实 PG+Redis 集成新增租约接管端到端 | [PR #15](https://github.com/TianJinYing2006/DeepResearch/pull/15) |
+| 2026-09-26 | P4-A 账号与会话 | §3.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 迁移 `0003_users_sessions_invites.sql`（users/sessions/invites + `runs.user_id` 外键）+ Argon2id 密码哈希、会话/邀请码只存 SHA-256 摘要 + 邀请制注册（一次性、事务内校验）/登录/登出/会话 + httpOnly Session Cookie 与 CSRF 双提交 + 运行类接口归属校验（非本人 404）+ 管理员 CLI（`python -m web.backend.admin`）+ 鉴权默认关闭（`DR_AUTH_REQUIRED`，本地/E2E 零变化）；测试 518 收集（496 通过 + 22 跳过；新增 auth 单测 6 + 鉴权 API 7 + 仓储契约 1） | [PR #16](https://github.com/TianJinYing2006/DeepResearch/pull/16) |
+| 2026-09-26 | P4-B 配额/限流/改密 | §3.1.1 / §5.10 / §5.13 / §7.1 / §9 / 代码 | 配额闸三件套（全局月度预算 `month_cost_cny` → 100% 熔断；单用户并发 `count_active(user_id)`；单用户每日 `count_user_runs_since`），幂等命中先于配额闸；创建任务时写入单次预算 `budget_limit_cny`（默认 ¥1.50）由 Worker/进程内执行器在节点边界执行；`GET /api/quota` 快照；进程内固定窗口限流（登录/注册/提交，`DR_*_RATE_PER_MINUTE`，多实例需迁 Redis 已登记）；登录态改密（校验旧密码 → 吊销全部会话 → 当前设备重签）与管理 CLI `reset-password`；新增错误码 `quota_exceeded` / `rate_limited`；测试 530 收集（507 通过 + 23 跳过） | [PR #17](https://github.com/TianJinYing2006/DeepResearch/pull/17) |
+| 2026-09-26 | P5-A RAG 隔离 | §5.7 / 代码 | `research_engine/rag/scope.py`（`RagScope` + `payload_matches` 单一判定 + contextvar；owner 只见本人 private，匿名只见无主块，历史数据向后兼容；shared/public 不开放）+ 摄入 payload 打标（`visibility` 必写，owner/tenant 非空才写）+ `VectorStore.search` owner 作用域下推 Qdrant `must` 过滤并做后置兜底、`scroll_all` 后置过滤 + `HybridRetriever` 按作用域缓存 BM25 语料 + RunManager/Worker 逐 run `set_scope`；测试 540 收集（517 通过 + 23 跳过；新增 10 条隔离用例，Arm4 锁定用例同步适配新缓存结构） | [PR #18](https://github.com/TianJinYing2006/DeepResearch/pull/18) |
+| 2026-09-26 | P6-A 前端产品化 | §5.10 / §5.13 / 代码 | `AccountPanel`（鉴权开启时全屏登录门：登录/注册+邀请码；账号条：配额 chip、历史任务、上传入口、知识库清单、退出）+ 历史报告预览（后端导出，复用 `ReportView`）+ 前端 CSRF 双提交头（研究创建 / 取消）+ `POST /api/rag/ingest`（类型白名单 + `DR_RAG_MAX_FILE_MB` 上限 + 执行器线程摄取 + 按用户打标）与 `GET /api/rag/docs`（按作用域列出）+ `/api/options` 下发 `auth_required`/`invite_only`；依赖 `python-multipart`（lock 外科式 +1 行）；E2E 10→13（历史降级 / 账号条 / 上传类型拒绝） | [PR #19](https://github.com/TianJinYing2006/DeepResearch/pull/19) |
+| 2026-09-26 | P6-B 前端收口 | §5.7 / 代码 | 邀请链接 `?invite=CODE`（注册弹窗预填邀请码；与登录门共用提交逻辑）+ 历史任务**状态筛选 + 分页（加载更多）**（`GET /api/runs` 的 limit/offset/status 全量用上）+ 移动端账号条/历史面板零横向滚动；修复两处实测坑：① Portal 化弹窗（header 的 `backdrop-filter` 会把 `position:fixed` 约束在 header 内）；② 筛选切换的 stale closure（显式传 status）；E2E 13→17 | [PR #20](https://github.com/TianJinYing2006/DeepResearch/pull/20) |
+| 2026-09-26 | P7-A 内容安全与隐私 | §5.7 / §5.13 / 代码 | 迁移 `0004_moderation.sql`（`moderation_records` + `runs.moderation_status`）+ `web/backend/moderation.py`（词表预检/输出标记）+ 输入预检拒绝（400 `content_blocked`）+ 输出 flagged 记录（runner/worker 共用）+ 申诉接口 + 注销接口（验密/CSRF/RAG 清理三态回报）+ 长度上限（1000/2000）+ 隐私政策与用户协议草案（`docs/legal/`，`GET /api/legal/*`）+ 前端（注销按钮、flagged 徽标、政策弹窗、maxLength 对齐）+ CLI `moderation-list`/`delete-user`；测试 559 收集（533 通过 + 26 跳过）、E2E 18/18；实测坑：注销后 run 的 user_id 置空导致测试清理漏网并污染 `count_active`（已修并在注释登记） | [PR #21](https://github.com/TianJinYing2006/DeepResearch/pull/21) |
+| 2026-09-26 | P8-A 可观测与恢复演练 | §5.7 / §5.13 / 代码 / CI | `web/backend/metrics.py`（进程内 HTTP 分类/延迟/SSE 计量）+ `GET /api/metrics`（含任务状态分布、成功率/失败率/超时率、队列积压、过期租约、月度成本）+ `GET /api/ops/alerts`（5xx/积压/过期租约/预算四类阈值，触达留 P8-B）+ `store.status_counts_since`/`count_stale_leases` + `tools/backup.sh`（pg_dump + `pg_restore -l` 可读校验 + 保留 N 份）与 `tools/restore.sh` + CI `infra` job **真实恢复演练**（种子数据 before/after 相等 + 恢复后结构断言）；测试 566 收集（539 通过 + 27 跳过） | [PR #22](https://github.com/TianJinYing2006/DeepResearch/pull/22) |
+| 2026-09-27 | P0 profile 固化 | §5.6 / §3.1 第 20 项 / 代码 | `web/backend/profiles.py`（quick/standard/deep 档位表；Deep 需管理员审批，暂不进入前端可选列表）+ `research_engine/runtime_profile.py`（contextvar 运行作用域：`effective_research_config` / `effective_llm_model`；RunManager/Worker 建图前 set，CLI/eval 不设保持原行为）+ `runs.request.profile` 快照 + 请求体旧底层字段（`max_total_hops` 等）一律忽略并留痕 `ignored_overrides` + 前端档位选择器替换四个底层控件；新增 `tests/test_profiles.py`；测试 575 收集（550 通过 + 25 跳过） | [PR #25](https://github.com/TianJinYing2006/DeepResearch/pull/25) |
+| 2026-09-27 | P0-6 终局原子落库 | §5.9.1 / §5.2 / 代码 | `RunStore.finalize_run`（状态迁移 + 终局事件 + 产物**同一事务**；迁移失败整体回滚返回 False，不产生半成品）+ `persistence.persist_terminal` / `persist_forced` 改走原子入口并返回是否完成迁移 + Runner/Worker 仅在迁移成功后做输出标记；新增 `tests/test_terminal_atomic.py`（5 条）+ 真实 PG 契约 1 条；测试 581 收集（555 通过 + 26 跳过） | [PR #26](https://github.com/TianJinYing2006/DeepResearch/pull/26) |
+| 2026-09-27 | P0-4 输出闸 | §5.7 / 代码 | `moderation.apply_output_gate`（发帧 / 落库前脱敏：`run_events` 与 SSE 不携带正文，原文只留 `run_artifacts`）+ 审核状态经 `persist_terminal(moderation_status=...)` 与终局同事务 + 导出 flagged/blocked ⇒ 403 `output_under_review`（新增错误码）+ 历史回放强制脱敏 + 管理员 CLI `run-report` 复核原文 + 前端「待人工复核」态；新增 `tests/test_output_gate.py`；测试 587 收集（561 通过 + 26 跳过） | [PR #27](https://github.com/TianJinYing2006/DeepResearch/pull/27) |
+| 2026-09-27 | P0-5 申诉校验 | §5.7 / 代码 | 带 `run_id` 的申诉校验归属（非本人 404）+ 只接受 `flagged/blocked`（409 `appeal_not_applicable`）+ 同一用户同一任务防重复（409 `appeal_duplicate`，`store.has_appeal`）；通用申诉保持可用；测试 588 收集（562 通过 + 26 跳过） | [PR #28](https://github.com/TianJinYing2006/DeepResearch/pull/28) |
+| 2026-09-27 | P0-3 准入原子化 | §5.9.1 / §5.10 / 代码 | `RunStore.create_run_admitted`（月度预算 / 全局并发 / 单用户并发 / 每日次数检查与插入同一事务；`pg_advisory_xact_lock` 全局 + 用户锁串行化；失败抛 `QuotaExceeded` 整体回滚）+ 队列模式与 RunManager 统一走该入口（`_admission_limits()`）+ FakeStore 同语义实现；真实 PG 并发竞争测试（5 线程限 1）；测试 589 收集（562 通过 + 27 跳过） | [PR #29](https://github.com/TianJinYing2006/DeepResearch/pull/29) |
+| 2026-09-27 | P0-2 队列可靠性 | §5.4 / §5.9.3 / 代码 | `RunStore.claim_next_queued`（`FOR UPDATE SKIP LOCKED` 原子领取；跳过过期行）+ `count_queued` + 清扫收口过期 `QUEUED → TIMED_OUT`；Worker 循环改「查库领取 + Redis 可选唤醒信号」；Redis 唤醒失败不影响任务；队列深度以任务库为准；Worker 启动仅需 `DR_DATABASE_URL`；真实 PG 并发领取测试；测试 593 收集（565 通过 + 28 跳过） | [PR #30](https://github.com/TianJinYing2006/DeepResearch/pull/30) |
+| 2026-09-27 | P0-9 启动硬校验 | §5.13 / 代码 | `DR_ENV`（local/staging/production）+ `_validate_runtime_config`（staging/生产：鉴权开、Secure Cookie、显式 CORS、LLM 密钥，缺失 fail fast）+ production HTTPS 强制中间件（信任 `X-Forwarded-Proto`，新增错误码 `https_required`）+ compose staging 默认 `DR_COOKIE_SECURE=true` 与自检说明；新增 `tests/test_startup_validation.py`；测试 599 收集（571 通过 + 28 跳过） | [PR #31](https://github.com/TianJinYing2006/DeepResearch/pull/31) |
+| 2026-09-27 | P0-7 注销 durable outbox | §5.7 / 代码 / CI | 迁移 `0005_account_deletion_outbox.sql`（`account_deletions` erasure ledger + `deletion_outbox` + 结构断言）+ 注销接口同事务登记（台账 + outbox + 删用户/会话）并立即返回 `pending` + `deletion.py` 执行器（SKIP LOCKED + 租约、Qdrant `wait=True` 删除后验证 count=0、指数退避 30s→1h、耗尽 abandoned）+ Worker 清扫周期挂载 + CLI `deletion-list`/`retry-deletion`/`process-deletions` + `/api/metrics` 与 `deletion_abandoned` 告警 + 恢复演练文档追加「重放删除台账」；测试 604 收集（575 通过 + 29 跳过） | [PR #32](https://github.com/TianJinYing2006/DeepResearch/pull/32) |
+| 2026-09-27 | P0-8a 上传硬化 | §5.7 / 代码 | `web/backend/upload_guard.py`（流式落盘 + 扩展名/magic bytes 校验 + DOCX ZIP 结构与解压比 + 文件名清洗）+ `doc_id` 内容寻址（幂等去重）+ `config.rag` 解析限额（页数/字符/分块/墙钟）+ 按用户上传限流 + 新错误码 `unsupported_file_type`/`payload_too_large`/`document_limit_exceeded` + 反代样例补 body/timeout；异步摄取管线（隔离区/状态机/可选 AV）列 P0-8b；测试 612 收集（583 通过 + 29 跳过） | [PR #33](https://github.com/TianJinYing2006/DeepResearch/pull/33) |
+| 2026-09-27 | P0-8b 异步摄取管线 | §5.7 / 代码 / CI | 迁移 `0006_rag_ingestions.sql`（状态机 + 租约 + 退避 + 结构断言）+ 上传改「隔离区 + 202 登记」+ `web/backend/ingestion.py`（Worker 执行器；解析类错误直接 rejected、供应商类错误退避；可选 ClamAV `DR_CLAMSCAN_BIN`）+ `GET /api/rag/ingestions/{id}` + `DELETE /api/rag/docs`（同步删向量并验证归零）+ 90 天保留期清扫（`DR_RAG_RETENTION_DAYS`）+ 注销 outbox 联动清隔离区文件 + compose 共享 `rag_quarantine` 卷 + CLI `ingestion-list`/`delete-doc`；测试 623 收集（593 通过 + 30 跳过） | [PR #34](https://github.com/TianJinYing2006/DeepResearch/pull/34) |
+| 2026-09-27 | P1-5 安全审计日志 | §5.7 / 代码 / CI | 迁移 `0007_audit_logs.sql`（append-only、无密码/token/PII、邮箱伪名化、actor 无外键）+ `store.record_audit/list_audit` + `X-Request-ID` 中间件 + 事件最小集（认证成败/登出/改密/注销申请/CSRF 失败/越权/输入拦截/管理动作）+ CLI `audit-list`；测试 628 收集（597 通过 + 31 跳过） | [PR #35](https://github.com/TianJinYing2006/DeepResearch/pull/35) |
+| 2026-09-27 | P1-1 幂等请求指纹 | §5.9.1 / 代码 / CI | 迁移 `0008_request_hash.sql`（`runs.request_hash` + 结构断言）+ 指纹（topic+instructions+profile 规范化 SHA-256）+ 同键不同指纹 ⇒ 409 `idempotency_conflict` + 进程内/队列/RunManager 三路径接入；旧行 NULL 放行；测试 634 收集（603 通过 + 31 跳过） | [PR #36](https://github.com/TianJinYing2006/DeepResearch/pull/36) |
+| 2026-09-27 | P1-3 Worker registry | §5.13 / 代码 / CI | 迁移 `0009_workers.sql`（注册表 + 心跳 + draining/stopped + 结构断言）+ Worker 启动注册与周期心跳（in_flight/current_run_id，best-effort）+ SIGTERM draining→排空→stopped + 队列模式 readiness 要求活跃 worker + `workers_live` 指标与 `worker_heartbeat_missing` 告警；测试 640 收集（608 通过 + 32 跳过） | [PR #37](https://github.com/TianJinYing2006/DeepResearch/pull/37) |
+| 2026-09-27 | P1-2 分布式限流 | §5.13 / 代码 / CI | `RedisSlidingWindowLimiter`（Lua 滑动窗口，多实例共享，fail-open + `ratelimit_redis_error` 指标）+ `make_limiter` 工厂（无 Redis 回落进程内）+ 登录双维度（IP + 账号哈希）+ `DR_TRUST_PROXY` 可信代理 + `login_rate_limited` 审计；真实 Redis 原子性测试；测试 646 收集（613 通过 + 33 跳过） | [PR #38](https://github.com/TianJinYing2006/DeepResearch/pull/38) |
+| 2026-09-27 | P1-10 会话治理与密码重置 | §5.7 / §5.13 / 代码 / CI | 迁移 `0010_session_governance.sql`（sessions 元数据 + `password_reset_tokens` + 结构断言）+ 会话列表/终止（他人需重认证）/退出其他设备 + `POST /api/auth/reset`（原子：消费 token + 改密 + 吊销全部会话）+ 管理员 CLI `create-reset-token` + `DR_SESSION_IDLE_SECONDS`；测试 654 收集（620 通过 + 34 跳过） | [PR #39](https://github.com/TianJinYing2006/DeepResearch/pull/39) |
+| 2026-09-27 | P1-4 usage ledger | §5.11 / 代码 / CI | 迁移 `0011_usage_ledger.sql`（逐调用行 + cost_source + 结构断言）+ `research_engine/usage.py` sink（contextvar；CLI/eval no-op）+ LLM/embedding/搜索发射点 + `web/backend/usage.py` 落库（estimate / per_call 标注）+ 三条执行路径注入 + CLI `usage-summary`；测试 661 收集（626 通过 + 35 跳过） | [PR #40](https://github.com/TianJinYing2006/DeepResearch/pull/40) |
+| 2026-09-27 | P1-9 provider/egress 快照 | §3.1 第 16 项 / 代码 | `web/backend/egress.py`（模型/provider/端点域/策略版本/境外开关快照，不含密钥）+ `runs.request.egress`（两条创建路径）+ 快照接口与导出 JSON 随附；测试 664 收集（629 通过 + 35 跳过） | [PR #41](https://github.com/TianJinYing2006/DeepResearch/pull/41) |
+| 2026-09-27 | P1-7 Qdrant payload index | §5.7 / 代码 | `VectorStore._ensure_payload_indexes`：`user_id`（`is_tenant=true`）/`tenant_id`/`visibility`/`doc_id` keyword 索引幂等补齐（已存在跳过；失败不阻断并留 `last_error`）；测试 667 收集（632 通过 + 35 跳过） | [PR #42](https://github.com/TianJinYing2006/DeepResearch/pull/42) |
+| 2026-09-27 | P1-8 OTel 可观测 | §5.11 / 代码 / CI | `web/backend/otel.py`（OTLP/Prometheus 双路径，默认关；resource 属性 + FastAPI/httpx 埋点）+ GenAI 指标（token input/output 拆分 + operation 计数，接 usage sink）+ 后台任务根 span + compose 透传；依赖入 lock；测试 672 收集（637 通过 + 35 跳过） | [PR #43](https://github.com/TianJinYing2006/DeepResearch/pull/43) |
+| 2026-09-27 | P1-6 报告迁对象存储 | §5.2 / 代码 / CI | compose MinIO（私有桶 + `runs/` 90 天生命周期）+ 迁移 `0012`（`run_artifacts` 元数据列 + 结构断言）+ `web/backend/objectstore.py`（boto3 懒加载；未配置回落 PG）+ 终局先写 S3 后同事务落元数据（失败回落 db）+ 读取经鉴权 + readiness 探针 + 启动幂等建桶；依赖 boto3 入 lock；测试 678 收集（643 通过 + 35 跳过） | [PR #44](https://github.com/TianJinYing2006/DeepResearch/pull/44) |
+| 2026-09-27 | P2-1a 注入确定性防护 | §5.7 / 代码 | `research_engine/sanitize.py`（不可见 Unicode 剥离，外部内容全边界接入）+ `web/backend/injection_guard.py`（输入窄口径模式预检 + 输出系统提示泄漏有限集合扫描）+ P0-4 输出闸联动 `output_leaks` + `research_engine/net/safe_fetch.py`（SSRF：resolve/全地址校验/禁重定向/pin IP/限额）；prompts 未改动；测试 692 收集（657 通过 + 35 跳过） | [PR #45](https://github.com/TianJinYing2006/DeepResearch/pull/45) |
+| 2026-09-27 | P2-2 数据保留自动清理 | §5.2 / 代码 / CI | `web/backend/retention.py`（政策表 + 环境变量可调 + dry-run + 误删护栏 + `retention_purge`/`retention_guardrail` 审计）+ Worker 每日执行 + CLI `retention-run`；`RunStore` 新增白名单化 `count_table`/`count_before`/`purge_before`（`ctid + LIMIT` 批量、终态过滤、FK 级联）；真实 PG 契约入 CI `infra`；测试 698 收集（662 通过 + 36 跳过） | [PR #46](https://github.com/TianJinYing2006/DeepResearch/pull/46) |
+| 2026-09-27 | P2-3 PG 连接池 + statement_timeout + 慢查询 | §5.9 / 代码 / 依赖 | `RunStore` 换 `psycopg_pool.ConnectionPool`（懒初始化、`DR_PG_POOL_*` 可调）；连接 `options` 固定 `statement_timeout`（默认 15s）+ `application_name`；`_TimedCursor` 慢查询 WARNING（只记 SQL 模板）；`psycopg-pool` 入 requirements/lock；真实 PG 契约入 CI `infra`；测试 702 收集（664 通过 + 38 跳过） | [PR #47](https://github.com/TianJinYing2006/DeepResearch/pull/47) |
+| 2026-09-27 | P2-4 SSE LISTEN/NOTIFY 唤醒 | §5.9 / 代码 / CI | 事件写入同事务 `pg_notify`（提交才送达）；API `RunEventNotifier` 专连接 LISTEN + 退避重连 + `DR_SSE_POLL_SECONDS` 轮询兜底（正确性不依赖通知）；shutdown 收口；真实 PG 通知/回滚语义契约入 CI `infra`；测试 706 收集（667 通过 + 39 跳过） | [PR #48](https://github.com/TianJinYing2006/DeepResearch/pull/48) |
+| 2026-09-27 | P2-6 告警外送（webhook） | §5.4 / 代码 / CI | 迁移 0013（`alert_states` + `alert_deliveries`）+ `web/backend/alerts.py`（判定/指纹状态机/退避外送/平台体适配）+ Worker 周期执行 + CLI 三命令；`DR_ALERT_WEBHOOK_URL` 未配置零外呼；真实 PG 领取/放弃/重试契约入 CI `infra`；测试 714 收集（674 通过 + 40 跳过） | [PR #49](https://github.com/TianJinYing2006/DeepResearch/pull/49) |
+| 2026-09-27 | P2-5a 审核 provider 抽象 | §5.7 / 代码 | `web/backend/moderation_providers.py`（`ModerationProvider` 协议 + `ModerationResult` + `local_rules` 实现 + 注册表）；`DR_MODERATION_PROVIDER` 选择、未知/异常回退 fail-safe；输入预检与输出闸改走 `scan_text`，留痕 `detail.provider`，egress 快照动态记录；零外部 SDK；测试 720 收集（680 通过 + 40 跳过） | [PR #50](https://github.com/TianJinYing2006/DeepResearch/pull/50) |
+| 2026-09-27 | P2-5b 申诉/复核状态机 | §5.7 / 代码 / CI | 迁移 0014 `moderation_appeals` + `web/backend/appeals.py`（submit/review/SLA）+ API 建单与本人查询 + accepted⇒`cleared` / rejected⇒`flagged` + `appeal_sla_overdue` 告警 + CLI 三命令 + 180 天保留入 P2-2 政策；真实 PG 契约入 CI `infra`；测试 727 收集（686 通过 + 41 跳过） | [PR #51](https://github.com/TianJinYing2006/DeepResearch/pull/51) |
+| 2026-09-27 | P2-7 容量标定（压测） | §7.5 / 工具 / 文档 | `tools/loadtest/locustfile.py` + README；Worker `DR_LOADTEST_GRAPH=1` 假图（零 LLM；生产禁用）；`docs/operations/capacity-model.md`（公式/连接预算/存储上界/实测基线待回填）；手动执行不进 CI；测试 730 收集（689 通过 + 41 跳过） | [PR #52](https://github.com/TianJinYing2006/DeepResearch/pull/52) |
+| 2026-09-27 | P2-8 发布/回滚 runbook | §7.4 / 文档 | `docs/operations/release-runbook.md`（前向兼容原则 + 发布步骤 + 冒烟 + 观察窗口 + 回滚决策树 + 记录模板 + 演练状态登记）；§7.4 检查单同步；纯文档，测试基线不变（730 收集 = 689 通过 + 41 跳过） | [PR #53](https://github.com/TianJinYing2006/DeepResearch/pull/53) |
