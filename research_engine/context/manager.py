@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, List
 
 from config import config
+from research_engine.budget import CallAdmissionDenied, admit_call
 from research_engine.llm.router import get_router
 from research_engine.state import ResearchFinding, SubQuestion
 from research_engine.usage import UsageSinkError
@@ -32,8 +33,12 @@ class ContextManager:
         """当发现过多时，用 fast LLM 压缩为保留引用的摘要。
 
         借鉴 ODR 的 compress_research：压缩但保留引用，供 Writer 使用。
+        F13（审计）：触发条件加入 token 体积口径（总字符数）；单次压缩的 LLM 调用
+        组数有上限；预算/时限耗尽时保持原文（不再发起调用）。
         """
-        if len(findings) <= self.max_findings:
+        total_chars = sum(len(f.content or "") for f in findings)
+        if (len(findings) <= self.max_findings
+                and total_chars <= config.research.compress_trigger_chars):
             return findings
 
         # 审计 P1#3：按 (来源, 子问题) 分组压缩 —— 同一文件下不同子问题的材料
@@ -44,7 +49,18 @@ class ContextManager:
 
         compressed: List[ResearchFinding] = []
         router = get_router()
-        for (source, group_sq_id), group in by_group.items():
+        max_groups = int(getattr(config.research, "compress_max_groups", 0) or 0)
+        for index, ((source, group_sq_id), group) in enumerate(by_group.items()):
+            if max_groups > 0 and index >= max_groups:
+                # F13：组数上限之外保持原文 —— 单节点 LLM 调用数有界
+                compressed.extend(group)
+                continue
+            try:
+                admit_call(state)
+            except CallAdmissionDenied:
+                # F13：预算/时限耗尽 ⇒ 原文兜底（不再发起调用）
+                compressed.extend(group)
+                continue
             texts = "\n".join(f"- {f.content}" for f in group)
             system = "你是研究信息压缩助手。将以下关于同一来源的研究发现压缩为简洁摘要，保留关键事实与数字，不要丢失重要信息。"
             user = f"研究主题：{topic}\n\n来源：{source}\n\n内容：\n{texts}"

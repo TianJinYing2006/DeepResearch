@@ -34,7 +34,9 @@ from research_engine.rag.scope import set_scope
 from research_engine.runtime_profile import (
     RuntimeProfile,
     effective_research_config,
+    reset_task_deadline,
     set_profile,
+    set_task_deadline,
 )
 from research_engine.streaming import (
     STOP_CANCELLED,
@@ -570,6 +572,7 @@ class RunManager:
     def _worker(self, run_id: str, topic: str, instructions: str,
                 profile: Optional[RuntimeProfile] = None) -> None:
         usage_token = None
+        deadline_token = None
         if self._store is not None:
             # P1-4：本线程的逐调用用量落进 usage_ledger（无 store 时为 no-op）
             usage_token = push_usage_sink(
@@ -609,6 +612,9 @@ class RunManager:
 
             cancel_event = self._cancel[run_id]
             deadline = self._deadlines.get(run_id)
+            if deadline is not None:
+                # F13（审计）：任务剩余时限注入运行作用域（LLM 调用按剩余时间收窄超时）
+                deadline_token = set_task_deadline(deadline - time.monotonic())
 
             def should_stop() -> bool:
                 """取消（用户意图）与超时（系统闸）共用同一个节点边界检查点。"""
@@ -672,6 +678,8 @@ class RunManager:
             if seq is not None:
                 self._persist_terminal(run_id, seq, RUN_ERROR, payload)
         finally:
+            if deadline_token is not None:
+                reset_task_deadline(deadline_token)
             if usage_token is not None:
                 pop_usage_sink(usage_token)
             with self._condition:

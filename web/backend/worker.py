@@ -38,7 +38,9 @@ from research_engine.rag.scope import set_scope
 from research_engine.runtime_profile import (
     RuntimeProfile,
     effective_research_config,
+    reset_task_deadline,
     set_profile,
+    set_task_deadline,
 )
 from research_engine.streaming import (
     STOP_CANCELLED,
@@ -360,6 +362,13 @@ class Worker:
         attempt = int(row.get("attempt") or 1)
         ownership = RunOwnership(self.worker_id, attempt)
         lease_lost = threading.Event()
+        # F13（审计）：任务剩余时限注入运行作用域（LLM 调用按剩余时间收窄超时；
+        # 时限已过则拒绝新调用——节点最大耗时因此可证有界）
+        timeout_at = row.get("timeout_at")
+        deadline_token = None
+        if timeout_at is not None:
+            deadline_token = set_task_deadline(
+                (timeout_at - datetime.now(UTC)).total_seconds())
         # P1-4：逐调用用量落进 usage_ledger（attempt = 本行 attempt）
         usage_token = push_usage_sink(make_store_sink(
             self._store, run_id=run_id, attempt=attempt))
@@ -382,6 +391,8 @@ class Worker:
             else:
                 self._mark_crashed(run_id, exc, ownership)
         finally:
+            if deadline_token is not None:
+                reset_task_deadline(deadline_token)
             pop_usage_sink(usage_token)
             hb_stop.set()
             heartbeat.join(timeout=1.0)

@@ -14,6 +14,8 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from config import config
+from research_engine.budget import DeadlineExceeded, admit_call
+from research_engine.runtime_profile import task_deadline_remaining
 from research_engine.usage import UsageRecord, emit_usage
 
 
@@ -62,7 +64,10 @@ class LLMClient:
         W3（Q3=D' 修复）：_accumulate_usage **无条件**调用——tokens_total（类级）任何调用都累计；
         state.token_used 仅当 state 非 None 时累计（内部判断）。跑完差值 = 漏传 state 的调用路径。
         W5（Q4）：timeout 透传给 openai SDK（judge 调用设 60s 治"LLM 层无超时"僵尸源）。
+        F13（审计）：调用前预算准入（`admit_call`）；未显式传 timeout 时使用默认值并按
+        任务剩余时限收窄（时限已过抛 `DeadlineExceeded`，不发起调用）。
         """
+        admit_call(state)  # F13：预算耗尽不再发起外部调用（state 为空时不检查）
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -72,13 +77,32 @@ class LLMClient:
             kwargs["max_tokens"] = max_tokens
         if response_format:
             kwargs["response_format"] = response_format
-        if timeout is not None:
-            kwargs["timeout"] = timeout
+        resolved_timeout = self._resolve_timeout(timeout)
+        if resolved_timeout is not None:
+            kwargs["timeout"] = resolved_timeout
 
         resp = self._get_client().chat.completions.create(**kwargs)
         content = resp.choices[0].message.content or ""
         self._accumulate_usage(resp, state)  # D'：无条件调用（内部处理 state=None）
         return content
+
+    @staticmethod
+    def _resolve_timeout(explicit: Optional[float]) -> Optional[float]:
+        """F13：显式 timeout 优先；否则用默认值并按任务剩余时限收窄。
+
+        - 默认值 `config.llm.request_timeout_seconds`（0 = 不设，仅显式 timeout 生效）；
+        - 任务时限已过 ⇒ 抛 :class:`DeadlineExceeded`（不发起调用）；
+        - 时限更紧时取 ``min(默认值, 剩余秒数)`` —— 单个节点不会活过任务时限。
+        """
+        if explicit is not None:
+            return explicit
+        base = float(getattr(config.llm, "request_timeout_seconds", 0.0) or 0.0)
+        remaining = task_deadline_remaining()
+        if remaining is None:
+            return base if base > 0 else None
+        if remaining <= 0:
+            raise DeadlineExceeded("task deadline reached before LLM call")
+        return min(base, remaining) if base > 0 else remaining
 
     def _accumulate_usage(self, resp, state) -> None:
         """把响应里的 token 用量累加进 state.token_used（Q6-B 可观测+控闸）。
