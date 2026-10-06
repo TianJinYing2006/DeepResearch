@@ -24,11 +24,12 @@ import contextvars
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.evidence import build_evidence_index, resolve_evidence_text
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.client import LLMClient
 from research_engine.runtime_profile import effective_llm_model
@@ -175,9 +176,16 @@ class Validator:
 
     @staticmethod
     def _build_findings_text(
-        findings: List[ResearchFinding], to_check: List[Dict[str, Any]]
+        findings: List[ResearchFinding], to_check: List[Dict[str, Any]],
+        evidence_index: Optional[Dict[str, ResearchFinding]] = None,
+        stats: Optional[Dict[str, int]] = None,
     ) -> tuple[str, bool]:
         """W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号。
+
+        F07/F08（审计）：不再对证据做 500 字符静默截断 —— 按工作摘要的
+        ``metadata["origin_evidence_ids"]`` 回到**原文层**取正文（``evidence_index``），
+        超出预算时头尾保留 + 显式 ``[证据截断]`` 标记；原文缺失时回落摘要并计入
+        ``stats["missing"]``（调用方写入 validator_stats，不静默）。
 
         返回 (text, trimmed)。
         三条硬约束：
@@ -187,10 +195,18 @@ class Validator:
         """
         import warnings
 
+        index = evidence_index or {}
+
+        def _text_for(f: ResearchFinding) -> str:
+            text, status = resolve_evidence_text(f, index)
+            if stats is not None and status in ("truncated", "missing"):
+                stats[status] = stats.get(status, 0) + 1
+            return text
+
         # W7 Arm5：喂料裁剪可通过 VALIDATOR_TRIM_ENABLED 关闭（TBD-8 基线对照）
         if not config.experiment.validator_trim_enabled:
             lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
+                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
                 for i, f in enumerate(findings, 1)
             ]
             return "\n".join(lines), False
@@ -213,7 +229,7 @@ class Validator:
 
         if trimmed:
             lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
+                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
                 for i, f in enumerate(findings, 1)
                 if str(i) in used_ids
             ]
@@ -227,7 +243,7 @@ class Validator:
 
         # 未触发裁剪或触发安全阀：回退全量
         lines = [
-            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {f.content[:500]}"
+            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
             for i, f in enumerate(findings, 1)
         ]
         return "\n".join(lines), False
@@ -356,15 +372,52 @@ class Validator:
             return tokens
         return [ref.strip()]
 
-    def validate(self, report: str, findings: List[ResearchFinding], state: Any = None) -> List[Citation]:
+    #: F11（审计 3a）：事实句最短长度（字符）——过滤标题/碎片，控制统计噪声
+    _FACT_MIN_CHARS = 20
+
+    @staticmethod
+    def _fact_coverage_stats(report: str) -> Dict[str, Any]:
+        """审计 F11（3a 部分）：无引用事实句覆盖率（零 LLM、只看不判）。
+
+        - 事实句：去掉标题行后按句切分、长度 ≥ ``_FACT_MIN_CHARS`` 的句子；
+        - 有引用：同句内出现 ``[来源: ...]`` 标记（多编号/URL 协议同计）；
+        - ``citation_coverage`` = 有引用句 / 事实句 —— 仅作统计与评测输入，
+          不做门禁（3b 返工闭环再消费该口径）。
+        """
+        text = "\n".join(
+            line for line in (report or "").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        total = 0
+        cited = 0
+        for sentence in re.split(r"[。！？!?\n]+", text):
+            if len(sentence.strip()) < Validator._FACT_MIN_CHARS:
+                continue
+            total += 1
+            if "[来源:" in sentence:
+                cited += 1
+        return {
+            "fact_sentence_count": total,
+            "uncited_fact_sentence_count": total - cited,
+            "citation_coverage": round(cited / total, 4) if total else 1.0,
+        }
+
+    def validate(self, report: str, findings: List[ResearchFinding], state: Any = None,
+                 *, evidence: Optional[List[ResearchFinding]] = None) -> List[Citation]:
         """校验报告引用。
 
         双段式（Q3=A）：
         1. 本地存在性（无 LLM）：编号映射到真实来源 + 来源存在性判定，存在性 False 短路；
         2. LLM 忠实度：仅存在性 True 的引用进 LLM，判定"论断是否忠实于被引 finding 内容"；
            verified = 存在性 AND 忠实度，输出按 finding_id 对齐。
+
+        F07/F08（审计）：``findings`` 为**工作摘要层**（编号协议基准，与 Writer 同一份）；
+        ``evidence`` 为**原文层**（可选）——忠实度判定按 origin 链回原文取正文，
+        长文后段事实不再因 500 字符截断被误拒/漏判。
         """
         extracted = self._extract_citations(report)
+        # F11（审计 3a）：无引用事实句覆盖率随 stats 落库（不进 LLM、不做门禁）
+        self.last_validation_stats.update(self._fact_coverage_stats(report))
         index = self._build_index(findings)
         known = {src for src, _ in index.values()}
 
@@ -395,13 +448,19 @@ class Validator:
             self.last_validation_stats.update({
                 "validated_citation_count": 0,
                 "existence_pass_count": 0,
+                "evidence_truncated_count": 0,
+                "evidence_missing_count": 0,
             })
             return []
 
         # ---- 阶段 2：LLM 忠实度判定（仅存在性 True 的引用；Q3=A 短路）----
         to_check = [r for r in local_results if r["existence"]]
         # W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号；存在性校验仍用全量 index
-        findings_text, _ = self._build_findings_text(findings, to_check)
+        # F07/F08：证据索引来自原文层；截断/缺失显式计入 evidence_stats（随 stats 落库）
+        evidence_index = build_evidence_index(evidence or [])
+        evidence_stats: Dict[str, int] = {}
+        findings_text, _ = self._build_findings_text(findings, to_check, evidence_index,
+                                                     evidence_stats)
         # W7 F1：claim 不再截断；F2：LLM 输出需 claim_echo 回显原文
         fixes_enabled = config.experiment.validator_fixes_enabled
         if fixes_enabled:
@@ -573,6 +632,9 @@ class Validator:
         self.last_validation_stats.update({
             "validated_citation_count": len(result),
             "existence_pass_count": sum(1 for c in result if c.existence),
+            # F07（审计）：证据回原文的显式健康度（截断头尾保留 / 原文缺失回落摘要）
+            "evidence_truncated_count": evidence_stats.get("truncated", 0),
+            "evidence_missing_count": evidence_stats.get("missing", 0),
         })
         return result
 

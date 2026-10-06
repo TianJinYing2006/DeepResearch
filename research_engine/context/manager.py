@@ -62,6 +62,11 @@ class ContextManager:
                             meta.setdefault(k, v)
                 # Bug-3 兜底：组内 sq_id 已一致（P1#3 分组键），首个非空值即组归属
                 merged_sq_id = next((f.sq_id for f in group if f.sq_id), group_sq_id)
+                # F08（审计）：摘要携带原文证据链——Validator 据此回到原文层校验
+                # （不再只读摘要；origin 缺失时回退摘要自身正文）
+                origin_ids = [f.evidence_id for f in group if getattr(f, "evidence_id", "")]
+                if origin_ids:
+                    meta["origin_evidence_ids"] = origin_ids
                 compressed.append(
                     ResearchFinding(
                         content=summary,

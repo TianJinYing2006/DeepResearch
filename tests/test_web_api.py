@@ -97,6 +97,7 @@ def test_stream_resumes_after_last_event_id_without_restarting():
         "depth",
         "visited_sources",
         "reflection_log",
+        "evidence_index",  # F08：轻量证据索引（ID/hash/定位）
     }
 
     with client.stream(

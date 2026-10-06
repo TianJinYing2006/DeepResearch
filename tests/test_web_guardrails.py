@@ -570,7 +570,8 @@ def test_export_payload_shape():
     assert payload["stop_reason"] == STOP_COMPLETED
     assert payload["cancelled"] is False
     assert set(payload["result"]) == {"report", "citations", "validator_stats",
-                                      "depth", "visited_sources", "reflection_log"}
+                                      "depth", "visited_sources", "reflection_log",
+                                      "evidence_index"}  # F08：轻量证据索引
 
 
 def test_report_endpoint_markdown_and_json(monkeypatch):

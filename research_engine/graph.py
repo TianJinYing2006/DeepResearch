@@ -33,6 +33,7 @@ from research_engine.agents.validator import Validator
 from research_engine.agents.writer import Writer
 from research_engine.context.manager import ContextManager
 from research_engine.critic import Critic, route_critic
+from research_engine.evidence import ensure_evidence_identity  # F08：原文层证据身份
 from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
 from research_engine.observability import (  # W3：可观测层（Q1~Q7）
@@ -202,6 +203,8 @@ class DeepResearchGraph:
         # W7 Arm4 G1：把当前查询归属的子问题 ID 写回 finding（post-tag，覆盖所有工具路径）
         for f in new_findings:
             f.sq_id = sq_id or ""
+        # F08（审计）：原文层证据身份（内容寻址 ID / hash / 检索时间）；只写空字段 ⇒ 幂等
+        ensure_evidence_identity(new_findings)
 
         merged_findings = list(state.findings) + new_findings
         seen = set(state.visited_sources)
@@ -311,23 +314,30 @@ class DeepResearchGraph:
             }
 
     def _write(self, state: ResearchState) -> Dict[str, Any]:
-        # 先压缩再写作；压缩结果写回 state.findings（ADR-0004 引用编号契约，保持覆写语义）
+        # F08（审计）：压缩产物写入**工作摘要层** working_findings；原文层 findings 保持
+        # append-only（不再被覆写）。ADR-0004 编号一致性不变量保留：Writer 与 Validator
+        # 消费的仍是同一份 working_findings。
         with span_node("写作", node="write"):
-            compressed = self.context.compress(state.findings, state.topic, state)
-            report = self.writer.write(state.topic, state.subquestions, compressed, state)
+            working = self.context.compress(state.findings, state.topic, state)
+            report = self.writer.write(state.topic, state.subquestions, working, state)
         return {
             "report": report,
-            "findings": compressed,  # 不加 reducer → 覆写（Q7=A）
+            "working_findings": working,  # 编号协议基准（Writer/Validator/Render 共用）
             # W8 Arm 1：writer 降级记录（如 LLM 失败走兜底报告）交给 reducer
             "degradation_log": self.writer.drain_degradations(),
             "status": "writing",
             "token_used": state.token_used,  # Q6-B：writer+compress 的 LLM token 累计写回
-            "progress": [{"stage": "write", "msg": "报告生成完成"}],
+            "progress": [{"stage": "write",
+                          "msg": f"报告生成完成（工作证据 {len(working)} 条 / 原文 {len(state.findings)} 条）"}],
         }
 
     def _validate(self, state: ResearchState) -> Dict[str, Any]:
         with span_node("校验", node="validate"):
-            citations = self.validator.validate(state.report, state.findings, state)
+            # F08（审计）：编号协议基准 = 工作摘要层（Writer 所见同一份）；原文层作为
+            # evidence 传入 —— Validator 按 origin 链回原文校验（长文后段事实可核验）
+            working = state.working_findings or state.findings
+            citations = self.validator.validate(state.report, working, state,
+                                                evidence=state.findings)
         verified = sum(1 for c in citations if c.verified)
         return {
             "citations": citations,
@@ -350,7 +360,9 @@ class DeepResearchGraph:
         # 类型标注 + 失败 ⚠️ + 可信声明（双口径）+ 失败附录 + 运行溯源。
         # 展示层增强写 report_display，不回流 report（Writer 纯编号协议保持字节级不变）。
         with span_node("渲染", node="render"):
-            display = self.renderer.render(state.report, state.citations, state.findings, state)
+            # F08：类型标注的编号基准与 Writer/Validator 一致（工作摘要层）
+            display = self.renderer.render(state.report, state.citations,
+                                           state.working_findings or state.findings, state)
         return {
             "report_display": display,
             "status": "done",

@@ -28,6 +28,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from research_engine.evidence import serialize_evidence_index
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
 from research_engine.runtime_profile import (
@@ -717,6 +718,9 @@ class RunManager:
             "depth": step.state.depth,
             "visited_sources": list(step.state.visited_sources),
             "reflection_log": list(step.state.reflection_log),
+            # F08（审计）：轻量证据索引（稳定 ID/内容 hash/定位/检索时间，不含正文）
+            # —— 与 Worker 路径同口径，导出可复核证据链
+            "evidence_index": serialize_evidence_index(step.state.findings),
         }
         cost = _estimate_cost_cny(step.state.token_used)
         elapsed = self._elapsed_seconds(run_id)
