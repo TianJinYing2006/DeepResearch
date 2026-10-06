@@ -27,15 +27,22 @@ from research_engine.eval.stats import summarize_metric
 #:
 #: ⚠️ **裁判提示词的变化不归这里管** —— coverage 由 LLM 裁判，
 #: 提示词改了 ⇒ `prompt_hash` 会变，由它单独捕获（两者都要看）。
-SCORER_VERSION = "w8.1"
+#:
+#: w9.0（审计 F15）：coverage 改为按序号对齐（缺项 ⇒ judge_failed，分母语义收紧）、
+#: 新增独立裁判 `citation_judge_*` 与 `uncited_fact_ratio` 指标 —— 口径已变，
+#: 与 w8.1 及更早的 run 数值**不可直接相减**。
+SCORER_VERSION = "w9.0"
 
 #: 指标名 → (metrics 段名, 段内键名)。**新增指标只改这里**。
 METRIC_SOURCES: Tuple[Tuple[str, str, str], ...] = (
     ("completion_rate", "completion", "complete"),
-    ("citation_accuracy", "citation", "fidelity_rate"),  # W2 忠实度口径
+    ("citation_accuracy", "citation", "fidelity_rate"),  # W2 忠实度口径（主链路 validator）
     ("citation_accuracy_relaxed", "citation", "relaxed_rate"),  # W7 TBD-5 宽松口径
     ("existence_rate", "citation", "existence_rate"),
+    ("citation_judge_fidelity", "citation_judge", "fidelity_rate"),  # F15 独立裁判忠实度
+    ("citation_judge_end_to_end", "citation_judge", "end_to_end_pass_rate"),  # F15 独立端到端
     ("coverage", "coverage", "coverage"),
+    ("uncited_fact_ratio", "answer_integrity", "uncited_fact_ratio"),  # F15 无引用事实占比
     ("retrieval_hit_rate", "retrieval_hit", "retrieval_hit_rate"),
     ("avg_steps", "steps", "steps"),
 )

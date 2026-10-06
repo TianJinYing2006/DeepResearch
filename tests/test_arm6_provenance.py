@@ -37,7 +37,8 @@ from research_engine.eval.provenance import (
 from research_engine.eval.run import _provenance_from_raw, _run_one
 from research_engine.state import ResearchFinding
 
-EXPECTED_SLOTS = {"planner", "planner_replan", "critic", "writer", "validator", "coverage_judge"}
+EXPECTED_SLOTS = {"planner", "planner_replan", "critic", "writer", "validator",
+                  "coverage_judge", "citation_judge"}
 
 
 # ---------- 1. prompt 指纹：覆盖运行时渲染，不是常量模板 ----------

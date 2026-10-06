@@ -271,6 +271,20 @@ def test_evaluate_one_partial_when_judge_failed(tmp_path, hermetic):
     assert LEGACY_STATUS not in res
 
 
+def test_evaluate_one_partial_when_citation_judge_llm_failed(tmp_path, hermetic):
+    """F15：独立裁判失败 ⇒ 该项独立口径缺失，显式记 partial（不静默当 0 分）。"""
+    hermetic.setattr(
+        run_mod, "compute_all",
+        lambda state, row, judge=None: {
+            **_fake_metrics(), "citation_judge": {"llm_failed": True},
+        },
+    )
+    res = run_mod._evaluate_one({"id": "q_001"}, {"state": {}}, object(), tmp_path)
+    assert res[METRICS_STATUS] == "partial"
+    assert res["missing_metrics"] == ["citation_judge"]
+    assert LEGACY_STATUS not in res
+
+
 def test_evaluate_one_failed_on_exception(tmp_path, hermetic):
     def _boom(state, row, judge=None):
         raise ValueError("judge 炸了")
