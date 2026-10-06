@@ -163,6 +163,10 @@ class ResearchState(BaseModel):
     next_queries: List[Dict[str, Any]] = Field(default_factory=list, description="critic 产出的新查询，回填 frontier（Q2=A）")
     critic_gap: str = Field(default="", description="W7 Arm1：critic 识别的知识缺口文本")
     critic_stop_reason: str = Field(default="", description="W7 Arm1：本轮 critic 停止原因（hard_stop/gap_unresolved/no_next_queries/critic_stop/continue/gap_continue/revise）")
+    critic_cited_evidence_ids: List[str] = Field(
+        default_factory=list,
+        description="F01：critic 裁决引用且经代码复核存在的证据 ID（E1…，清单外 ID 已过滤）",
+    )
     # Q7=A：纯追加日志用 add reducer，节点只 return delta，避免 checkpointer 重放错位
     reflection_log: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list, description="反思日志，纯追加（Q7 add reducer）")
     # 规划 / 裁决治理事件：纯追加，但不属于故障，不参与 run_status 判定。

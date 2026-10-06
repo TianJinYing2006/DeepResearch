@@ -429,22 +429,20 @@ def compute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
 def compute_reflection(state: Dict[str, Any], coverage: float) -> Dict[str, Any]:
     """结构性口径 + 交叉信号（Q2/TBD-8 拍板，不标期望跳数）。
 
-    - hard_stop：终态任一硬闸触顶（frontier 空 / depth / token_used）
+    - hard_stop：终态任一资源硬闸触顶（depth / token_used）
     - critic_stop：未触顶且 critic_signal == "stop"
     - 早停候选：critic_stop ∧ 覆盖度 < 90%；晚停候选：critic_stop ∧ 轮数 > 5
 
-    P1 Bug-6 修复：增加 frontier_empty 到 hard_stop 判定，
-    与 critic.py 的 hard_gate() 保持一致。replan_count 不再
-    作为全局 hard_stop（P1 max_replan 语义修正）。
+    F02 语义变更：frontier 空**不再是硬闸**（critic.py hard_gate 已移除该维度），
+    否则「单子问题最后一跳后由 Critic 语义收敛」会被误记为 hard_stop。
+    因队列空而停止属于 critic_stop（stop_reason=no_new_queries）。
+    replan_count 不再作为全局 hard_stop（P1 max_replan 语义修正）。
     """
     rc = config.research
     depth = state.get("depth", 0)
     token_used = state.get("token_used", 0)
     signal = state.get("critic_signal", "")
     hard_reasons: List[str] = []
-    frontier = state.get("frontier") or []
-    if not frontier:
-        hard_reasons.append("frontier_empty")
     if depth >= rc.max_total_hops:
         hard_reasons.append("max_total_hops")
     if token_used >= rc.token_budget:

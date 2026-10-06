@@ -142,6 +142,47 @@ def test_should_execute_keywords():
     assert not should_execute("2026年RAG技术进展")
 
 
+# ---------------- 审计 F03：固定计算模板默认退出证据池 ----------------
+
+def _bare_researcher_for_pool():
+    from research_engine.agents.researcher import Researcher
+
+    res = Researcher.__new__(Researcher)
+    res._search_web = lambda q: []
+    res._search_rag = lambda q: []
+    res._search_arxiv = lambda q: []
+    return res
+
+
+def test_code_exec_evidence_disabled_by_default(monkeypatch):
+    """命中计算关键词也不执行固定模板：运行成功 != 回答了问题（F03）。"""
+    from config import config
+
+    res = _bare_researcher_for_pool()
+
+    def _boom(q):
+        raise AssertionError("evidence_enabled=False 时不应执行固定计算模板")
+
+    res._search_code = _boom
+    monkeypatch.setattr(config.code_exec, "evidence_enabled", False)
+    pooled, stats = res.search_once("计算 FLOPs 复杂度", None)
+    assert pooled == []
+    assert "code" not in stats, "关闭时不应出现 code 工具统计（零无效执行）"
+
+
+def test_code_exec_runs_only_when_evidence_enabled(monkeypatch):
+    """打开开关（仅调试工具链）时保留旧 W4 行为。"""
+    from config import config
+
+    res = _bare_researcher_for_pool()
+    calls: list = []
+    res._search_code = lambda q: calls.append(q) or []
+    monkeypatch.setattr(config.code_exec, "evidence_enabled", True)
+    _pooled, stats = res.search_once("计算 FLOPs 复杂度", None)
+    assert calls == ["计算 FLOPs 复杂度"]
+    assert stats.get("code") == 0, "stats 记录原始产出条数（此处工具返回空）"
+
+
 # ---------------- 并行调度 + 结果池 ----------------
 
 def test_pool_and_trim_cap_and_code_priority():

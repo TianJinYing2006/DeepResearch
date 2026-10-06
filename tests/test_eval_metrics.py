@@ -32,7 +32,7 @@ def _state(**overrides) -> Dict[str, Any]:
         "depth": 3,
         "token_used": 1000,
         "replan_count": 0,
-        "frontier": [{"sq_id": "s1", "query": "q"}],  # P1 Bug-6：非空 frontier → 不触发 frontier_empty hard_stop
+        "frontier": [{"sq_id": "s1", "query": "q"}],  # F02：frontier 空不再是 hard_stop（不再是硬闸）
         "critic_signal": "stop",
         "reflection_log": [{"decision": "continue"}, {"decision": "continue"}, {"decision": "stop"}],
         "findings": [],
@@ -160,14 +160,15 @@ def test_reflection_hard_stop(mock_cfg):
 
 
 @patch("research_engine.eval.metrics.config")
-def test_reflection_hard_stop_frontier_empty(mock_cfg):
-    """P1 Bug-6：frontier 空应计为 hard_stop，与 critic.py hard_gate 行为一致。"""
+def test_reflection_frontier_empty_is_critic_stop(mock_cfg):
+    """F02：frontier 空不再是硬闸 —— 因队列空而收敛属 critic_stop（no_new_queries）。"""
     mock_cfg.research.max_total_hops = 20
     mock_cfg.research.token_budget = 200_000
     mock_cfg.research.max_replan = 1
     res = M.compute_reflection(_state(frontier=[], depth=3, token_used=1000), coverage=0.5)
-    assert res["stop_type"] == "hard_stop"
-    assert "frontier_empty" in res["hard_reasons"]
+    assert res["stop_type"] == "critic_stop"
+    assert "frontier_empty" not in res["hard_reasons"]
+    assert res["hard_reasons"] == []
 
 
 @patch("research_engine.eval.metrics.config")

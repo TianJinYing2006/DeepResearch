@@ -178,7 +178,8 @@ class DeepResearchGraph:
             break
 
         if head is None:
-            # 剩余查询全被 per_cap 过滤 → 队列实质性空，交给 critic 判 stop。
+            # 剩余查询全被 per_cap 过滤 → 队列实质性空。F02 后 frontier 空不再是硬闸：
+            # 仍需过 Critic（它可能给出其他子问题的补充查询；确实无新查询才收敛停止）。
             # ⚠️ 消息必须带上 cap 数值：否则用户/日志只看到「无待检索查询」，会误判成
             # 「搜不到东西」，而真实原因是局部跳数上限掐断（P0-5）。
             return {
@@ -186,8 +187,8 @@ class DeepResearchGraph:
                 "status": "researching",
                 "progress": [
                     {"stage": "research",
-                     "msg": f"剩余查询均达每子问题跳数上限（cap={effective_cap}，"
-                            f"子问题数={len(state.subquestions)}），停止检索"}
+                     "msg": f"本跳无可用查询：剩余查询均达每子问题跳数上限（cap={effective_cap}，"
+                            f"子问题数={len(state.subquestions)}），交由 Critic 裁决"}
                 ],
             }
 
@@ -248,6 +249,7 @@ class DeepResearchGraph:
             "needs_replan": state.needs_replan,
             "knowledge_gap": state.critic_gap,
             "next_queries": state.next_queries,
+            "cited_evidence_ids": state.critic_cited_evidence_ids,  # F01：裁决引用证据（可复核）
             "stop_reason": state.critic_stop_reason,
         }
         return {
@@ -256,6 +258,7 @@ class DeepResearchGraph:
             "needs_replan": state.needs_replan,
             "critic_gap": state.critic_gap,
             "critic_stop_reason": state.critic_stop_reason,
+            "critic_cited_evidence_ids": state.critic_cited_evidence_ids,
             "next_queries": state.next_queries,
             "token_used": state.token_used,  # Q6-B：critic 的 LLM token 累计写回
             "reflection_log": [entry],  # add reducer 追加（Q7）
