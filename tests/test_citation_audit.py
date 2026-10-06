@@ -94,7 +94,7 @@ def test_validate_carries_source_type_and_confidence(findings, monkeypatch):
     def fake(self, messages, state=None, **kw):
         return {"citations": [
             {"finding_id": "1", "claim": "论断", "faithful": True,
-             "confidence": 0.9, "supported": True, "is_meta": False, "note": "ok"},
+             "confidence": 0.9, "is_meta": False, "note": "ok"},
         ]}
 
     monkeypatch.setattr(LLMClient, "chat_json", fake)

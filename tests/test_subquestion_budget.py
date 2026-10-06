@@ -223,12 +223,14 @@ def test_replan_uses_same_subquestion_bound_and_event(monkeypatch):
     assert len(result) == 2
     assert planner.drain_degradations() == []
     events = planner.drain_planner_events()
-    assert len(events) == 1
-    assert events[0]["event"] == "subquestions_truncated"
+    # F14：截断事件 + 显式映射事件（LLM 未给 id_mapping ⇒ 空映射 + unmapped 列出旧 ID）
+    assert [e["event"] for e in events] == ["subquestions_truncated", "replan_id_mapping"]
     assert events[0]["phase"] == "replan"
     assert events[0]["returned"] == 5
     assert events[0]["accepted"] == 2
     assert events[0]["dropped"] == 3
+    assert events[1]["mapping"] == {}
+    assert events[1]["unmapped"] == ["q1"]
 
 
 def test_no_degradation_when_within_limit(monkeypatch):
@@ -377,14 +379,22 @@ def test_graph_revise_drains_planner_events_into_state_delta(monkeypatch):
     delta = graph._revise(state)
 
     assert delta["degradation_log"] == []
-    assert delta["planner_events"] == [{
-        "event": "subquestions_truncated",
-        "phase": "replan",
-        "returned": 2,
-        "accepted": 1,
-        "dropped": 1,
-        "limit": 1,
-    }]
+    assert delta["planner_events"] == [
+        {
+            "event": "subquestions_truncated",
+            "phase": "replan",
+            "returned": 2,
+            "accepted": 1,
+            "dropped": 1,
+            "limit": 1,
+        },
+        {
+            "event": "replan_id_mapping",  # F14：未给映射 ⇒ 空映射 + unmapped
+            "phase": "replan",
+            "mapping": {},
+            "unmapped": ["q1"],
+        },
+    ]
     assert graph.planner.drain_planner_events() == []
 
 

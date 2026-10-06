@@ -203,7 +203,12 @@ def test_verified_relaxed_when_supported_but_not_faithful():
             content="论断 A 在 elsewhere 被支持。",
             source="https://example.com/a",
             source_type="web",
-        )
+        ),
+        ResearchFinding(
+            content="另一独立来源同样支持论断 A。",
+            source="https://example.com/b",
+            source_type="web",
+        ),
     ]
     enter, exit = _mock_llm_client([{
         "finding_id": "1",
@@ -211,6 +216,8 @@ def test_verified_relaxed_when_supported_but_not_faithful():
         "claim_echo": "论断 A 是系统生成的结论",
         "faithful": False,
         "supported": True,
+        # F12：多源印证须给出可复核证据编号（两个独立来源 ⇒ 代码复核通过）
+        "supporting_evidence_ids": ["1", "2"],
         "confidence": 0.7,
         "is_meta": False,
         "note": "引错编号但 supported=true",
@@ -223,7 +230,8 @@ def test_verified_relaxed_when_supported_but_not_faithful():
 
     c = citations[0]
     assert c.verified is False        # strict：faithful false
-    assert c.verified_relaxed is True # relaxed：supported true
+    assert c.verified_relaxed is True # relaxed：supported true（经代码复核）
+    assert c.independent_source_count == 2
 
 
 def test_verified_relaxed_false_when_existence_false():
