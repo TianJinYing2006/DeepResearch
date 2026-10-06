@@ -23,6 +23,7 @@ from research_engine.agents.planner import (
     PLANNER_EVENT_EMPTY_QUESTION_DROPPED,
     PLANNER_EVENT_SUBQUESTIONS_TRUNCATED,
 )
+from research_engine.budget import research_token_ceiling
 from research_engine.llm.client import LLMClient, build_messages
 
 # judge 档位 = smart（Q3），直建实例 role="judge" 独立进职责桶（Q2）；60s 治 LLM 层无超时（Q4）
@@ -445,7 +446,8 @@ def compute_reflection(state: Dict[str, Any], coverage: float) -> Dict[str, Any]
     hard_reasons: List[str] = []
     if depth >= rc.max_total_hops:
         hard_reasons.append("max_total_hops")
-    if token_used >= rc.token_budget:
+    # F13：与研究循环硬闸同口径（budget - reserve），避免「指标与代码分叉」
+    if token_used >= research_token_ceiling(rc):
         hard_reasons.append("token_budget")
     is_hard = bool(hard_reasons)
     is_critic = (not is_hard) and signal == "stop"

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ADR-0004 修复验证：Writer/Validator 引用编号一致性。
 
-离线测试，不调用真实 LLM（monkeypatch 掉 fast/smart 层）。
+离线测试，不调用真实 LLM（main() 执行期间临时替换 fast/smart 层，结束后恢复）。
 运行：python tests/test_citation_alignment.py
 
 背景：Writer 基于"压缩后 findings"生成 [来源: N] 编号，
@@ -22,12 +22,23 @@ from research_engine.llm.router import LLMRouter
 from research_engine.state import ResearchFinding
 
 # ---- 模拟 LLM：不产生真实 API 调用 ----
-LLMRouter.fast_chat = lambda self, system, user, state=None: f"[模拟压缩摘要] {user[:30]}"
-LLMRouter.smart_chat = lambda self, system, user, state=None: (
-    "# 测试报告\n\n"
-    "论断甲 [来源: 5]。\n\n"
-    "论断乙 [来源: 8]。\n"
-)
+# ⚠️ 只在 main() 执行期间生效并在 finally 恢复 —— 模块级直接给 LLMRouter 打补丁
+# 会污染**整个 pytest 会话**（本文件虽无 test_* 用例，但会被收集时 import）。
+_ORIG_FAST_CHAT = LLMRouter.fast_chat
+_ORIG_SMART_CHAT = LLMRouter.smart_chat
+
+
+def _fake_fast_chat(self, system, user, state=None):
+    return f"[模拟压缩摘要] {user[:30]}"
+
+
+def _fake_smart_chat(self, system, user, state=None):
+    return (
+        "# 测试报告\n\n"
+        "论断甲 [来源: 5]。\n\n"
+        "论断乙 [来源: 8]。\n"
+    )
+
 
 TOPIC = "测试主题"
 NUM_SOURCES = 10          # 10 个独立来源
@@ -67,50 +78,56 @@ def run_flow(findings_for_validator, label):
 
 
 def main():
-    findings = make_findings()
-    cm = ContextManager()
-    compressed = cm.compress(findings, TOPIC)
-    print(f"原始 findings：{len(findings)} 条 → 压缩后：{len(compressed)} 条（按来源分组压缩）")
+    LLMRouter.fast_chat = _fake_fast_chat
+    LLMRouter.smart_chat = _fake_smart_chat
+    try:
+        findings = make_findings()
+        cm = ContextManager()
+        compressed = cm.compress(findings, TOPIC)
+        print(f"原始 findings：{len(findings)} 条 → 压缩后：{len(compressed)} 条（按来源分组压缩）")
 
-    # 期望映射：Writer 编号 5 → 压缩列表第 5 个来源
-    expected = {
-        "5": compressed[4].source,
-        "8": compressed[7].source,
-    }
+        # 期望映射：Writer 编号 5 → 压缩列表第 5 个来源
+        expected = {
+            "5": compressed[4].source,
+            "8": compressed[7].source,
+        }
 
-    # ============ 旧逻辑（Bug 复现）：Validator 用原始列表建索引 ============
-    print("\n[旧逻辑] Writer 用压缩列表编号，Validator 用原始 40 条列表建索引：")
-    old_index = Validator()._build_index(findings)
-    for ref, exp in expected.items():
-        entry = old_index.get(ref)
-        got = entry[0] if entry else "?"  # W2：_build_index 返回 (source, source_type)
-        flag = "✅ 正确" if got == exp else f"❌ 错位（应为 {exp}，实际映射到 {got}）"
-        print(f"  [来源: {ref}] → {flag}")
+        # ============ 旧逻辑（Bug 复现）：Validator 用原始列表建索引 ============
+        print("\n[旧逻辑] Writer 用压缩列表编号，Validator 用原始 40 条列表建索引：")
+        old_index = Validator()._build_index(findings)
+        for ref, exp in expected.items():
+            entry = old_index.get(ref)
+            got = entry[0] if entry else "?"  # W2：_build_index 返回 (source, source_type)
+            flag = "✅ 正确" if got == exp else f"❌ 错位（应为 {exp}，实际映射到 {got}）"
+            print(f"  [来源: {ref}] → {flag}")
 
-    # ============ 新逻辑（修复后）：两者都用压缩列表 ============
-    print("\n[新逻辑] Writer 与 Validator 均基于压缩后列表：")
-    new_index = Validator()._build_index(compressed)
-    ok = True
-    for ref, exp in expected.items():
-        entry = new_index.get(ref)
-        got = entry[0] if entry else "?"  # W2：_build_index 返回 (source, source_type)
-        flag = "✅ 正确" if got == exp else "❌ 错位"
-        if got != exp:
-            ok = False
-        print(f"  [来源: {ref}] → {got} {flag}")
+        # ============ 新逻辑（修复后）：两者都用压缩列表 ============
+        print("\n[新逻辑] Writer 与 Validator 均基于压缩后列表：")
+        new_index = Validator()._build_index(compressed)
+        ok = True
+        for ref, exp in expected.items():
+            entry = new_index.get(ref)
+            got = entry[0] if entry else "?"  # W2：_build_index 返回 (source, source_type)
+            flag = "✅ 正确" if got == exp else "❌ 错位"
+            if got != exp:
+                ok = False
+            print(f"  [来源: {ref}] → {got} {flag}")
 
-    # 端到端契约断言：format_for_writer 的编号与 _build_index 完全一致
-    for i, f in enumerate(compressed, 1):
-        assert new_index[str(i)][0] == f.source, f"编号 {i} 映射不一致"
-    assert ok, "新逻辑仍存在错位"
+        # 端到端契约断言：format_for_writer 的编号与 _build_index 完全一致
+        for i, f in enumerate(compressed, 1):
+            assert new_index[str(i)][0] == f.source, f"编号 {i} 映射不一致"
+        assert ok, "新逻辑仍存在错位"
 
-    # 无压缩路径（≤30 条）：编号天然一致
-    small = findings[:24]
-    small_compressed = cm.compress(small, TOPIC)
-    assert len(small_compressed) == 24, "少量 findings 不应触发压缩"
-    print("\n[边界] 24 条（≤30，不压缩）：编号一致 ✅")
+        # 无压缩路径（≤30 条）：编号天然一致
+        small = findings[:24]
+        small_compressed = cm.compress(small, TOPIC)
+        assert len(small_compressed) == 24, "少量 findings 不应触发压缩"
+        print("\n[边界] 24 条（≤30，不压缩）：编号一致 ✅")
 
-    print("\n========== 验证通过：修复后 [来源: N] 全部映射回正确来源 ==========")
+        print("\n========== 验证通过：修复后 [来源: N] 全部映射回正确来源 ==========")
+    finally:
+        LLMRouter.fast_chat = _ORIG_FAST_CHAT
+        LLMRouter.smart_chat = _ORIG_SMART_CHAT
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.budget import CallAdmissionDenied, admit_call
 from research_engine.evidence import build_evidence_index, resolve_evidence_text
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.client import LLMClient
@@ -527,41 +528,55 @@ class Validator:
         failed_row_ids: set = set()
         expected_fids = {r["finding_id"] for r in to_check}
         if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
-            batch_size = validator_batch_size()
-            indexed = list(enumerate(to_check))
-            batches: List[List[Tuple[int, Dict[str, Any]]]] = (
-                [indexed[i:i + batch_size] for i in range(0, len(indexed), batch_size)]
-                if batch_size > 0 else [indexed]
-            )
-            if len(batches) > 1:
-                # 需求 19 / #76：分批并行。上下文必须显式注入线程 —— usage sink 与运行档位
-                # 都是 contextvars，不注入会导致 validator 调用漏记账、档位模型回落全局默认。
-                base_ctx = contextvars.copy_context()
-                with ThreadPoolExecutor(
-                    max_workers=min(validator_concurrency(), len(batches))
-                ) as pool:
-                    futures = [pool.submit(base_ctx.copy().run, _judge_batch, b) for b in batches]
-                    batch_results = [future.result() for future in futures]
-            else:
-                batch_results = [_judge_batch(batches[0])]
-            for items, failed_idxs, err in batch_results:
-                if failed_idxs:
-                    failed_row_ids.update(id(to_check[idx]) for idx in failed_idxs)
-                    # W8 Arm 1：忠实度失效必须留痕（existence_only），按批隔离（每失败批一条）
-                    self.degradations._record_degradation(
-                        component="llm",
-                        reason=FailureReason.LLM_ERROR.value,
-                        detail=(f"phase=validator batch idx={failed_idxs[0]}..{failed_idxs[-1]}; "
-                                f"error={err}"),
-                        fallback_action="existence_only",
-                        node="validator",
-                    )
-                for item in items:
-                    fid = item.get("finding_id", "")
-                    if fid and fid in expected_fids:
-                        verdicts.setdefault(fid, []).append(item)
-                    else:
-                        unused_verdicts.append(item)
+            # F13（审计）：忠实度阶段预算/时限准入 —— 耗尽则整体跳过（保留存在性结论并留痕）
+            try:
+                admit_call(state)
+            except CallAdmissionDenied as exc:
+                self.degradations._record_degradation(
+                    component="llm",
+                    reason=FailureReason.TOKEN_LIMIT.value,
+                    detail=f"validator fidelity phase skipped: {exc}"[:300],
+                    fallback_action="existence_only",
+                    node="validator",
+                )
+                to_check = []
+            if to_check:
+                batch_size = validator_batch_size()
+                indexed = list(enumerate(to_check))
+                batches: List[List[Tuple[int, Dict[str, Any]]]] = (
+                    [indexed[i:i + batch_size] for i in range(0, len(indexed), batch_size)]
+                    if batch_size > 0 else [indexed]
+                )
+                if len(batches) > 1:
+                    # 需求 19 / #76：分批并行。上下文必须显式注入线程 —— usage sink 与运行档位
+                    # 都是 contextvars，不注入会导致 validator 调用漏记账、档位模型回落全局默认。
+                    base_ctx = contextvars.copy_context()
+                    with ThreadPoolExecutor(
+                        max_workers=min(validator_concurrency(), len(batches))
+                    ) as pool:
+                        futures = [pool.submit(base_ctx.copy().run, _judge_batch, b)
+                                   for b in batches]
+                        batch_results = [future.result() for future in futures]
+                else:
+                    batch_results = [_judge_batch(batches[0])]
+                for items, failed_idxs, err in batch_results:
+                    if failed_idxs:
+                        failed_row_ids.update(id(to_check[idx]) for idx in failed_idxs)
+                        # W8 Arm 1：忠实度失效必须留痕（existence_only），按批隔离（每失败批一条）
+                        self.degradations._record_degradation(
+                            component="llm",
+                            reason=FailureReason.LLM_ERROR.value,
+                            detail=(f"phase=validator batch idx={failed_idxs[0]}..{failed_idxs[-1]}; "
+                                    f"error={err}"),
+                            fallback_action="existence_only",
+                            node="validator",
+                        )
+                    for item in items:
+                        fid = item.get("finding_id", "")
+                        if fid and fid in expected_fids:
+                            verdicts.setdefault(fid, []).append(item)
+                        else:
+                            unused_verdicts.append(item)
 
         result: List[Citation] = []
         for r in local_results:

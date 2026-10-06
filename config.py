@@ -39,6 +39,10 @@ class LLMConfig:
 
     temperature: float = 0.2
     max_tokens: int = 4096
+    #: F13（审计）：LLM 调用默认超时（秒）；0 = 不设（仅显式 timeout 生效）。
+    #: 任务时限（worker/RunManager 注入）更紧时自动收窄，避免单次调用挂死整个节点。
+    request_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("LLM_REQUEST_TIMEOUT_SECONDS", "180")))
 
     # W3（grill Q6）：分层定价表（元/1K tokens，取 output 最贵档做保守上界）。
     # ⚠️ 价格有时效，默认值以阿里云官网为准，失效请更新——不要相信任何写死的长期价。
@@ -144,6 +148,18 @@ class ResearchConfig:
     per_subq_hop_cap: int = 5   # 每子问题跳数上限的静态兜底（max_total_hops/max_subquestions，Q5=A）
     max_replan: int = 1         # revise 触发 Planner.replan 的最大次数，硬上限防空转（Q2-B 兜底）
     token_budget: int = 200_000 # LLM token 总预算，作为硬闸停止条件之一（Q6-B）；正常等价预算下不先于 hop 触发
+    # ---- F13（审计）：预算准入与压缩边界 ----
+    #: 为写作/校验预留的 token 额度：研究循环（critic 硬闸）在
+    #: `token_budget - token_budget_reserve` 处提前停止，保证报告/验证仍有预算；
+    #: `token_budget` 仍是**每次外部调用的绝对准入线**（耗尽即不再发起调用）。
+    token_budget_reserve: int = field(
+        default_factory=lambda: int(_env("TOKEN_BUDGET_RESERVE", "40000")))
+    #: 压缩触发：findings 总字符超过该值也触发（不再只看条数——token 体积口径）
+    compress_trigger_chars: int = field(
+        default_factory=lambda: int(_env("COMPRESS_TRIGGER_CHARS", "60000")))
+    #: 单次 compress 的 LLM 调用组数上限（超出部分保持原文，单节点调用数有界）
+    compress_max_groups: int = field(
+        default_factory=lambda: int(_env("COMPRESS_MAX_GROUPS", "40")))
 
 
 @dataclass

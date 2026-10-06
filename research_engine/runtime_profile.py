@@ -15,6 +15,7 @@ P3 之前执行器靠改全局 ``config`` 实现「本场 run 的参数」——
 """
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
@@ -93,6 +94,30 @@ def effective_research_config():
         max_replan=profile.max_replan,
         per_subq_hop_cap=profile.per_subq_hop_cap,
     )
+
+
+#: F13（审计）：任务时限载体（单调时钟，避免墙钟漂移影响超时判定）。
+#: 执行器在开跑前 `set_task_deadline(剩余秒数)`，LLM 调用按剩余时限收窄 SDK timeout；
+#: CLI / eval 不设置 ⇒ 仅使用 `config.llm.request_timeout_seconds` 默认超时。
+_task_deadline: ContextVar[Optional[float]] = ContextVar("dr_task_deadline_monotonic", default=None)
+
+
+def set_task_deadline(seconds_remaining: Optional[float]) -> object:
+    """设置任务剩余时限（秒；None = 清除）；返回 token 供 :func:`reset_task_deadline`。"""
+    value = None if seconds_remaining is None else time.monotonic() + max(0.0, float(seconds_remaining))
+    return _task_deadline.set(value)
+
+
+def reset_task_deadline(token: object) -> None:
+    _task_deadline.reset(token)  # type: ignore[arg-type]
+
+
+def task_deadline_remaining() -> Optional[float]:
+    """任务剩余秒数（可能为负 = 已过期）；未设置时限返回 None。"""
+    value = _task_deadline.get()
+    if value is None:
+        return None
+    return value - time.monotonic()
 
 
 def effective_llm_model(role: str) -> str:

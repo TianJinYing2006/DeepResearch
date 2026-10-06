@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine.budget import research_token_ceiling
 from research_engine.runtime_profile import effective_llm_model, effective_research_config
 from research_engine.state import ResearchFinding, ResearchState, SubQuestion
 
@@ -232,7 +233,8 @@ def hard_gate(state: ResearchState, cfg=None) -> Optional[Signal]:
 
     两维度：
       - depth ≥ max_total_hops → 全局跳数预算耗尽
-      - token_used ≥ token_budget → LLM token 预算耗尽
+      - token_used ≥ token_budget - token_budget_reserve（F13：研究循环预留
+        写作/校验额度；绝对预算 `token_budget` 仍是每次调用的准入线）
 
     P0 profile 固化：`cfg` 缺省时取**本场 run 生效**的研究配置
     （`runtime_profile.effective_research_config()`；无档位时等于全局 config）。
@@ -240,7 +242,7 @@ def hard_gate(state: ResearchState, cfg=None) -> Optional[Signal]:
     rc = cfg.research if cfg is not None else effective_research_config()
     if state.depth >= rc.max_total_hops:
         return "stop"
-    if state.token_used >= rc.token_budget:
+    if state.token_used >= research_token_ceiling(rc):
         return "stop"
     return None
 
