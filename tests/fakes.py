@@ -12,7 +12,7 @@ from typing import Optional
 
 from research_engine.state import ResearchState
 from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
-from web.backend.store import QuotaExceeded
+from web.backend.store import LeaseLostError, QuotaExceeded
 
 ACTIVE = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
@@ -150,15 +150,30 @@ class FakeStore:
         row.update(fields)
         return True
 
+    def _check_owner(self, row, owner):
+        """F04：与 RunStore 同语义——旧 attempt 的执行写入一律拒绝。"""
+        if owner is None:
+            return
+        if (row.get("worker_id") != owner.worker_id
+                or row.get("attempt") != owner.attempt
+                or row["status"] not in ("RUNNING", "CANCEL_REQUESTED")):
+            raise LeaseLostError(
+                f"lease lost (worker={owner.worker_id}, attempt={owner.attempt})")
+
     def finalize_run(self, run_id, *, event_type, payload, sequence, new_status,
-                     allowed_from, fields=None, artifacts=None, moderation=None):
+                     allowed_from, fields=None, artifacts=None, moderation=None,
+                     owner=None):
         """与 RunStore.finalize_run 同语义：迁移失败 ⇒ 不写事件 / 产物（P0-6）。
 
         P0-4：`moderation`（{kind, detail}）与终局同事务写审核证据；
-        P0-2：同事务结算 `quota_reservations`（reserved → settled）。
+        P0-2：同事务结算 `quota_reservations`（reserved → settled）；
+        F04：传 `owner` 时校验 `worker_id + attempt`，旧执行者的迟到终局返回 False。
         """
         row = self.runs.get(run_id)
         if row is None or row["status"] not in tuple(allowed_from):
+            return False
+        if owner is not None and (row.get("worker_id") != owner.worker_id
+                                  or row.get("attempt") != owner.attempt):
             return False
         if self.fail_events:
             raise RuntimeError("db down")
@@ -393,12 +408,15 @@ class FakeStore:
                 results.append({"run_id": row["run_id"], "action": "lost"})
         return results
 
-    def update_usage(self, run_id, *, token_used, cost_estimate_cny, budget_used_cny):
+    def update_usage(self, run_id, *, token_used, cost_estimate_cny, budget_used_cny,
+                     owner=None):
         row = self.runs.get(run_id)
-        if row is not None:
-            row["token_used"] = token_used
-            row["cost_estimate_cny"] = cost_estimate_cny
-            row["budget_used_cny"] = budget_used_cny
+        if row is None:
+            return
+        self._check_owner(row, owner)
+        row["token_used"] = token_used
+        row["cost_estimate_cny"] = cost_estimate_cny
+        row["budget_used_cny"] = budget_used_cny
 
     def request_cancel(self, run_id):
         row = self.runs.get(run_id)
@@ -414,11 +432,12 @@ class FakeStore:
             return "CANCEL_REQUESTED"
         return row["status"]
 
-    def append_event(self, run_id, event_type, payload=None, *, sequence=None):
+    def append_event(self, run_id, event_type, payload=None, *, sequence=None, owner=None):
         if self.fail_events:
             raise RuntimeError("db down")
         if run_id not in self.runs:
             raise LookupError(f"run not found: {run_id}")
+        self._check_owner(self.runs[run_id], owner)
         seq = len(self.events[run_id]) if sequence is None else sequence
         if any(item["sequence"] == seq for item in self.events[run_id]):
             return seq

@@ -10,6 +10,7 @@ from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
 from research_engine.runtime_profile import effective_research_config
 from research_engine.state import DegradationEntry, DegradationSink, SubQuestion
+from research_engine.usage import UsageSinkError
 
 PLANNER_SYSTEM = """你是一位资深研究规划专家。你的任务是将用户的研究主题分解为若干相互独立、可执行的子问题。
 
@@ -188,6 +189,9 @@ class Planner:
                 )
                 return [SubQuestion(id="q1", question=topic, rationale="主题本身作为研究问题")]
             return self._bound_subquestions(subs, phase="plan")
+        except UsageSinkError:
+            # F06：strict 记账失败必须上抛（不得退化为「主题即子问题」）
+            raise
         except Exception as e:  # noqa: BLE001
             # 降级：把主题本身作为唯一子问题
             # W8 Arm 1：原先静默降级、事后不可归因 ⇒ 留痕（llm_error，非工具类枚举）
@@ -234,6 +238,9 @@ class Planner:
                 )
                 return subs
             return self._bound_subquestions(new_subs, phase="replan") or subs
+        except UsageSinkError:
+            # F06：strict 记账失败必须上抛（不得静默沿用旧计划）
+            raise
         except Exception as e:  # noqa: BLE001
             # 真故障：replan 的 LLM 失败必须进入 degradation_log，不能静默沿用旧计划。
             self.degradations._record_degradation(

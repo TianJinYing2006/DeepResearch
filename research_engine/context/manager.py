@@ -10,6 +10,7 @@ from typing import Any, List
 from config import config
 from research_engine.llm.router import get_router
 from research_engine.state import ResearchFinding, SubQuestion
+from research_engine.usage import UsageSinkError
 
 
 class ContextManager:
@@ -72,6 +73,9 @@ class ContextManager:
                         metadata=meta,  # W4 Q5：metadata 不透传会丢 citation_count/retry_history
                     )
                 )
+            except UsageSinkError:
+                # F06：strict 记账失败必须上抛（不得静默改用未压缩原文）
+                raise
             except Exception:  # noqa: BLE001
                 compressed.extend(group)
 

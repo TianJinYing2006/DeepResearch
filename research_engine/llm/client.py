@@ -86,32 +86,36 @@ class LLMClient:
         W3（Q3=D'）：tokens_total（类级）**无条件**累加（不管 state 是否传入）；
         state.token_used 只累加传 state 的调用。按 run 对齐后差值 = 漏传 state 的调用路径累计。
         W5（Q2）：模型名桶 + 职责桶同步累加（双轨成本报告）。
+        审计 F06：区分「provider 缺 usage」（安全跳过）与「业务记账失败」——
+        `emit_usage` 在 `DR_USAGE_STRICT=true` 下抛出的 `UsageSinkError` 绝不吞，
+        按契约向调用方传播。
         """
+        u = getattr(resp, "usage", None)
+        if u is None:
+            return
         try:
-            u = resp.usage
-            if u is not None:
-                total = int(getattr(u, "total_tokens", 0) or 0)
-                inp = int(getattr(u, "prompt_tokens", 0) or 0)
-                out = int(getattr(u, "completion_tokens", 0) or 0)
-                # 需求 19 / #76：validator 分批并行后本方法会被多线程调用 →
-                # 类级计数与 state.token_used 的读-改-写必须加锁，否则并发丢账。
-                with LLMClient._stats_lock:
-                    LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
-                    LLMClient.model_stats[self.model] = LLMClient.model_stats.get(self.model, 0) + total
-                    LLMClient.role_stats[self.role] = LLMClient.role_stats.get(self.role, 0) + total
-                    io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
-                    io["input"] += inp
-                    io["output"] += out
-                    if state is not None:
-                        state.token_used = getattr(state, "token_used", 0) + total
-                # P1-4：逐调用记账（无 sink 时为 no-op）
-                emit_usage(UsageRecord(
-                    kind="llm", provider="dashscope", model=self.model, role=self.role,
-                    input_tokens=inp, output_tokens=out, total_tokens=total,
-                    request_id=getattr(resp, "id", None),
-                ))
-        except Exception:  # noqa: BLE001
-            pass
+            total = int(getattr(u, "total_tokens", 0) or 0)
+            inp = int(getattr(u, "prompt_tokens", 0) or 0)
+            out = int(getattr(u, "completion_tokens", 0) or 0)
+        except Exception:  # noqa: BLE001 —— provider usage 字段形态异常：按「无 usage」处理
+            return
+        # 需求 19 / #76：validator 分批并行后本方法会被多线程调用 →
+        # 类级计数与 state.token_used 的读-改-写必须加锁，否则并发丢账。
+        with LLMClient._stats_lock:
+            LLMClient.tokens_total += total  # D'：无条件（类级，跨实例共享）
+            LLMClient.model_stats[self.model] = LLMClient.model_stats.get(self.model, 0) + total
+            LLMClient.role_stats[self.role] = LLMClient.role_stats.get(self.role, 0) + total
+            io = LLMClient.model_io_stats.setdefault(self.model, {"input": 0, "output": 0})
+            io["input"] += inp
+            io["output"] += out
+            if state is not None:
+                state.token_used = getattr(state, "token_used", 0) + total
+        # P1-4 / F06：逐调用记账（无 sink 时 no-op；strict 失败由 emit_usage 上抛）
+        emit_usage(UsageRecord(
+            kind="llm", provider="dashscope", model=self.model, role=self.role,
+            input_tokens=inp, output_tokens=out, total_tokens=total,
+            request_id=getattr(resp, "id", None),
+        ))
 
     @staticmethod
     def reset_stats() -> None:

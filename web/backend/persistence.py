@@ -11,11 +11,14 @@ from __future__ import annotations
 import json
 import sys
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .agui import RUN_ERROR
 from .export import build_export_payload
 from .moderation import ModerationDecision
+
+if TYPE_CHECKING:  # 仅类型标注：store 运行期 import 本模块，运行期互相 import 会成环
+    from .store import RunOwnership
 
 #: 允许迁移到终局的当前状态
 ACTIVE_STATUSES = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
@@ -44,6 +47,7 @@ def persist_terminal(
     moderation: Optional[ModerationDecision] = None,
     moderation_status: Optional[str] = None,
     egress: Optional[dict[str, Any]] = None,
+    owner: Optional[RunOwnership] = None,
 ) -> bool:
     """写终局事件 + 状态 + 产物 + 审核证据（**同一事务**，P0-6 / P0-4）；任一失败即抛异常。
 
@@ -55,9 +59,13 @@ def persist_terminal(
     与终局同事务写入，关闭「终局已落但审核状态/证据未落」的导出窗口。
     `moderation_status` 为 legacy 参数（仅写状态，不写证据），供旧调用兼容。
 
+    `owner`（F04）：Worker 传入本次执行所有权（`worker_id + attempt`）——终局写入
+    与归属校验同条件提交；旧执行者的迟到终局整体回滚（返回 `False`）。产物对象键
+    同时按 attempt 版本化，避免事务提交前对共享对象键的覆盖。
+
     Returns:
-        是否完成迁移。``False`` = 状态已被清扫 / 强制收口抢先（整体回滚，
-        不写半成品；调用方据此跳过输出标记等后续动作）。
+        是否完成迁移。``False`` = 状态已被清扫 / 强制收口抢先 / 所有权已失效
+        （整体回滚，不写半成品；调用方据此跳过输出标记等后续动作）。
     """
     if event_type == RUN_ERROR:
         new_status, stop_reason = "FAILED", "error"
@@ -81,15 +89,19 @@ def persist_terminal(
         moderation_record = {"kind": "output_decision", "detail": moderation.to_dict()}
     elif moderation_status:
         fields["moderation_status"] = moderation_status
+    # F04：产物对象键按 attempt 版本化（`runs/{run_id}/attempt-{n}/{kind}`）——
+    # 旧执行者在事务提交前上传的对象不会覆盖新执行者的合法产物（读取走库内 object_key）。
+    attempt = owner.attempt if owner is not None else 1
     artifacts: dict[str, dict[str, Any]] = {}
     if report:
         artifacts["report_md"] = _artifact_payload(
-            run_id, "report_md", report, "text/markdown; charset=utf-8")
+            run_id, "report_md", report, "text/markdown; charset=utf-8", attempt=attempt)
     if result is not None and meta is not None:
         export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result,
                                       egress=egress)
         artifacts["export_json"] = _artifact_payload(
-            run_id, "export_json", json.dumps(export, ensure_ascii=False), "application/json")
+            run_id, "export_json", json.dumps(export, ensure_ascii=False), "application/json",
+            attempt=attempt)
     return store.finalize_run(
         run_id,
         event_type=event_type,
@@ -100,18 +112,23 @@ def persist_terminal(
         fields={key: value for key, value in fields.items() if value is not None},
         artifacts=artifacts,
         moderation=moderation_record,
+        owner=owner,
     )
 
 
 def _artifact_payload(run_id: str, kind: str, body: str,
-                      content_type: str) -> dict[str, Any]:
-    """P1-6：配置对象存储时先写 S3（元数据随终局事务落库）；失败回落 PG（报告仍可用）。"""
+                      content_type: str, attempt: int = 1) -> dict[str, Any]:
+    """P1-6：配置对象存储时先写 S3（元数据随终局事务落库）；失败回落 PG（报告仍可用）。
+
+    F04：对象键含 attempt（不可变键）——同一 run 的不同执行者各写各的键，晚到的
+    旧执行者上传不会覆盖新执行者的产物；读取端用库内 `object_key`，不依赖键格式。
+    """
     from .objectstore import get_object_store
 
     object_store = get_object_store()
     if object_store is not None:
         try:
-            info = object_store.put_text(f"runs/{run_id}/{kind}", body,
+            info = object_store.put_text(f"runs/{run_id}/attempt-{attempt}/{kind}", body,
                                          content_type=content_type)
             return {"body": "", "storage": "s3", "object_key": info["key"],
                     "sha256": info["sha256"], "size_bytes": info["size_bytes"]}

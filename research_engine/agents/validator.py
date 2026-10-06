@@ -33,6 +33,7 @@ from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.client import LLMClient
 from research_engine.runtime_profile import effective_llm_model
 from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
+from research_engine.usage import UsageSinkError
 
 # W7 Arm3：validator 修复关闭时（TBD-8 基线对照）回退到 v1.1 提示与行为
 VALIDATOR_SYSTEM_LEGACY = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
@@ -449,6 +450,9 @@ class Validator:
                     schema=CitationVerdict,
                 )
                 return list(data.get("citations", [])), [], ""
+            except UsageSinkError:
+                # F06：strict 记账失败必须上抛（不得按批次降级为 existence_only）
+                raise
             except Exception as e:  # noqa: BLE001
                 return [], [idx for idx, _ in batch], str(e)
 

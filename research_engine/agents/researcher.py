@@ -15,6 +15,7 @@ W4 重构（grill Q1/Q5/Q6/Q8）：
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any, Dict, List, Tuple
 
 from config import config
@@ -31,7 +32,7 @@ from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.base import SearchProvider, create_search_provider
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.tools.code_exec import exec_code, should_execute
-from research_engine.usage import UsageRecord, emit_usage
+from research_engine.usage import UsageRecord, UsageSinkError, emit_usage
 
 # R2.4 Q5=A 第一层：自指/元描述关键词启发式初标（漏标由 validator verdict 兜底复核）
 META_KEYWORDS = (
@@ -127,6 +128,9 @@ class Researcher:
         try:
             resp = self.search.search(query, max_results=8)
             emit_usage(UsageRecord(kind="search", provider=config.search.provider, role="web"))
+        except UsageSinkError:
+            # F06：strict 记账失败必须上抛（账务契约优先于「工具失败不进降级」语义）
+            raise
         except Exception as e:  # noqa: BLE001
             # Arm 4 后 provider 已结构化返回失败原因；能抛到这里的属**未预期**内部错误，
             # 按非工具类归类（llm_error/token_limit/recursion_limit/internal），
@@ -170,6 +174,9 @@ class Researcher:
                 resp = self.retriever.retrieve(query, top_k=5, scope=scope)
             else:
                 resp = self.retriever.retrieve(query, top_k=5)
+        except UsageSinkError:
+            # F06：检索链路里的 embedding 记账失败（strict）必须上抛
+            raise
         except Exception as e:  # noqa: BLE001
             # 同上：能抛到这里的属未预期内部错误，按非工具类归类
             self._record_degradation("rag_search", classify_exception(e), detail=str(e))
@@ -294,10 +301,17 @@ class Researcher:
 
         all_findings: Dict[str, List[ResearchFinding]] = {k: [] for k in targets}
         with ThreadPoolExecutor(max_workers=len(targets)) as ex:
-            futs = {ex.submit(fn, query): key for key, fn in targets.items()}
+            # 审计 F05：工具线程不继承父线程 ContextVar（usage sink 会丢账）——
+            # 每次提交独立 copy_context()（Context 对象不可被并发进入，不能复用同一份）。
+            futs = {
+                ex.submit(copy_context().run, fn, query): key for key, fn in targets.items()
+            }
             for fut, key in futs.items():
                 try:
                     all_findings[key] = fut.result() or []
+                except UsageSinkError:
+                    # F06：strict 记账失败必须上抛（账务契约优先于「单工具不绊倒整跳」）
+                    raise
                 except Exception:  # noqa: BLE001 — 单工具异常不绊倒整跳（Q1 return_exceptions 语义）
                     all_findings[key] = []
 

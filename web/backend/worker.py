@@ -66,7 +66,7 @@ from .queue import RunQueue
 from .rag_pipeline import cleanup_stale_generations
 from .retention import run_retention
 from .runner import _env_int, _estimate_cost_cny
-from .store import RunStore
+from .store import LeaseLostError, RunOwnership, RunStore
 from .usage import make_store_sink
 
 DEFAULT_LEASE_SECONDS = 120
@@ -348,42 +348,69 @@ class Worker:
         return True
 
     def _run_claimed(self, row: dict[str, Any]) -> None:
-        """执行已认领的任务（心跳 + 执行 + 崩溃兜底）。"""
+        """执行已认领的任务（心跳 + 执行 + 崩溃兜底）。
+
+        审计 F04：本次执行的所有写入携带 `RunOwnership(worker_id, attempt)`；租约
+        被接管后 `lease_lost` 置位 ⇒ 节点边界停止，且不再写事件 / 用量 / 终局
+        （旧执行者的迟到写入在 store 层被条件更新拒绝）。
+        """
         run_id = row["run_id"]
         self._current_run_id = run_id
+        attempt = int(row.get("attempt") or 1)
+        ownership = RunOwnership(self.worker_id, attempt)
+        lease_lost = threading.Event()
         # P1-4：逐调用用量落进 usage_ledger（attempt = 本行 attempt）
         usage_token = push_usage_sink(make_store_sink(
-            self._store, run_id=run_id, attempt=int(row.get("attempt") or 1)))
+            self._store, run_id=run_id, attempt=attempt))
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
-            target=self._heartbeat_loop, args=(run_id, hb_stop),
+            target=self._heartbeat_loop, args=(run_id, hb_stop, lease_lost),
             name=f"worker-hb-{run_id}", daemon=True,
         )
         heartbeat.start()
         try:
             # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
-            with run_span("dr.run", **{"dr.run_id": run_id,
-                                       "dr.attempt": int(row.get("attempt") or 1)}):
-                self._execute(run_id, row)
+            with run_span("dr.run", **{"dr.run_id": run_id, "dr.attempt": attempt}):
+                self._execute(run_id, row, ownership, lease_lost)
+        except LeaseLostError:
+            # 租约已被接管（或任务已终局）：本执行者放弃全部写入，由新执行者收口
+            _log(f"run {run_id}: 租约已失效（attempt={attempt} 被接管），放弃本次执行")
         except Exception as exc:  # noqa: BLE001 —— 兜底：任务必须落到终局或留给租约清扫
-            self._mark_crashed(run_id, exc)
+            if lease_lost.is_set():
+                _log(f"run {run_id}: 租约已失效，跳过崩溃落库（{type(exc).__name__}: {exc}）")
+            else:
+                self._mark_crashed(run_id, exc, ownership)
         finally:
             pop_usage_sink(usage_token)
             hb_stop.set()
             heartbeat.join(timeout=1.0)
             self._current_run_id = None
 
-    def _heartbeat_loop(self, run_id: str, stop: threading.Event) -> None:
+    def _heartbeat_loop(self, run_id: str, stop: threading.Event,
+                        lease_lost: threading.Event) -> None:
+        """续租心跳；失败或超期未续上 ⇒ 置位 `lease_lost`（执行侧在节点边界收口）。"""
+        last_ok = time.monotonic()
         while not stop.wait(self.heartbeat_seconds):
             try:
                 if not self._store.renew_lease(run_id, self.worker_id, self.lease_seconds):
+                    _log(f"renew_lease({run_id}) rejected: 租约已被接管或任务已终局")
+                    lease_lost.set()
                     return
-            except Exception as exc:  # noqa: BLE001 —— 续租失败不能中断执行
+                last_ok = time.monotonic()
+            except Exception as exc:  # noqa: BLE001 —— 续租失败不能中断执行（本轮）
+                # 数据库不可达时无法确认租约：超过一个租约时长仍未续上 ⇒ 视为丢失
+                # （新执行者可能已被清扫接管），本地止损（审计 F04）。
+                if time.monotonic() - last_ok >= self.lease_seconds:
+                    _log(f"renew_lease({run_id}) 超过 {self.lease_seconds}s 未成功"
+                         f"（{type(exc).__name__}: {exc}），视为租约丢失")
+                    lease_lost.set()
+                    return
                 _log(f"renew_lease({run_id}) failed: {type(exc).__name__}: {exc}")
 
     # ------------------------------------------------------------------ 执行
 
-    def _execute(self, run_id: str, row: dict[str, Any]) -> None:
+    def _execute(self, run_id: str, row: dict[str, Any], ownership: RunOwnership,
+                 lease_lost: threading.Event) -> None:
         request = row.get("request") or {}
         topic = row["topic"]
         self._apply_profile(request)
@@ -404,12 +431,15 @@ class Worker:
             return bool(fresh and fresh["status"] == "CANCEL_REQUESTED")
 
         def should_stop() -> bool:
+            if lease_lost.is_set():
+                return True
             if timeout_at is not None and datetime.now(UTC) >= timeout_at:
                 return True
             return cancel_requested()
 
         def emit(event_type: str, payload: dict[str, Any]) -> None:
-            self._store.append_event(run_id, event_type, payload)
+            # 审计 F04：事件追加携带所有权；租约被接管时 store 抛 LeaseLostError
+            self._store.append_event(run_id, event_type, payload, owner=ownership)
 
         timeout_seconds = int((timeout_at - row["created_at"]).total_seconds()) if timeout_at else DEFAULT_RUN_TIMEOUT_SECONDS
         emit(RUN_STARTED, {
@@ -431,12 +461,16 @@ class Worker:
             topic, request.get("instructions", ""), thread_id=run_id, should_cancel=should_stop
         ):
             if step.terminal:
+                if lease_lost.is_set():
+                    # 租约已被接管：不写终局（新执行者负责收口），直接放弃
+                    _log(f"run {run_id}: 租约已失效，跳过终局写入（等待新执行者）")
+                    return
                 timed_out = (
                     step.stop_reason == STOP_CANCELLED
                     and timeout_at is not None and datetime.now(UTC) >= timeout_at
                     and not cancel_requested()
                 )
-                self._finish(run_id, row, step, timed_out)
+                self._finish(run_id, row, step, timed_out, ownership)
                 return
 
             emit(STEP_FINISHED, {
@@ -468,21 +502,32 @@ class Worker:
             # 计量回写用 update_usage（不动状态，避免把 CANCEL_REQUESTED 覆盖回 RUNNING）。
             last_state = step.state
             cost = _estimate_cost_cny(step.state.token_used)
-            self._store.update_usage(
-                run_id,
-                token_used=step.state.token_used,
-                cost_estimate_cny=cost,
-                budget_used_cny=cost,
-            )
+            try:
+                self._store.update_usage(
+                    run_id,
+                    token_used=step.state.token_used,
+                    cost_estimate_cny=cost,
+                    budget_used_cny=cost,
+                    owner=ownership,
+                )
+            except LeaseLostError:
+                # 审计 F04：旧 attempt 的用量回写被拒 ⇒ 停止执行，不覆盖新执行者计量
+                lease_lost.set()
+                _log(f"run {run_id}: 用量回写被拒（租约已失效），停止本跳")
+                return
             if budget_limit is not None and cost >= float(budget_limit):
                 budget_exceeded = True
                 break
 
+        if lease_lost.is_set():
+            return  # 租约已失效：不写预算终局，交给新执行者
         if budget_exceeded and last_state is not None:
             # 与取消/超时同口径：预算停止不写 research_status；stop_reason=budget_exceeded。
-            self._persist_result(run_id, row, last_state, "budget_exceeded", cancelled=False)
+            self._persist_result(run_id, row, last_state, "budget_exceeded",
+                                 cancelled=False, ownership=ownership)
 
-    def _finish(self, run_id: str, row: dict[str, Any], step: RunStep, timed_out: bool) -> None:
+    def _finish(self, run_id: str, row: dict[str, Any], step: RunStep, timed_out: bool,
+                ownership: RunOwnership) -> None:
         topic = row["topic"]
         if step.stop_reason == STOP_ERROR:
             err = step.state.error or {}
@@ -492,16 +537,18 @@ class Worker:
                 node=err.get("node") if err else None,
                 component="graph",
             )
-            if not persist_terminal(self._store, run_id, None, RUN_ERROR, payload, topic=topic):
+            if not persist_terminal(self._store, run_id, None, RUN_ERROR, payload,
+                                    topic=topic, owner=ownership):
                 _log(f"finalize {run_id}: terminal_conflict，错误终局写入整体回滚")
             return
 
         stop_reason = STOP_TIMEOUT if timed_out else step.stop_reason
         cancelled = step.stop_reason == STOP_CANCELLED and not timed_out
-        self._persist_result(run_id, row, step.state, stop_reason, cancelled=cancelled)
+        self._persist_result(run_id, row, step.state, stop_reason, cancelled=cancelled,
+                             ownership=ownership)
 
     def _persist_result(self, run_id: str, row: dict[str, Any], state, stop_reason: str, *,
-                        cancelled: bool) -> None:
+                        cancelled: bool, ownership: RunOwnership) -> None:
         """把一次执行的结果写成终局（正常完成 / 取消 / 超时 / 预算停止共用）。"""
         topic = row["topic"]
         report = state.report_display or state.report
@@ -547,16 +594,16 @@ class Worker:
         finalized = persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
                                      result=result, report=report, meta=meta, topic=topic,
                                      moderation=decision,
-                                     egress=egress)
+                                     egress=egress, owner=ownership)
         if not finalized:
-            # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
-            _log(f"finalize {run_id}: terminal_conflict，终局写入整体回滚")
+            # 状态已被清扫 / 强制收口抢先 / 所有权已失效：终局写入整体回滚（P0-6 / F04）
+            _log(f"finalize {run_id}: terminal_conflict 或租约已失效，终局写入整体回滚")
             return
 
-    def _mark_crashed(self, run_id: str, exc: Exception) -> None:
+    def _mark_crashed(self, run_id: str, exc: Exception, ownership: RunOwnership) -> None:
         payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
         try:
-            persist_terminal(self._store, run_id, None, RUN_ERROR, payload)
+            persist_terminal(self._store, run_id, None, RUN_ERROR, payload, owner=ownership)
         except Exception as persist_exc:  # noqa: BLE001 —— 留给 P3-B 租约清扫
             _log(f"persist crash for {run_id} failed: {type(persist_exc).__name__}: {persist_exc}")
 
