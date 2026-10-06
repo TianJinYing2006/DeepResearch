@@ -22,6 +22,7 @@ from web.backend import moderation_providers as providers
 from web.backend.appeals import submit_appeal
 from web.backend.moderation import ModerationDecision, apply_output_gate, evaluate_output
 from web.backend.persistence import persist_terminal
+from web.backend.store import RunOwnership
 from web.backend.worker import Worker
 
 
@@ -107,7 +108,8 @@ def test_worker_redacts_event_but_keeps_artifact(monkeypatch):
     state = ResearchState(topic="t")
     state.report = "含 badword 的报告正文"
     worker._persist_result("workerflag1", store.get_run("workerflag1"), state,
-                           "completed", cancelled=False)
+                           "completed", cancelled=False,
+                           ownership=RunOwnership("w1", 1))
 
     payload = store.get_events("workerflag1")[-1]["payload"]
     assert payload["result"]["report"] == ""

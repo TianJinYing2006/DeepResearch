@@ -179,3 +179,111 @@ def test_ingestion_worker_wires_usage_sink(monkeypatch, tmp_path):
     assert rows and rows[0]["kind"] == "embedding"
     assert rows[0]["run_id"] is None
     assert rows[0]["detail"]["doc_id"] == "u:abc"
+
+
+# ---------------------------------------------------------------- 审计 F05/F06
+
+def test_researcher_tool_threads_inherit_usage_sink():
+    """F05：工具线程必须继承父线程 usage sink（search/embedding 用量不再漏账）。"""
+    from research_engine.agents.researcher import Researcher
+
+    def _web(query):
+        emit_usage(UsageRecord(kind="search", provider="bocha", role="web"))
+        return []
+
+    def _rag(query):
+        emit_usage(UsageRecord(kind="embedding", provider="dashscope",
+                               model="text-embedding-v3"))
+        return []
+
+    res = Researcher.__new__(Researcher)  # 不走 __init__（避免网络/嵌入）
+    res._search_web = _web
+    res._search_rag = _rag
+    res._search_arxiv = lambda q: []
+    res._search_code = lambda q: []
+
+    records: list[UsageRecord] = []
+    with use_usage_sink(records.append):
+        pooled, _stats = res.search_once("q1")
+
+    assert pooled == []
+    assert {row.kind for row in records} == {"search", "embedding"}, (
+        f"工具线程漏账（copy_context 未生效）：{records}")
+
+
+def test_llm_client_strict_sink_error_propagates(monkeypatch):
+    """F06：strict 模式下 LLMClient 不得吞掉 UsageSinkError（账务契约上抛）。"""
+
+    class _Usage:
+        total_tokens = 10
+        prompt_tokens = 8
+        completion_tokens = 2
+
+    class _Resp:
+        usage = _Usage()
+        id = "cmpl-strict"
+
+    def _failing_sink(record):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setenv("DR_USAGE_STRICT", "true")
+    client = LLMClient(model="qwen-plus", role="critic")
+    with use_usage_sink(_failing_sink):
+        with pytest.raises(UsageSinkError):
+            client._accumulate_usage(_Resp(), None)
+
+
+def test_llm_client_non_strict_sink_failure_is_contained(monkeypatch):
+    """F06：非 strict 时记账失败只留痕（计数+日志），不打断调用。"""
+
+    class _Usage:
+        total_tokens = 5
+        prompt_tokens = 4
+        completion_tokens = 1
+
+    class _Resp:
+        usage = _Usage()
+        id = "cmpl-soft"
+
+    def _failing_sink(record):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setenv("DR_USAGE_STRICT", "false")
+    client = LLMClient(model="qwen-plus", role="critic")
+    before = sink_failure_count()
+    with use_usage_sink(_failing_sink):
+        client._accumulate_usage(_Resp(), None)  # 不抛即通过
+    assert sink_failure_count() == before + 1
+
+
+def test_planner_does_not_swallow_usage_sink_error(monkeypatch):
+    """F06：strict 记账失败必须穿透 planner 的降级兜底（不得退化为 topic_only）。"""
+    import research_engine.agents.planner as planner_mod
+    from research_engine.agents.planner import Planner
+
+    class _StrictRouter:
+        def strategic_json(self, system, user, state=None):
+            raise UsageSinkError("sink down")
+
+    monkeypatch.setattr(planner_mod, "get_router", lambda: _StrictRouter())
+    planner = Planner()
+    with pytest.raises(UsageSinkError):
+        planner.plan("主题")
+    assert planner.drain_degradations() == []
+
+
+def test_writer_does_not_swallow_usage_sink_error(monkeypatch):
+    """F06：strict 记账失败必须穿透 writer 的兜底报告路径。"""
+    import research_engine.agents.writer as writer_mod
+    from research_engine.agents.writer import Writer
+    from research_engine.state import SubQuestion
+
+    class _StrictRouter:
+        def smart_chat(self, system, user, state=None):
+            raise UsageSinkError("sink down")
+
+    monkeypatch.setattr(writer_mod, "get_router", lambda: _StrictRouter())
+    writer = Writer()
+    with pytest.raises(UsageSinkError):
+        writer.write("主题", [SubQuestion(id="q1", question="问题", rationale="r")], [])
+    assert writer.drain_degradations() == []

@@ -21,6 +21,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Iterable, Optional
 
@@ -133,6 +134,27 @@ class QuotaExceeded(Exception):
         super().__init__(detail)
         self.kind = kind
         self.detail = detail
+
+
+class LeaseLostError(RuntimeError):
+    """本执行者已不再持有任务租约（`worker_id + attempt` 不匹配）——执行写入必须停止。
+
+    触发场景（审计 F04）：Worker A 因暂停 / 数据库不可达丢失租约，Worker B 清扫
+    接管（`attempt+1`）后 A 恢复运行。旧 attempt 的事件追加 / 用量回写 / 终局写入
+    一律被 :class:`RunOwnership` 校验拒绝，防止污染 B 的合法结果。
+    """
+
+
+@dataclass(frozen=True)
+class RunOwnership:
+    """执行所有权凭据：`worker_id` + `attempt`（每次重排 attempt+1，旧凭据自动失效）。"""
+
+    worker_id: str
+    attempt: int
+
+
+#: 允许执行期写入（事件 / 用量）的状态；终局 / 重排队后旧执行者不得再写
+_EXECUTING_STATUSES = ("RUNNING", "CANCEL_REQUESTED")
 
 
 class RunStore:
@@ -502,18 +524,32 @@ class RunStore:
             return cur.fetchone() is not None
 
     def update_usage(self, run_id: str, *, token_used: int, cost_estimate_cny: float,
-                     budget_used_cny: float) -> None:
+                     budget_used_cny: float,
+                     owner: Optional[RunOwnership] = None) -> None:
         """更新计量列（token / 成本估算 / 已用预算），**不改状态**。
 
         为什么单独一条：Worker 每完成一个节点会回写计量，如果顺手把 status 写成 RUNNING，
         会把执行期间落下的 CANCEL_REQUESTED 覆盖掉（P3-B 修）。
+
+        F04：传 `owner` 时按 `worker_id + attempt + 执行态` 条件更新——旧执行者
+        （租约已被接管）的用量回写被拒绝（:class:`LeaseLostError`），
+        不会覆盖新执行者的计量。
         """
+        sql = (
+            "UPDATE runs SET token_used = %s, cost_estimate_cny = %s, budget_used_cny = %s "
+            "WHERE run_id = %s"
+        )
+        params: list[Any] = [token_used, cost_estimate_cny, budget_used_cny, run_id]
+        if owner is not None:
+            sql += (" AND worker_id = %s AND attempt = %s AND status = ANY(%s) "
+                    "RETURNING run_id")
+            params += [owner.worker_id, owner.attempt, list(_EXECUTING_STATUSES)]
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                "UPDATE runs SET token_used = %s, cost_estimate_cny = %s, budget_used_cny = %s "
-                "WHERE run_id = %s",
-                (token_used, cost_estimate_cny, budget_used_cny, run_id),
-            )
+            cur.execute(sql, params)
+            if owner is not None and cur.fetchone() is None:
+                raise LeaseLostError(
+                    f"usage update rejected for run {run_id}: lease lost "
+                    f"(worker={owner.worker_id}, attempt={owner.attempt})")
 
     def request_cancel(self, run_id: str) -> Optional[str]:
         """幂等取消请求，返回 run 的当前状态；run 不存在返回 `None`。
@@ -549,14 +585,17 @@ class RunStore:
 
     def append_event(
         self, run_id: str, event_type: str, payload: Optional[dict[str, Any]] = None,
-        *, sequence: Optional[int] = None,
+        *, sequence: Optional[int] = None, owner: Optional[RunOwnership] = None,
     ) -> int:
         """追加事件并返回 `sequence`；run 不存在时抛 `LookupError`。
 
         - 不传 `sequence`：由数据库分配（`MAX(sequence)+1`，单写者场景）；
         - 传 `sequence`（P2-C 接线用）：与内存态帧号**逐帧对齐**，重复写入按幂等处理
           （`ON CONFLICT DO NOTHING`）—— 传输层强制收口与工作线程可能并发持久化，
-          显式序号避免「库内顺序 ≠ 内存顺序」。
+          显式序号避免「库内顺序 ≠ 内存顺序」；
+        - 传 `owner`（F04）：同一条 SQL 内校验 `worker_id + attempt + 状态`——
+          旧执行者（租约被接管）追加事件时插入零行，抛 :class:`LeaseLostError`，
+          不会与新执行者的事件流交错。
         """
         if sequence is not None:
             try:
@@ -575,22 +614,48 @@ class RunStore:
                 return sequence
             except psycopg.errors.ForeignKeyViolation as exc:
                 raise LookupError(f"run not found: {run_id}") from exc
+        if owner is None:
+            insert_sql = (
+                """
+                INSERT INTO run_events (run_id, sequence, event_type, payload)
+                SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                FROM run_events WHERE run_id = %s
+                RETURNING sequence
+                """
+            )
+            insert_params: tuple = (run_id, event_type, Jsonb(payload or {}), run_id)
+        else:
+            # 标量子查询 + EXISTS 守卫：无 FROM 的 SELECT 在守卫失败时返回零行
+            # （不能沿用聚合写法——聚合在空集上仍返回一行，会让守卫形同虚设）。
+            insert_sql = (
+                """
+                INSERT INTO run_events (run_id, sequence, event_type, payload)
+                SELECT %s,
+                       COALESCE((SELECT MAX(sequence) + 1 FROM run_events WHERE run_id = %s), 0),
+                       %s, %s
+                WHERE EXISTS (
+                    SELECT 1 FROM runs
+                     WHERE run_id = %s AND worker_id = %s AND attempt = %s
+                       AND status = ANY(%s)
+                )
+                RETURNING sequence
+                """
+            )
+            insert_params = (run_id, run_id, event_type, Jsonb(payload or {}),
+                             run_id, owner.worker_id, owner.attempt,
+                             list(_EXECUTING_STATUSES))
         for _ in range(3):
             try:
                 with self._connect() as conn, conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO run_events (run_id, sequence, event_type, payload)
-                        SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
-                        FROM run_events WHERE run_id = %s
-                        RETURNING sequence
-                        """,
-                        (run_id, event_type, Jsonb(payload or {}), run_id),
-                    )
+                    cur.execute(insert_sql, insert_params)
                     row = cur.fetchone()
                     if row is not None:
                         notify_events(cur, run_id)  # P2-4：SSE 唤醒（同事务）
                 if row is None:
+                    if owner is not None:
+                        raise LeaseLostError(
+                            f"event append rejected for run {run_id}: lease lost "
+                            f"(worker={owner.worker_id}, attempt={owner.attempt})")
                     raise LookupError(f"run not found: {run_id}")
                 return row["sequence"]
             except psycopg.errors.ForeignKeyViolation as exc:
@@ -854,12 +919,15 @@ class RunStore:
         fields: Optional[dict[str, Any]] = None,
         artifacts: Optional[dict[str, dict[str, Any]]] = None,
         moderation: Optional[dict[str, Any]] = None,
+        owner: Optional[RunOwnership] = None,
     ) -> bool:
         """终局原子落库（P0-6 / P0-2 / P0-4）：状态迁移 + 终局事件 + 产物 +
         审核证据（`moderation`）+ 预算预留结算在**同一事务**提交。
 
         - 状态迁移失败（已被清扫 / 强制收口抢先）⇒ 整体回滚并返回 ``False``，
           不产生「状态未迁移但事件/产物已写」的半成品（完成先落终局，之后不得改判）；
+        - `owner`（F04）：终局写入须仍持有 `worker_id + attempt`；旧执行者的
+          迟到终局与状态迁移同条件失败 ⇒ 整体回滚返回 ``False``，不覆盖新执行者；
         - `sequence=None`（Worker 单写者）由数据库分配 ``MAX(sequence)+1``，
           冲突时整体重试；显式序号按幂等处理（``ON CONFLICT DO NOTHING``）；
         - `artifacts`（P1-6）：`{kind: {body, storage, object_key, sha256, size_bytes}}`，
@@ -880,9 +948,14 @@ class RunStore:
             values.append(fields[key])
         update_sql = (
             f"UPDATE runs SET {', '.join(assignments)} "
-            "WHERE run_id = %s AND status = ANY(%s) RETURNING run_id, user_id"
+            "WHERE run_id = %s AND status = ANY(%s)"
         )
         update_values = [*values, run_id, list(allowed_from)]
+        if owner is not None:
+            # F04：终局写入必须仍持有所属权（旧 attempt 的迟到终局整体回滚、返回 False）
+            update_sql += " AND worker_id = %s AND attempt = %s"
+            update_values += [owner.worker_id, owner.attempt]
+        update_sql += " RETURNING run_id, user_id"
         attempts = 3 if sequence is None else 1
         for _ in range(attempts):
             try:

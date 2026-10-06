@@ -13,6 +13,7 @@ from research_engine.context.manager import ContextManager
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding, SubQuestion
+from research_engine.usage import UsageSinkError
 
 # W7 Arm4：分节喂料关闭时（TBD-8 基线对照）回退到 v1.1 提示
 WRITER_SYSTEM_LEGACY = """你是一位专业的研究报告撰写者。基于给定的研究发现，撰写一份结构清晰、内容详实的研究报告。
@@ -108,6 +109,9 @@ class Writer:
 
         try:
             report = self.router.smart_chat(system, user, state=state)
+        except UsageSinkError:
+            # F06：strict 记账失败必须上抛（不得退化为兜底报告）
+            raise
         except Exception as e:  # noqa: BLE001
             # W8 Arm 1：走兜底报告 = 一次明确降级 ⇒ 留痕（原先静默，事后不可归因）
             self.degradations._record_degradation(

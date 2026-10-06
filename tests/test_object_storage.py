@@ -8,6 +8,7 @@ import web.backend.objectstore as objectstore_module
 from web.backend import main as api
 from web.backend.objectstore import ObjectStore, reset_object_store
 from web.backend.persistence import persist_terminal
+from web.backend.store import RunOwnership
 
 
 class _FakeS3:
@@ -97,8 +98,33 @@ def test_persist_terminal_uses_object_store(monkeypatch):
     assert finalized is True
     row = store.get_artifact_row("objrun01", "report_md")
     assert row["storage"] == "s3" and row["body"] == ""
-    assert row["object_key"] == "runs/objrun01/report_md"
+    assert row["object_key"] == "runs/objrun01/attempt-1/report_md"
     assert fake.objects[row["object_key"]] == "# 正文".encode("utf-8")
+
+
+def test_persist_terminal_object_key_is_attempt_scoped(monkeypatch):
+    """F04：产物对象键按 attempt 版本化——旧执行者的迟到上传不覆盖新执行者。"""
+    fake = _FakeS3()
+    object_store = _object_store(fake)
+    monkeypatch.setattr(objectstore_module, "get_object_store", lambda: object_store)
+
+    store = FakeStore()
+    store.create_run("objrun04", "t", {}, status="RUNNING")
+    store.runs["objrun04"]["worker_id"] = "worker-b"
+    store.runs["objrun04"]["attempt"] = 2
+
+    finalized = persist_terminal(
+        store, "objrun04", 0, "RUN_FINISHED",
+        {"stop_reason": "completed", "has_report": True},
+        result={"report": "# 第二跳正文"}, report="# 第二跳正文",
+        meta={"run_status": "success", "token_used": 1, "cost_estimate_cny": 0.0,
+              "budget_used_cny": 0.0},
+        topic="t", owner=RunOwnership("worker-b", 2))
+
+    assert finalized is True
+    row = store.get_artifact_row("objrun04", "report_md")
+    assert row["object_key"] == "runs/objrun04/attempt-2/report_md"
+    assert fake.objects[row["object_key"]] == "# 第二跳正文".encode("utf-8")
 
 
 def test_s3_failure_falls_back_to_db(monkeypatch):
