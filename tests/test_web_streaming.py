@@ -103,6 +103,7 @@ def test_run_finished_payload_on_normal_completion():
         "depth",
         "visited_sources",
         "reflection_log",
+        "evidence_index",  # F08：轻量证据索引（ID/hash/定位）
     }
 
 

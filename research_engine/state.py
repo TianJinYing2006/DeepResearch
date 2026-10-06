@@ -108,8 +108,13 @@ class ResearchFinding(BaseModel):
     confidence: float = Field(default=0.5, description="置信度 0-1")
     is_meta: bool = Field(default=False, description="是否自指/元描述（R2.4：描述本系统自身），绝不作为正文证据")
     sq_id: str = Field(default="", description="W7 Arm4 G1：所属子问题 ID，用于 writer 分节喂料")
+    # F08（审计）：稳定证据身份——内容寻址 ID / 正文 hash / 检索时间。原文层只增不改；
+    # 工作摘要层通过 metadata["origin_evidence_ids"] 回指这些 ID，Validator 据此回原文。
+    evidence_id: str = Field(default="", description="稳定证据 ID（内容寻址 ev_<hash16>）")
+    content_hash: str = Field(default="", description="正文 sha256（完整性/版本复核）")
+    retrieved_at: float = Field(default=0.0, description="证据检索时间戳（秒）")
     # W4 Q3（统一证据抽象）：富元数据桶——arxiv: {arxiv_id, primary_category, citation_count, structured_match}；
-    #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match}
+    #                    code_exec: {retry_history?} / 通用 {retry_history, structured_match, origin_evidence_ids}
     metadata: dict = Field(default_factory=dict, description="W4 扩展元数据（结构化保留，供呈现层展示，LLM 校验不消费）")
 
 
@@ -147,7 +152,16 @@ class ResearchState(BaseModel):
     subquestions: List[SubQuestion] = Field(default_factory=list)
 
     # 检索
-    findings: List[ResearchFinding] = Field(default_factory=list)
+    findings: List[ResearchFinding] = Field(
+        default_factory=list,
+        description="原文层：append-only，compress 不再覆写（F08）；消费方默认用工作摘要层",
+    )
+    # F08（审计）：工作摘要层——compress 产物，Writer/Validator/Render 的编号协议基准；
+    # 空时消费方回退 findings（未压缩 / 旧快照 / 直读场景）。
+    working_findings: List[ResearchFinding] = Field(
+        default_factory=list,
+        description="工作摘要层（compress 产物）；原文层 findings 保持 append-only",
+    )
     visited_sources: List[str] = Field(default_factory=list, description="已访问来源，去重（Q8 启用）")
 
     # ---- W1 新增：循环 / 硬闸状态（呼应 grill Q1/Q3/Q5/Q6）----

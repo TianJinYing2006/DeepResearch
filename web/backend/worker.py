@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable, Optional
 
 from config import config
+from research_engine.evidence import serialize_evidence_index
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
 from research_engine.runtime_profile import (
@@ -559,6 +560,9 @@ class Worker:
             "depth": state.depth,
             "visited_sources": list(state.visited_sources),
             "reflection_log": list(state.reflection_log),
+            # F08（审计）：轻量证据索引（稳定 ID/内容 hash/定位/检索时间，不含正文）
+            # —— 导出可复核证据链；摘要层可经 origin_evidence_ids 回指这些条目
+            "evidence_index": serialize_evidence_index(state.findings),
         }
         cost = _estimate_cost_cny(state.token_used)
         started = row.get("started_at") or row["created_at"]
