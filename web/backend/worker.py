@@ -374,7 +374,7 @@ class Worker:
             self._store, run_id=run_id, attempt=attempt))
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
-            target=self._heartbeat_loop, args=(run_id, hb_stop, lease_lost),
+            target=self._heartbeat_loop, args=(run_id, hb_stop, lease_lost, attempt),
             name=f"worker-hb-{run_id}", daemon=True,
         )
         heartbeat.start()
@@ -399,12 +399,16 @@ class Worker:
             self._current_run_id = None
 
     def _heartbeat_loop(self, run_id: str, stop: threading.Event,
-                        lease_lost: threading.Event) -> None:
-        """续租心跳；失败或超期未续上 ⇒ 置位 `lease_lost`（执行侧在节点边界收口）。"""
+                        lease_lost: threading.Event, attempt: int) -> None:
+        """续租心跳；失败或超期未续上 ⇒ 置位 `lease_lost`（执行侧在节点边界收口）。
+
+        R10：续租携带本执行的 ``attempt`` —— 同 worker_id 的旧 attempt 不能续租。
+        """
         last_ok = time.monotonic()
         while not stop.wait(self.heartbeat_seconds):
             try:
-                if not self._store.renew_lease(run_id, self.worker_id, self.lease_seconds):
+                if not self._store.renew_lease(run_id, self.worker_id, self.lease_seconds,
+                                               attempt=attempt):
                     _log(f"renew_lease({run_id}) rejected: 租约已被接管或任务已终局")
                     lease_lost.set()
                     return

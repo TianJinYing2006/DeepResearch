@@ -100,9 +100,10 @@ def test_worker_renews_lease_during_run():
     renewals: list[float] = []
     original = store.renew_lease
 
-    def counting(run_id_: str, worker_id: str, lease_seconds: int) -> bool:
+    def counting(run_id_: str, worker_id: str, lease_seconds: int, *,
+                 attempt=None) -> bool:
         renewals.append(time.monotonic())
-        return original(run_id_, worker_id, lease_seconds)
+        return original(run_id_, worker_id, lease_seconds, attempt=attempt)
 
     store.renew_lease = counting  # type: ignore[method-assign]
     worker = _worker(store, TinyGraph(steps=5, delay=0.05), heartbeat_seconds=0.02)

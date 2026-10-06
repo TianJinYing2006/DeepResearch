@@ -192,6 +192,7 @@ class Validator:
         findings: List[ResearchFinding], to_check: List[Dict[str, Any]],
         evidence_index: Optional[Dict[str, ResearchFinding]] = None,
         stats: Optional[Dict[str, int]] = None,
+        statuses: Optional[Dict[str, str]] = None,
     ) -> tuple[str, bool]:
         """W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号。
 
@@ -199,6 +200,10 @@ class Validator:
         ``metadata["origin_evidence_ids"]`` 回到**原文层**取正文（``evidence_index``），
         超出预算时头尾保留 + 显式 ``[证据截断]`` 标记；原文缺失时回落摘要并计入
         ``stats["missing"]``（调用方写入 validator_stats，不静默）。
+
+        R04（审计）：``statuses`` 收集每个编号 / 来源的 origin 解析状态
+        （``raw`` / ``truncated`` / ``partial`` / ``missing``）——调用方据此把
+        origin 缺失的引用判 **UNKNOWN**，禁止把工作摘要当原始事实依据。
 
         返回 (text, trimmed)。
         三条硬约束：
@@ -210,16 +215,19 @@ class Validator:
 
         index = evidence_index or {}
 
-        def _text_for(f: ResearchFinding) -> str:
+        def _text_for(f: ResearchFinding, number: int) -> str:
             text, status = resolve_evidence_text(f, index)
-            if stats is not None and status in ("truncated", "missing"):
+            if stats is not None and status in ("truncated", "missing", "partial"):
                 stats[status] = stats.get(status, 0) + 1
+            if statuses is not None:
+                statuses[str(number)] = status
+                statuses[f"src:{f.source}"] = status
             return text
 
         # W7 Arm5：喂料裁剪可通过 VALIDATOR_TRIM_ENABLED 关闭（TBD-8 基线对照）
         if not config.experiment.validator_trim_enabled:
             lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
+                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
                 for i, f in enumerate(findings, 1)
             ]
             return "\n".join(lines), False
@@ -242,7 +250,7 @@ class Validator:
 
         if trimmed:
             lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
+                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
                 for i, f in enumerate(findings, 1)
                 if str(i) in used_ids
             ]
@@ -256,7 +264,7 @@ class Validator:
 
         # 未触发裁剪或触发安全阀：回退全量
         lines = [
-            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f)}"
+            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
             for i, f in enumerate(findings, 1)
         ]
         return "\n".join(lines), False
@@ -276,14 +284,27 @@ class Validator:
 
         F11（审计 3b）：同时返回 ``raw_start``（claim 句在 report 中的原始起始偏移，
         供返工删除定位；代词兜底时仍指向被校验句本身）。
+
+        R02（审计）：先剥离窗口**收尾**的句末终止符再找内部句子边界 —— 否则
+        ``论断。[来源: 1]`` 会切出空 claim 并触发 80 字符兜底，把上一句背景材料
+        一起纳入删除区间（返工误删）。
         """
         window_start = max(start, end - self._CLAIM_MAX)
         window = report[window_start:end]
-        rel = max(window.rfind(c) for c in self._CLAIM_SEP)
-        # claim 在 report 中的真实起始位置，用于 F4 主语兜底时精确截取前一句
-        claim_start_in_report = window_start + rel + 1 if rel >= 0 else window_start
+        stripped = window.rstrip(self._CLAIM_SEP)
+        if stripped.strip():
+            rel = max(stripped.rfind(c) for c in self._CLAIM_SEP)
+            if rel >= 0:
+                claim_start_in_report = window_start + rel + 1
+                claim = stripped[rel + 1:]
+            else:
+                claim_start_in_report = window_start
+                claim = stripped
+        else:
+            # 窗口全是终止符/空白（退化路径）：保留原兜底行为
+            claim_start_in_report = window_start
+            claim = ""
         raw_start = claim_start_in_report
-        claim = window[rel + 1:] if rel >= 0 else window
         claim = re.sub(r"[*_`]{1,3}", "", claim)                                   # ** 加粗/_斜体_/`代码`
         claim = re.sub(r"^\s*#\s*", "", claim, flags=re.M)                          # 行首 # 标题（Bug-12：不删行内 #）
         claim = re.sub(r"^\s*[-|]\s*", "", claim, flags=re.M)                      # 行首 - 列表 / | 表格碎片
@@ -310,6 +331,11 @@ class Validator:
         每条单独校验（见 ADR-0005）。仅当引用内容全部为数字 token 时
         才拆分；含非数字内容时视为单一来源字符串原样保留，保持对
         [来源: <真实URL>] 协议的兼容。
+
+        R02（审计）：连续引用标记（``[来源: 1][来源: 2]``，中间仅空白）视为
+        **同一论断句**的引用组 —— 共享同一 ``claim_start`` / ``claim_end``
+        区间，返工按句汇总支持关系，不会再拆出两个不同区间导致半句被删 /
+        孤立引用残留。
         """
         # A Validator instance can be reused by the evaluator; stats must describe
         # this extraction/validation only, not leak counts from a prior report.
@@ -320,20 +346,34 @@ class Validator:
         filter_enabled = config.experiment.validator_assertive_filter_enabled
         raw_citation_count = 0
         filtered_citation_count = 0
-        for m in re.finditer(pattern, report):
+        matches = list(re.finditer(pattern, report))
+        i = 0
+        while i < len(matches):
+            # 归并连续标记组：组内相邻标记之间只能是空白（否则属于不同论断）
+            run = [matches[i]]
+            j = i + 1
+            while (j < len(matches)
+                   and not report[matches[j - 1].end():matches[j].start()].strip()):
+                run.append(matches[j])
+                j += 1
             # 取论断（引用前的一段文本，W2.1 按句子边界 + 清理 markdown）
             # W7 F3：start=last_end 隔离多个引用，避免后一个 claim 混入前一个引用标记
             # F11：同时记录 claim 起始偏移与引用标记结束偏移（返工删除定位）
-            claim, claim_start = self._claim_text(report, m.start(), last_end)
-            last_end = m.end()
-            refs = self._split_ref(m.group(1))
+            claim, claim_start = self._claim_text(report, run[0].start(), last_end)
+            claim_end = run[-1].end()
+            last_end = claim_end
+            refs: List[str] = []
+            for marker in run:
+                refs.extend(self._split_ref(marker.group(1)))
             raw_citation_count += len(refs)
             if filter_enabled and not self._is_assertive(claim):
                 filtered_citation_count += len(refs)
+                i = j
                 continue  # W7 F3: non-assertive fragments stay out of validation
             for ref in refs:
                 citations.append({"claim": claim, "source": ref,
-                                  "claim_start": claim_start, "claim_end": m.end()})
+                                  "claim_start": claim_start, "claim_end": claim_end})
+            i = j
         self.last_validation_stats.update({
             "filter_enabled": filter_enabled,
             "raw_citation_count": raw_citation_count,
@@ -394,32 +434,81 @@ class Validator:
 
     #: F11（审计 3a）：事实句最短长度（字符）——过滤标题/碎片，控制统计噪声
     _FACT_MIN_CHARS = 20
+    #: 句子切分分隔符（R03：与引用提取的 claim 边界语义一致）
+    _SENT_SEPS = "。！？!?\n"
+    #: R03：返工降格保留的未引用事实句上限（审计可见性；统计计数不受此限）
+    _UNCITED_SPAN_LIMIT = 100
+
+    @classmethod
+    def _sentence_spans(cls, report: str) -> List[Tuple[int, int, bool]]:
+        """带偏移的句子切分：返回 ``(start, end, cited)``（R03）。
+
+        - 标题行（``#`` 开头）不产出 span；
+        - ``cited``：句内出现 ``[来源: ...]``，或句末**仅隔分隔符/空白**紧邻
+          引用标记（``事实句。[来源: 1]`` 属于已引用，不再被误计为无引用）；
+        - ``end`` 含收尾标点与紧邻引用标记，可直接用于返工定位。
+        """
+        text = report or ""
+        spans: List[Tuple[int, int, bool]] = []
+        n = len(text)
+        pos = 0
+        while pos < n:
+            seg_start = pos
+            while pos < n and text[pos] not in cls._SENT_SEPS:
+                pos += 1
+            seg = text[seg_start:pos]
+            end_text = pos
+            # 句末紧邻引用标记（中间只允许分隔符/空白）
+            j = pos
+            while j < n and text[j] in cls._SENT_SEPS:
+                j += 1
+            k = j
+            while True:
+                m = re.match(r"[ \t]*\[来源:[^\]]+\]", text[k:])
+                if not m:
+                    break
+                k += m.end()
+            cited = ("[来源:" in seg) or (k > j)
+            if seg.strip() and not seg.lstrip().startswith("#"):
+                spans.append((seg_start, k if k > j else end_text, cited))
+            pos = k if k > j else end_text
+            while pos < n and text[pos] in cls._SENT_SEPS:
+                pos += 1
+        return spans
 
     @staticmethod
     def _fact_coverage_stats(report: str) -> Dict[str, Any]:
-        """审计 F11（3a 部分）：无引用事实句覆盖率（零 LLM、只看不判）。
+        """审计 F11（3a）+ R03：无引用事实句覆盖率与**明细 span**（零 LLM、只看不判）。
 
-        - 事实句：去掉标题行后按句切分、长度 ≥ ``_FACT_MIN_CHARS`` 的句子；
-        - 有引用：同句内出现 ``[来源: ...]`` 标记（多编号/URL 协议同计）；
-        - ``citation_coverage`` = 有引用句 / 事实句 —— 仅作统计与评测输入，
-          不做门禁（3b 返工闭环再消费该口径）。
+        - 事实句：标题行外、可见文本长度 ≥ ``_FACT_MIN_CHARS`` 的句子；
+        - 有引用：句内或句末紧邻 ``[来源: ...]``（多编号/URL 协议同计）；
+        - ``uncited_fact_spans``：未引用事实句的 ``{claim, start, end}`` 明细
+          （供返工做确定性降格标注；有上限，避免 state 体积失控）；
+        - 覆盖率口径 = 有引用句 / 事实句 —— 与引用校验口径分开记录。
         """
-        text = "\n".join(
-            line for line in (report or "").splitlines()
-            if not line.lstrip().startswith("#")
-        )
+        spans = Validator._sentence_spans(report)
         total = 0
         cited = 0
-        for sentence in re.split(r"[。！？!?\n]+", text):
-            if len(sentence.strip()) < Validator._FACT_MIN_CHARS:
+        uncited_spans: List[Dict[str, Any]] = []
+        for start, end, is_cited in spans:
+            raw = (report or "")[start:end]
+            text_only = raw.rstrip("。！？!?\n")
+            if len(text_only.strip()) < Validator._FACT_MIN_CHARS:
                 continue
             total += 1
-            if "[来源:" in sentence:
+            if is_cited:
                 cited += 1
+            elif len(uncited_spans) < Validator._UNCITED_SPAN_LIMIT:
+                uncited_spans.append({
+                    "claim": text_only.strip(),
+                    "start": start,
+                    "end": start + len(text_only),
+                })
         return {
             "fact_sentence_count": total,
             "uncited_fact_sentence_count": total - cited,
             "citation_coverage": round(cited / total, 4) if total else 1.0,
+            "uncited_fact_spans": uncited_spans,
         }
 
     def validate(self, report: str, findings: List[ResearchFinding], state: Any = None,
@@ -470,6 +559,8 @@ class Validator:
                 "existence_pass_count": 0,
                 "evidence_truncated_count": 0,
                 "evidence_missing_count": 0,
+                "evidence_partial_count": 0,
+                "evidence_unknown_citation_count": 0,
             })
             return []
 
@@ -477,10 +568,13 @@ class Validator:
         to_check = [r for r in local_results if r["existence"]]
         # W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号；存在性校验仍用全量 index
         # F07/F08：证据索引来自原文层；截断/缺失显式计入 evidence_stats（随 stats 落库）
+        # R04：evidence_status 按编号/来源记录 origin 解析健康度 —— 缺失/部分缺失的引用
+        # 即使 LLM 判 faithful 也不得通过（UNKNOWN，禁止用工作摘要当原始依据）。
         evidence_index = build_evidence_index(evidence or [])
         evidence_stats: Dict[str, int] = {}
+        evidence_status: Dict[str, str] = {}
         findings_text, _ = self._build_findings_text(findings, to_check, evidence_index,
-                                                     evidence_stats)
+                                                     evidence_stats, evidence_status)
         # W7 F1：claim 不再截断；F2：LLM 输出需 claim_echo 回显原文
         fixes_enabled = config.experiment.validator_fixes_enabled
         if fixes_enabled:
@@ -597,7 +691,58 @@ class Validator:
         ms_claimed = ms_verified = ms_downgraded = 0
         fixes_enabled = config.experiment.validator_fixes_enabled
 
+        # R01（审计）：裁决**消费式**对齐 —— 每份 verdict 至多服务一条引用。
+        # 旧实现回退 ``candidates[0]``，同一来源的不同论断（数值/日期/否定词变化）
+        # 会继承他人裁决被判通过；现在只有逐字一致（规范化后）或
+        # 「数值 + 否定签名一致且高相似」的裁决才可复用，且用后即消费。
+        consumed_verdict_ids: set = set()
+        verdict_missing_for_citation = 0
+
+        def _take_verdict(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            if not fixes_enabled:
+                # 基线对照（validator_fixes_enabled=False）：保持 v1.1 语义
+                candidates = verdicts.get(record["finding_id"], [])
+                if candidates:
+                    return candidates[0]
+                for j, item in enumerate(unused_verdicts):
+                    if item.get("claim", "").strip() == record["claim"].strip():
+                        return unused_verdicts.pop(j)
+                return None
+            pool = (verdicts.get(record["finding_id"], [])
+                    if record["finding_id"] else unused_verdicts)
+            target = self._norm_claim_text(record["claim"])
+            # 1) 规范化后逐字一致（claim / claim_echo 任一命中即为「对应裁决」；
+            #    回显错位留给后续 claim_echo 核对判 UNKNOWN，而不是当成缺裁决）
+            for item in pool:
+                if id(item) in consumed_verdict_ids:
+                    continue
+                claim_text = str(item.get("claim") or "")
+                echo_text = str(item.get("claim_echo") or "")
+                if (self._norm_claim_text(claim_text) == target
+                        or self._norm_claim_text(echo_text) == target):
+                    consumed_verdict_ids.add(id(item))
+                    return item
+            # 2) 高相似兜底：仅当数值签名与否定签名一致（标点/空白差异可容忍，
+            #    数值变更（一百→九百）与否定词增删绝不继承裁决）
+            best: Optional[Dict[str, Any]] = None
+            best_ratio = 0.0
+            for item in pool:
+                if id(item) in consumed_verdict_ids:
+                    continue
+                echoed = str(item.get("claim_echo") or item.get("claim") or "")
+                if self._numeric_signature(echoed) != self._numeric_signature(record["claim"]):
+                    continue
+                if self._negation_signature(echoed) != self._negation_signature(record["claim"]):
+                    continue
+                ratio = self._claim_similarity(echoed, record["claim"])
+                if ratio >= 0.85 and ratio > best_ratio:
+                    best, best_ratio = item, ratio
+            if best is not None:
+                consumed_verdict_ids.add(id(best))
+            return best
+
         result: List[Citation] = []
+        evidence_unknown_citations = 0
         for r in local_results:
             if not r["existence"]:
                 # 短路：存在性 False 不进 LLM，直接判未通过（Q3=A）
@@ -611,50 +756,52 @@ class Validator:
                 ))
                 continue
 
-            verdict = None
-            candidates = verdicts.get(r["finding_id"], [])
-            if candidates:
-                # Bug-7 修复：按 claim 文本精确匹配，避免同编号论断共享 verdict
-                for v in candidates:
-                    if v.get("claim", "").strip() == r["claim"].strip():
-                        verdict = v
-                        break
-                if verdict is None:
-                    verdict = candidates[0]
-            if verdict is None:
-                # 空 finding_id（URL 协议）或 LLM 未按 id 返回：用未消费 verdict 按 claim 兜底匹配
-                for j, item in enumerate(unused_verdicts):
-                    if item.get("claim", "").strip() == r["claim"].strip():
-                        verdict = item
-                        unused_verdicts.pop(j)
-                        break
+            # R04：origin 链缺失/部分缺失 ⇒ 对应引用判 UNKNOWN（不消费裁决、不判通过）
+            origin_key = (str(r["finding_id"]) if r["finding_id"]
+                          else f"src:{r['source']}")
+            origin_status = evidence_status.get(origin_key, "raw")
+            origin_unknown = origin_status in ("missing", "partial")
 
+            verdict: Optional[Dict[str, Any]] = None
             verification_failed = False
             if id(r) in failed_row_ids:
                 # 审计 P1#2：LLM 失败 ⇒ 校验未完成（不视为通过）；仅保留存在性结论
                 verified, faithful, supported_flag, confidence, note = (
                     False, False, False, 0.5, "LLM 校验失败：校验未完成（不视为通过）")
                 verification_failed = True
-            elif verdict is not None:
-                # W7 F2：claim_echo 回显对齐；不一致 ⇒ 校验未完成（P1#2：不再降级判通过）
-                echo = verdict.get("claim_echo", "") or verdict.get("claim", "")
-                if fixes_enabled and echo and self._claim_similarity(echo, r["claim"]) < 0.6:
-                    faithful = False
-                    supported_flag = bool(verdict.get("supported", False))
-                    confidence = float(verdict.get("confidence", 0.5))
-                    note = f"claim_echo 错位（相似度低）：{verdict.get('note', '') or ' verdict 与原文 claim 不匹配'}".strip()
-                    verification_failed = True
-                else:
-                    faithful = bool(verdict.get("faithful", True))
-                    supported_flag = bool(verdict.get("supported", False))
-                    confidence = float(verdict.get("confidence", 0.5))
-                    note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
-                verified = faithful
-            else:
-                # 单条缺失：来源存在但未获 LLM 反馈 ⇒ 校验未完成（P1#2：不视为通过）
+            elif origin_unknown:
                 verified, faithful, supported_flag, confidence, note = (
-                    False, False, False, 0.5, "忠实度未获 LLM 反馈：校验未完成（不视为通过）")
+                    False, False, False, 0.5,
+                    "原文证据缺失（origin 链未逐项解析）：校验未完成（不视为通过）")
                 verification_failed = True
+                evidence_unknown_citations += 1
+            else:
+                verdict = _take_verdict(r)
+                if verdict is None:
+                    # 没有与论断对应的裁决：不得继承同来源其他论断的通过结论（R01）
+                    if fixes_enabled:
+                        note = "未获对应裁决（不复用同来源其他论断的 verdict）：校验未完成（不视为通过）"
+                    else:
+                        note = "忠实度未获 LLM 反馈：校验未完成（不视为通过）"
+                    verified, faithful, supported_flag, confidence = False, False, False, 0.5
+                    verification_failed = True
+                    if fixes_enabled:
+                        verdict_missing_for_citation += 1
+                else:
+                    # W7 F2：claim_echo 回显对齐；不一致 ⇒ 校验未完成（P1#2：不再降级判通过）
+                    echo = verdict.get("claim_echo", "") or verdict.get("claim", "")
+                    if fixes_enabled and echo and self._claim_similarity(echo, r["claim"]) < 0.6:
+                        faithful = False
+                        supported_flag = bool(verdict.get("supported", False))
+                        confidence = float(verdict.get("confidence", 0.5))
+                        note = f"claim_echo 错位（相似度低）：{verdict.get('note', '') or ' verdict 与原文 claim 不匹配'}".strip()
+                        verification_failed = True
+                    else:
+                        faithful = bool(verdict.get("faithful", True))
+                        supported_flag = bool(verdict.get("supported", False))
+                        confidence = float(verdict.get("confidence", 0.5))
+                        note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
+                    verified = faithful
 
             # F12（审计）：多源印证的**代码复核** —— LLM 声称 supported 时必须给出真实存在、
             # 且达到 min_sources 个独立来源（不同 source；同文档多分块不算）的证据编号；
@@ -696,12 +843,25 @@ class Validator:
                 contradicting_evidence_ids=citation_contradicting,
                 independent_source_count=independent_count,
             ))
+        unconsumed_verdicts = 0
+        if fixes_enabled:
+            all_verdict_items = list(unused_verdicts) + [
+                item for items in verdicts.values() for item in items
+            ]
+            unconsumed_verdicts = sum(
+                1 for item in all_verdict_items if id(item) not in consumed_verdict_ids)
         self.last_validation_stats.update({
             "validated_citation_count": len(result),
             "existence_pass_count": sum(1 for c in result if c.existence),
             # F07（审计）：证据回原文的显式健康度（截断头尾保留 / 原文缺失回落摘要）
             "evidence_truncated_count": evidence_stats.get("truncated", 0),
             "evidence_missing_count": evidence_stats.get("missing", 0),
+            # R04（审计）：部分 origin 缺失同样不可判通过（独立计数，不静默）
+            "evidence_partial_count": evidence_stats.get("partial", 0),
+            "evidence_unknown_citation_count": evidence_unknown_citations,
+            # R01（审计）：裁决对齐审计 —— 缺裁决引用数 / 未消费裁决数
+            "verdict_missing_for_citation_count": verdict_missing_for_citation,
+            "verdict_unused_count": unconsumed_verdicts,
             # F12（审计）：多源印证三口径 —— LLM 声称数 / 代码复核通过数 / 复核降级数
             "multi_source_claimed_count": ms_claimed,
             "multi_source_verified_count": ms_verified,
@@ -716,6 +876,28 @@ class Validator:
             return 0.0
         from difflib import SequenceMatcher
         return SequenceMatcher(None, a.strip(), b.strip()).ratio()
+
+    #: R01：claim 规范化时剥离的标点/空白/标记字符（保留数字与汉字）
+    _CLAIM_PUNCT_RE = re.compile(r"[\s。！？；，,.;:：!?、\"'“”‘’()（）\[\]【】*_`#·]+")
+    #: R01：数值签名（阿拉伯数字 + 中文数词连写），用于阻断跨数值的裁决复用
+    _NUM_SIG_RE = re.compile(r"\d+(?:\.\d+)?|[零〇一二三四五六七八九十百千万亿两]+")
+    #: R01：否定词签名，用于阻断跨否定语义的裁决复用
+    _NEG_SIG_RE = re.compile(r"[不未无没非勿莫禁]")
+
+    @classmethod
+    def _norm_claim_text(cls, text: str) -> str:
+        """R01：claim 逐字对齐前的规范化（去标点/空白/装饰符，保留数字与汉字）。"""
+        return cls._CLAIM_PUNCT_RE.sub("", text or "")
+
+    @classmethod
+    def _numeric_signature(cls, text: str) -> tuple:
+        """R01：数值签名 —— 数值序列不同（一百→九百 / 2024→2025）即拒绝复用裁决。"""
+        return tuple(cls._NUM_SIG_RE.findall(text or ""))
+
+    @classmethod
+    def _negation_signature(cls, text: str) -> tuple:
+        """R01：否定词签名 —— 否定语义不同（未/无/不 增删）即拒绝复用裁决。"""
+        return tuple(sorted(set(cls._NEG_SIG_RE.findall(text or ""))))
 
     @staticmethod
     def _norm_evidence_ids(raw: Any, by_number: Dict[str, ResearchFinding]) -> List[str]:

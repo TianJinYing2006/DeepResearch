@@ -593,10 +593,15 @@ class RunStore:
         - 传 `sequence`（P2-C 接线用）：与内存态帧号**逐帧对齐**，重复写入按幂等处理
           （`ON CONFLICT DO NOTHING`）—— 传输层强制收口与工作线程可能并发持久化，
           显式序号避免「库内顺序 ≠ 内存顺序」；
-        - 传 `owner`（F04）：同一条 SQL 内校验 `worker_id + attempt + 状态`——
-          旧执行者（租约被接管）追加事件时插入零行，抛 :class:`LeaseLostError`，
-          不会与新执行者的事件流交错。
+        - 传 `owner`（F04/R10）：先 `SELECT ... FOR UPDATE` 锁 runs 行再校验
+          `worker_id + attempt + 状态`，**显式序号路径同样校验**。旧实现直接
+          `INSERT ... WHERE EXISTS(SELECT runs)`：READ COMMITTED 下语句快照通过
+          EXISTS 后，接管事务仍可能在其间提交，旧 attempt 事件越过接管边界；
+          加锁后与 claim/sweep/finalize 的锁顺序一致（runs → run_events），
+          旧执行者在接管提交后必被拒绝，接管前的迟到事件则排在接管之前。
         """
+        if owner is not None:
+            return self._append_event_owned(run_id, event_type, payload, sequence, owner)
         if sequence is not None:
             try:
                 with self._connect() as conn, conn.cursor() as cur:
@@ -614,36 +619,15 @@ class RunStore:
                 return sequence
             except psycopg.errors.ForeignKeyViolation as exc:
                 raise LookupError(f"run not found: {run_id}") from exc
-        if owner is None:
-            insert_sql = (
-                """
-                INSERT INTO run_events (run_id, sequence, event_type, payload)
-                SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
-                FROM run_events WHERE run_id = %s
-                RETURNING sequence
-                """
-            )
-            insert_params: tuple = (run_id, event_type, Jsonb(payload or {}), run_id)
-        else:
-            # 标量子查询 + EXISTS 守卫：无 FROM 的 SELECT 在守卫失败时返回零行
-            # （不能沿用聚合写法——聚合在空集上仍返回一行，会让守卫形同虚设）。
-            insert_sql = (
-                """
-                INSERT INTO run_events (run_id, sequence, event_type, payload)
-                SELECT %s,
-                       COALESCE((SELECT MAX(sequence) + 1 FROM run_events WHERE run_id = %s), 0),
-                       %s, %s
-                WHERE EXISTS (
-                    SELECT 1 FROM runs
-                     WHERE run_id = %s AND worker_id = %s AND attempt = %s
-                       AND status = ANY(%s)
-                )
-                RETURNING sequence
-                """
-            )
-            insert_params = (run_id, run_id, event_type, Jsonb(payload or {}),
-                             run_id, owner.worker_id, owner.attempt,
-                             list(_EXECUTING_STATUSES))
+        insert_sql = (
+            """
+            INSERT INTO run_events (run_id, sequence, event_type, payload)
+            SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+            FROM run_events WHERE run_id = %s
+            RETURNING sequence
+            """
+        )
+        insert_params: tuple = (run_id, event_type, Jsonb(payload or {}), run_id)
         for _ in range(3):
             try:
                 with self._connect() as conn, conn.cursor() as cur:
@@ -652,10 +636,6 @@ class RunStore:
                     if row is not None:
                         notify_events(cur, run_id)  # P2-4：SSE 唤醒（同事务）
                 if row is None:
-                    if owner is not None:
-                        raise LeaseLostError(
-                            f"event append rejected for run {run_id}: lease lost "
-                            f"(worker={owner.worker_id}, attempt={owner.attempt})")
                     raise LookupError(f"run not found: {run_id}")
                 return row["sequence"]
             except psycopg.errors.ForeignKeyViolation as exc:
@@ -665,6 +645,59 @@ class RunStore:
             except psycopg.errors.UniqueViolation:
                 continue
         raise RuntimeError(f"append_event: sequence conflict persisted for run {run_id}")
+
+    def _append_event_owned(
+        self, run_id: str, event_type: str, payload: Optional[dict[str, Any]],
+        sequence: Optional[int], owner: RunOwnership,
+    ) -> int:
+        """带所有权的追加（R10）：锁 runs 行 → 校验 owner → 插入事件，同一事务。"""
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT worker_id, attempt, status FROM runs "
+                    "WHERE run_id = %s FOR UPDATE",
+                    (run_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    raise LookupError(f"run not found: {run_id}")
+                if (row["worker_id"] != owner.worker_id
+                        or row["attempt"] != owner.attempt
+                        or row["status"] not in _EXECUTING_STATUSES):
+                    raise LeaseLostError(
+                        f"event append rejected for run {run_id}: lease lost "
+                        f"(worker={owner.worker_id}, attempt={owner.attempt})")
+                if sequence is None:
+                    cur.execute(
+                        """
+                        INSERT INTO run_events (run_id, sequence, event_type, payload)
+                        SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                        FROM run_events WHERE run_id = %s
+                        RETURNING sequence
+                        """,
+                        (run_id, event_type, Jsonb(payload or {}), run_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO run_events (run_id, sequence, event_type, payload)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (run_id, sequence) DO NOTHING
+                        RETURNING sequence
+                        """,
+                        (run_id, sequence, event_type, Jsonb(payload or {})),
+                    )
+                inserted = cur.fetchone()
+                notify_events(cur, run_id)  # P2-4：SSE 唤醒（同事务）
+                if inserted is not None:
+                    return int(inserted["sequence"])
+                if sequence is not None:
+                    return int(sequence)  # 显式序号幂等：已存在同序号事件
+                raise LeaseLostError(
+                    f"event append rejected for run {run_id}: lease lost "
+                    f"(worker={owner.worker_id}, attempt={owner.attempt})")
+        except psycopg.errors.ForeignKeyViolation as exc:
+            raise LookupError(f"run not found: {run_id}") from exc
 
     def get_events(self, run_id: str, after: Optional[int] = None) -> list[dict[str, Any]]:
         """按 `sequence` 升序读取事件；`after` 用于 SSE 续传（只取更大序号）。"""
@@ -752,16 +785,26 @@ class RunStore:
             )
             return cur.fetchone()
 
-    def renew_lease(self, run_id: str, worker_id: str, lease_seconds: int) -> bool:
-        """续租（Worker 心跳）；任务已终局或已换主时返回 False。"""
+    def renew_lease(self, run_id: str, worker_id: str, lease_seconds: int,
+                    *, attempt: Optional[int] = None) -> bool:
+        """续租（Worker 心跳）；任务已终局或已换主时返回 False。
+
+        R10（审计）：可选 ``attempt`` —— 旧 attempt 的执行者即使 worker_id 相同
+        （同进程重启/重复心跳线程）也不得续租，续租凭据必须与 ownership 一致。
+        """
+        sql = (
+            "UPDATE runs SET lease_expires_at = now() + make_interval(secs => %s), "
+            "worker_status = 'alive' "
+            "WHERE run_id = %s AND worker_id = %s "
+            "AND status IN ('RUNNING','CANCEL_REQUESTED')"
+        )
+        params: list[Any] = [lease_seconds, run_id, worker_id]
+        if attempt is not None:
+            sql += " AND attempt = %s"
+            params.append(attempt)
+        sql += " RETURNING run_id"
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                "UPDATE runs SET lease_expires_at = now() + make_interval(secs => %s), "
-                "worker_status = 'alive' "
-                "WHERE run_id = %s AND worker_id = %s "
-                "AND status IN ('RUNNING','CANCEL_REQUESTED') RETURNING run_id",
-                (lease_seconds, run_id, worker_id),
-            )
+            cur.execute(sql, params)
             return cur.fetchone() is not None
 
     def count_active(self, user_id: Optional[str] = None) -> int:
