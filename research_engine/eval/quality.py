@@ -52,6 +52,12 @@ class QualityThresholds:
     avg_steps_min: float = 1.5
     #: 评测失败条数占比上限。`>=` 即判 **broken**（管线自身大面积失败）
     failed_ratio_max: float = 0.5
+    #: F15 独立裁判忠实度下限。`<=` 触发 —— 独立口径跌破说明引用校验整体失效
+    #: （回归界限待新基线校准；校准完成前与其它阈值一样**只告警不阻断**）
+    citation_judge_fidelity_min: float = 0.5
+    #: F15 最终回答无引用事实占比上限。`>=` 触发 —— 事实句大面积无引用支撑
+    #: （回归界限待新基线校准）
+    uncited_fact_ratio_max: float = 0.5
 
 
 #: 默认阈值。
@@ -101,9 +107,20 @@ def evaluate_run_verdict(
             return True
         return False
 
+    def _above(key: str, limit: float) -> bool:
+        v = metrics_mean.get(key)
+        if not isinstance(v, (int, float)):
+            return False  # 指标没算出（旧 run / judge_failed）⇒ 不据此判被测
+        if v >= limit:
+            reasons.append(f"{key}={_fmt(v)} >= {limit}")
+            return True
+        return False
+
     _below("completion_rate", thresholds.completion_rate_min)
     _below("citation_accuracy", thresholds.citation_accuracy_min)
     _below("avg_steps", thresholds.avg_steps_min)
+    _below("citation_judge_fidelity", thresholds.citation_judge_fidelity_min)
+    _above("uncited_fact_ratio", thresholds.uncited_fact_ratio_max)
 
     return (VERDICT_SUSPICIOUS, reasons) if reasons else (VERDICT_OK, [])
 

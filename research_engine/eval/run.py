@@ -249,6 +249,8 @@ def _evaluate_one(row: Dict[str, Any], raw: Dict[str, Any], judge, eval_dir: Pat
     missing: List[str] = []
     if metrics["coverage"].get("judge_failed"):
         missing.append("coverage")
+    if (metrics.get("citation_judge") or {}).get("llm_failed"):
+        missing.append("citation_judge")  # F15：独立裁判失败 = 该项独立口径缺失，显式记 partial
     # 注：报告质量（report_eval RACE）暂不接入七指标主表——完成率≠质量（Q2），质量面由人工报告级抽检兜底
 
     partial = bool(missing)
