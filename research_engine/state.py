@@ -140,6 +140,9 @@ class Citation(BaseModel):
         default=False,
         description="审计 P1#2：校验未能完成（LLM 失败/无反馈/结论错位）——不视为通过，仅保留存在性结论")
     is_meta: bool = Field(default=False, description="自指/元描述复核结果（R2.4 Q5=A：validator verdict 兜底）")
+    # F11（审计 3b）：返工定位——claim 与引用标记在报告中的原始偏移（-1 = 未知/不参与返工）
+    claim_start: int = Field(default=-1, description="F11：claim 句起始偏移（返工删除定位）")
+    claim_end: int = Field(default=-1, description="F11：引用标记结束偏移（返工删除定位）")
 
 
 class ResearchState(BaseModel):
@@ -170,6 +173,12 @@ class ResearchState(BaseModel):
     per_subq_hop: Dict[str, int] = Field(default_factory=dict, description="每子问题已消耗跳数，防 starvation（Q5）")
     token_used: int = Field(default=0, description="LLM token 累计消耗（Q6 观测+控闸）")
     replan_count: int = Field(default=0, description="已触发 replan 次数（Q2-B 兜底）")
+    # F11（审计 3b）：有界返工——失败论断的确定性移除/降格，重走一次校验
+    repair_count: int = Field(default=0, description="引用返工已执行次数（上限 graph.MAX_REPAIR_PASSES）")
+    repair_log: Annotated[List[Dict[str, Any]], operator.add] = Field(
+        default_factory=list,
+        description="返工审计流（纯追加；非故障，不参与 run_status 判定）",
+    )
     # critic 节点的结构化输出，供路由函数纯函数读取（Q3 分层）
     critic_signal: str = Field(default="", description="条件边路由信号：continue/revise/stop")
     sufficient: bool = Field(default=False, description="critic 判研究是否充分")

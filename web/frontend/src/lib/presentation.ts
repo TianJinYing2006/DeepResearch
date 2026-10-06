@@ -16,6 +16,7 @@ export const NODE_LABELS: Record<string, string> = {
   revise: '修订查询',
   write: '撰写报告',
   validate: '校验引用',
+  repair: '修复引用',
   render: '渲染结果',
 }
 
