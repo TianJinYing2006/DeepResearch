@@ -4,6 +4,11 @@
 > 采集时间 2026-10-07 14:15~18:34（三轮分别 82.7 / 84.6 / 91.8 分钟）；
 > 冻结代码 `ffdc904`（dev）；`git_dirty=false` ×3（每轮跑完先提交产物）。
 > 关联：需求 27（F01–F15 / R01–R10 整改）后的**当期尺子**；飞书《10月7日整体优化》需求 2。
+>
+> ⚠️ **缺陷期基线（2026-10-07 标记，勿作为当前系统数据引用）**：本基线采集时主链路存在
+> **critic augment 死路缺陷**（`needs_replan` 优先于 `next_queries`，见异常 A2 / PR #153）：
+> 研究普遍在 depth 2~3 提前终止，coverage / steps / retrieval 等数值**不代表修复后的系统**。
+> 修复后的新基线（w9.1）另行重跑；本文件仅保留作缺陷登记与口径参考。
 
 ---
 
@@ -136,3 +141,17 @@ python tools/paired_before_after.py \
 - 运行目录（本机）：`run_20261007_141516` / `run_20261007_153800` / `run_20261007_170233`（pilot `run_20261007_135648` 排除）；
 - 产物：`docs/eval-report.md`（R3 报告）+ `research_engine/eval/results/history.json`（3 条新记录）；
 - 原始数据按结果准入纪律留在本机（不入库），本文件承载结论。
+
+---
+
+## 附录 A：缺陷期证据与停止原因分布（2026-10-07 标记）
+
+| 维度 | 09-19（缺陷前） | 10-07（缺陷期） |
+| --- | --- | --- |
+| 终止原因（60 条） | critic_stop 51 / hard_stop 5 / replan_exhausted 4 | **replan_exhausted 60 / critic_stop 0** |
+| sufficient=True | 51/60 | **0/60** |
+| 反思链条目 | gap_continue 340 / gap_reflection_cap 80 / … | revise 60 + replan_exhausted 60；gap_continue 仅 34 |
+
+**成本口径修正**：缺陷期 phase1 ≈ ¥1.7/轮**不是低成本，而是研究深度被截断**（平均 2.57 跳、
+q_001 coverage 0.0）。A1+A2 修复后成本回归正常检索深度（A/B 2 题 token ×2.5、深度 2→11 / 3→19），
+不得叙述为「修复导致成本暴涨」。
