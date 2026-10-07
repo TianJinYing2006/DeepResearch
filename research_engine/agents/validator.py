@@ -141,6 +141,22 @@ def validator_concurrency() -> int:
     return max(1, min(4, value))
 
 
+def validator_shard_context() -> bool:
+    """A4（#154）：多批场景下每批只喂**本批引用涉及**的 finding 行。
+
+    需求 19 的分批只切了「待判定列表」、没切「上下文」：每批都把整段 findings_text
+    拼进 prompt ⇒ 总输入 ≈ 批数 × findings_text（q_002 实测 7 批 ≈ 111k，远超
+    30k 校验地板 ⇒ 112 条引用全部因预算被拒）。开启后总输入降到「约 1 份上下文 +
+    引用行」（q_002 实测 32.7k @ batch=32）。
+
+    单批场景（``DR_VALIDATE_BATCH_SIZE<=0`` 或引用数 ≤ 批大小）本开关**不产生任何
+    差异**——拼装结果与关闭时逐字一致。多批场景会改变喂料口径 ⇒ 按**新 Arm** 对待，
+    可用 ``DR_VALIDATE_SHARD_CONTEXT=0`` 回到旧行为做对照。
+    """
+    return os.getenv("DR_VALIDATE_SHARD_CONTEXT", "1").strip().lower() not in (
+        "0", "false", "no", "off")
+
+
 class CitationVerdictItem(BaseModel):
     """单条引用的 LLM 校验 verdict（Q3=A 按 finding_id 对齐，Q5=A 增 is_meta 复核）。"""
 
@@ -188,12 +204,97 @@ class Validator:
         return {str(i): (f.source, f.source_type) for i, f in enumerate(findings, 1)}
 
     @staticmethod
-    def _build_findings_text(
+    def _source_to_ids(findings: List[ResearchFinding]) -> Dict[str, List[str]]:
+        """来源 → finding 编号列表（RAG 同 URL 多分块时一个 source 对应多个编号）。"""
+        out: Dict[str, List[str]] = {}
+        for i, f in enumerate(findings, 1):
+            out.setdefault(f.source, []).append(str(i))
+        return out
+
+    @staticmethod
+    def _used_finding_ids(
+        to_check: List[Dict[str, Any]], source_to_ids: Dict[str, List[str]],
+    ) -> set:
+        """由待校验引用反查涉及的 finding 编号（数字 id 优先，URL 引用按 source 反查）。"""
+        used: set = set()
+        for r in to_check:
+            fid = r.get("finding_id")
+            if fid:
+                used.add(str(fid))
+            elif r.get("source"):
+                for mapped in source_to_ids.get(r["source"], []):
+                    used.add(mapped)
+        return used
+
+    @classmethod
+    def _build_findings_lines(
+        cls,
         findings: List[ResearchFinding], to_check: List[Dict[str, Any]],
         evidence_index: Optional[Dict[str, ResearchFinding]] = None,
         stats: Optional[Dict[str, int]] = None,
         statuses: Optional[Dict[str, str]] = None,
-    ) -> tuple[str, bool]:
+    ) -> Tuple[Dict[str, str], bool]:
+        """与 :meth:`_build_findings_text` 同渲染逻辑，但返回 ``{编号: 行文本}``。
+
+        A4（#154）：需求 19 的分批只切了「待判定列表」、没切「上下文」——每批都把
+        整段 findings_text 拼进 prompt，总输入 ≈ 批数 × findings_text（q_002 实测
+        7 批 ≈ 111k）。返回按编号索引的行之后，调用方可以只挑本批引用涉及的行，
+        总输入降到「约 1 份上下文 + 少量引用行」（q_002 实测 32.7k @ batch=32）。
+
+        ``stats`` / ``statuses`` 仍按**全量 to_check** 一次性统计：喂料分片是
+        token 优化，不得改变证据健康度的计数口径（同一 finding 被多批引用、
+        或按批重复渲染，都不重复计数）。
+        """
+        import warnings
+
+        index = evidence_index or {}
+
+        def _text_for(f: ResearchFinding, number: int) -> str:
+            text, status = resolve_evidence_text(f, index)
+            if stats is not None and status in ("truncated", "missing", "partial"):
+                stats[status] = stats.get(status, 0) + 1
+            if statuses is not None:
+                statuses[str(number)] = status
+                statuses[f"src:{f.source}"] = status
+            return text
+
+        def _render(subset: Optional[set]) -> Dict[str, str]:
+            # 过滤先于渲染：只有入选的行才解析证据（与旧实现的 stats 口径一致）
+            return {
+                str(i): f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
+                for i, f in enumerate(findings, 1)
+                if subset is None or str(i) in subset
+            }
+
+        # W7 Arm5：喂料裁剪可通过 VALIDATOR_TRIM_ENABLED 关闭（TBD-8 基线对照）
+        if not config.experiment.validator_trim_enabled:
+            return _render(None), False
+
+        # Bug-5 修复：URL 格式引用的 finding_id 为空，通过 source 字段反查 finding 编号
+        # 设计-3 修复：同 source 多 findings（RAG 同 URL 多分块）时收集所有编号
+        used_ids = cls._used_finding_ids(to_check, cls._source_to_ids(findings))
+
+        if used_ids:
+            lines = _render(used_ids)
+            if lines:
+                return lines, True
+            # 安全阀：used_ids 非空但与 findings 编号无交集（理论上不发生）→ 降级全量
+            warnings.warn(
+                "Validator feed trim: used_ids 与 findings 编号无交集，降级为全量喂料",
+                stacklevel=2,
+            )
+
+        # 未触发裁剪或触发安全阀：回退全量
+        return _render(None), False
+
+    @classmethod
+    def _build_findings_text(
+        cls,
+        findings: List[ResearchFinding], to_check: List[Dict[str, Any]],
+        evidence_index: Optional[Dict[str, ResearchFinding]] = None,
+        stats: Optional[Dict[str, int]] = None,
+        statuses: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, bool]:
         """W7 Arm5 A′：只喂被引用且存在性通过的 findings，保留原编号。
 
         F07/F08（审计）：不再对证据做 500 字符静默截断 —— 按工作摘要的
@@ -210,64 +311,13 @@ class Validator:
         1. 阶段 1 存在性校验仍基于全量 index（本函数不改变 index）。
         2. 编号保留原编号（用 enumerate(findings, 1) 的原始 i 过滤，不对子集重排）。
         3. 安全阀：to_check 非空但 used_ids 与 findings 编号无交集 → 降级全量并 warn。
+
+        A4（#154）：本函数只是 :meth:`_build_findings_lines` 的拼接包装，
+        供单批/回退路径与既有用例使用；多批路径直接用行索引做分片。
         """
-        import warnings
-
-        index = evidence_index or {}
-
-        def _text_for(f: ResearchFinding, number: int) -> str:
-            text, status = resolve_evidence_text(f, index)
-            if stats is not None and status in ("truncated", "missing", "partial"):
-                stats[status] = stats.get(status, 0) + 1
-            if statuses is not None:
-                statuses[str(number)] = status
-                statuses[f"src:{f.source}"] = status
-            return text
-
-        # W7 Arm5：喂料裁剪可通过 VALIDATOR_TRIM_ENABLED 关闭（TBD-8 基线对照）
-        if not config.experiment.validator_trim_enabled:
-            lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
-                for i, f in enumerate(findings, 1)
-            ]
-            return "\n".join(lines), False
-
-        # Bug-5 修复：URL 格式引用的 finding_id 为空，通过 source 字段反查 finding 编号
-        # 设计-3 修复：同 source 多 findings（RAG 同 URL 多分块）时收集所有编号
-        source_to_ids: Dict[str, List[str]] = {}
-        for i, f in enumerate(findings, 1):
-            source_to_ids.setdefault(f.source, []).append(str(i))
-        used_ids = set()
-        for r in to_check:
-            fid = r.get("finding_id")
-            if fid:
-                used_ids.add(str(fid))
-            elif r.get("source"):
-                # URL 格式引用：通过 source 字段反查所有对应编号
-                for mapped in source_to_ids.get(r["source"], []):
-                    used_ids.add(mapped)
-        trimmed = bool(used_ids)
-
-        if trimmed:
-            lines = [
-                f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
-                for i, f in enumerate(findings, 1)
-                if str(i) in used_ids
-            ]
-            if lines:
-                return "\n".join(lines), True
-            # 安全阀：used_ids 非空但与 findings 编号无交集（理论上不发生）→ 降级全量
-            warnings.warn(
-                "Validator feed trim: used_ids 与 findings 编号无交集，降级为全量喂料",
-                stacklevel=2,
-            )
-
-        # 未触发裁剪或触发安全阀：回退全量
-        lines = [
-            f"- [{i}] 来源: {f.source} (类型: {f.source_type}) {_text_for(f, i)}"
-            for i, f in enumerate(findings, 1)
-        ]
-        return "\n".join(lines), False
+        lines, trimmed = cls._build_findings_lines(
+            findings, to_check, evidence_index, stats, statuses)
+        return "\n".join(lines.values()), trimmed
 
     _CLAIM_SEP = "。！？；\n"          # 句子边界字符（W2.1）
     _CLAIM_MAX = 200                  # 引用前最多取 200 字符的窗口（W2.1）
@@ -573,8 +623,11 @@ class Validator:
         evidence_index = build_evidence_index(evidence or [])
         evidence_stats: Dict[str, int] = {}
         evidence_status: Dict[str, str] = {}
-        findings_text, _ = self._build_findings_text(findings, to_check, evidence_index,
-                                                     evidence_stats, evidence_status)
+        # A4（#154）：取「按编号索引」的喂料行 —— 多批时按批挑行，避免整段上下文重复 N 次
+        source_to_ids = self._source_to_ids(findings)
+        findings_lines, _ = self._build_findings_lines(findings, to_check, evidence_index,
+                                                       evidence_stats, evidence_status)
+        findings_text = "\n".join(findings_lines.values())
         # W7 F1：claim 不再截断；F2：LLM 输出需 claim_echo 回显原文
         fixes_enabled = config.experiment.validator_fixes_enabled
         if fixes_enabled:
@@ -599,8 +652,16 @@ class Validator:
                 f"- finding_id: {r['finding_id']} | claim: {r[claim_field]} | source: {r['source']}"
                 for _, r in batch
             )
+            # A4（#154）：分片喂料 —— 只保留本批引用涉及的 finding 行（单批时与
+            # findings_text 逐字一致）。findings_lines / source_to_ids 只读，线程安全。
+            if shard_context:
+                batch_ids = self._used_finding_ids([r for _, r in batch], source_to_ids)
+                feed_text = "\n".join(
+                    line for number, line in findings_lines.items() if number in batch_ids)
+            else:
+                feed_text = findings_text
             user = (
-                f"研究发现：\n{findings_text}\n\n"
+                f"研究发现：\n{feed_text}\n\n"
                 f"待校验引用（仅列存在性已通过的）：\n{citations_json}\n\n"
                 "请输出校验结果。"
             )
@@ -633,6 +694,19 @@ class Validator:
         unused_verdicts: List[Dict[str, Any]] = []
         failed_row_ids: set = set()
         expected_fids = {r["finding_id"] for r in to_check}
+        # A4（#154）：多批场景是否只喂本批引用涉及的 finding 行（单批场景无差异）
+        _batch_size = validator_batch_size()
+        shard_context = (
+            validator_shard_context()
+            and _batch_size > 0
+            and len(to_check) > _batch_size
+        )
+        # A4（#154）：未校验必须按「饥饿」/「判据拒绝」分开统计 —— 两者一个是
+        # 工程缺陷（预算不足 / 调用失败）、一个是质量信号（LLM 判不忠实），
+        # 混在「未校验引用 N%」里会把后续决策带偏（例如误判为需要放宽判据）。
+        budget_starved_count = 0
+        unverified_starved_count = 0
+        verified_rejected_count = 0
         if to_check:  # 全部存在性失败时零 LLM 调用（Q3 短路完整落地）
             # F13（审计）：忠实度阶段预算/时限准入 —— 耗尽则整体跳过（保留存在性结论并留痕）
             try:
@@ -645,9 +719,12 @@ class Validator:
                     fallback_action="existence_only",
                     node="validator",
                 )
+                # A4（#154）：预算准入拒绝 ⇒ 这些引用根本没进 LLM（饥饿），
+                # 与「判了但没通过」严格区分。
+                budget_starved_count = len(to_check)
                 to_check = []
             if to_check:
-                batch_size = validator_batch_size()
+                batch_size = _batch_size  # 与上面 shard_context 判定取同一值
                 indexed = list(enumerate(to_check))
                 batches: List[List[Tuple[int, Dict[str, Any]]]] = (
                     [indexed[i:i + batch_size] for i in range(0, len(indexed), batch_size)]
@@ -769,6 +846,8 @@ class Validator:
                 verified, faithful, supported_flag, confidence, note = (
                     False, False, False, 0.5, "LLM 校验失败：校验未完成（不视为通过）")
                 verification_failed = True
+                # A4（#154）：批调用失败（含预算拒绝）⇒ 未校验是「饥饿」不是「判不过」
+                unverified_starved_count += 1
             elif origin_unknown:
                 verified, faithful, supported_flag, confidence, note = (
                     False, False, False, 0.5,
@@ -802,6 +881,10 @@ class Validator:
                         confidence = float(verdict.get("confidence", 0.5))
                         note = verdict.get("note", "") or ("" if faithful else "faithful=false 但未附原因")
                     verified = faithful
+                    if not verified and not verification_failed:
+                        # A4（#154）：拿到裁决且判不忠实 ⇒ 质量信号（判据拒绝）。
+                        # echo 错位等「校验未完成」态不计入 —— 那属于第三类，不是判据结论。
+                        verified_rejected_count += 1
 
             # F12（审计）：多源印证的**代码复核** —— LLM 声称 supported 时必须给出真实存在、
             # 且达到 min_sources 个独立来源（不同 source；同文档多分块不算）的证据编号；
@@ -866,6 +949,10 @@ class Validator:
             "multi_source_claimed_count": ms_claimed,
             "multi_source_verified_count": ms_verified,
             "multi_source_downgraded_count": ms_downgraded,
+            # A4（#154）：未校验归因拆分 —— 饥饿（预算准入拒绝 / 批调用失败）
+            # 与判据拒绝（拿到裁决但判不忠实）必须分开，否则「未校验 N%」无法指导决策。
+            "unverified_starved_count": budget_starved_count + unverified_starved_count,
+            "verified_rejected_count": verified_rejected_count,
         })
         return result
 
