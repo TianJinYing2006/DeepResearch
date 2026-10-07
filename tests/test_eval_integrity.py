@@ -158,12 +158,27 @@ def test_citation_judge_no_verdict_not_counted_as_pass():
 
 
 def test_citation_judge_llm_failed_is_explicit():
-    judge = FakeJudge([RuntimeError("judge down")])
+    # A1（2026-10-07）：异常先重试 1 次（共 2 次尝试）；持续失败才显式 llm_failed
+    judge = FakeJudge([RuntimeError("judge down"), RuntimeError("judge down")])
     res = judge_citations([_citation("1")], [_finding()], [_finding()], judge)
     assert res["llm_failed"] is True
     assert res["passed"] is None
     assert res["fidelity_rate"] is None
     assert "judge down" in res["error"]
+    assert len(judge.calls) == 2
+
+
+def test_citation_judge_retries_after_timeout_then_succeeds():
+    """A1：首次超时重试成功 → llm_failed=False；默认 timeout=120s（不再是 60s）。"""
+    judge = FakeJudge([
+        TimeoutError("Request timed out."),
+        {"citations": [{"idx": 0, "faithful": True, "note": ""}]},
+    ])
+    res = judge_citations([_citation("1")], [_finding()], [_finding()], judge)
+    assert res["llm_failed"] is False
+    assert res["fidelity_rate"] == 1.0
+    assert len(judge.calls) == 2
+    assert judge.calls[0]["kwargs"]["timeout"] == 120.0
 
 
 def test_citation_judge_empty_citations_no_call():
