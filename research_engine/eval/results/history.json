@@ -2277,5 +2277,158 @@
    "retrieval_hit_rate": -15.6
   },
   "generated_at": "2026-10-07T15:37:58"
+ },
+ {
+  "run_id": "run_20261007_153800",
+  "verdict": "suspicious",
+  "verdict_reasons": [
+   "uncited_fact_ratio=0.6717 >= 0.5"
+  ],
+  "git_commit": "08262ae537bd2a2ce530d1ff1a74b865439bab14",
+  "metrics": {
+   "completion_rate": 1.0,
+   "citation_accuracy": 0.6,
+   "citation_accuracy_relaxed": 0.6,
+   "existence_rate": 0.928,
+   "citation_judge_fidelity": 0.8207,
+   "citation_judge_end_to_end": 0.8088,
+   "coverage": 0.4167,
+   "uncited_fact_ratio": 0.6717,
+   "retrieval_hit_rate": 0.4059,
+   "avg_steps": 2.75,
+   "reflection_critic_stop_rate": 0.85,
+   "insufficient_marker_ratio": 0.7831
+  },
+  "metrics_stderr": {
+   "completion_rate": {
+    "n": 20,
+    "stderr": 0.0,
+    "ci95": [
+     1.0,
+     1.0
+    ]
+   },
+   "citation_accuracy": {
+    "n": 20,
+    "stderr": 0.091,
+    "ci95": [
+     0.4105,
+     0.7632
+    ]
+   },
+   "citation_accuracy_relaxed": {
+    "n": 20,
+    "stderr": 0.091,
+    "ci95": [
+     0.4105,
+     0.7632
+    ]
+   },
+   "existence_rate": {
+    "n": 20,
+    "stderr": 0.0476,
+    "ci95": [
+     0.8252,
+     0.9883
+    ]
+   },
+   "citation_judge_fidelity": {
+    "n": 14,
+    "stderr": 0.0786,
+    "ci95": [
+     0.6578,
+     0.9549
+    ]
+   },
+   "citation_judge_end_to_end": {
+    "n": 14,
+    "stderr": 0.0799,
+    "ci95": [
+     0.646,
+     0.9514
+    ]
+   },
+   "coverage": {
+    "n": 20,
+    "stderr": 0.0726,
+    "ci95": [
+     0.2833,
+     0.5708
+    ]
+   },
+   "uncited_fact_ratio": {
+    "n": 20,
+    "stderr": 0.037,
+    "ci95": [
+     0.5941,
+     0.7426
+    ]
+   },
+   "retrieval_hit_rate": {
+    "n": 20,
+    "stderr": 0.0454,
+    "ci95": [
+     0.3215,
+     0.5028
+    ]
+   },
+   "avg_steps": {
+    "n": 20,
+    "stderr": 0.2868,
+    "ci95": [
+     2.25,
+     3.4
+    ]
+   },
+   "reflection_critic_stop_rate": {
+    "n": 20,
+    "stderr": 0.0803,
+    "ci95": [
+     0.7,
+     1.0
+    ]
+   },
+   "insufficient_marker_ratio": {
+    "n": 20,
+    "stderr": 0.0494,
+    "ci95": [
+     0.6703,
+     0.8645
+    ]
+   }
+  },
+  "metrics_ok": 14,
+  "metrics_partial": 6,
+  "metrics_failed": 0,
+  "config_snapshot": {
+   "planner_model": "qwen-plus",
+   "critic_model": "qwen-plus",
+   "fast_model": "qwen-turbo",
+   "smart_model": "qwen-plus",
+   "validator_model": "qwen-plus",
+   "python_version": "3.13.14",
+   "token_budget": 200000,
+   "max_total_hops": 20,
+   "per_subq_hop_cap": 5,
+   "max_replan": 1,
+   "search_provider": "bocha",
+   "experiment": {
+    "critic_gap_enabled": true,
+    "validator_fixes_enabled": true,
+    "validator_assertive_filter_enabled": true,
+    "writer_sectioned_feed_enabled": true,
+    "validator_trim_enabled": true
+   }
+  },
+  "prompt_hash": "7a8322c79d5fff7b",
+  "scorer_version": "w9.0",
+  "citation_judge_independent": false,
+  "delta_pp_from_prev": {
+   "completion_rate": 0.0,
+   "citation_accuracy": 6.5,
+   "coverage": -1.7,
+   "retrieval_hit_rate": 1.7
+  },
+  "generated_at": "2026-10-07T17:02:32"
  }
 ]

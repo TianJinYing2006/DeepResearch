@@ -1,4 +1,4 @@
-# eval 报告（run_20261007_141516）
+# eval 报告（run_20261007_153800）
 
 > ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
 > 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
@@ -26,7 +26,7 @@
 **verdict：`suspicious` ⚠️**
 
 触发原因：
-  - uncited_fact_ratio=0.6913 >= 0.5
+  - uncited_fact_ratio=0.6717 >= 0.5
 
 > `suspicious` = 指标跌破阈值，**被测可能已彻底降级**；`broken` = **评测管线自身**大面积失败（尺子坏了，均值不可信）。
 > 阈值为**外置参数**（`--thresholds-json`），默认组由 `run_20260910_173540` 反推，**尚未在新主链路基线上校准** ⇒ 当前只告警、不阻断。
@@ -36,9 +36,9 @@
 - 标注方法学: ai_draft + human_calibration
 
 ## 2. 运行环境与双锚
-- git commit: ffdc9045c4033ee64106a679d8eb737ae10132ea / dataset version: 1.1
+- git commit: 08262ae537bd2a2ce530d1ff1a74b865439bab14 / dataset version: 1.1
 - 工作区脏标记 `git_dirty` = False / 未暂存改动指纹 `git_diff_hash` = `e3b0c44298fc1c14`
-- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-10-07T15:37:58
+- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-10-07T17:02:31
 > **提示词逐段指纹**（`prompt_slots`，用于定位 prompt_hash 变化时是哪一段变了）：
 > - `citation_judge`：`5f40102262faab49`
 > - `coverage_judge`：`59ad428fc4a4e577`
@@ -53,16 +53,16 @@
 | 指标 | 目标 | 本轮（均值 ± stderr） | 有效题数 n | 达标 |
 |---|---|---|---|---|
 | completion_rate | ≥90% | 100.0% | 20 | ✅ |
-| citation_accuracy | ≥85%（**严格口径** verified） | 53.5% ± 9.0pp | 20 | ⚠️ |
-| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 54.9% ± 8.7pp | 20 | ✅ |
-| coverage | ≥90% | 43.3% ± 7.0pp | 20 | ⚠️ |
-| retrieval_hit_rate | 记录基线 | 38.9% ± 5.7pp | 20 | ✅ |
-| avg_steps | 记录基线 | 2.5 轮 ± 0.19 | 20 | ✅ |
-| reflection_critic_stop_rate | ≥90% | 85.0% ± 7.9pp | 20 | ⚠️ |
+| citation_accuracy | ≥85%（**严格口径** verified） | 60.0% ± 9.1pp | 20 | ⚠️ |
+| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 60.0% ± 9.1pp | 20 | ✅ |
+| coverage | ≥90% | 41.7% ± 7.3pp | 20 | ⚠️ |
+| retrieval_hit_rate | 记录基线 | 40.6% ± 4.5pp | 20 | ✅ |
+| avg_steps | 记录基线 | 2.8 轮 ± 0.29 | 20 | ✅ |
+| reflection_critic_stop_rate | ≥90% | 85.0% ± 8.0pp | 20 | ⚠️ |
 
-💰 总 token（Phase1 研究）：1458120，成本：¥1.7023（Phase2 judge 另计 148717 token）
-  - 模型名桶：qwen-plus: 1424040tok ¥1.6895, qwen-turbo: 34080tok ¥0.0128
-  - 职责桶：planner: 53226tok, critic: 175045tok, smart: 161211tok, validator: 1034558tok, compress: 34080tok
+💰 总 token（Phase1 研究）：1494137，成本：¥1.7163（Phase2 judge 另计 148192 token）
+  - 模型名桶：qwen-plus: 1425416tok ¥1.6903, qwen-turbo: 68721tok ¥0.0259
+  - 职责桶：planner: 54563tok, critic: 202339tok, smart: 166131tok, validator: 1002383tok, compress: 68721tok
 
 📏 **双口径与人工口径归属（W7 TBD-5 诚实披露，不得省略）：**
   - **严格口径**（`citation_accuracy`）= `verified = existence AND faithful`（引对编号 **且** 忠实）—— W2 契约口径，跨版本对比**一律以此为准**。
@@ -70,7 +70,7 @@
   - **⚠️ W5 人工抽检 83~92% 属「宽松口径」**：人工判的是「这论断有没有依据」，**不逐条核对编号** ⇒ 与机器严格口径**不是同一件事**；二者差异的**绝大部分是口径差**，**不是 validator 误拒**。
   - 人工抽检样本仅 **12 条**、置信区间极宽，**不作为真值**；宽松口径仅作**解释性附注**，不参与任何达标判定。
 
-📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 79.1%**（72/91 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 20 篇报告）。
+📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 78.4%**（80/102 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 20 篇报告）。
   - 读法：比例**极低**可能意味着模型改为编造而非承认缺口；比例**极高**意味着检索没喂饱。两种极端都值得人工抽检，但**不作为任何达标判据**。
 
 
@@ -79,16 +79,15 @@
   指标部分 6 /
   指标失败 0
   （§5.5.2 旧键 `complete/partial/failed` 仍写入，标 deprecated）
-- q_002 [partial] 197339tok ¥0.2763
-- q_003 [partial] 63066tok ¥0.0883
-- q_006 [ok] 61975tok ¥0.0868
-- q_009 [partial] 86717tok ¥0.1214
-- q_011 [ok] 88623tok ¥0.1241
-- q_012 [partial] 170252tok ¥0.2384
-- q_013 [ok] 95946tok ¥0.1343
-- q_015 [partial] 193198tok ¥0.2705
-- q_017 [ok] 103879tok ¥0.1454
-- q_020 [partial] 61202tok ¥0.0857
+- q_002 [partial] 199217tok ¥0.2789
+- q_003 [partial] 141399tok ¥0.198
+- q_007 [ok] 87624tok ¥0.1227
+- q_009 [ok] 73145tok ¥0.1024
+- q_011 [partial] 56392tok ¥0.0789
+- q_012 [partial] 197578tok ¥0.2766
+- q_016 [ok] 71781tok ¥0.1005
+- q_017 [partial] 199786tok ¥0.2797
+- q_020 [partial] 67988tok ¥0.0952
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
@@ -190,6 +189,7 @@
 | run_20260919_014446 | 100.0% | 78.0% | 39.2% | 52.8% | completion_rate:+0.0, citation_accuracy:+3.7, coverage:-2.9, retrieval_hit_rate:+0.3 |
 | run_20260919_023550 | 100.0% | 77.5% | 41.2% | 54.5% | completion_rate:+0.0, citation_accuracy:-0.5, coverage:+2.1, retrieval_hit_rate:+1.7 |
 | run_20261007_141516 | 100.0% | 53.5% | 43.3% | 38.9% | completion_rate:+0.0, citation_accuracy:-24.1, coverage:+2.1, retrieval_hit_rate:-15.6 |
+| run_20261007_153800 | 100.0% | 60.0% | 41.7% | 40.6% | completion_rate:+0.0, citation_accuracy:+6.5, coverage:-1.7, retrieval_hit_rate:+1.7 |
 
 > ⚠️ `run_20260916_022440` → `run_20260919_004620`：**尺子变了**（`prompt_hash`：— → cf95dafc78f98348；`scorer_version`：— → w8.1；`citation_judge_independent`：— → —） ⇒ 这两轮之间的 delta **不构成趋势**。
 > ⚠️ `run_20260919_023550` → `run_20261007_141516`：**尺子变了**（`prompt_hash`：cf95dafc78f98348 → 7a8322c79d5fff7b；`scorer_version`：w8.1 → w9.0） ⇒ 这两轮之间的 delta **不构成趋势**。
