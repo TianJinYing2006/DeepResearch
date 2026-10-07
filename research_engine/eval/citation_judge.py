@@ -9,7 +9,9 @@ validator 判据会同时改变「被测系统」与「评分尺子」（W7 用 
 
 - existence（本地判定）与 fidelity（裁判判定）分离；
 - 未获裁决（no_verdict）**不计通过**（严格口径），另报 ``no_verdict_rate``；
-- 裁判调用失败 ⇒ ``llm_failed=True``（该题独立口径显式失败，不静默、不冒充通过）；
+- 裁判调用失败 ⇒ ``llm_failed=True``（该题独立口径显式失败，不静默、不冒充通过）。
+  **A1（2026-10-07）**：超时/网络异常先重试（共 2 次尝试、默认 120s）；仍失败才显式失败
+  —— 10·07 基线实测单次 50 条引用的裁判请求在 60s 上限下 30% 超时；
 - 证据按 F08 三层口径组装：编号基准 = 工作摘要层（与 Writer/Validator 同一份），
   正文按 ``origin_evidence_ids`` 回**原文层**（缺 origin 链时用自身正文）。
 
@@ -27,6 +29,11 @@ from research_engine.agents.validator import config_min_sources
 from research_engine.evidence import build_evidence_index, resolve_evidence_text
 from research_engine.llm.client import LLMClient
 from research_engine.state import ResearchFinding
+
+#: 独立裁判单次调用默认超时（A1，2026-10-07）。证据正文 + 约 50 条引用的 JSON 输出
+#: 在模型高负载时会超过 60s（10·07 基线实测 18/60 条超时）；配合 exception 重试，
+#: 超时不再直接判 ``llm_failed``。
+DEFAULT_JUDGE_TIMEOUT_S = 120.0
 
 #: 独立裁判 system 提示词（唯一产生点；idx 对齐，不做 claim_echo 逐字回显——
 #: 那是主链路 validator 的修复开关，独立裁判保持稳定判据）。
@@ -173,7 +180,7 @@ def judge_citations(
     judge: Optional[LLMClient] = None,
     *,
     max_retry: int = 1,
-    timeout: float = 60.0,
+    timeout: float = DEFAULT_JUDGE_TIMEOUT_S,
 ) -> Dict[str, Any]:
     """对一道题的引用集跑独立裁判；返回严格口径指标（见模块 docstring）。
 
@@ -202,24 +209,25 @@ def judge_citations(
     verdict_of: Dict[int, Dict[str, Any]] = {}
     pending = list(enumerate(to_check))
     rounds = 0
-    try:
-        while pending and rounds <= max_retry:
+    last_error = ""
+    while pending and rounds <= max_retry:
+        try:
             got = _ask(judge, findings_text, pending, timeout)
-            if not got:
-                if rounds == 0:
-                    return _empty_result(total, len(to_check), llm_failed=True,
-                                         error="裁判未返回任何可对齐的裁决")
-                break
-            before = len(pending)
-            verdict_of.update(got)
-            pending = [(k, c) for k, c in pending if k not in got]
+        except Exception as exc:  # noqa: BLE001 —— A1：超时/网络先重试，耗尽后显式失败
+            last_error = f"{type(exc).__name__}: {exc}"
             rounds += 1
-            if len(pending) == before:  # 无进展，避免死循环
-                break
-    except Exception as exc:  # noqa: BLE001 —— 独立口径显式失败，不静默
-        if not verdict_of:
-            return _empty_result(total, len(to_check), llm_failed=True,
-                                 error=str(exc)[:300])
+            continue
+        if not got:
+            break
+        before = len(pending)
+        verdict_of.update(got)
+        pending = [(k, c) for k, c in pending if k not in got]
+        rounds += 1
+        if len(pending) == before:  # 无进展，避免死循环
+            break
+    if not verdict_of:  # 独立口径显式失败，不静默
+        return _empty_result(total, len(to_check), llm_failed=True,
+                             error=(last_error or "裁判未返回任何可对齐的裁决")[:300])
 
     passed = 0
     no_verdict = 0
@@ -249,7 +257,7 @@ def judge_citations(
 
 
 def compute_citation_judge(state: Dict[str, Any], judge: Optional[LLMClient] = None,
-                           *, timeout: float = 60.0) -> Dict[str, Any]:
+                           *, timeout: float = DEFAULT_JUDGE_TIMEOUT_S) -> Dict[str, Any]:
     """``compute_all`` 入口：从 raw state 取引用/工作层/原文层并跑独立裁判。"""
     citations = state.get("citations") or []
     working = state.get("working_findings") or state.get("findings") or []
