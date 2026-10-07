@@ -40,6 +40,9 @@ bash tools/backup.sh            # pg_dump -Fc + pg_restore -l 可读校验 + 轮
 #   → 产出 deepresearch_*.dump.pem（openssl smime -aes256；服务器只存公钥，私钥离线保管）
 # 对称备选：BACKUP_ENCRYPT=1 BACKUP_PASSPHRASE=...（口令仅环境变量注入、异地托管）
 # 每日自动：tools/backup-cron.sh（备份 + rclone 同步 COS），cron 03:30，见脚本头注释
+# 独立校验（不必重新备份）：tools/backup-verify.sh —— 新鲜度 + pg_restore -l；
+#   .enc/.pem 提供口令/私钥时做解密校验，未提供则显式输出 structure-only
+# 云上一次性安装与恢复演练检查单：见 §10（需求 1，2026-10-07）
 
 # 2.4 配置 diff 核对：CORS / 预算 / 并发 / 限流 / 境外服务开关 / webhook
 docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|MAX_CONCURRENT|ALERT|S3|ENV)"
@@ -212,5 +215,61 @@ curl --ssl-revoke-best-effort -fsS https://<公网IP>/api/health/ready
 | 演练 | 状态 | 说明 |
 |---|---|---|
 | 备份 → 清库 → 恢复 | ✅ 每次 CI `infra` job 执行 | `tools/backup.sh` + `tools/restore.sh` + 种子数据/结构断言双向验证 |
+| 云上恢复演练（staging，临时容器） | ⏳ 待主理人执行（检查单见 §10） | 未执行前按「无备份」对待；CI 演练只代表 CI 环境 |
 | 应用版本回滚 | ⏳ 未演练（staging 执行后回填本节） | 本文 §6.1 为流程；回滚能力验证前，发布窗口需预留人工介入 |
 | 迁移失败中断 | ⏳ 未演练 | 依赖 migrate 单事务语义；可在 staging 用损坏 fixture 演练 |
+
+## 10. 云上备份安装与恢复演练（一次性；需求 1，2026-10-07）
+
+> 背景：备份/恢复/加密脚本已入仓（PR #93/#94），CI 每次 PR 跑「备份→清库→恢复」，
+> 但**云上未安装备份 cron、未做真实恢复演练**（`deployment.md` §6.1 / 上文 §9）。
+> 判据：`pg_restore -l` 能列出目录才算成功；**未验证的备份视为不存在**。
+
+### 10.1 一次性安装（服务器 root）
+
+- [ ] 1. `backup-recipient.crt` 公钥放 `/opt/deepresearch/`；**私钥离线保管**（密码管理器/离线盘），服务器不留（需求 20 §8）
+- [ ] 2. rclone COS 配置就绪：`/root/.config/rclone/rclone.conf`（remote 名默认 `cos`）
+- [ ] 3. 安装 cron：`30 3 * * * /opt/deepresearch/tools/backup-cron.sh >> /var/log/dr-backup.log 2>&1`
+- [ ] 4. 手动首跑：`bash /opt/deepresearch/tools/backup-cron.sh` → 日志出现 `backup + COS sync ok`
+- [ ] 5. 校验：`BACKUP_DIR=/opt/deepresearch/backups bash /opt/deepresearch/tools/backup-verify.sh`
+      （默认 structure-only；持有离线私钥的机器可做 decrypted 校验）
+- [ ] 6. COS 侧核对：对象存在、大小与本地一致
+- [ ] 7. 失败可见：`/var/log/dr-backup.log` 可查；webhook 未配置时在告警登记中备注（P2-6）
+
+### 10.2 恢复演练（建议临时容器执行，不碰生产库）
+
+```bash
+# 1) 取最新加密备份并用离线私钥解密（在持有私钥的安全机器上）
+latest=$(ls -1t /opt/deepresearch/backups/deepresearch_*.dump.pem | head -1)
+openssl smime -decrypt -in "$latest" -inkey /path/offline/recipient.key -out /tmp/drill.dump
+pg_restore -l /tmp/drill.dump > /dev/null            # 先过判据
+
+# 2) 起临时库并恢复
+docker run -d --name dr-drill -e POSTGRES_PASSWORD=drill -e POSTGRES_USER=deepresearch \
+  -e POSTGRES_DB=deepresearch postgres:16-alpine
+docker exec -i dr-drill pg_restore --no-owner --no-privileges -U deepresearch -d deepresearch < /tmp/drill.dump
+
+# 3) 断言（迁移记账 / 任务 / 产物）
+docker exec dr-drill psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM schema_migrations"
+docker exec dr-drill psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM runs"
+docker exec dr-drill psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM run_artifacts"
+
+# 4) 清理
+docker rm -f dr-drill; rm -f /tmp/drill.dump
+```
+
+> 如需「越权核验」全链路（删除 → 恢复 → 越权被拒），在 staging 维护窗口按
+> `production-readiness.md` §5 执行；临时容器演练覆盖数据可恢复性。
+
+### 10.3 演练记录（执行后回填，并同步 §9 状态）
+
+| 项 | 值 |
+|---|---|
+| 演练日期 / 执行人 | |
+| 备份点（文件 / 时间 / 大小 / md5） | |
+| 产物形态（明文 / .enc / .pem） | |
+| 解密与 `pg_restore -l` | 通过 / 失败 |
+| 恢复耗时（下载 + 解密 + 恢复 + 断言） | |
+| 断言（schema_migrations / runs / run_artifacts） | |
+| 失败项与改进项 | |
+| 结论（可恢复 / 不可恢复） | |
