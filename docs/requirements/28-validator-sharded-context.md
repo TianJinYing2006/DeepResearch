@@ -1,86 +1,143 @@
-﻿# 闇€姹?28锛歷alidator 鎸夋壒鍒嗙墖涓婁笅鏂囷紙A4锛?
-> 鐘舵€侊細**鑽夌**锛堥殢 PR 鍚堝叆鍚庣疆銆屽凡鍚堛€嶏級锛涘疄鏂借繘搴︿互 `docs/project-status.md` 涓哄敮涓€鐪嬫澘锛圖-01锛夈€?> 鏉ユ簮锛歮ini 閿氱偣锛?026-10-07/08锛孖ssue #154锛夊疄娴嬧€斺€擜3 鏍￠獙鍦版澘钀藉湴鍚庨噸鍨嬮浠嶇粨鏋勬€чゥ楗裤€?> 鍓嶇疆锛氶渶姹?19锛坴alidator 鍒嗘壒骞惰锛変笌鏈渶姹傛槸**鍚屼竴妯″潡鐨勫墠鍚庝袱娆′慨澶?*锛?9 浼樺寲浜嗗閽熴€?> 鏈渶姹備慨姝?19 寮曞叆鐨?token 鏀惧ぇ锛涗袱鑰呬笉鍙簰鐩告浛浠ｃ€?
-## 1. 鍏冧俊鎭?
-| 椤?| 鍊?|
-|---|---|
-| 缂栧彿 | 28 |
-| 鏍囬 | validator 鎸夋壒鍒嗙墖涓婁笅鏂囷紙鍠傛枡涓嶅啀姣忔壒閲嶅鍙戦€侊級 |
-| 浼樺厛绾?| P0锛堟纭€?/ 棰勭畻锛?|
-| 鐘舵€?| 鑽夌 |
-| 璐熻矗浜?| TianJinYing2006 |
-| 鍏宠仈 Issue | #154 |
-| 鍏宠仈 PR | 鏈?PR |
-| 鍒涘缓 / 鏇存柊 | 2026-10-08 |
+# 需求 28：validator 按批分片上下文（A4）
 
-## 2. 闂鑳屾櫙锛坢ini 閿氱偣瀹炴祴锛?
-A3锛坄validation_floor=30k`锛岄渶姹傝 `config.py`锛夎惤鍦板悗璺?mini 閿氱偣 5 棰橈紝raw 鍙ｅ緞锛?
-| 棰?| depth | 缁堝眬 token | 鍋滄鍘熷洜 | cites | 鏈牎楠?| `budget_rejected` |
+> 状态：**草稿**（随 PR 合入后置「已合」）；实施进度以 `docs/project-status.md` 为唯一看板（D-01）。
+> 来源：mini 锚点（2026-10-07/08，Issue #154）实测——A3 校验地板落地后重型题仍结构性饥饿。
+> 前置：需求 19（validator 分批并行）与本需求是**同一模块的前后两次修复**，19 优化了墙钟、
+> 本需求修正 19 引入的 token 放大；两者不可互相替代。
+
+## 1. 元信息
+
+| 项 | 值 |
+|---|---|
+| 编号 | 28 |
+| 标题 | validator 按批分片上下文（喂料不再每批重复发送） |
+| 优先级 | P0（正确性 / 预算） |
+| 状态 | 草稿 |
+| 负责人 | TianJinYing2006 |
+| 关联 Issue | #154 |
+| 关联 PR | #156 |
+| 创建 / 更新 | 2026-10-08 |
+
+## 2. 问题背景（mini 锚点实测）
+
+A3（`validation_floor=30k`，需求见 `config.py`）落地后跑 mini 锚点 5 题，raw 口径：
+
+| 题 | depth | 终局 token | 停止原因 | cites | 未校验 | `budget_rejected` |
 |---|---|---|---|---|---|---|
 | q_001 | 10 | 85,621 | gap_reflection_cap | 4 | 0 | 0 |
-| q_002 | 13 | 198,483 | replan_exhausted | 112 | **112锛堝叏閮級** | **13** |
+| q_002 | 13 | 198,483 | replan_exhausted | 112 | **112（全部）** | **13** |
 | q_004 | 10 | 118,265 | replan_exhausted | 21 | 0 | 0 |
 | q_012 | 11 | 199,018 | replan_exhausted | 50 | 18 | 2 |
 | q_020 | 6 | 193,864 | replan_exhausted | 37 | 32 | 2 |
 
-鍚堣 `budget_rejected = 17`锛涙湭鏍￠獙寮曠敤 162/224 鈮?72%銆?
-**鍒よ**锛欰3 鍦版澘**閮ㄥ垎鐢熸晥**鈥斺€攓_004 鏍￠獙瀹屾暣銆乹_001 鐨?4 鏉℃槸鍒ゆ嵁鎷掔粷锛坒idelity锛夎€岄潪楗ラタ锛?浣嗛噸鍨嬮浠嶇粨鏋勬€чゥ楗匡紝涓旀瘮鎺ㄧ畻鏇撮噸锛歲_002 寮曠敤浠?53 娑ㄥ埌 112锛坒indings 97锛夈€?
-## 3. 鏍瑰洜锛堜笁鏉★紝鍧囨湁浠ｇ爜钀界偣锛?
-| 缂栧彿 | 浜嬪疄 | 钀界偣锛堜慨澶嶅墠锛?|
+合计 `budget_rejected = 17`；未校验引用 162/224 ≈ 72%。
+
+**判读**：A3 地板**部分生效**——q_004 校验完整、q_001 的 4 条是判据拒绝（fidelity）而非饥饿；
+但重型题仍结构性饥饿，且比推算更重：q_002 引用从 53 涨到 112（findings 97）。
+
+## 3. 根因（三条，均有代码落点）
+
+| 编号 | 事实 | 落点（修复前） |
 |---|---|---|
-| **F1 鍐冲畾鎬?* | `findings_text` 鍦ㄥ垎鎵瑰惊鐜?*涔嬪**涓€娆℃€ф瀯閫狅紝`_judge_batch` **姣忎竴鎵?*閮芥妸鏁存鎷艰繘 user prompt 鈬?鎬昏緭鍏?鈮?**鎵规暟 脳 findings_text**銆傞渶姹?19 鐨勫垎鎵瑰彧鍒囦簡銆屽緟鍒ゅ畾鍒楄〃銆嶏紝娌″垏銆屼笂涓嬫枃銆?| `agents/validator.py`锛坄_build_findings_text` 璋冪敤鐐逛笌 `_judge_batch`锛?|
-| **F2** | `reserve_call` 鎷掔粷鏉′欢鏄?`remaining <= want_in`锛堝墿浣欒涓嶄笅杈撳叆浼拌鍗虫嫆锛夈€俼_002 缁堝眬 198,483 / 200,000 鈬?remaining 鈮?1.5k << 14k 鈬?**姣忔壒蹇呮嫆** 鈬?112 鏉″叏閮ㄦ湭鏍￠獙銆?7 = 13+2+2 涓庡疄娴嬪畬鍏ㄥ涓?| `research_engine/budget.py:146` |
-| **F3** | `validation_floor` **鍙湪鍘嬬缉闃舵鐢熸晥**锛寃rite 闃舵娌℃湁鍦版澘 鈬?write 鍚冩帀 40k reserve 鐨勫ぇ澶达紝validate 鍙墿 1.5k | `research_engine/context/manager.py:62` |
+| **F1 决定性** | `findings_text` 在分批循环**之外**一次性构造，`_judge_batch` **每一批**都把整段拼进 user prompt ⇒ 总输入 ≈ **批数 × findings_text**。需求 19 的分批只切了「待判定列表」，没切「上下文」 | `agents/validator.py`（`_build_findings_text` 调用点与 `_judge_batch`） |
+| **F2** | `reserve_call` 拒绝条件是 `remaining <= want_in`（剩余装不下输入估计即拒）。q_002 终局 198,483 / 200,000 ⇒ remaining ≈ 1.5k << 14k ⇒ **每批必拒** ⇒ 112 条全部未校验。17 = 13+2+2 与实测完全对上 | `research_engine/budget.py:146` |
+| **F3** | `validation_floor` **只在压缩阶段生效**，write 阶段没有地板 ⇒ write 吃掉 40k reserve 的大头，validate 只剩 1.5k | `research_engine/context/manager.py:62` |
 
-F3 瑙ｉ噴浜嗐€屽湴鏉块儴鍒嗙敓鏁堛€嶏細杞诲瀷棰橈紙4 鏉″紩鐢級璺戝緱瀹岋紝閲嶅瀷棰橈紙112 鏉★級楗挎銆?**F3 涓嶅湪鏈?PR 鑼冨洿鍐?*鈥斺€斿厛淇?F1 鎶婃牎楠岄渶姹傚帇涓嬫潵锛屽啀鎸夊疄娴嬬己鍙ｅ喅瀹氭槸鍚︿笂璋?`token_budget_reserve`锛堣 搂11锛夈€?
-## 4. 瀹炴祴 token 璐︼紙鍙洿鎺ュ绠楋級
+F3 解释了「地板部分生效」：轻型题（4 条引用）跑得完，重型题（112 条）饿死。
+**F3 不在本 PR 范围内**——先修 F1 把校验需求压下来，再按实测缺口决定是否上调
+`token_budget_reserve`（见 §11）。
 
-澶嶇畻鏂瑰紡锛氱洿鎺ュ疄渚嬪寲鐪熷疄 `Validator` 澶嶇幇 prompt锛屼笌绾夸笂 degradation 鐨?`input_estimate`
-閫愭壒鍚诲悎鍒?~1%銆傝剼鏈?`validator_token_accounting.py`锛堣矾寰勮 搂12锛夈€?
-| 鏂规 | q_002 鍗曡疆鏍￠獙闇€姹?| 璇存槑 |
+## 4. 实测 token 账（可直接复算）
+
+复算方式：直接实例化真实 `Validator` 复现 prompt，与线上 degradation 的 `input_estimate`
+逐批吻合到 ~1%。脚本 `validator_token_accounting.py`（路径见 §12）。
+
+| 方案 | q_002 单轮校验需求 | 说明 |
 |---|---|---|
-| 褰撳墠瀹炵幇锛坆atch=16锛? 鎵癸級 | **111,020** | 姣忔壒閲嶅鏁存 findings_text |
-| A @ batch=16 | **40,439** | 鍒嗙墖鍠傛枡 |
-| A @ batch=32 | **32,738** | 鍒嗙墖鍠傛枡 |
-| A @ batch=0锛堝崟鎵癸級 | 鈮?32k锛堢悊璁烘渶鐪侊級 | **涓嶅彲琛?*锛?12 鏉¤鍐宠緭鍑?6~9k > `max_tokens=4096`锛屾挒鎴柇锛涗笖鏁村崟鏃犳壒闅旂 |
+| 当前实现（batch=16，7 批） | **111,020** | 每批重复整段 findings_text |
+| A @ batch=16 | **40,439** | 分片喂料 |
+| A @ batch=32 | **32,738** | 分片喂料 |
+| A @ batch=0（单批） | ≈ 32k（理论最省） | **不可行**：112 条裁决输出 6~9k > `max_tokens=4096`，撞截断；且整单无批隔离 |
 
-鈿狅笍 **杞倠锛堝繀椤昏褰曪級**锛歚repair` 涔嬪悗浼氳窇**浜屾鏍￠獙**锛屽洜姝ゅ疄闄呮秷鑰楁槸涓婅〃鐨?*绾︿袱鍊?*
-鈥斺€擜@16 涓よ疆 鈮?80k锛孉@32 涓よ疆 鈮?65k銆傝繖鎰忓懗鐫€**浠呴潬鏈?PR 涓嶄竴瀹氳兘鎶?q_002 鍘嬭繘 30k 鍦版澘**锛?棰勭畻鏄惁涓婅皟鎸夎惤鍦板悗鐨勫疄娴嬬己鍙ｅ啀瀹氾紙鈶?宸叉媿鏉匡細鍏?A 鍚庢寜缂哄彛瀹氾級銆?
-## 5. 浼樺寲鏂规锛堟湰 PR锛?
-1. **`_build_findings_lines`**锛氭妸 `_build_findings_text` 鐨勬覆鏌撻€昏緫鎶藉嚭涓恒€岃繑鍥?   `{缂栧彿: 琛屾枃鏈瑌`銆嶇殑鐗堟湰锛沗_build_findings_text` 闄嶇骇涓哄畠鐨勬嫾鎺ュ寘瑁咃紙鏃㈡湁绛惧悕/琛屼负/鐢ㄤ緥涓嶅彉锛夈€?2. **`_source_to_ids` / `_used_finding_ids`**锛氭潵婧愨啋缂栧彿鏄犲皠銆佸紩鐢ㄢ啋娑夊強缂栧彿鐨勫弽鏌ワ紝
-   鍏ㄩ噺涓庡垎鎵瑰叡鐢ㄥ悓涓€濂楅€昏緫锛堜笉鍐嶆湁涓ゅ瀹炵幇婕傜Щ鐨勯闄╋級銆?3. **`_judge_batch` 鎸夋壒鎸戣**锛氬彧淇濈暀鏈壒寮曠敤娑夊強鐨?finding 琛屾嫾杩?prompt銆?   `findings_lines` / `source_to_ids` 鍧囦负鍙锛屽伐浣滅嚎绋嬫棤鍐欏啿绐併€?4. **寮€鍏?`DR_VALIDATE_SHARD_CONTEXT`**锛堥粯璁?`1` 寮€鍚紝`0` 鍥為€€鏃ц涓猴級锛岀粡
-   `validator_shard_context()` 璇诲彇銆?5. **鎸囨爣鎷嗗垎**锛歚last_validation_stats` 鏂板
-   `unverified_starved_count`锛堥ゥ楗匡細棰勭畻鍑嗗叆鎷掔粷 + 鎵硅皟鐢ㄥけ璐ワ級涓?   `verified_rejected_count`锛堝垽鎹嫆缁濓細鎷垮埌瑁佸喅涓斿垽涓嶅繝瀹烇級銆?6. **娉ㄩ噴鏇存**锛歚config.py` 涓?`validation_floor` 鐨勬敞閲婏紙鍘熸寜 53 鏉″紩鐢?/ 4 鎵?鈮?55-60k
-   鎺ㄧ畻锛屽凡琚疄娴嬭瘉浼級銆?
-## 6. 璁捐绛栫暐
+⚠️ **软肋（必须记录）**：`repair` 之后会跑**二次校验**，因此实际消耗是上表的**约两倍**
+——A@16 两轮 ≈ 80k，A@32 两轮 ≈ 65k。这意味着**仅靠本 PR 不一定能把 q_002 压进 30k 地板**，
+预算是否上调按落地后的实测缺口再定（② 已拍板：先 A 后按缺口定）。
 
-- **鍗曟壒鍦烘櫙閫愬瓧绛変环**锛歚DR_VALIDATE_BATCH_SIZE<=0` 鎴栧紩鐢ㄦ暟 鈮?鎵瑰ぇ灏忔椂锛岃蛋鍘熻矾寰勶紝
-  鎷艰缁撴灉涓庡叧闂紑鍏虫椂瀹屽叏涓€鑷达紙鏈夊崟娴嬮敋瀹氾級銆?- **澶氭壒鍦烘櫙 = 鏂?Arm**锛?026-10-08 鎷嶆澘 鈶狅級锛氬杺鏂欏彛寰勫彉浜嗭紝`prompt_hash` 浼氬彉鈥斺€?  涓嶆槸绾€ц兘浼樺寲锛屽繀椤绘寜鏂?Arm 瀵瑰緟锛沗DR_VALIDATE_SHARD_CONTEXT=0` 鎻愪緵瀵圭収涓庡洖閫€銆?- **涓嶆敼鍔ㄥ垽瀹氬彛寰?*锛歴ystem prompt / schema / claim 瀛楁 / claim_echo 鏍稿 / 瀹芥澗鍙ｅ緞
-  锛坄verified_relaxed`锛変笌涓茶璺緞瀹屽叏鍚屾瀯锛?*姣忎釜 finding 琛岀殑娓叉煋鏂囨湰閫愬瓧涓嶅彉**銆?- **`stats` / `statuses` 鎸夊叏閲?to_check 涓€娆℃€х粺璁?*锛氬杺鏂欏垎鐗囨槸 token 浼樺寲锛?  涓嶅緱璁╁悓涓€ finding 鍥犺澶氭壒寮曠敤鑰岄噸澶嶈鍏?`evidence_truncated/missing/partial`銆?- 涓嶅紩鍏ユ柊渚濊禆銆?
-## 7. 楠屾敹鏍囧噯锛圖oD锛?
-- [x] 琛岀储寮曠増鏈笌鏃ф暣娈垫嫾瑁呬弗鏍间竴鑷达紙`test_build_findings_lines_matches_legacy_text`锛?- [x] 澶氭壒鏃舵瘡鎵瑰彧鍚湰鎵瑰紩鐢ㄦ秹鍙婄殑 finding 琛岋紙`test_sharded_feed_only_includes_batch_findings`锛?- [x] `DR_VALIDATE_SHARD_CONTEXT=0` 鍥炲埌姣忔壒鍏ㄩ噺锛堝鐓?鍥為€€寮€鍏筹級
-- [x] 鍗曟壒鍦烘櫙鍠傛枡浠嶄负鍏ㄩ噺锛堥€愬瓧绛変环杈圭晫锛?- [x] 鏈牎楠屾寜銆岄ゥ楗裤€?銆屽垽鎹嫆缁濄€嶆媶鍒嗙粺璁?- [x] 鍏ㄩ噺 ruff + 鍏ㄩ噺 pytest 闆跺洖褰?- [ ] **mini 閿氱偣閲嶈窇**锛歲_002 鐨?`budget_rejected` 涓庢湭鏍￠獙鏁颁笅闄嶏紝`cit_fid` 浠?0 鍙樹负鍙祴
-      锛?*寰呯湡瀹?run 鍥炲～**锛涜繖鏄垽鏂?鈶°€?00k 鏄惁鎻愰銆嶇殑鍞竴渚濇嵁锛?- [ ] 瑁佸垽渚у垎鐗囧崟鐙珛椤癸紙瑙?搂11锛?
-## 8. 褰卞搷鑼冨洿涓庨闄?
-- 妯″潡锛歚research_engine/agents/validator.py`銆乣config.py`锛堟敞閲婏級銆乣tests/test_validator_batching.py`锛?- 椋庨櫓锛?*涓?*鈥斺€斿垽瀹氬彛寰勬湭鍙橈紝浣嗗鎵瑰杺鏂欏彉绐勩€傚凡鐭ヨ蒋鑲嬶細
-  1. 鑻ユ煇鏉?claim 闇€瑕佽法 finding 浣愯瘉锛堢患鍚堥檲杩帮級锛屽彧鍠傛湰鎵规秹鍙婄殑 finding 鍙兘涓㈡帀鏃佽瘉銆?     褰撳墠 `_build_findings_text` 宸叉槸銆屽彧鍠傝寮曠敤 findings銆嶏紝鏈敼鍔ㄦ槸鍚屼竴閫昏緫鐨勫欢浼革紝
-     椋庨櫓鍙帶浣嗛渶 mini 閿氱偣瀹炴祴纭 `cit_fid` 涓嶉檷锛?  2. 澶氭壒鍦烘櫙 `prompt_hash` 鍙樺寲 鈬?涓庡巻鍙?run 鐨?fid 鍒嗘暟**涓嶇洿鎺ュ彲姣?*锛岄』鎸夋柊 Arm 璁板綍銆?
-## 9. 娴嬭瘯绛栫暐
+## 5. 优化方案（本 PR）
 
-- 鏂板 5 鏉￠浂 API 鍗曟祴锛堝垎鐗囩敓鏁?/ 寮€鍏冲洖閫€ / 鍗曟壒绛変环 / 琛岀储寮曚竴鑷存€?/ 鎸囨爣鎷嗗垎锛夛紱
-- 鍥炲綊锛歚tests/test_validator_fixes.py`锛坄_build_findings_text` 鏃㈡湁 3 澶勮皟鐢級+ 鍏ㄩ噺 pytest锛況uff銆?
-## 10. 鍙樻洿璁板綍
+1. **`_build_findings_lines`**：把 `_build_findings_text` 的渲染逻辑抽出为「返回
+   `{编号: 行文本}`」的版本；`_build_findings_text` 降级为它的拼接包装（既有签名/行为/用例不变）。
+2. **`_source_to_ids` / `_used_finding_ids`**：来源→编号映射、引用→涉及编号的反查，
+   全量与分批共用同一套逻辑（不再有两处实现漂移的风险）。
+3. **`_judge_batch` 按批挑行**：只保留本批引用涉及的 finding 行拼进 prompt。
+   `findings_lines` / `source_to_ids` 均为只读，工作线程无写冲突。
+4. **开关 `DR_VALIDATE_SHARD_CONTEXT`**（默认 `1` 开启，`0` 回退旧行为），经
+   `validator_shard_context()` 读取。
+5. **指标拆分**：`last_validation_stats` 新增
+   `unverified_starved_count`（饥饿：预算准入拒绝 + 批调用失败）与
+   `verified_rejected_count`（判据拒绝：拿到裁决且判不忠实）。
+6. **注释更正**：`config.py` 中 `validation_floor` 的注释（原按 53 条引用 / 4 批 ≈ 55-60k
+   推算，已被实测证伪）。
 
-| 鏃ユ湡 | 绫诲瀷 | 鍘熷洜 | 鏀瑰姩鎽樿 | 鍏宠仈 PR/commit |
+## 6. 设计策略
+
+- **单批场景逐字等价**：`DR_VALIDATE_BATCH_SIZE<=0` 或引用数 ≤ 批大小时，走原路径，
+  拼装结果与关闭开关时完全一致（有单测锚定）。
+- **多批场景 = 新 Arm**（2026-10-08 拍板 ①）：喂料口径变了，`prompt_hash` 会变——
+  不是纯性能优化，必须按新 Arm 对待；`DR_VALIDATE_SHARD_CONTEXT=0` 提供对照与回退。
+- **不改动判定口径**：system prompt / schema / claim 字段 / claim_echo 核对 / 宽松口径
+  （`verified_relaxed`）与串行路径完全同构；**每个 finding 行的渲染文本逐字不变**。
+- **`stats` / `statuses` 按全量 to_check 一次性统计**：喂料分片是 token 优化，
+  不得让同一 finding 因被多批引用而重复计入 `evidence_truncated/missing/partial`。
+- 不引入新依赖。
+
+## 7. 验收标准（DoD）
+
+- [x] 行索引版本与旧整段拼装严格一致（`test_build_findings_lines_matches_legacy_text`）
+- [x] 多批时每批只含本批引用涉及的 finding 行（`test_sharded_feed_only_includes_batch_findings`）
+- [x] `DR_VALIDATE_SHARD_CONTEXT=0` 回到每批全量（对照/回退开关）
+- [x] 单批场景喂料仍为全量（逐字等价边界）
+- [x] 未校验按「饥饿」/「判据拒绝」拆分统计
+- [x] 全量 ruff + 全量 pytest 零回归
+- [ ] **mini 锚点重跑**：q_002 的 `budget_rejected` 与未校验数下降，`cit_fid` 从 0 变为可测
+      （**待真实 run 回填**；这是判断 ②「200k 是否提额」的唯一依据）
+- [ ] 裁判侧分片单独立项（见 §11）
+
+## 8. 影响范围与风险
+
+- 模块：`research_engine/agents/validator.py`、`config.py`（注释）、`tests/test_validator_batching.py`；
+- 风险：**中**——判定口径未变，但多批喂料变窄。已知软肋：
+  1. 若某条 claim 需要跨 finding 佐证（综合陈述），只喂本批涉及的 finding 可能丢掉旁证。
+     当前 `_build_findings_text` 已是「只喂被引用 findings」，本改动是同一逻辑的延伸，
+     风险可控但需 mini 锚点实测确认 `cit_fid` 不降；
+  2. 多批场景 `prompt_hash` 变化 ⇒ 与历史 run 的 fid 分数**不直接可比**，须按新 Arm 记录。
+
+## 9. 测试策略
+
+- 新增 5 条零 API 单测（分片生效 / 开关回退 / 单批等价 / 行索引一致性 / 指标拆分）；
+- 回归：`tests/test_validator_fixes.py`（`_build_findings_text` 既有 3 处调用）+ 全量 pytest；ruff。
+
+## 10. 变更记录
+
+| 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
-| 2026-10-08 | 淇 | 闇€姹?19 鍒嗘壒姣忔壒閲嶅鏁存 findings_text 鈬?閲嶅瀷棰樻牎楠岀粨鏋勬€чゥ楗匡紙#154锛?| 琛岀储寮曞杺鏂?+ 鎸夋壒鎸戣 + 鍥為€€寮€鍏?+ 鏈牎楠屽綊鍥犳媶鍒?+ 娉ㄩ噴鏇存 | 鏈?PR |
+| 2026-10-08 | 修复 | 需求 19 分批每批重复整段 findings_text ⇒ 重型题校验结构性饥饿（#154） | 行索引喂料 + 按批挑行 + 回退开关 + 未校验归因拆分 + 注释更正 | 本 PR |
 
-## 11. 鏈惈鍦ㄦ湰 PR锛氫袱浠朵簨
+## 11. 未含在本 PR：两件事
 
-1. **瑁佸垽渚у垎鐗囷紙F15 / `eval/citation_judge.py`锛?* 鈥斺€?**鍗曠嫭绔嬮」锛堝缓璁渶姹?29锛?*銆?   鍚屾闂锛歲_002 鐨?`citation_judge` 鍗曟璋冪敤甯?112 鏉″紩鐢ㄨ秴鏃讹紝`no_verdict=112`銆?   eval 鏍囪涓?partial 鈬?**鐧炬潯绾ч鍨嬫嬁涓嶅埌鐙珛瑁佸垽鍒?*銆?   **涓轰綍涓嶅苟鍏ユ湰 PR**锛氳鍒ゅ睘**璇勬祴渚?*锛寁alidator 灞?*鐢熶骇渚?*锛涗袱鑰呮贩鍦ㄤ竴涓?PR 浼氳
-   銆岀敓浜ц涓哄彉鏇淬€嶄笌銆岃瘎娴嬪彛寰勫彉鏇淬€嶈€﹀悎锛屼竴鏃?fid 鍒嗘暟鍙樺寲灏嗘棤娉曞綊鍥犮€?   浣嗗畠涓?A4 鏄?*鍚屼竴涓ā寮?*锛坄_build_findings_text` 鍦?`citation_judge.py:90` 鏈夌嫭绔嬪壇鏈級锛?   涓旀槸**闃诲椤?*锛堜笉鍋氬氨姘歌繙鎷夸笉鍒?q_002 鐨勮鍒ゅ垎锛夆噿 鎺掑湪 A4 涔嬪悗**绱ч偦**鍋氾紝涓嶅線鍚庢嫋銆?2. **棰勭畻鏄惁涓婅皟锛團3 / `token_budget_reserve`锛?* 鈥斺€?鎸?搂4 鐨勫疄娴嬬己鍙ｅ喅瀹氾紝
-   鍒ゆ柇鍩烘暟锛欰@32 涓よ疆 鈮?65k銆?
-## 12. 澶嶇畻璧勪骇锛堢粰 reviewer锛?
-- mini 閿氱偣 raw + eval锛堝彲鐩存帴澶嶇畻锛夛細
+1. **裁判侧分片（F15 / `eval/citation_judge.py`）** —— **单独立项（建议需求 29）**。
+   同款问题：q_002 的 `citation_judge` 单次调用带 112 条引用超时，`no_verdict=112`、
+   eval 标记为 partial ⇒ **百条级题型拿不到独立裁判分**。
+   **为何不并入本 PR**：裁判属**评测侧**，validator 属**生产侧**；两者混在一个 PR 会让
+   「生产行为变更」与「评测口径变更」耦合，一旦 fid 分数变化将无法归因。
+   但它与 A4 是**同一个模式**（`_build_findings_text` 在 `citation_judge.py:90` 有独立副本），
+   且是**阻塞项**（不做就永远拿不到 q_002 的裁判分）⇒ 排在 A4 之后**紧邻**做，不往后拖。
+2. **预算是否上调（F3 / `token_budget_reserve`）** —— 按 §4 的实测缺口决定，
+   判断基数：A@32 两轮 ≈ 65k。
+
+## 12. 复算资产（给 reviewer）
+
+- mini 锚点 raw + eval（可直接复算）：
   `C:\Users\ADMINI~1\AppData\Local\Temp\opencode\dr-mini\research_engine\eval\results\run_20261008_003828\`
-- 缂洪櫡鏈熷熀绾夸笁杞?`...\dr-w9-baseline\...`锛汚/B `...\dr-ab\...`
-- token 璐﹁剼鏈?`...\opencode\validator_token_accounting.py`
+- 缺陷期基线三轮 `...\dr-w9-baseline\...`；A/B `...\dr-ab\...`
+- token 账脚本 `...\opencode\validator_token_accounting.py`
