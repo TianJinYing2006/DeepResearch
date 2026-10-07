@@ -231,3 +231,18 @@ def test_unverified_split_starved_vs_rejected(monkeypatch):
     assert stats["unverified_starved_count"] == 2
     # 引用 2 拿到裁决且判不忠实 ⇒ 判据拒绝（质量信号）；5、6 判忠实不计入
     assert stats["verified_rejected_count"] == 1
+
+
+def test_sharded_empty_batch_ids_falls_back_to_full_feed(monkeypatch):
+    """A4 加固（#154）：某批反查不到任何编号时回退全量喂料（防「空证据 prompt」）。"""
+    _reset_capture(monkeypatch, DR_VALIDATE_BATCH_SIZE="2", DR_VALIDATE_CONCURRENCY="1")
+    # 强制「本批反查」恒为空 —— 模拟 finding_id 为空且 source 未映射的极端边界
+    monkeypatch.setattr(
+        Validator, "_used_finding_ids",
+        classmethod(lambda cls, to_check, source_to_ids: set()),
+    )
+
+    Validator().validate(_report(6), _findings(6))
+
+    assert len(FeedCaptureClient.feeds) == 3
+    assert all(feed == ["1", "2", "3", "4", "5", "6"] for feed in FeedCaptureClient.feeds)

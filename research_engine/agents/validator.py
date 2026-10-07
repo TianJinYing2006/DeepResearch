@@ -656,8 +656,13 @@ class Validator:
             # findings_text 逐字一致）。findings_lines / source_to_ids 只读，线程安全。
             if shard_context:
                 batch_ids = self._used_finding_ids([r for _, r in batch], source_to_ids)
-                feed_text = "\n".join(
-                    line for number, line in findings_lines.items() if number in batch_ids)
+                # A4 加固（#154）：本批引用反查不到任何编号（finding_id 为空且 source 未映射）
+                # 时回退全量喂料——否则该批「研究发现」段为空，等于让模型在无证据下裁决。
+                feed_text = (
+                    "\n".join(line for number, line in findings_lines.items()
+                              if number in batch_ids)
+                    if batch_ids else findings_text
+                )
             else:
                 feed_text = findings_text
             user = (
