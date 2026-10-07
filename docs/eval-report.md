@@ -1,4 +1,4 @@
-# eval 报告（run_20260919_023550）
+# eval 报告（run_20261007_141516）
 
 > ⚠️ **本文件由 `research_engine/eval/report_gen.py` 自动生成，每次运行 `run.py` 都会被整体覆盖。**
 > 它是**单次 run 的原始快照，不是项目结论**；下文指标表的「达标 ✅」只按本 run 的 summary 数值机械判定，
@@ -17,16 +17,16 @@
 
 > citation_accuracy 直读主链路 validator 的裁决产物，评测层不做独立复判；凡改动 validator 的 run，其数值同时含『被测效应 + 裁判效应』（W7 实测纯裁判效应 +7.53pp，与被测效应同量级）⇒ 不可与其他 run 直接比较
 
-> - `prompt_hash`（本次实际跑的提示词指纹）= `cf95dafc78f98348`
-> - `scorer_version`（评分口径版本）= `w8.1`
+> - `prompt_hash`（本次实际跑的提示词指纹）= `7a8322c79d5fff7b`
+> - `scorer_version`（评分口径版本）= `w9.0`
 > - 裁判模型：citation = `qwen-plus`，coverage = `qwen-plus`
 
 ## 0. run 级质量闸（Arm 5 §5.5.1，**只告警不阻断**）
 
-**verdict：`ok` ✅**
+**verdict：`suspicious` ⚠️**
 
 触发原因：
-  - （无）
+  - uncited_fact_ratio=0.6913 >= 0.5
 
 > `suspicious` = 指标跌破阈值，**被测可能已彻底降级**；`broken` = **评测管线自身**大面积失败（尺子坏了，均值不可信）。
 > 阈值为**外置参数**（`--thresholds-json`），默认组由 `run_20260910_173540` 反推，**尚未在新主链路基线上校准** ⇒ 当前只告警、不阻断。
@@ -36,15 +36,16 @@
 - 标注方法学: ai_draft + human_calibration
 
 ## 2. 运行环境与双锚
-- git commit: 6dc6173c62202b8b5fd73415c7ceef83234e0208 / dataset version: 1.1
+- git commit: ffdc9045c4033ee64106a679d8eb737ae10132ea / dataset version: 1.1
 - 工作区脏标记 `git_dirty` = False / 未暂存改动指纹 `git_diff_hash` = `e3b0c44298fc1c14`
-- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-09-19T03:25:08
+- 墙钟/并发/统计: 20 条，并发 3，生成于 2026-10-07T15:37:58
 > **提示词逐段指纹**（`prompt_slots`，用于定位 prompt_hash 变化时是哪一段变了）：
-> - `coverage_judge`：`1e9427851bb5785b`
-> - `critic`：`b983ea38597be7e4`
-> - `planner`：`33cdb1ed7a57274d`
-> - `planner_replan`：`5eb4c0b52bcc0fb2`
-> - `validator`：`d96e4e8f4df9d183`
+> - `citation_judge`：`5f40102262faab49`
+> - `coverage_judge`：`59ad428fc4a4e577`
+> - `critic`：`691c6b1973914011`
+> - `planner`：`3f2b020716ea58f3`
+> - `planner_replan`：`5d6ce2a782f651ec`
+> - `validator`：`251dbe4004ad5cd7`
 > - `writer`：`56b82da428f4e179`
 
 
@@ -52,16 +53,16 @@
 | 指标 | 目标 | 本轮（均值 ± stderr） | 有效题数 n | 达标 |
 |---|---|---|---|---|
 | completion_rate | ≥90% | 100.0% | 20 | ✅ |
-| citation_accuracy | ≥85%（**严格口径** verified） | 77.5% ± 4.3pp | 20 | ⚠️ |
-| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 80.6% ± 4.1pp | 20 | ✅ |
-| coverage | ≥90% | 41.2% ± 7.9pp | 20 | ⚠️ |
-| retrieval_hit_rate | 记录基线 | 54.5% ± 4.9pp | 20 | ✅ |
-| avg_steps | 记录基线 | 8.0 轮 ± 0.75 | 20 | ✅ |
-| reflection_critic_stop_rate | ≥90% | 95.0% ± 4.8pp | 20 | ✅ |
+| citation_accuracy | ≥85%（**严格口径** verified） | 53.5% ± 9.0pp | 20 | ⚠️ |
+| citation_accuracy_relaxed | 记录基线（**宽松口径**，仅解释性附注） | 54.9% ± 8.7pp | 20 | ✅ |
+| coverage | ≥90% | 43.3% ± 7.0pp | 20 | ⚠️ |
+| retrieval_hit_rate | 记录基线 | 38.9% ± 5.7pp | 20 | ✅ |
+| avg_steps | 记录基线 | 2.5 轮 ± 0.19 | 20 | ✅ |
+| reflection_critic_stop_rate | ≥90% | 85.0% ± 7.9pp | 20 | ⚠️ |
 
-💰 总 token（Phase1 研究）：967522，成本：¥0.8739（Phase2 judge 另计 68544 token）
-  - 模型名桶：qwen-plus: 531357tok ¥0.7244, qwen-turbo: 436165tok ¥0.1495
-  - 职责桶：planner: 16542tok, critic: 169606tok, smart: 148276tok, compress: 436165tok, validator: 196933tok
+💰 总 token（Phase1 研究）：1458120，成本：¥1.7023（Phase2 judge 另计 148717 token）
+  - 模型名桶：qwen-plus: 1424040tok ¥1.6895, qwen-turbo: 34080tok ¥0.0128
+  - 职责桶：planner: 53226tok, critic: 175045tok, smart: 161211tok, validator: 1034558tok, compress: 34080tok
 
 📏 **双口径与人工口径归属（W7 TBD-5 诚实披露，不得省略）：**
   - **严格口径**（`citation_accuracy`）= `verified = existence AND faithful`（引对编号 **且** 忠实）—— W2 契约口径，跨版本对比**一律以此为准**。
@@ -69,18 +70,25 @@
   - **⚠️ W5 人工抽检 83~92% 属「宽松口径」**：人工判的是「这论断有没有依据」，**不逐条核对编号** ⇒ 与机器严格口径**不是同一件事**；二者差异的**绝大部分是口径差**，**不是 validator 误拒**。
   - 人工抽检样本仅 **12 条**、置信区间极宽，**不作为真值**；宽松口径仅作**解释性附注**，不参与任何达标判定。
 
-📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 79.8%**（91/114 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 20 篇报告）。
+📐 次要指标（**只看不判**，无达标线）：**「信息不足」标注小节占比 79.1%**（72/91 小节）；引用位兜底标记 `[来源: 信息不足]` 0 处（统计覆盖 20 篇报告）。
   - 读法：比例**极低**可能意味着模型改为编造而非承认缺口；比例**极高**意味着检索没喂饱。两种极端都值得人工抽检，但**不作为任何达标判据**。
 
 
 ## 4. 失败与异常附录
-- 指标齐全 20 /
-  指标部分 0 /
+- 指标齐全 14 /
+  指标部分 6 /
   指标失败 0
   （§5.5.2 旧键 `complete/partial/failed` 仍写入，标 deprecated）
-- q_005 [ok] 106880tok ¥0.1496
-- q_009 [ok] 66192tok ¥0.0927
-- q_010 [ok] 66146tok ¥0.0926
+- q_002 [partial] 197339tok ¥0.2763
+- q_003 [partial] 63066tok ¥0.0883
+- q_006 [ok] 61975tok ¥0.0868
+- q_009 [partial] 86717tok ¥0.1214
+- q_011 [ok] 88623tok ¥0.1241
+- q_012 [partial] 170252tok ¥0.2384
+- q_013 [ok] 95946tok ¥0.1343
+- q_015 [partial] 193198tok ¥0.2705
+- q_017 [ok] 103879tok ¥0.1454
+- q_020 [partial] 61202tok ¥0.0857
 
 ## 5. 人工抽检记录（两级：报告级 4~5 份 + 引用级 10~15 条，Q6）
 - 抽检人: 于晏（单人，判定以标注规范为准；reviewer 字段可补二审）
@@ -181,8 +189,10 @@
 | run_20260919_005617 | 100.0% | 74.3% | 42.1% | 52.5% | completion_rate:+0.0, citation_accuracy:+2.2, coverage:+0.4, retrieval_hit_rate:-10.0 |
 | run_20260919_014446 | 100.0% | 78.0% | 39.2% | 52.8% | completion_rate:+0.0, citation_accuracy:+3.7, coverage:-2.9, retrieval_hit_rate:+0.3 |
 | run_20260919_023550 | 100.0% | 77.5% | 41.2% | 54.5% | completion_rate:+0.0, citation_accuracy:-0.5, coverage:+2.1, retrieval_hit_rate:+1.7 |
+| run_20261007_141516 | 100.0% | 53.5% | 43.3% | 38.9% | completion_rate:+0.0, citation_accuracy:-24.1, coverage:+2.1, retrieval_hit_rate:-15.6 |
 
 > ⚠️ `run_20260916_022440` → `run_20260919_004620`：**尺子变了**（`prompt_hash`：— → cf95dafc78f98348；`scorer_version`：— → w8.1；`citation_judge_independent`：— → —） ⇒ 这两轮之间的 delta **不构成趋势**。
+> ⚠️ `run_20260919_023550` → `run_20261007_141516`：**尺子变了**（`prompt_hash`：cf95dafc78f98348 → 7a8322c79d5fff7b；`scorer_version`：w8.1 → w9.0） ⇒ 这两轮之间的 delta **不构成趋势**。
 
 
 
