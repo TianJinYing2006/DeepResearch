@@ -106,7 +106,13 @@ class CriticVerdict(BaseModel):
     """critic LLM 裁决的结构化 schema（防模型漏 key 被静默默认值误判）。"""
 
     sufficient: bool = Field(description="研究是否已充分支撑报告")
-    needs_replan: bool = Field(default=False, description="方向是否跑偏需重分解")
+    needs_replan: bool = Field(
+        default=False,
+        description=(
+            "仅当子问题框架/研究方向本身错误、需要重新分解时 true（此时 next_queries 留空）；"
+            "若只是缺具体证据，用 next_queries 回填、needs_replan 保持 false"
+        ),
+    )
     knowledge_gap: str = Field(
         default="",
         description="W7 Arm1：若研究充分但仍有未补缺口，说明缺失知识；否则留空",
@@ -322,6 +328,22 @@ class Critic:
         # 方向跑偏优先走 revise（与 gap 规则互不覆盖）
         # P1 max_replan 语义修正：replan 达到上限时不再重规划，转为 stop
         if state.needs_replan:
+            # A2（10·07 基线复盘，2026-10-07）：模型常同时给出 needs_replan=True 与
+            # 具体缺口 next_queries（当期基线 60/60 实测）。语义上「给出了可执行的补充
+            # 查询」即缺口回填（augment）；replan 只留给「方向级错误且没有可执行查询」
+            # 的情形。不收敛时 augment 路径会被整个吃掉：depth 2 即以 replan_exhausted
+            # 停止、sufficient 永不成立（steps 8.13→2.57 的直接原因）。
+            if state.next_queries:
+                state.needs_replan = False  # 必须清字段：revise 节点按 state.needs_replan 选路
+                self._events.append({
+                    "event": "critic_needs_replan_coerced",
+                    "phase": "critic",
+                    "detail": (
+                        "needs_replan=true 但同时给出 next_queries；"
+                        "按缺口回填（augment）处理，未进入重规划"
+                    ),
+                })
+                return "augment", "gap_continue"
             if state.replan_count >= effective_research_config().max_replan:
                 return "stop", "replan_exhausted"
             return "revise", "revise"
@@ -418,8 +440,10 @@ class Critic:
             f"这是第 {reflection_round}/{MAX_GAP_REFLECTIONS} 轮反思。\n\n"
             f"{digest}\n\n"
             f"请基于以上证据正文（而非仅条数）判断：发现是否已充分支撑报告？"
-            f"若仍有知识缺口，在 knowledge_gap 中说明并给出 next_queries（带 sq_id）；"
-            f"若方向跑偏，needs_replan=true；"
+            f"若仍有知识缺口，在 knowledge_gap 中说明并给出 next_queries（带 sq_id），"
+            f"此时 needs_replan=false；"
+            f"仅当子问题框架/研究方向本身错误、需要重新分解时才 needs_replan=true"
+            f"（该情形 next_queries 留空）；"
             f"并在 cited_evidence_ids 中引用支撑你判断的关键证据 ID（清单之外不得编造）；"
             f"若证据互相矛盾，请在 knowledge_gap 中指出并引用冲突双方 ID。"
         )

@@ -78,7 +78,7 @@ def test_sufficient_false_continues():
 
 
 def test_needs_replan_revise():
-    """方向跑偏优先于 gap 规则，走 revise。"""
+    """方向跑偏优先于 gap 规则，走 revise（无补充查询时语义不变）。"""
     state = _state()
     critic = Critic(llm_fn=lambda s: _verdict(
         sufficient=True, needs_replan=True, knowledge_gap="方向错了", next_queries=[]
@@ -86,6 +86,39 @@ def test_needs_replan_revise():
     signal = critic.decide(state)
     assert signal == "revise"
     assert state.critic_stop_reason == "revise"
+
+
+def test_needs_replan_with_queries_coerced_to_augment():
+    """A2（10·07 基线复盘）：needs_replan=True 但同时给出 next_queries → 按缺口回填处理。
+
+    背景：当期基线 60/60 次模型同时给出二者；needs_replan 优先级最高导致 augment
+    路径被整个吃掉（depth 2 即 replan_exhausted、sufficient 永不成立）。收敛规则：
+    有可执行补充查询 ⇒ augment；同时清 needs_replan（否则 _revise 节点仍按 replan 选路）。
+    """
+    state = _state()
+    critic = Critic(llm_fn=lambda s: _verdict(
+        sufficient=False, needs_replan=True, knowledge_gap="缺数值",
+        next_queries=[{"sq_id": "sq1", "query": "补数值"}],
+    ))
+    signal = critic.decide(state)
+    assert signal == "augment"
+    assert state.critic_stop_reason == "gap_continue"
+    assert state.needs_replan is False                       # 必须清字段（_revise 按它选路）
+    assert state.next_queries == [{"sq_id": "sq1", "query": "补数值"}]
+    events = critic.drain_events()
+    assert any(e.get("event") == "critic_needs_replan_coerced" for e in events)
+
+
+def test_needs_replan_without_queries_after_exhaustion_stops():
+    """原语义回归：needs_replan 且无补充查询、replan 已耗尽 → stop/replan_exhausted。"""
+    state = _state()
+    state.replan_count = 1
+    critic = Critic(llm_fn=lambda s: _verdict(
+        sufficient=False, needs_replan=True, knowledge_gap="方向错了", next_queries=[],
+    ))
+    signal = critic.decide(state)
+    assert signal == "stop"
+    assert state.critic_stop_reason == "replan_exhausted"
 
 
 def test_reflection_cap_stops_forcing_continue():
