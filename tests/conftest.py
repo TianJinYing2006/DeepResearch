@@ -21,6 +21,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # Q5 三重隔离①：强制（覆盖式，非 setdefault —— .env 里已有值也必须压掉）
 os.environ["LANGFUSE_ENABLED"] = "false"
 
+# P0-3（2026-10-07）：本地 .env 的依赖串指向未启动的本地服务时，不依赖它们的单测
+# 也会在导入期被耦合 —— config.load_dotenv() 注入 .env 后，web.backend.main 在
+# **模块导入期**按 DR_DATABASE_URL 构造 store，测试内 monkeypatch.delenv 无法回滚
+# 已构造对象 ⇒ 本机全量恒红 27 条、掩盖真回归，且与 CI（无 .env）行为不一致。
+# 这里与 Langfuse 完全同模式做覆盖式清空：单测一律按「零依赖模式」运行；
+# 真实 PostgreSQL / Redis 集成用例由 DR_TEST_DATABASE_URL / DR_TEST_REDIS_URL
+# 显式 opt-in（CI infra job 同口径）。
+for _unreachable_key in ("DR_DATABASE_URL", "DR_REDIS_URL", "QDRANT_URL"):
+    os.environ[_unreachable_key] = ""
+
 # P4-B：单测进程内关掉登录/提交限流（默认 10/分钟会跨用例累计，导致假失败）；
 # 限流本身由 tests/test_ratelimit.py 与 test_quotas.py 用显式限流器覆盖。
 os.environ.setdefault("DR_LOGIN_RATE_PER_MINUTE", "0")
