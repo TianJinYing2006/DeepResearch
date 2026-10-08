@@ -4,6 +4,12 @@
 > 读码与读文档所得，不含印象成分；引用处给文件名便于复核。
 > 实时状态仍以 `docs/project-status.md` 为准，上线准入事实以 `docs/operations/production-readiness.md` 为准。
 > 若本文结论要转为实施项，按流程另开需求文档 / ADR，不在本文直接改代码。
+>
+> **2026-10-08 增量更新**：前端 UI 收口轮（需求 29~32，分支已建未推送）改变了本文若干现状事实，已就地修正：
+> E2E 35 → **63 条**；前端**已有** Vitest 单测（25 条）与 UI 反模式守卫；`AccountPanel.tsx` 714 → 572 行
+> （领域状态拆出四个切片，**未拆完**）。本地实测：e2e 63 passed（对全新 dist）/ vitest 25 /
+> 四守卫 + UI 守卫全 exit 0 / ruff 全过 / tsc 0 / build 0。⚠️ 另留痕一条流程缺陷：e2e 跑的是 `dist/`
+> 构建产物，改完源码不重建会得到**假绿**（本轮真实踩过，已修）。
 
 ## 0. 一句话结论
 
@@ -14,13 +20,13 @@
 
 | 层 | 组成 | 规模 / 落点 | 判断 |
 | --- | --- | --- | --- |
-| 接入 | React 18 + Vite 6 + Tailwind 3 + SSE（`EventSource`） | `web/frontend/src` 20 个 ts/tsx；E2E 35 条已进 CI | 够用；**无** CDN / WAF / 反向代理实现 |
+| 接入 | React 18 + Vite 6 + Tailwind 3 + SSE（`EventSource`） | `web/frontend/src` 手写 ts/tsx；E2E **63 条**已进 CI（含窄屏流程与异常态）+ Vitest 25 条 + UI 反模式守卫 | 够用；**无** CDN / WAF / 反向代理实现 |
 | 应用 | FastAPI（`main.py` 1965 行，33 条路由）+ Worker（`worker.py` 595 行） | 后端共 8838 行 / 30 模块 | 分层清楚；鉴权 / 配额 / 审核 / 审计 / 保留期都已闭环 |
 | 状态 | PostgreSQL 权威 + Redis 加速 + MinIO 报告对象 | 17 个迁移；派发权威已迁 PG（`FOR UPDATE SKIP LOCKED`），Redis 降级为可选信号 | 这是全项目**质量最高**的部分 |
 | 引擎 | LangGraph：6 节点 + critic 三态条件边 + 2 回环 | `research_engine` 9492 行；`max_total_hops=20`，每子问题 `ceil(20/n)` | 编排深度足；**子问题之间串行**（`Send` 并行推 W2 未做） |
 | 外部 | 百炼 DashScope（LLM + Embedding）、博查（搜索） | arXiv / Tavily / Semantic Scholar / Langfuse Cloud **默认关闭**（境外） | 搜索是**单点**，降级策略是「无结果 + 明确提示」 |
 
-**工程质量基线**：pytest 748 收集（704 通过 + 44 跳过，跳过的均为真实 PG/Redis 用例，由 CI `infra` job 强制执行）；CI 四个 job（lint-and-test 的 Py3.11/12/13 矩阵、infra、frontend、e2e）；E2E 35 条。
+**工程质量基线**：pytest 748 收集（704 通过 + 44 跳过，跳过的均为真实 PG/Redis 用例，由 CI `infra` job 强制执行）；CI 四个 job（lint-and-test 的 Py3.11/12/13 矩阵、infra、frontend、e2e）；E2E **63 条**（含窄屏流程 `mobile-flows`、异常态 `faults`）+ 前端 **Vitest 25 条** + **UI 反模式守卫**（impeccable 59 条确定性规则，补在截图基线放弃之后）。
 
 ## 2. 待优化项（按「是否阻塞上线」分级）
 
@@ -49,7 +55,7 @@
 | # | 项 | 现状 |
 | --- | --- | --- |
 | 11 | 依赖与镜像安全扫描 | CI 无 `pip-audit` / `bandit` / CodeQL / Dependabot / Trivy |
-| 12 | 前端单元测试 | 只有 Playwright E2E 35 条，**无** Vitest 单测（组件级回归靠 E2E 兜） |
+| 12 | ~~前端单元测试~~ | ✅ **已补（需求 29）**：Vitest 25 条（质量判定模型 16 + 工作流阶段模型 9），随 `test:unit` 进 CI；E2E 同轮 35 → 63 条 |
 | 13 | 结果缓存 | 仅 BM25 语料缓存；重复 query / 报告无复用层（成本优化点） |
 | 14 | 审计日志防篡改 | `audit_logs` append-only，但无哈希链；集中外送（SIEM）留 P2 |
 | 15 | 队列优先级 | 有重试与耗尽 `LOST`，无优先级、无 DLQ 视图 |
@@ -71,7 +77,8 @@
 | 有资质审核服务 | 仅 `local_rules` | P1 | L3-B 前接入 |
 | 国内第二搜索源 | 无 | P1 | 采购或登记风险 |
 | 依赖 / 镜像扫描 | 无 | P2 | CI 加 `pip-audit` 即可，半小时工作量 |
-| 前端单测（Vitest） | 无 | P2 | 组件逻辑复杂后再补 |
+| 前端单测（Vitest） | ✅ 已接入（25 条） | 已解除 | 需求 29 随质量判定模型引入；`vite.config.ts` 的 `test.include` 已限定到 `src/**/*.test.ts` |
+| UI 反模式守卫 | ✅ 已接入（59 条确定性规则） | 已解除 | 需求 32；替代放弃的截图基线（不碰像素，故不受中文字体渲染不稳影响） |
 | CDN / WAF | 无 | P2 | L3-C 才需要 |
 | K8s / Helm | 无 | P2 | **建议不做**：单云单机 + Worker 副本够覆盖 10 人规模 |
 
