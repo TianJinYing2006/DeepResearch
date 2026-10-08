@@ -82,3 +82,11 @@ web/frontend/.playwright/
 # 第三方审计 skills（前端重构辅助，来源见 docs/web-frontend-audit.md）：
 # 部分上游仓库未声明 LICENSE ⇒ 只在本机使用，不随公开仓库分发
 .opencode/skills/
+
+# 同一批 skills 暴露给 DSH 的项目级副本（DSH 本地 skill 根，rank 100）：
+# ⚠️ 与 .opencode/skills/ 内容同源但为手工复制的两份，上游更新时两处都要改
+.dsh/skills/
+
+# UI 反模式检测器（impeccable）的本地作用域配置：--local 写的临时豁免，刻意不入库
+# 共享豁免在 .impeccable/config.json —— 那一份**要**入库（它是团队共识的误报登记表）
+.impeccable/config.local.json

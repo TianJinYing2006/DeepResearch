@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "web/frontend/src/index.css"
+        ],
+        "createdAt": "2026-10-08T17:57:27.102Z",
+        "reason": "blockquote 左侧引文线属文档排版，非卡片装饰"
+      }
+    ]
+  }
+}
