@@ -10,6 +10,7 @@ import {
   ValidatorStats,
 } from './features/report/ReportPanels'
 import { ErrorCard, RunStrip, TimeoutCard, TracePanels } from './features/run/RunPanels'
+import { WorkflowRail } from './features/workflow/WorkflowRail'
 import {
   type StreamStatus,
   useResearchStream,
@@ -26,6 +27,8 @@ import {
   latestActivity,
   statusPresentation,
 } from './lib/presentation'
+import { qualityVerdict } from './lib/quality'
+import { workflowStages } from './lib/workflow'
 import type { LaunchParams } from './types/api'
 import type {
   RunFinishedEvent,
@@ -184,6 +187,15 @@ export default function App() {
   const finished = useMemo(() => lastEventOfType(events, 'RUN_FINISHED') as RunFinishedEvent | undefined, [events])
   // P0-4：报告命中预检 ⇒ 事件流正文已脱敏，展示「待复核」而不是空报告
   const outputUnderReview = Boolean(finished?.output_under_review)
+  // 验收点②：**任务维度与质量维度正交** —— 「研究完成」不等于「引用通过」。
+  // 需求 28 的实测形态（重型题 112 条引用全部未校验）同样会走到 done，
+  // 只看任务状态会把「没查过」读成「查过且没问题」。
+  const quality = useMemo(() => qualityVerdict(result, finished), [result, finished])
+  // 验收点①：整条链路的阶段推进（与上面的运行状态、质量结论同源，但关注点不同）
+  const workflow = useMemo(
+    () => workflowStages({ status, hasResult: Boolean(result), qualityKind: quality.kind }),
+    [status, result, quality],
+  )
   // 完整活动：原先 .slice(-18) 会把早期事件挤掉，导致「之前的活动丢失」。
   // 容器本身已可滚动，这里不再截断。
   const timeline = useMemo(
@@ -383,6 +395,8 @@ export default function App() {
           {topic.trim() || '把复杂问题变成可追溯的研究结论'}
         </h1>
 
+        <WorkflowRail state={workflow} />
+
         <RunStrip
           statusInfo={statusInfo}
           runId={runId}
@@ -400,6 +414,7 @@ export default function App() {
           finished={finished}
           elapsedMs={elapsedMs}
           outputUnderReview={outputUnderReview}
+          quality={quality}
         />
 
         {error && (
@@ -459,7 +474,8 @@ export default function App() {
             />
           </div>
 
-          <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:self-start xl:overflow-y-auto xl:pr-1"
+          <aside id="stage-verify"
+                 className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:self-start xl:overflow-y-auto xl:pr-1"
                  tabIndex={0} role="region" aria-label="证据边栏">
             <RagStatusCard result={result} ragSources={ragSources} />
             {result ? (

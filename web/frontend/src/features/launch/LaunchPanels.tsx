@@ -36,7 +36,7 @@ export function LaunchForm({
 
   if (collapsed) {
     return (
-      <section className="surface-card flex items-center justify-between gap-3 p-4">
+      <section id="stage-compose" className="surface-card flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-ink">{topic.trim() || '新研究'}</p>
           <p className="mt-0.5 text-xs text-ink-muted">
@@ -78,7 +78,7 @@ export function LaunchForm({
   const tabbableProfile = activeProfile?.value ?? profileOptions[0]?.value
 
   return (
-    <form className="surface-card p-5" onSubmit={onSubmit}>
+    <form id="stage-compose" className="surface-card p-5" onSubmit={onSubmit}>
       <div className="mb-6 flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-ink">新研究</p>

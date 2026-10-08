@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ProgressBar } from '../../components/ProgressBar'
 import { EmptyState, SectionHeading, SummaryItem, TimelineItem } from '../../components/ui'
 import { formatCost, formatDuration, formatNumber } from '../../lib/format'
+import { qualityTonePresentation } from '../../lib/presentation'
 import type { Progress } from '../../lib/progress'
+import type { QualityVerdict } from '../../lib/quality'
 import type { LaunchParams } from '../../types/api'
 import type {
   AguiEvent,
@@ -68,6 +70,8 @@ type RunStripProps = {
   finished: RunFinishedEvent | undefined
   elapsedMs: number
   outputUnderReview: boolean
+  /** 验收点②：质量维度（与上面的任务状态正交）。 */
+  quality: QualityVerdict
 }
 
 /** 方向 B：运行状态压缩为一条横带（状态 + 实时进度 + 指标 + 终局摘要），
@@ -75,13 +79,15 @@ type RunStripProps = {
 export function RunStrip({
   statusInfo, runId, currentActivity, progress, cancelling, running, startedAt,
   timeoutSeconds, stepsCount, tokenUsed, costLabel, findingsCount, sourceCount,
-  finished, elapsedMs, outputUnderReview,
+  finished, elapsedMs, outputUnderReview, quality,
 }: RunStripProps) {
   const liveElapsedMs = useElapsedClock(startedAt, running)
   const remainingMs = timeoutSeconds === null ? null : Math.max(0, timeoutSeconds * 1000 - liveElapsedMs)
+  // 质量徽标只在已有质量结论时出现：运行中显示「尚未校验」是噪音。
+  const showQuality = quality.kind !== 'pending'
 
   return (
-    <section className="surface-card p-4 sm:p-5">
+    <section id="stage-run" className="surface-card p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span
           className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusInfo.className}`}
@@ -89,6 +95,17 @@ export function RunStrip({
         >
           {statusInfo.label}
         </span>
+        {/* 验收点②：任务状态与质量结论**并排但不合并** —— 前者是「跑没跑完」，
+            后者是「查得怎么样」。两者可以同时是「完成 / 校验未完成」。 */}
+        {showQuality && (
+          <span
+            className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${qualityTonePresentation(quality.tone)}`}
+            data-testid="quality-badge"
+            data-quality-kind={quality.kind}
+          >
+            {quality.label}
+          </span>
+        )}
         {runId && <span className="font-mono text-[11px] text-ink-muted">RUN {runId}</span>}
         <p className="min-w-0 flex-1 truncate text-sm text-ink-muted">
           {currentActivity || '提交主题后，这里会展示每个研究阶段、实时降级和最终引用依据。'}
@@ -112,7 +129,7 @@ export function RunStrip({
 
       {finished && (
         <RunSummary finished={finished} elapsedMs={elapsedMs} stepsCount={stepsCount}
-                    outputUnderReview={outputUnderReview} />
+                    outputUnderReview={outputUnderReview} quality={quality} />
       )}
     </section>
   )
@@ -169,7 +186,11 @@ export function ErrorCard({ error, lastRequest, running, onRetry }: ErrorCardPro
               {error.hint}
             </p>
           )}
-          {lastRequest && (
+          {/* 判据是 `retryable !== false` 而不是 `=== true`：老后端可能不下发该字段，
+              未下发时保持原行为（显示按钮），只有**显式**为 false 才隐藏。
+              反例即动机：配额熔断（`quota_exceeded`）重试必然再失败，
+              给它一个「用同样参数重试」的按钮是在骗用户点第二次。 */}
+          {lastRequest && error.retryable !== false && (
             <button
               className="secondary-button mt-3 !px-3 !py-2"
               type="button"
@@ -210,11 +231,19 @@ type RunSummaryProps = {
   elapsedMs: number
   stepsCount: number
   outputUnderReview: boolean
+  quality: QualityVerdict
 }
 
-export function RunSummary({ finished, elapsedMs, stepsCount, outputUnderReview }: RunSummaryProps) {
+export function RunSummary({ finished, elapsedMs, stepsCount, outputUnderReview, quality }: RunSummaryProps) {
   return (
     <div className="mt-4 border-t border-rule pt-3" data-testid="run-summary">
+      {/* 验收点②：终局摘要必须先回答「质量如何」，再谈数字 ——
+          否则「总耗时 / 完成节点 / 报告字数」会被读成「这个结论可信」。
+          任务是否跑完由上方状态徽标回答，这里只谈质量，不重复。 */}
+      <div className="mb-3" data-testid="quality-summary" data-quality-kind={quality.kind}>
+        <p className="text-sm font-semibold text-ink">{quality.headline}</p>
+        <p className="mt-1 text-pretty text-xs leading-5 text-ink-muted">{quality.detail}</p>
+      </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
         <SummaryItem label="总耗时" value={formatDuration((finished.elapsed_seconds ?? elapsedMs / 1000) * 1000)} />
         <SummaryItem label="完成节点" value={String(stepsCount)} />

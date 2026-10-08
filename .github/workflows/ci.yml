@@ -174,6 +174,13 @@ jobs:
         working-directory: web/frontend
         run: npx tsc --noEmit
 
+      # 验收点② 引入：纯逻辑单测（vitest）。范围由 vite.config.ts 的 test.include 限定到
+      # `src/**/*.test.ts` —— vitest 默认 include 会连 Playwright 的 e2e/*.spec.ts 一起吞进来。
+      # 现有重心是质量判定模型（任务完成 vs 质量通过两个维度）；零 LLM、零网络。
+      - name: Unit tests (vitest)
+        working-directory: web/frontend
+        run: npm run test:unit
+
       # 需求 11 防复发：色板 token 守卫。用字符串覆盖内置色板名（如 `cyan: '#66e3ff'`）
       # 会整体替换 {50..950} 色阶，使 text-cyan-200 / bg-cyan-300 等带档位的类静默失效；
       # tsc / vite build / Playwright E2E 均不报错，只能靠比对 dist CSS 发现。零 LLM、零网络。
