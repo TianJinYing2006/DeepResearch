@@ -17,7 +17,7 @@
  * `document.body.style.overflow` 是每实例保存/恢复，父弹窗先卸载、子弹窗后卸载
  * 会把 overflow 永久留在 `'hidden'`。登出时让法律弹窗自然保持即可。
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { readErrorMessage } from '../../lib/api'
 import Modal from '../../components/Modal'
@@ -34,29 +34,47 @@ export type LegalDocController = {
   close: () => void
 }
 
-/** 取法律文本。行为与原 `openLegal` 逐行等价（含「先占位再填充」的乐观初始态）。 */
+/** 取法律文本。行为与原 `openLegal` 等价（含「先占位再填充」的乐观初始态），
+ *  并补上一道**代次守卫**。
+ *
+ * ⚠️ **代次守卫不可去掉**（本会话实测到的缺陷与修法，有确定性复现用例）：
+ * 原实现是「``await fetch`` 之后再无条件 ``setLegal(...)``」。若用户在请求在途时关闭弹窗，
+ * 那次写入会把弹窗**重新打开** —— 表现为「按了 Escape、弹窗关了一下，然后又回来」。
+ * 在 CI 上更隐蔽：``toHaveCount(0)`` 的轮询间隔约 100ms，会**错过中间计数为 0 的瞬间**，
+ * 于是断言一直看到 1 而失败（本会话 #160 的 e2e 偶发失败即此 —— 重跑通过、本机无法复现）。
+ *
+ * 守卫方式：``close()`` 递增代次使在途请求失效；响应回来时若代次已变则丢弃。
+ * 用代次而不是 ``cancelled`` 布尔量，是因为「关掉 A 又立刻打开 B」时后者也必须胜出。 */
 export function useLegalDoc(): LegalDocController {
   const [legal, setLegal] = useState<LegalState | null>(null)
   const [legalError, setLegalError] = useState('')
+  const generationRef = useRef(0)
 
   const close = useCallback(() => {
+    // 递增代次 ⇒ 任何在途请求的响应到达时都会发现自己已过期
+    generationRef.current += 1
     setLegal(null)
     setLegalError('')
   }, [])
 
   const open = useCallback(async (doc: LegalDocKey) => {
+    const generation = generationRef.current + 1
+    generationRef.current = generation
     setLegalError('')
     // 先落占位再请求：弹窗立刻出现并显示「加载中…」，而不是点完没反应。
     setLegal({ doc, markdown: '' })
     try {
       const response = await fetch(`/api/legal/${doc}`)
+      if (generation !== generationRef.current) return  // 已被关闭或被更晚的 open 取代 ⇒ 丢弃
       if (!response.ok) {
         setLegalError(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { markdown: string }
+      if (generation !== generationRef.current) return  // json() 也是异步的，再查一次
       setLegal({ doc, markdown: body.markdown })
     } catch {
+      if (generation !== generationRef.current) return
       setLegalError('网络错误，请重试')
     }
   }, [])
