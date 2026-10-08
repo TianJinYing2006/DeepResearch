@@ -6,14 +6,13 @@ import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { ChunkPreviewModal, useChunkPreview } from '../features/knowledge-base/ChunkPreviewModal'
 import { useRagDocActions } from '../features/knowledge-base/useRagDocActions'
+import { SupportModals, useSupportModals } from '../features/support/SupportModals'
 import { LegalModal, useLegalDoc } from '../features/account/LegalModal'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
 import { useSideData } from '../hooks/useSideData'
 import { formatBytes, formatCny } from '../lib/format'
 import type { SessionUser } from '../types/api'
-import FeedbackModal from './FeedbackModal'
 import HelpModal from './HelpModal'
-import ShareManageModal from './ShareManageModal'
 import Modal from './Modal'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
@@ -52,9 +51,14 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
   const [barMessage, setBarMessage] = useState('')
   const [authNotice, setAuthNotice] = useState('')
   // 需求 25：帮助中心 / 站内反馈
-  const [helpOpen, setHelpOpen] = useState(false)
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [shareManageOpen, setShareManageOpen] = useState(false)
+  // 验收点③ 切片 S10：帮助 / 反馈 / 分享管理已抽到 `features/support/SupportModals.tsx`。
+  // 解构沿用原名（含 setter），下方全部调用点零改动。
+  // ⚠️ 本文件有**两处** HelpModal 挂载：落地页分支单独用 helpOpen/setHelpOpen（保留原名即可），
+  // 主分支那三行由 <SupportModals> 负责。
+  const support = useSupportModals()
+  const {
+    helpOpen, setHelpOpen, setFeedbackOpen, setShareManageOpen,
+  } = support
   const inviteFromUrl = useRef(inviteFromLocation()).current
   const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
   // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login / 重置链接直达登录页
@@ -135,10 +139,12 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
     clearUploads()
     // —— 知识库侧（U41 补全）——
     clearRagActions()
+    // S10：三扇支撑弹窗也是账号级状态（分享管理列的是本人分享），一并关掉
+    support.clear()
     // 预览弹窗：**必须**连状态一起清 —— 它受 `previewDoc` 驱动而非 `user` 驱动，
     // 在「鉴权可选」的部署里登出不会卸载该分支，弹窗会带着上一账号的分块正文留在屏幕上。
     preview.reset()
-  }, [clearSideData, clearUploads, clearRagActions, inviteFromUrl, preview.reset])
+  }, [clearSideData, clearUploads, clearRagActions, inviteFromUrl, preview.reset, support])
 
   useEffect(() => {
     void loadSession()
@@ -564,9 +570,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
         </Modal>
       )}
       {legalModal}
-      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
-      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
-      {shareManageOpen && <ShareManageModal onClose={() => setShareManageOpen(false)} />}
+      <SupportModals support={support} />
     </div>
   )
 }
