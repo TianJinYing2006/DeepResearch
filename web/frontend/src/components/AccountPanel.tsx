@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import AuthForm from '../features/auth/AuthForm'
 import AuthGate from '../features/auth/AuthGate'
 import LandingPage from '../features/landing/LandingPage'
@@ -6,26 +6,17 @@ import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { ChunkPreviewModal, useChunkPreview } from '../features/knowledge-base/ChunkPreviewModal'
 import { useRagDocActions } from '../features/knowledge-base/useRagDocActions'
+import { useSessionEntry } from '../features/account/useSessionEntry'
 import { useAccountBarUi } from '../features/account/useAccountBarUi'
 import { SupportModals, useSupportModals } from '../features/support/SupportModals'
 import { LegalModal, useLegalDoc } from '../features/account/LegalModal'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
 import { useSideData } from '../hooks/useSideData'
 import { formatBytes, formatCny } from '../lib/format'
-import type { SessionUser } from '../types/api'
 import HelpModal from './HelpModal'
 import Modal from './Modal'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
-
-/** P6-B：邀请链接 `?invite=CODE`（可复制给被邀请人，打开即进入注册并预填）。 */
-function inviteFromLocation(): string {
-  try {
-    return new URLSearchParams(window.location.search).get('invite')?.trim() ?? ''
-  } catch {
-    return ''
-  }
-}
 
 type Props = {
   authRequired: boolean
@@ -42,8 +33,19 @@ type Props = {
  * - 未开启鉴权时保持匿名可用（历史/上传仍可用，配额由后端按匿名口径返回）。
  */
 export default function AccountPanel({ authRequired, activeRunId, running, shareEnabled = false }: Props) {
-  const [user, setUser] = useState<SessionUser | null>(null)
-  const [checked, setChecked] = useState(false)
+  // 验收点③ 切片 S1（会话域 state）：会话探测与未登录访客分流已抽到
+  // `features/account/useSessionEntry.ts`。解构沿用原名（含 setter 与 `loadSession`），
+  // JSX 与全部调用点零改动；⚠️ `checked` 与 `user` 语义不同、`inviteFromUrl` 只在挂载时读一次 URL，
+  // 理由见该文件头部（R1/R3/R4）。
+  const {
+    user, setUser,
+    checked,
+    authNotice, setAuthNotice,
+    inviteFromUrl,
+    inviteOpen, setInviteOpen,
+    authView, setAuthView,
+    loadSession,
+  } = useSessionEntry()
 
   // 验收点③ 切片 S2（state）：账号条 UI 状态已抽到 `features/account/useAccountBarUi.ts`。
   // 解构沿用原名（含 setter），JSX 与全部调用点零改动。
@@ -56,8 +58,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
     securityOpen, setSecurityOpen,
     clear: clearBarUi,
   } = useAccountBarUi()
-  // 登出/注销后自增：让 HistoryPanel 重挂载清空内部状态（R3/U41）
-  const [authNotice, setAuthNotice] = useState('')
+
   // 需求 25：帮助中心 / 站内反馈
   // 验收点③ 切片 S10：帮助 / 反馈 / 分享管理已抽到 `features/support/SupportModals.tsx`。
   // 解构沿用原名（含 setter），下方全部调用点零改动。
@@ -67,34 +68,6 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
   const {
     helpOpen, setHelpOpen, setFeedbackOpen, setShareManageOpen,
   } = support
-  const inviteFromUrl = useRef(inviteFromLocation()).current
-  const [inviteOpen, setInviteOpen] = useState(Boolean(inviteFromUrl))
-  // 未登录访客的分流视图：落地页（默认）→ 登录注册页；邀请链接 / ?login / 重置链接直达登录页
-  const [authView, setAuthView] = useState<'landing' | 'auth'>(() => {
-    if (inviteFromUrl) return 'auth'
-    try {
-      if (window.location.hash.startsWith('#reset=')) return 'auth'
-      return new URLSearchParams(window.location.search).has('login') ? 'auth' : 'landing'
-    } catch {
-      return 'landing'
-    }
-  })
-
-  const loadSession = useCallback(async () => {
-    try {
-      const response = await fetch('/api/auth/session')
-      if (response.ok) {
-        const body = (await response.json()) as { user: SessionUser }
-        setUser(body.user)
-        setChecked(true)
-        return
-      }
-    } catch {
-      /* 网络失败按未登录处理 */
-    }
-    setUser(null)
-    setChecked(true)
-  }, [])
 
   // 验收点③ 切片 S4+S5（state）：配额 / 知识库文档 / 知识库容量已抽到 `hooks/useSideData.ts`。
   // 解构时**刻意沿用原名**（含 `refreshSideData`），让下方 JSX 与全部 9 个调用点零改动。
