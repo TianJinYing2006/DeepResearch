@@ -4,27 +4,19 @@ import AuthGate from '../features/auth/AuthGate'
 import LandingPage from '../features/landing/LandingPage'
 import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
+import { ChunkPreviewModal, useChunkPreview } from '../features/knowledge-base/ChunkPreviewModal'
+import { useRagDocActions } from '../features/knowledge-base/useRagDocActions'
+import { LegalModal, useLegalDoc } from '../features/account/LegalModal'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
+import { useSideData } from '../hooks/useSideData'
 import { formatBytes, formatCny } from '../lib/format'
-import type { Quota, RagChunk, RagDoc, SessionUser } from '../types/api'
+import type { SessionUser } from '../types/api'
 import FeedbackModal from './FeedbackModal'
 import HelpModal from './HelpModal'
 import ShareManageModal from './ShareManageModal'
 import Modal from './Modal'
-import { ReportView } from './ReportView'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
-
-/** 需求 23：locator → 可读定位（页码 / 幻灯片 / 工作表 / 行范围）。 */
-function locatorLabel(locator: Record<string, unknown>): string {
-  const parts: string[] = []
-  if (typeof locator.page === 'number') parts.push(`第 ${locator.page} 页`)
-  if (typeof locator.slide === 'number') parts.push(`第 ${locator.slide} 页幻灯片`)
-  if (typeof locator.sheet === 'string') parts.push(`工作表 ${locator.sheet}`)
-  const range = locator.row_range
-  if (Array.isArray(range) && range.length === 2) parts.push(`行 ${range[0]}-${range[1]}`)
-  return parts.join(' · ') || '全文'
-}
 
 /** P6-B：邀请链接 `?invite=CODE`（可复制给被邀请人，打开即进入注册并预填）。 */
 function inviteFromLocation(): string {
@@ -52,28 +44,12 @@ type Props = {
 export default function AccountPanel({ authRequired, activeRunId, running, shareEnabled = false }: Props) {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [checked, setChecked] = useState(false)
-  const [quota, setQuota] = useState<Quota | null>(null)
-  const [docs, setDocs] = useState<RagDoc[] | null>(null)
-  const [docsError, setDocsError] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   // 登出/注销后自增：让 HistoryPanel 重挂载清空内部状态（R3/U41）
   const [historyEpoch, setHistoryEpoch] = useState(0)
   const [kbOpen, setKbOpen] = useState(false)
   const [securityOpen, setSecurityOpen] = useState(false)
   const [barMessage, setBarMessage] = useState('')
-  // R7：KB 文档删除（两步内联确认 —— 不用 window.confirm 反模式）
-  const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
-  const [deletingDoc, setDeletingDoc] = useState(false)
-  // 需求 23：分块预览 / 重命名 / 重分块 / 重嵌入 / 容量
-  const [previewDoc, setPreviewDoc] = useState<{ docId: string; source: string } | null>(null)
-  const [previewChunks, setPreviewChunks] = useState<RagChunk[] | null>(null)
-  const [previewTotal, setPreviewTotal] = useState(0)
-  const [previewError, setPreviewError] = useState('')
-  const [renamingDocId, setRenamingDocId] = useState<string | null>(null)
-  const [renameValue, setRenameValue] = useState('')
-  const [kbBusyDocId, setKbBusyDocId] = useState<string | null>(null)
-  const [kbActionError, setKbActionError] = useState('')
-  const [kbUsage, setKbUsage] = useState<{ used_bytes: number; quota_bytes: number | null } | null>(null)
   const [authNotice, setAuthNotice] = useState('')
   // 需求 25：帮助中心 / 站内反馈
   const [helpOpen, setHelpOpen] = useState(false)
@@ -91,8 +67,6 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
       return 'landing'
     }
   })
-  const [legal, setLegal] = useState<{ doc: string; markdown: string } | null>(null)
-  const [legalError, setLegalError] = useState('')
 
   const loadSession = useCallback(async () => {
     try {
@@ -110,42 +84,61 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
     setChecked(true)
   }, [])
 
-  const refreshSideData = useCallback(async () => {
-    const [quotaResp, docsResp, usageResp] = await Promise.all([
-      fetch('/api/quota'), fetch('/api/rag/docs'), fetch('/api/rag/usage'),
-    ])
-    if (quotaResp.ok) setQuota((await quotaResp.json()) as Quota)
-    else setQuota(null)
-    if (docsResp.ok) {
-      const body = (await docsResp.json()) as { docs: RagDoc[] }
-      setDocs(body.docs)
-      setDocsError('')
-    } else {
-      setDocs(null)
-      setDocsError(await readErrorMessage(docsResp))
-    }
-    if (usageResp.ok) {
-      setKbUsage((await usageResp.json()) as { used_bytes: number; quota_bytes: number | null })
-    } else {
-      setKbUsage(null)
-    }
-  }, [])
+  // 验收点③ 切片 S4+S5（state）：配额 / 知识库文档 / 知识库容量已抽到 `hooks/useSideData.ts`。
+  // 解构时**刻意沿用原名**（含 `refreshSideData`），让下方 JSX 与全部 9 个调用点零改动。
+  // ⚠️ 必须声明在 `resetLocalData` 与 `useUploads` **之前** —— 两者都要用到它，而 `const` 没有提升。
+  const {
+    quota,
+    docs,
+    docsError,
+    kbUsage,
+    refresh: refreshSideData,
+    clear: clearSideData,
+  } = useSideData()
+
+  // 验收点③ 切片 S5（actions）：文档行的删除 / 重命名 / 重分块 / 重嵌入已抽到
+  // `features/knowledge-base/useRagDocActions.ts`。同样沿用原名（含 setter），调用方零改动。
+  // ⚠️ 跨域依赖显式传入：刷新复用上面的 `refreshSideData`；删除失败走**账号条**错误通道
+  // （既有行为，非笔误），故用 `setBarMessage` 经 `onError` 注入。
+  const {
+    deleteDocId, setDeleteDocId, deletingDoc,
+    renamingDocId, setRenamingDocId, renameValue, setRenameValue,
+    kbBusyDocId, kbActionError,
+    deleteDoc, kbMutate,
+    clear: clearRagActions,
+  } = useRagDocActions({ refresh: refreshSideData, onError: setBarMessage })
 
   const { uploads, uploadState, addFiles, retryUpload, removeUpload, cancelUpload, clearUploads } =
     useUploads(() => void refreshSideData())
 
-  /** R3（审计 U41）：登出/注销后清空本人可见的本地状态，避免上一账号数据闪现。 */
+  // 验收点③ 切片 S6：分块预览已抽到 `features/knowledge-base/ChunkPreviewModal.tsx`。
+  // ⚠️ 必须声明在 `resetLocalData` **之前** —— 后者要调 `preview.reset()`，
+  // 而 `const` 没有提升，放到后面会直接触发 TDZ 报错。
+  const preview = useChunkPreview()
+
+  /** R3（审计 U41）：登出/注销后清空本人可见的本地状态，避免上一账号数据闪现。
+   *
+   * ⚠️ 这份清单必须是**全量**的。R1~R7 收口时 U41 只清了「配额 + 文档清单」，
+   * 知识库一侧漏掉：`kbUsage`（面板里的「已用 X MB」，渲染点 L512–515）与分块预览
+   * `previewDoc`（弹窗会连正文一起重新出现）都不清 ⇒ 登出后换个账号登录，
+   * 上一账号的知识库用量与预览正文会再次显示，与该函数自己的注释正好相反。
+   *
+   * 纪律：本文件的每个领域切片若持有**账号级**状态，都必须在此登记一行；
+   * 后续拆分 AccountPanel（验收点③）时，这份清单是切片间唯一的共同写操作，不得遗漏。 */
   const resetLocalData = useCallback(() => {
-    setQuota(null)
-    setDocs(null)
-    setDocsError('')
+    clearSideData()
     setBarMessage('')
     setHistoryOpen(false)
     setSecurityOpen(false)
     setAuthView(inviteFromUrl ? 'auth' : 'landing')
     setHistoryEpoch((epoch) => epoch + 1)
     clearUploads()
-  }, [clearUploads])
+    // —— 知识库侧（U41 补全）——
+    clearRagActions()
+    // 预览弹窗：**必须**连状态一起清 —— 它受 `previewDoc` 驱动而非 `user` 驱动，
+    // 在「鉴权可选」的部署里登出不会卸载该分支，弹窗会带着上一账号的分块正文留在屏幕上。
+    preview.reset()
+  }, [clearSideData, clearUploads, clearRagActions, inviteFromUrl, preview.reset])
 
   useEffect(() => {
     void loadSession()
@@ -179,86 +172,9 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
     resetLocalData()
   }
 
-  async function openLegal(doc: 'privacy' | 'terms') {
-    setLegalError('')
-    setLegal({ doc, markdown: '' })
-    try {
-      const response = await fetch(`/api/legal/${doc}`)
-      if (!response.ok) {
-        setLegalError(await readErrorMessage(response))
-        return
-      }
-      const body = (await response.json()) as { markdown: string }
-      setLegal({ doc, markdown: body.markdown })
-    } catch {
-      setLegalError('网络错误，请重试')
-    }
-  }
-
-  /** R7：删除知识库文档 —— 后端同步删向量并验证归零（失败 503，可稍后重试）。 */
-  async function deleteDoc(docId: string) {
-    setDeletingDoc(true)
-    try {
-      const response = await fetch(`/api/rag/docs?doc_id=${encodeURIComponent(docId)}`, {
-        method: 'DELETE',
-        headers: csrfHeaders(),
-      })
-      if (!response.ok) {
-        setBarMessage(await readErrorMessage(response))
-        return
-      }
-      setDeleteDocId(null)
-      await refreshSideData()
-    } catch {
-      setBarMessage('网络错误，请重试')
-    } finally {
-      setDeletingDoc(false)
-    }
-  }
-
-  /** 需求 23：知识库写操作（重命名 PATCH / 重分块 / 重嵌入）。 */
-  async function kbMutate(docId: string, suffix: string, body?: unknown, method = 'POST') {
-    if (kbBusyDocId !== null) return
-    setKbActionError('')
-    setKbBusyDocId(docId)
-    try {
-      const response = await fetch(`/api/rag/docs${suffix}`, {
-        method,
-        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      })
-      if (!response.ok) {
-        setKbActionError(await readErrorMessage(response))
-        return
-      }
-      setRenamingDocId(null)
-      await refreshSideData()
-    } catch {
-      setKbActionError('网络错误，请重试')
-    } finally {
-      setKbBusyDocId(null)
-    }
-  }
-
-  /** 需求 23：分块预览（默认活动版本；locator 供引用回溯定位）。 */
-  async function openPreview(docId: string, source: string) {
-    setPreviewDoc({ docId, source })
-    setPreviewChunks(null)
-    setPreviewTotal(0)
-    setPreviewError('')
-    try {
-      const response = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}/chunks?limit=50`)
-      if (!response.ok) {
-        setPreviewError(await readErrorMessage(response))
-        return
-      }
-      const body = (await response.json()) as { total: number; chunks: RagChunk[] }
-      setPreviewChunks(body.chunks)
-      setPreviewTotal(body.total)
-    } catch {
-      setPreviewError('网络错误，请重试')
-    }
-  }
+  // 验收点③ 切片 S7：法律文本域已抽到 `features/account/LegalModal.tsx`。
+  // 三个挂载点（落地页 / 登录门 / 账号条）仍保持互斥，理由见该文件顶部的拆分纪律。
+  const legalDoc = useLegalDoc()
 
   async function deleteAccount() {
     const password = window.prompt('注销将删除账号与会话、并尽力清理知识库向量（历史任务匿名保留）。请输入密码确认：')
@@ -296,31 +212,9 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
         .join(' · ')
     : ''
 
-  const legalModal = legal ? (
-    <Modal
-      onClose={() => { setLegal(null); setLegalError('') }}
-      labelledBy="legal-title"
-      testId="legal-modal"
-      overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4 "
-      panelClassName="surface-card my-6 w-full max-w-3xl p-6"
-    >
-      <div className="flex items-center justify-between">
-        <h3 id="legal-title" className="text-sm font-semibold text-ink">
-          {legal.doc === 'privacy' ? '隐私政策' : '用户协议'}
-        </h3>
-        <button type="button" className="text-xs text-ink-muted hover:text-ink"
-                data-testid="legal-close"
-                onClick={() => { setLegal(null); setLegalError('') }}>关闭</button>
-      </div>
-      {legalError && <p role="alert" className="mt-3 text-sm text-stamp-red">{legalError}</p>}
-      {!legalError && !legal.markdown && <p className="mt-3 text-sm text-ink-muted">加载中…</p>}
-      {!legalError && legal.markdown && (
-        <div className="mt-4">
-          <ReportView report={legal.markdown} />
-        </div>
-      )}
-    </Modal>
-  ) : null
+  const legalModal = (
+    <LegalModal legal={legalDoc.legal} legalError={legalDoc.legalError} onClose={legalDoc.close} />
+  )
 
   if (authRequired && checked && !user) {
     // 分流：未登录访客先看落地页；CTA / 邀请链接 / ?login 进入登录注册页
@@ -329,7 +223,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
         <>
           <LandingPage
             onStart={() => setAuthView('auth')}
-            onOpenLegal={(doc) => void openLegal(doc)}
+            onOpenLegal={(doc) => void legalDoc.open(doc)}
             onOpenHelp={() => setHelpOpen(true)}
           />
           {legalModal}
@@ -348,7 +242,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
             setAuthNotice('')
             void refreshSideData()
           }}
-          onOpenLegal={(doc) => void openLegal(doc)}
+          onOpenLegal={(doc) => void legalDoc.open(doc)}
         />
         {legalModal}
       </>
@@ -560,7 +454,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
                         <>
                           <button type="button" className="underline text-ink-muted hover:text-ink"
                                   data-testid="kb-doc-preview"
-                                  onClick={() => void openPreview(docId, doc.source)}>预览</button>
+                                  onClick={() => void preview.open(docId, doc.source)}>预览</button>
                           {renamingDocId === docId ? (
                             <>
                               <input
@@ -637,43 +531,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
         </div>
       )}
 
-      {previewDoc && (
-        <Modal
-          onClose={() => { setPreviewDoc(null); setPreviewChunks(null); setPreviewError('') }}
-          labelledBy="kb-preview-title"
-          testId="kb-preview"
-          overlayClassName="z-50 flex items-start justify-center overflow-y-auto bg-ink/35 p-4"
-          panelClassName="surface-card my-6 w-full max-w-2xl p-6"
-        >
-          <div className="flex items-center justify-between">
-            <h3 id="kb-preview-title" className="text-sm font-semibold text-ink">
-              分块预览：{previewDoc.source}（{previewTotal} 块）
-            </h3>
-            <button type="button" className="text-xs text-ink-muted hover:text-ink"
-                    onClick={() => { setPreviewDoc(null); setPreviewChunks(null); setPreviewError('') }}>
-              关闭
-            </button>
-          </div>
-          {previewError && <p role="alert" className="mt-3 text-sm text-stamp-red">{previewError}</p>}
-          {previewChunks === null && !previewError && (
-            <div className="mt-3"><SkeletonRows rows={4} /></div>
-          )}
-          {previewChunks && (
-            <ul className="mt-3 max-h-[60vh] space-y-2 overflow-y-auto" data-testid="kb-chunk-list">
-              {previewChunks.map((chunk) => (
-                <li key={chunk.chunk_id} className="rounded-lg border border-rule bg-rule/30 px-3 py-2">
-                  <p className="text-[11px] text-ink-muted">
-                    #{chunk.chunk_index + 1} · {locatorLabel(chunk.locator)}
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
-                    {chunk.text.length > 400 ? `${chunk.text.slice(0, 400)}…` : chunk.text}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Modal>
-      )}
+      <ChunkPreviewModal preview={preview} />
 
       {securityOpen && user && (
         <SecurityPanel onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
@@ -701,7 +559,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
               setInviteOpen(false)
               void refreshSideData()
             }}
-            onOpenLegal={(doc) => void openLegal(doc)}
+            onOpenLegal={(doc) => void legalDoc.open(doc)}
           />
         </Modal>
       )}
