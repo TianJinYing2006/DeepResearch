@@ -41,23 +41,32 @@ export default defineConfig({
     video: 'off',
   },
   projects: [
-    // 流程 / 错误卡用例只在桌面视口跑；窄屏布局用例**两个视口都跑**。
-    // ⚠️ 用 testMatch 分流，而不是在 beforeEach 里 test.skip()：
+    // 分流规则（验收点④ 扩充后）：
+    // - `responsive` / `faults`：判据与视口正交（分别是布局、状态机）⇒ **两个视口都跑**；
+    // - `mobile-flows`：断言前提就是窄屏本身（按钮是否被挤出视野、弹窗是否高过视口）
+    //   ⇒ **只跑移动端**，桌面上重跑等于把已有的桌面用例再做一遍；
+    // - 其余流程 / 错误卡用例：只在桌面视口跑。
+    // ⚠️ 用 testMatch / testIgnore 分流，而不是在 beforeEach 里 test.skip()：
     //    skip 掉的用例仍会执行 afterEach（页面可能尚未导航）⇒ 清理钩子会挂死。
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'], channel: CHANNEL },
       testMatch: /.*\.spec\.ts/,
+      testIgnore: /mobile-flows\.spec\.ts/,
     },
     {
       name: 'mobile',
       use: { ...devices['Pixel 5'], channel: CHANNEL },
-      testMatch: /responsive\.spec\.ts/,
+      testMatch: /(responsive|mobile-flows|faults)\.spec\.ts/,
     },
   ],
   webServer: {
     // DR_DEMO=1 ⇒ 全程假数据，不调 LLM、不花钱；但**走的是同一条 SSE 管线**，
     // 因此事件序列、降级推送、取消、导出都是真的。
+    //
+    // ⚠️ 这个 server 由 FastAPI 托管 `web/frontend/dist/` —— 也就是说 e2e 跑的是**构建产物**，
+    // 不是 src。改完源码不重新 build 就跑用例，会看到「全绿」但测的是旧包（本项目真实踩过）。
+    // 因此 `npm run e2e` 已改为「先 build 再跑」；只想对当前 dist 快速迭代时用 `npm run e2e:only`。
     command: `"${PYTHON}" -m uvicorn web.backend.main:app --host 127.0.0.1 --port ${PORT}`,
     cwd: repoRoot(),
     env: {
