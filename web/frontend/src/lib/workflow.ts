@@ -21,7 +21,7 @@
 import type { StreamStatus } from '../hooks/useResearchStream'
 import type { QualityKind } from './quality'
 
-export type WorkflowStageKey = 'compose' | 'run' | 'report' | 'verify'
+export type WorkflowStageKey = 'compose' | 'run' | 'report' | 'verify' | 'export'
 
 export type WorkflowStage = {
   key: WorkflowStageKey
@@ -46,6 +46,7 @@ const STAGE_META: Array<{ key: WorkflowStageKey; label: string; anchor: string }
   { key: 'run', label: '等待与进度', anchor: 'stage-run' },
   { key: 'report', label: '报告阅读', anchor: 'stage-report' },
   { key: 'verify', label: '引用核查', anchor: 'stage-verify' },
+  { key: 'export', label: '导出与分享', anchor: 'stage-export' },
 ]
 
 /** 质量结论是否已经产生（`pending` 与空值都算未产生）。 */
@@ -57,8 +58,12 @@ export function workflowStages(input: {
   status: StreamStatus
   hasResult: boolean
   qualityKind: QualityKind | null
+  /** 报告命中内容安全预检时为 true —— 此时正文已脱敏、**导出与分享入口全部禁用**，
+   *  因此它是「导出与分享」这一段的真实完成条件，而非可有可无的附加信息。
+   *  可选是为了向后兼容：未传按 false 处理（等价于「未命中预检」）。 */
+  outputUnderReview?: boolean
 }): WorkflowState {
-  const { status, hasResult, qualityKind } = input
+  const { status, hasResult, qualityKind, outputUnderReview = false } = input
   const started = status !== 'idle'
   const terminal =
     status === 'done' || status === 'cancelled' || status === 'timeout' || status === 'error'
@@ -71,6 +76,9 @@ export function workflowStages(input: {
     run: terminal || hasResult,
     report: hasResult,
     verify: hasResult && qualityResolved(qualityKind),
+    // 与 report 不同：报告存在但命中内容安全预检时，导出/分享按钮是禁用的 ⇒ 该段未完成。
+    // 这正是它不能与 report 合并的理由（合并后这一段永远与 report 同步，等于装饰）。
+    export: hasResult && !outputUnderReview,
   }
 
   const interrupted = terminal && !hasResult

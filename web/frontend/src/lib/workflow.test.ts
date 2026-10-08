@@ -14,7 +14,7 @@ function run(status: StreamStatus, hasResult = false, qualityKind: Parameters<ty
 describe('workflowStages：阶段推进', () => {
   it('未开始 ⇒ 当前是「新建研究」，其余未完成', () => {
     const state = run('idle')
-    expect(state.stages.map((s) => s.key)).toEqual(['compose', 'run', 'report', 'verify'])
+    expect(state.stages.map((s) => s.key)).toEqual(['compose', 'run', 'report', 'verify', 'export'])
     expect(state.stages.find((s) => s.current)?.key).toBe('compose')
     expect(state.stages.every((s) => !s.done)).toBe(true)
     expect(state.interrupted).toBe(false)
@@ -107,7 +107,32 @@ describe('workflowStages：不变式', () => {
   it('锚点是稳定的 DOM id（供阶段栏跳转）', () => {
     const state = run('idle')
     expect(state.stages.map((s) => s.anchor)).toEqual([
-      'stage-compose', 'stage-run', 'stage-report', 'stage-verify',
+      'stage-compose', 'stage-run', 'stage-report', 'stage-verify', 'stage-export',
     ])
+  })
+})
+
+
+describe('workflowStages：导出与分享段（验收点① 的第五步）', () => {
+  const base = { status: 'done' as StreamStatus, hasResult: true, qualityKind: 'passed' as const }
+
+  it('报告存在且未命中预检 ⇒ 该段完成', () => {
+    const state = workflowStages({ ...base, outputUnderReview: false })
+    expect(state.stages.find((s) => s.key === 'export')?.done).toBe(true)
+    // 全部完成后不应再高亮任何一段
+    expect(state.stages.some((s) => s.current)).toBe(false)
+  })
+
+  it('报告命中内容安全预检 ⇒ 该段**未完成**（导出/分享按钮此时是禁用的）', () => {
+    // 这条是该段不能与「报告阅读」合并的理由：合并后它永远与 report 同步，等于装饰。
+    const state = workflowStages({ ...base, outputUnderReview: true })
+    expect(state.stages.find((s) => s.key === 'export')?.done).toBe(false)
+    // 当前阶段回落到导出段——用户该去处理的就是「复核/申诉」
+    expect(state.stages.find((s) => s.current)?.key).toBe('export')
+  })
+
+  it('未传 outputUnderReview 时按 false 处理（向后兼容）', () => {
+    const state = workflowStages(base)
+    expect(state.stages.find((s) => s.key === 'export')?.done).toBe(true)
   })
 })
