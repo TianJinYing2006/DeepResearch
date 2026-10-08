@@ -193,8 +193,15 @@ export default function App() {
   const quality = useMemo(() => qualityVerdict(result, finished), [result, finished])
   // 验收点①：整条链路的阶段推进（与上面的运行状态、质量结论同源，但关注点不同）
   const workflow = useMemo(
-    () => workflowStages({ status, hasResult: Boolean(result), qualityKind: quality.kind }),
-    [status, result, quality],
+    () => workflowStages({
+      status,
+      hasResult: Boolean(result),
+      qualityKind: quality.kind,
+      // 「报告命中预检 ⇒ 导出/分享按钮禁用」是导出阶段的真实完成条件；
+      // 不传它这一段会与报告阶段永远同步，等于装饰。
+      outputUnderReview,
+    }),
+    [status, result, quality, outputUnderReview],
   )
   // 完整活动：原先 .slice(-18) 会把早期事件挤掉，导致「之前的活动丢失」。
   // 容器本身已可滚动，这里不再截断。

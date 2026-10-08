@@ -30,7 +30,9 @@ export function ReportCard({ result, runId, outputUnderReview, copyState, export
               : `Markdown 安全渲染 · ${result.report.length.toLocaleString('zh-CN')} 字符`}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {/* 阶段栏「导出与分享」的锚点（验收点①）。这一排按钮就是该阶段的全部内容，
+            所以锚点挂在这里而不是另起区块 —— 单起区块会得到一个空壳。 */}
+        <div id="stage-export" className="flex flex-wrap gap-2">
           <button className="secondary-button !px-3 !py-2" type="button" onClick={onCopy} disabled={!result.report || outputUnderReview}>
             {copyState === 'copied' ? '已复制' : '复制正文'}
           </button>
