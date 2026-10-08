@@ -70,7 +70,7 @@
 | S4+S5 state | `hooks/useSideData.ts` | 81 | `quota` / `docs` / `docsError` / `kbUsage` + 合并刷新 |
 | S5 actions | `features/knowledge-base/useRagDocActions.ts` | 110 | 删除 / 重命名 / 重分块 / 重嵌入 + 6 个操作态 |
 
-**改造成果**：`AccountPanel.tsx` **714 → 572 行**（`git diff --numstat` = `+60 / -202`，净 −142，−19.9%）。
+**改造成果**：`AccountPanel.tsx` **714 → 555 行**（首轮四切片 714 → 572，后续 S10 / S2 / S1 三刀 572 → 555）。手法为「解构沿用原名（含 setter 与 `loadSession`）⇒ 调用方零改动」，已在全部 7 个切片上验证。
 
 **顺手修完的两个审计项**：
 
@@ -98,7 +98,7 @@
 
 ## 7. 验收标准（DoD）
 
-- [x] S7/S6/S4+S5 state/S5 actions 四个切片落地，`AccountPanel.tsx` 714 → 572 行
+- [x] S7 / S6 / S4+S5 state / S5 actions / S10 / S2 / S1 七个切片落地，`AccountPanel.tsx` 714 → 555 行（仅剩 S8 认证入口 JSX）
 - [x] **零行为改动**：所有 `data-testid`、中文文案、DOM 顺序与焦点语义保持不变
 - [x] U41 修复：登出/注销后 `kbUsage`、`previewDoc`/`previewChunks`/`previewTotal`/`previewError`、
       `deleteDocId`/`deletingDoc`/`renamingDocId`/`renameValue`/`kbBusyDocId`/`kbActionError` 全部归零
@@ -169,3 +169,4 @@ U41 与 U25 在 `docs/web-frontend-audit.md` 里被登记为 **U25 → R2 批次
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-10-08 | 重构 + 缺陷修复 | 单文件集中管理 10 个领域；U41/U25 登记归入 R2/R3 但实际未修完 | 抽出 4 个切片（LegalModal / ChunkPreviewModal / useSideData / useRagDocActions），714 → 572 行；补全 U41 清理清单；U25 改 allSettled | 待开（本地 commit `aa880a4`，分支 `chore/30-account-panel-domain-state`） |
+| 2026-10-08（续） | 重构 | 剩余切片 S10 / S2 / S1 | S10 支撑弹窗 → `features/support/SupportModals.tsx`；S2 账号条 UI 状态 → `features/account/useAccountBarUi.ts`；S1 会话域状态 → `features/account/useSessionEntry.ts`；572 → 555 行 | 已合并（PR #165 / #168 / #169） |
