@@ -187,6 +187,15 @@ jobs:
       - name: "Guard: Tailwind 色板 token"
         run: python3 tools/check_tailwind_tokens.py
 
+      # R8 新增：UI 反模式回归防线（impeccable detect，59 条确定性规则）。
+      # 为什么需要它：`docs/web-frontend-audit.md` 自陈边界是「静态源码审计，未做浏览器渲染实测」，
+      # 而 R7 收口唯一未做项是截图基线（跨环境中文字体渲染不稳定）⇒ 前端视觉质量**没有回归防线**。
+      # 确定性规则判定代码与渲染属性、不碰像素 ⇒ 当初放弃截图基线的理由对它不成立。
+      # 零 LLM、零 API key；检测器由 web/frontend 的 devDependency 提供（上方 npm ci 已装）。
+      # 误报治理走 `.impeccable/config.json`（impeccable ignores ...），不在此维护第二份名单。
+      - name: "Guard: UI 反模式（impeccable detect）"
+        run: python3 tools/check_ui_patterns.py
+
       - name: Build (vite production)
         working-directory: web/frontend
         run: npm run build
