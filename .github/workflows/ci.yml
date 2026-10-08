@@ -239,4 +239,6 @@ jobs:
           E2E_CHANNEL: chromium
           DR_PYTHON: python
           OTEL_SDK_DISABLED: "true"
-        run: npm run e2e
+        # 刻意直调 playwright 而不是 `npm run e2e`：后者现在会先 build，
+        # 而本 job 上一步已经 build 过（dist 由 FastAPI 托管），再 build 一次是重复的。
+        run: npx playwright test
