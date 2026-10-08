@@ -6,6 +6,7 @@ import HistoryPanel from '../features/history/HistoryPanel'
 import { uploadLabel, useUploads } from '../features/knowledge-base/useUploads'
 import { ChunkPreviewModal, useChunkPreview } from '../features/knowledge-base/ChunkPreviewModal'
 import { useRagDocActions } from '../features/knowledge-base/useRagDocActions'
+import { useAccountBarUi } from '../features/account/useAccountBarUi'
 import { SupportModals, useSupportModals } from '../features/support/SupportModals'
 import { LegalModal, useLegalDoc } from '../features/account/LegalModal'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
@@ -43,12 +44,19 @@ type Props = {
 export default function AccountPanel({ authRequired, activeRunId, running, shareEnabled = false }: Props) {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [checked, setChecked] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
+
+  // 验收点③ 切片 S2（state）：账号条 UI 状态已抽到 `features/account/useAccountBarUi.ts`。
+  // 解构沿用原名（含 setter），JSX 与全部调用点零改动。
+  // ⚠️ `historyEpoch` 与 `barMessage` 的归属是本切片刻意决定的，理由见该文件头部（R4/R6）。
+  const {
+    barMessage, setBarMessage,
+    historyOpen, setHistoryOpen,
+    historyEpoch, setHistoryEpoch,
+    kbOpen, setKbOpen,
+    securityOpen, setSecurityOpen,
+    clear: clearBarUi,
+  } = useAccountBarUi()
   // 登出/注销后自增：让 HistoryPanel 重挂载清空内部状态（R3/U41）
-  const [historyEpoch, setHistoryEpoch] = useState(0)
-  const [kbOpen, setKbOpen] = useState(false)
-  const [securityOpen, setSecurityOpen] = useState(false)
-  const [barMessage, setBarMessage] = useState('')
   const [authNotice, setAuthNotice] = useState('')
   // 需求 25：帮助中心 / 站内反馈
   // 验收点③ 切片 S10：帮助 / 反馈 / 分享管理已抽到 `features/support/SupportModals.tsx`。
@@ -131,9 +139,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
    * 后续拆分 AccountPanel（验收点③）时，这份清单是切片间唯一的共同写操作，不得遗漏。 */
   const resetLocalData = useCallback(() => {
     clearSideData()
-    setBarMessage('')
-    setHistoryOpen(false)
-    setSecurityOpen(false)
+    clearBarUi()
     setAuthView(inviteFromUrl ? 'auth' : 'landing')
     setHistoryEpoch((epoch) => epoch + 1)
     clearUploads()
