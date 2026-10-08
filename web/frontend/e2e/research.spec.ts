@@ -180,4 +180,43 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(page.locator('[data-testid="error-card"]')).toHaveCount(0)
     await expect(page.getByText('运行失败')).toHaveCount(0)
   })
+
+  // 验收点①：阶段栏是「整条链路走到哪」的唯一指示，它必须真的随流程推进，
+  // 而不是一个静态装饰。判据用 data-stage-state，不去断言颜色类名。
+  test('工作流阶段栏随流程从新建推进到报告与引用核查', async ({ page }) => {
+    const rail = page.getByTestId('workflow-rail')
+    await expect(rail).toBeVisible()
+
+    // 未开始：当前是「新建研究」，运行阶段尚未到达
+    await expect(page.getByTestId('workflow-stage-compose')).toHaveAttribute('data-stage-state', 'current')
+    await expect(page.getByTestId('workflow-stage-run')).toHaveAttribute('data-stage-state', 'pending')
+    await expect(page.getByTestId('workflow-stage-verify')).toHaveAttribute('data-stage-state', 'pending')
+
+    await page.fill('#topic', '阶段栏推进')
+    await page.click('button[type="submit"]')
+
+    // 运行中：新建完成、运行是当前阶段
+    await expect(page.getByTestId('workflow-stage-run')).toHaveAttribute('data-stage-state', 'current')
+    await expect(page.getByTestId('workflow-stage-compose')).toHaveAttribute('data-stage-state', 'done')
+
+    // 报告产出且质量结论随之产生 ⇒ 后两段都完成
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByTestId('workflow-stage-report')).toHaveAttribute('data-stage-state', 'done')
+    await expect(page.getByTestId('workflow-stage-verify')).toHaveAttribute('data-stage-state', 'done')
+  })
+
+  test('阶段栏渲染出的每个链接都指向真实存在的区块', async ({ page }) => {
+    // 防「坏门面」：未到达的阶段在页面上还没有对应区块（`#stage-report` 由
+    // `{result && <ReportCard/>}` 决定存在与否），若把它们也渲染成链接，点了就没反应。
+    const links = page.getByTestId('workflow-rail').locator('a[data-testid^="workflow-stage-"]')
+    const hrefs = await links.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('href') ?? ''),
+    )
+    expect(hrefs.length, '未开始时至少「新建研究」应是可达链接').toBeGreaterThan(0)
+
+    for (const href of hrefs) {
+      expect(href, '锚点必须以 # 开头').toMatch(/^#[a-z-]+$/)
+      await expect(page.locator(href), `锚点 ${href} 应指向恰好一个真实区块`).toHaveCount(1)
+    }
+  })
 })

@@ -1,6 +1,7 @@
 /** 展示逻辑（R4a：从 App.tsx 迁出，纯函数 + 词表，行为不变）。 */
 import { formatDuration, formatNumber } from './format'
 import type { ConnectionStatus, StreamStatus } from '../hooks/useResearchStream'
+import type { QualityTone } from './quality'
 import type {
   AguiEvent,
   DegradationEvent,
@@ -69,6 +70,17 @@ export function connectionPresentation(status: ConnectionStatus) {
     closed: { label: '连接已关闭', className: 'border-rule bg-rule/30 text-ink-muted', dotClass: 'bg-ink-muted/50' },
   }[status]
 }
+
+/** 质量色调 → 类名（验收点②）。与状态/连接映射同住此处，避免组件里散落色值。 */
+export function qualityTonePresentation(tone: QualityTone) {
+  return {
+    ok: 'border-stamp-green/30 bg-stamp-green/10 text-stamp-green',
+    warn: 'border-stamp-amber/30 bg-stamp-amber/10 text-stamp-amber',
+    bad: 'border-stamp-red/30 bg-stamp-red/10 text-stamp-red',
+    neutral: 'border-rule bg-rule/30 text-ink-muted',
+  }[tone]
+}
+
 
 export function eventPresentation(event: AguiEvent) {
   switch (event.type) {

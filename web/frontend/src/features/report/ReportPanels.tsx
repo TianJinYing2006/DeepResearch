@@ -19,7 +19,7 @@ type ReportCardProps = {
 
 export function ReportCard({ result, runId, outputUnderReview, copyState, exportState, onCopy, onExport, shareEnabled, onShare }: ReportCardProps) {
   return (
-    <section className="surface-card overflow-hidden">
+    <section id="stage-report" className="surface-card overflow-hidden">
       <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
         <div>
           <p className="text-xs font-medium text-stamp-blue">报告</p>
