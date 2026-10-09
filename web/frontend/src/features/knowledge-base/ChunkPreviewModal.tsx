@@ -15,7 +15,7 @@
  * 保持「纯搬移、零行为差异」。`total` 只在 `previewDoc` 存在时被读取，
  * 而 `open()` 每次都会先把它置 0，因此该字段残留不可观测。
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readErrorMessage } from '../../lib/api'
 import Modal from '../../components/Modal'
@@ -56,14 +56,19 @@ export function useChunkPreview(): ChunkPreviewController {
   const [previewChunks, setPreviewChunks] = useState<RagChunk[] | null>(null)
   const [previewTotal, setPreviewTotal] = useState(0)
   const [previewError, setPreviewError] = useState('')
+  const generationRef = useRef(0)
+
+  useEffect(() => () => { generationRef.current += 1 }, [])
 
   const close = useCallback(() => {
+    generationRef.current += 1
     setPreviewDoc(null)
     setPreviewChunks(null)
     setPreviewError('')
   }, [])
 
   const reset = useCallback(() => {
+    generationRef.current += 1
     setPreviewDoc(null)
     setPreviewChunks(null)
     setPreviewTotal(0)
@@ -71,6 +76,7 @@ export function useChunkPreview(): ChunkPreviewController {
   }, [])
 
   const open = useCallback(async (docId: string, source: string) => {
+    const generation = ++generationRef.current
     // 顺序即行为：先落目标再请求（见本文件顶部的拆分纪律）。
     setPreviewDoc({ docId, source })
     setPreviewChunks(null)
@@ -78,14 +84,19 @@ export function useChunkPreview(): ChunkPreviewController {
     setPreviewError('')
     try {
       const response = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}/chunks?limit=50`)
+      if (generation !== generationRef.current) return
       if (!response.ok) {
-        setPreviewError(await readErrorMessage(response))
+        const message = await readErrorMessage(response)
+        if (generation !== generationRef.current) return
+        setPreviewError(message)
         return
       }
       const body = (await response.json()) as { total: number; chunks: RagChunk[] }
+      if (generation !== generationRef.current) return
       setPreviewChunks(body.chunks)
       setPreviewTotal(body.total)
     } catch {
+      if (generation !== generationRef.current) return
       setPreviewError('网络错误，请重试')
     }
   }, [])
