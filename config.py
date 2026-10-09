@@ -154,6 +154,17 @@ class ResearchConfig:
     #: `token_budget` 仍是**每次外部调用的绝对准入线**（耗尽即不再发起调用）。
     token_budget_reserve: int = field(
         default_factory=lambda: int(_env("TOKEN_BUDGET_RESERVE", "40000")))
+    #: A3（2026-10-07）：**校验地板**——写/压缩阶段的 LLM 调用在剩余预算低于该值时停止
+    #: （压缩可降级保留原文），保证 validator 至少还有额度执行。
+    #: ⚠️ 地板只保证「校验有机会跑」，**不保证「校验跑得完」**：A3 落地后 mini 锚点实测
+    #: q_002（112 条引用）仍 112 条全部 budget_rejected —— 根因是需求 19 的分批把整段
+    #: findings_text 在**每批重复发送**，7 批 ≈ 111k 远超地板（2026-10-07 的旧注释按
+    #: 53 条引用 / 4 批 ≈ 55-60k 推算，已被实测证伪）。
+    #: 真正的修正是 A4（validator 按批分片上下文，需求 28）：q_002 校验需求
+    #: 111k → 32.7k（batch=32；含 repair 后二次校验共约两轮 ≈ 65k）。
+    #: 本值是否上调、上调多少，按 A4 落地后的实测缺口决定（见 Issue #154）。
+    validation_floor: int = field(
+        default_factory=lambda: int(_env("VALIDATION_FLOOR", "30000")))
     #: 压缩触发：findings 总字符超过该值也触发（不再只看条数——token 体积口径）
     compress_trigger_chars: int = field(
         default_factory=lambda: int(_env("COMPRESS_TRIGGER_CHARS", "60000")))
