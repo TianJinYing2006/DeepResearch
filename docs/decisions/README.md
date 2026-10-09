@@ -36,3 +36,4 @@
 | 0012 | [Side-data request ownership](0012-side-data-generation.md) | 已采纳 | 2026-10-09 |
 | 0013 | [Preview response ownership](0013-preview-generation.md) | 已采纳 | 2026-10-09 |
 | 0014 | [Report availability](0014-report-availability.md) | 已采纳 | 2026-10-09 |
+| 0015 | [Complete side-data request isolation](0015-side-data-json-isolation.md) | 已采纳 | 2026-10-09 |

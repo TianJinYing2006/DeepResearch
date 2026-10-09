@@ -5,7 +5,7 @@
 | --- | --- |
 | Issue | #173 |
 | Priority | P2 |
-| Status | Locally verified; merge status follows the linked GitHub PR |
+| Status | Merged into dev via [PR #177](https://github.com/TianJinYing2006/DeepResearch/pull/177) |
 | Date | 2026-10-09 |
 | Branch | fix/173-report-availability |
 | Feishu mirror | Not synchronized in this GitHub-only task |
@@ -33,7 +33,7 @@ See [ADR 0014](../decisions/0014-report-availability.md).
 - [x] Empty reports cannot copy, export or share.
 - [x] Normal, partial and moderated reports retain their existing behavior.
 - [x] Six browser tests, build and 28 unit tests pass.
-- [ ] Six CI checks pass before merge.
+- [x] All six CI checks passed before squash merge into dev.
 
 ## 8. Impact and Risk
 Frontend interpretation of terminal events only. Moderation removes report text
@@ -46,3 +46,4 @@ Browser fixtures use actual terminal SSE payload shapes for six scenarios.
 | Date | Change | Reference |
 | --- | --- | --- |
 | 2026-10-09 | Requirement recorded before implementation | #173 |
+| 2026-10-09 | Six CI checks passed; squash merged into dev | PR #177 |

@@ -5,7 +5,7 @@
 | --- | --- |
 | Issue | #172 |
 | Priority | P2 |
-| Status | Locally verified; merge status follows the linked GitHub PR |
+| Status | Merged into dev via [PR #176](https://github.com/TianJinYing2006/DeepResearch/pull/176) |
 | Date | 2026-10-09 |
 | Branch | fix/172-preview-generation |
 | Feishu mirror | Not synchronized in this GitHub-only task |
@@ -31,7 +31,7 @@ See [ADR 0013](../decisions/0013-preview-generation.md).
 - [x] A delayed success, server error or parsing error cannot replace a newer preview.
 - [x] Close, reset and unmount invalidate pending preview requests.
 - [x] Production build, three browser regressions and 28 unit tests pass.
-- [ ] All six PR checks pass before squash merge into dev.
+- [x] All six PR checks passed before squash merge into dev.
 
 ## 8. Impact and Risk
 Frontend preview ownership only; chunk API and display format are unchanged.
@@ -43,3 +43,4 @@ Deterministic browser tests hold A's response until after B has loaded.
 | Date | Change | Reference |
 | --- | --- | --- |
 | 2026-10-09 | Requirement recorded before implementation | #172 |
+| 2026-10-09 | Six CI checks passed; squash merged into dev | PR #176 |
