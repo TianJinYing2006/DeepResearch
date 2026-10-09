@@ -166,11 +166,6 @@ export default function App() {
     })()
   }, [resume])
 
-  // 报告完成 ⇒ 折叠启动表单（用户手动展开后不再强制折叠）
-  useEffect(() => {
-    if (result) setLaunchOpen(false)
-  }, [result])
-
   const running = status === 'starting' || status === 'running' || status === 'stopping'
 
   // R5（审计 U50）：250ms 时钟已下沉到 RunStrip（局部渲染，页面隐藏时暂停）；
@@ -187,6 +182,12 @@ export default function App() {
   const finished = useMemo(() => lastEventOfType(events, 'RUN_FINISHED') as RunFinishedEvent | undefined, [events])
   // P0-4：报告命中预检 ⇒ 事件流正文已脱敏，展示「待复核」而不是空报告
   const outputUnderReview = Boolean(finished?.output_under_review)
+  const hasReport = Boolean(result && (finished?.has_report ?? Boolean(result.report.trim())))
+
+  // 空终局结果仍保留表单，方便用户重新发起研究。
+  useEffect(() => {
+    if (hasReport) setLaunchOpen(false)
+  }, [hasReport])
   // 验收点②：**任务维度与质量维度正交** —— 「研究完成」不等于「引用通过」。
   // 需求 28 的实测形态（重型题 112 条引用全部未校验）同样会走到 done，
   // 只看任务状态会把「没查过」读成「查过且没问题」。
@@ -195,13 +196,13 @@ export default function App() {
   const workflow = useMemo(
     () => workflowStages({
       status,
-      hasResult: Boolean(result),
+      hasResult: hasReport,
       qualityKind: quality.kind,
       // 「报告命中预检 ⇒ 导出/分享按钮禁用」是导出阶段的真实完成条件；
       // 不传它这一段会与报告阶段永远同步，等于装饰。
       outputUnderReview,
     }),
-    [status, result, quality, outputUnderReview],
+    [status, hasReport, quality, outputUnderReview],
   )
   // 完整活动：原先 .slice(-18) 会把早期事件挤掉，导致「之前的活动丢失」。
   // 容器本身已可滚动，这里不再截断。
@@ -323,7 +324,7 @@ export default function App() {
   }
 
   const copyReport = async () => {
-    if (!result?.report) return
+    if (!hasReport || outputUnderReview || !result?.report) return
     await navigator.clipboard.writeText(result.report)
     setCopyState('copied')
     window.setTimeout(() => setCopyState('idle'), 1600)
@@ -332,7 +333,7 @@ export default function App() {
   // P1-6：改走后端导出 —— 前端 Blob 那份只有正文，脱离页面后无从自证来源；
   // 后端版本带 run_id / run_status / 降级条数等审计元数据与引用清单。
   const exportReport = async () => {
-    if (!runId) return
+    if (!runId || !hasReport || outputUnderReview) return
     try {
       const response = await fetch(`/api/research/${runId}/report?format=md`)
       if (!response.ok) {
@@ -458,12 +459,13 @@ export default function App() {
                   result={result}
                   runId={runId}
                   outputUnderReview={outputUnderReview}
+                  hasReport={hasReport}
                   copyState={copyState}
                   exportState={exportState}
                   onCopy={() => void copyReport()}
                   onExport={() => void exportReport()}
                   shareEnabled={Boolean(options?.share_enabled)}
-                  onShare={() => { if (runId) setShareRunId(runId) }}
+                  onShare={() => { if (runId && hasReport && !outputUnderReview) setShareRunId(runId) }}
                 />
                 <ReflectionList log={result.reflection_log} />
                 <ValidatorStats stats={result.validator_stats} depth={result.depth} />

@@ -35,3 +35,4 @@
 | 0009 | L3 多用户生产化架构（状态外置 / Worker / 用户体系 / 部署底座） | 草稿（待拍板） | 2026-09-24 |
 | 0012 | [Side-data request ownership](0012-side-data-generation.md) | 已采纳 | 2026-10-09 |
 | 0013 | [Preview response ownership](0013-preview-generation.md) | 已采纳 | 2026-10-09 |
+| 0014 | [Report availability](0014-report-availability.md) | 已采纳 | 2026-10-09 |

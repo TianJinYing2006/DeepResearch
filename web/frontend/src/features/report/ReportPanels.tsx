@@ -8,6 +8,7 @@ type ReportCardProps = {
   result: ResearchResult
   runId: string | null
   outputUnderReview: boolean
+  hasReport: boolean
   copyState: 'idle' | 'copied'
   exportState: 'idle' | 'exported' | 'failed'
   onCopy: () => void
@@ -17,7 +18,7 @@ type ReportCardProps = {
   onShare?: () => void
 }
 
-export function ReportCard({ result, runId, outputUnderReview, copyState, exportState, onCopy, onExport, shareEnabled, onShare }: ReportCardProps) {
+export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, onCopy, onExport, shareEnabled, onShare }: ReportCardProps) {
   return (
     <section id="stage-report" className="surface-card overflow-hidden">
       <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -33,7 +34,7 @@ export function ReportCard({ result, runId, outputUnderReview, copyState, export
         {/* 阶段栏「导出与分享」的锚点（验收点①）。这一排按钮就是该阶段的全部内容，
             所以锚点挂在这里而不是另起区块 —— 单起区块会得到一个空壳。 */}
         <div id="stage-export" className="flex flex-wrap gap-2">
-          <button className="secondary-button !px-3 !py-2" type="button" onClick={onCopy} disabled={!result.report || outputUnderReview}>
+          <button className="secondary-button !px-3 !py-2" type="button" onClick={onCopy} disabled={!hasReport || !result.report || outputUnderReview}>
             {copyState === 'copied' ? '已复制' : '复制正文'}
           </button>
           {/* P1-6：走后端导出（正文 + 审计元数据 + 引用清单），不是前端 Blob 那份纯正文 */}
@@ -41,7 +42,7 @@ export function ReportCard({ result, runId, outputUnderReview, copyState, export
             className="secondary-button !px-3 !py-2"
             type="button"
             onClick={onExport}
-            disabled={!runId || outputUnderReview}
+            disabled={!runId || !hasReport || outputUnderReview}
             data-testid="export-button"
           >
             {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
@@ -51,7 +52,7 @@ export function ReportCard({ result, runId, outputUnderReview, copyState, export
               className="secondary-button !px-3 !py-2"
               type="button"
               onClick={onShare}
-              disabled={!runId || outputUnderReview}
+              disabled={!runId || !hasReport || outputUnderReview}
               data-testid="share-button"
             >
               分享
@@ -62,7 +63,7 @@ export function ReportCard({ result, runId, outputUnderReview, copyState, export
       <div className="px-5 py-6 sm:px-8 sm:py-8">
         {outputUnderReview ? (
           <EmptyState icon="⚑" title="报告待人工复核" text="报告命中内容安全预检：复核通过或申诉处理前不开放查看与导出；如认为误判可提交申诉。" />
-        ) : result.report ? (
+        ) : hasReport && result.report ? (
           <ReportView report={result.report} />
         ) : (
           <EmptyState icon="◌" title="暂无完整报告" text="运行在报告生成前停止，已完成的事件与统计仍保留。" />
