@@ -15,7 +15,7 @@
  *    但状态机本身必须挂在**永不卸载**的外层；一旦移进 `kbOpen` 门控的面板，
  *    收起面板会 `xhr.abort()` 掉在途上传（详见拆分前风险清单 R1）。
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readErrorMessage } from '../lib/api'
 import type { Quota, RagDoc } from '../types/api'
@@ -38,39 +38,53 @@ export function useSideData(): SideData {
   const [docs, setDocs] = useState<RagDoc[] | null>(null)
   const [docsError, setDocsError] = useState('')
   const [kbUsage, setKbUsage] = useState<KbUsage | null>(null)
+  const generationRef = useRef(0)
+
+  useEffect(() => () => { generationRef.current += 1 }, [])
 
   // 审计 U25：原先用 `await Promise.all([...])` 且无 try/catch —— 三个接口里**任一**网络失败
   // 就让整个刷新以未捕获拒绝收场：另外两个已经拿到的好数据一起丢，调用点（`void refresh()`）
   // 也没人接这个拒绝。改用 allSettled 逐资源结算：成功几个更新几个，失败的那个单独置错误态。
   const refresh = useCallback(async () => {
+    const generation = ++generationRef.current
     const [quotaResult, docsResult, usageResult] = await Promise.allSettled([
       fetch('/api/quota'), fetch('/api/rag/docs'), fetch('/api/rag/usage'),
     ])
+    if (generation !== generationRef.current) return
 
     const quotaResp = quotaResult.status === 'fulfilled' ? quotaResult.value : null
-    if (quotaResp?.ok) setQuota((await quotaResp.json()) as Quota)
-    else setQuota(null)
+    if (quotaResp?.ok) {
+      const body = (await quotaResp.json()) as Quota
+      if (generation !== generationRef.current) return
+      setQuota(body)
+    } else setQuota(null)
 
     const docsResp = docsResult.status === 'fulfilled' ? docsResult.value : null
     if (docsResp?.ok) {
       const body = (await docsResp.json()) as { docs: RagDoc[] }
+      if (generation !== generationRef.current) return
       setDocs(body.docs)
       setDocsError('')
     } else {
       setDocs(null)
       // 请求本身被拒（断网/连接被断）时没有 Response 可读 ⇒ 用与其它网络错误一致的文案
-      setDocsError(docsResp ? await readErrorMessage(docsResp) : '网络错误，请重试')
+      const message = docsResp ? await readErrorMessage(docsResp) : '网络错误，请重试'
+      if (generation !== generationRef.current) return
+      setDocsError(message)
     }
 
     const usageResp = usageResult.status === 'fulfilled' ? usageResult.value : null
     if (usageResp?.ok) {
-      setKbUsage((await usageResp.json()) as KbUsage)
+      const body = (await usageResp.json()) as KbUsage
+      if (generation !== generationRef.current) return
+      setKbUsage(body)
     } else {
       setKbUsage(null)
     }
   }, [])
 
   const clear = useCallback(() => {
+    generationRef.current += 1
     setQuota(null)
     setDocs(null)
     setDocsError('')
