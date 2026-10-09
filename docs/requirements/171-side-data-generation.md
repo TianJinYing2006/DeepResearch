@@ -5,7 +5,7 @@
 | --- | --- |
 | Issue | #171 |
 | Priority | P1 |
-| Status | Locally verified; merge status follows the linked GitHub PR |
+| Status | Merged into dev via [PR #175](https://github.com/TianJinYing2006/DeepResearch/pull/175) |
 | Date | 2026-10-09 |
 | Branch | fix/171-side-data-generation |
 | Feishu mirror | Not synchronized in this GitHub-only task |
@@ -34,7 +34,7 @@ parsing remains pending; aborting transport alone would not establish ownership.
 - [x] Logout prevents late data from returning.
 - [x] A newer refresh wins over an older response.
 - [x] Browser regressions and CLI checks pass: 2 browser tests, 28 unit tests, build and guards.
-- [ ] All PR checks pass before squash merge into dev.
+- [x] All six PR checks passed before squash merge into dev.
 
 ## 8. Impact and Risk
 Only frontend side-data ownership changes. No API or research-engine behavior
@@ -47,3 +47,4 @@ changes. Latest refresh wins; superseded responses are deliberately ignored.
 | Date | Change | Reference |
 | --- | --- | --- |
 | 2026-10-09 | Requirement created from acceptance finding F1 | #171 |
+| 2026-10-09 | Six CI checks passed; squash merged into dev | PR #175 |

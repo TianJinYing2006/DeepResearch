@@ -5,6 +5,8 @@
 > 实时状态仍以 `docs/project-status.md` 为准，上线准入事实以 `docs/operations/production-readiness.md` 为准。
 > 若本文结论要转为实施项，按流程另开需求文档 / ADR，不在本文直接改代码。
 >
+> **2026-10-09 复验**：需求 #171~#174 修复了账号旧响应回填、预览串正文、空报告误判阶段完成和坏 JSON 阻断侧数据四项缺陷。完整生产构建后 **E2E 80 passed / Vitest 28 passed / 五守卫通过**；四项浏览器验收探针均通过，桌面与 375px 窄屏无横向溢出或失效锚点。前三项已合入 `dev`（PR #175~#177）；#174 的最终合并记录见其关联 GitHub PR。下列 2026-10-08 记录保留为阶段性历史。
+>
 > **2026-10-08 增量更新**：前端 UI 收口轮（需求 29~32，分支已建未推送）改变了本文若干现状事实，已就地修正：
 > E2E 35 → **65 条**；前端**已有** Vitest 单测（28 条）与 UI 反模式守卫；`AccountPanel.tsx` **714 → 555 行**（8 个领域切片完成 7，仅剩 S8 认证入口 JSX）
 > （领域状态拆出四个切片，**未拆完**）。本地实测：e2e 63 passed（对全新 dist）/ vitest 25 /
@@ -20,7 +22,7 @@
 
 | 层 | 组成 | 规模 / 落点 | 判断 |
 | --- | --- | --- | --- |
-| 接入 | React 18 + Vite 6 + Tailwind 3 + SSE（`EventSource`） | `web/frontend/src` 手写 ts/tsx；E2E **63 条**已进 CI（含窄屏流程与异常态）+ Vitest 25 条 + UI 反模式守卫 | 够用；**无** CDN / WAF / 反向代理实现 |
+| 接入 | React 18 + Vite 6 + Tailwind 3 + SSE（`EventSource`） | `web/frontend/src` 手写 ts/tsx；E2E **80 条**（含窄屏流程、异常态和四项验收缺陷回归）+ Vitest 28 条 + UI 反模式守卫 | 够用；**无** CDN / WAF / 反向代理实现 |
 | 应用 | FastAPI（`main.py` 1965 行，33 条路由）+ Worker（`worker.py` 595 行） | 后端共 8838 行 / 30 模块 | 分层清楚；鉴权 / 配额 / 审核 / 审计 / 保留期都已闭环 |
 | 状态 | PostgreSQL 权威 + Redis 加速 + MinIO 报告对象 | 17 个迁移；派发权威已迁 PG（`FOR UPDATE SKIP LOCKED`），Redis 降级为可选信号 | 这是全项目**质量最高**的部分 |
 | 引擎 | LangGraph：6 节点 + critic 三态条件边 + 2 回环 | `research_engine` 9492 行；`max_total_hops=20`，每子问题 `ceil(20/n)` | 编排深度足；**子问题之间串行**（`Send` 并行推 W2 未做） |

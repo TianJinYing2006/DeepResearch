@@ -42,45 +42,36 @@ export function useSideData(): SideData {
 
   useEffect(() => () => { generationRef.current += 1 }, [])
 
-  // 审计 U25：原先用 `await Promise.all([...])` 且无 try/catch —— 三个接口里**任一**网络失败
-  // 就让整个刷新以未捕获拒绝收场：另外两个已经拿到的好数据一起丢，调用点（`void refresh()`）
-  // 也没人接这个拒绝。改用 allSettled 逐资源结算：成功几个更新几个，失败的那个单独置错误态。
+  // 请求和正文解析一起结算，避免坏 JSON 拒绝整个刷新；代次校验覆盖所有异步读取。
   const refresh = useCallback(async () => {
     const generation = ++generationRef.current
     const [quotaResult, docsResult, usageResult] = await Promise.allSettled([
-      fetch('/api/quota'), fetch('/api/rag/docs'), fetch('/api/rag/usage'),
+      (async () => {
+        const response = await fetch('/api/quota')
+        return response.ok ? (await response.json()) as Quota : null
+      })(),
+      (async () => {
+        const response = await fetch('/api/rag/docs')
+        if (!response.ok) return { docs: null, error: await readErrorMessage(response) }
+        const body = (await response.json()) as { docs: RagDoc[] }
+        return { docs: body.docs, error: '' }
+      })(),
+      (async () => {
+        const response = await fetch('/api/rag/usage')
+        return response.ok ? (await response.json()) as KbUsage : null
+      })(),
     ])
     if (generation !== generationRef.current) return
 
-    const quotaResp = quotaResult.status === 'fulfilled' ? quotaResult.value : null
-    if (quotaResp?.ok) {
-      const body = (await quotaResp.json()) as Quota
-      if (generation !== generationRef.current) return
-      setQuota(body)
-    } else setQuota(null)
-
-    const docsResp = docsResult.status === 'fulfilled' ? docsResult.value : null
-    if (docsResp?.ok) {
-      const body = (await docsResp.json()) as { docs: RagDoc[] }
-      if (generation !== generationRef.current) return
-      setDocs(body.docs)
-      setDocsError('')
+    setQuota(quotaResult.status === 'fulfilled' ? quotaResult.value : null)
+    if (docsResult.status === 'fulfilled') {
+      setDocs(docsResult.value.docs)
+      setDocsError(docsResult.value.error)
     } else {
       setDocs(null)
-      // 请求本身被拒（断网/连接被断）时没有 Response 可读 ⇒ 用与其它网络错误一致的文案
-      const message = docsResp ? await readErrorMessage(docsResp) : '网络错误，请重试'
-      if (generation !== generationRef.current) return
-      setDocsError(message)
+      setDocsError('网络错误，请重试')
     }
-
-    const usageResp = usageResult.status === 'fulfilled' ? usageResult.value : null
-    if (usageResp?.ok) {
-      const body = (await usageResp.json()) as KbUsage
-      if (generation !== generationRef.current) return
-      setKbUsage(body)
-    } else {
-      setKbUsage(null)
-    }
+    setKbUsage(usageResult.status === 'fulfilled' ? usageResult.value : null)
   }, [])
 
   const clear = useCallback(() => {
