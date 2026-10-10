@@ -145,6 +145,23 @@ jobs:
           done
           echo "restore drill ok"
 
+      # 需求 1（#145）：backup-verify 双路径自检 —— 「最新 dump 的新鲜度 + 可读性」独立可复核。
+      # 过期路径断言退出码 = 4（副本 mtime 拨回 3 天），防止新鲜度判据静默失效。
+      - name: 备份校验脚本自检（backup-verify，新鲜 + 过期）
+        run: |
+          set -e
+          DC="docker compose -f docker-compose.staging.yml"
+          # 新鲜路径：刚备份出的 dump 应通过（输出含 md5）
+          $DC exec -T -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/backup-verify.sh
+          # 过期路径：副本 mtime 拨回 3 天，须以退出码 4 失败
+          $DC exec -T postgres sh -c 'cp "$(ls -1t /tmp/dr-backups/deepresearch_*.dump | head -n 1)" /tmp/dr-backups/stale.dump && touch -d "3 days ago" /tmp/dr-backups/stale.dump'
+          set +e
+          $DC exec -T -e BACKUP_TARGET=/tmp/dr-backups/stale.dump postgres sh -s < tools/backup-verify.sh
+          rc=$?
+          set -e
+          test "$rc" = "4"
+          echo "backup-verify drill ok"
+
       - name: 构建 API 镜像
         run: docker build -f Dockerfile.api -t deepresearch-api:ci .
 

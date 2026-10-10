@@ -5,6 +5,7 @@
 # 用法：
 #   BACKUP_DIR=/opt/deepresearch/backups tools/backup-verify.sh            # 校验最新一份
 #   tools/backup-verify.sh /path/to/deepresearch_20261007_033000.dump      # 校验指定文件
+#   BACKUP_TARGET=/path/to/file tools/backup-verify.sh                     # 同上（环境变量注入，供 CI/脚本调用）
 #   BACKUP_PASSPHRASE=... tools/backup-verify.sh                           # 对称加密产物（.dump.enc）
 #   BACKUP_RECIPIENT_KEY=... tools/backup-verify.sh                        # 非对称产物（.dump.pem，离线私钥）
 #
@@ -15,13 +16,24 @@
 #      - 明文 .dump：直接校验；
 #      - .enc / .pem：**需提供口令 / 私钥**；未提供时只做结构校验并显式输出
 #        `structure-only`（可解性由「带离线私钥的恢复演练」保证，见 release-runbook §10）。
+#   4. 输出产物 md5（无 md5sum 时回退 sha256sum）—— 供与 COS 侧双向核对（§10.1 第 6 项）。
 #
 # 退出码：0 通过（含 structure-only）；2 找不到备份；3 空文件；4 过期；5 解密失败；6 不可读。
 set -eu
 
+checksum() {
+    if command -v md5sum > /dev/null 2>&1; then
+        echo "md5=$(md5sum "$1" | cut -d' ' -f1)"
+    elif command -v sha256sum > /dev/null 2>&1; then
+        echo "sha256=$(sha256sum "$1" | cut -d' ' -f1)"
+    else
+        echo "checksum=n/a（缺 md5sum/sha256sum）"
+    fi
+}
+
 OUT_DIR="${BACKUP_DIR:-/backups}"
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-26}"
-TARGET="${1:-}"
+TARGET="${1:-${BACKUP_TARGET:-}}"
 
 if [ -z "$TARGET" ]; then
     TARGET="$(ls -1t "$OUT_DIR"/deepresearch_*.dump "$OUT_DIR"/deepresearch_*.dump.enc \
@@ -82,7 +94,7 @@ case "$TARGET" in
 esac
 
 if [ ! -s "$TMP" ]; then
-    echo "verify structure-only ok: $TARGET（加密产物未提供口令/私钥；可解性请在恢复演练中用离线密钥验证）"
+    echo "verify structure-only ok: $TARGET（$(checksum "$TARGET")；加密产物未提供口令/私钥；可解性请在恢复演练中用离线密钥验证）"
     exit 0
 fi
 
@@ -93,4 +105,4 @@ if ! pg_restore -l "$TMP" > /tmp/dr-verify.list.$$ 2>/dev/null; then
 fi
 ENTRIES="$(wc -l < /tmp/dr-verify.list.$$ | tr -d ' ')"
 rm -f /tmp/dr-verify.list.$$
-echo "verify ok: $TARGET（mode=$MODE，pg_restore -l 可读，目录条目 ${ENTRIES} 行）"
+echo "verify ok: $TARGET（mode=$MODE，pg_restore -l 可读，目录条目 ${ENTRIES} 行，$(checksum "$TARGET")）"
