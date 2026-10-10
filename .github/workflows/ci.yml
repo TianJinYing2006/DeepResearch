@@ -153,8 +153,8 @@ jobs:
           DC="docker compose -f docker-compose.staging.yml"
           # 新鲜路径：刚备份出的 dump 应通过（输出含 md5）
           $DC exec -T -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/backup-verify.sh
-          # 过期路径：副本 mtime 拨回 3 天，须以退出码 4 失败
-          $DC exec -T postgres sh -c 'cp "$(ls -1t /tmp/dr-backups/deepresearch_*.dump | head -n 1)" /tmp/dr-backups/stale.dump && touch -d "3 days ago" /tmp/dr-backups/stale.dump'
+          # 过期路径：副本 mtime 拨回 2020-01-01（busybox touch 不认相对时间，用 POSIX -t），须以退出码 4 失败
+          $DC exec -T postgres sh -c 'cp "$(ls -1t /tmp/dr-backups/deepresearch_*.dump | head -n 1)" /tmp/dr-backups/stale.dump && touch -t 202001010000 /tmp/dr-backups/stale.dump'
           set +e
           $DC exec -T -e BACKUP_TARGET=/tmp/dr-backups/stale.dump postgres sh -s < tools/backup-verify.sh
           rc=$?
