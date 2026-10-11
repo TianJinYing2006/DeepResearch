@@ -17,12 +17,12 @@
 
 | 项 | 内容 | 判据 / 验收 | 状态 |
 |---|---|---|---|
-| E0-① | GitHub 默认分支 `master` → `dev`（当前仍为 master） | 访客首页 = dev；master 保留里程碑合并职责 | ⬜（需主理人确认后执行） |
-| E0-② | **21 个 open issue 分诊** | 每条给出：转挂账编号 / 关闭 / 保留；结论以 issue 评论留痕 | ⬜ |
-| 存量分支清账 | 13 条存量分支逐条合/弃（详见 §5；5 条已合可删 + 8 条 open PR 待决策） | 远端分支收敛到活跃集 | ⬜ |
-| 基线回填 | `capacity-model.md` §5「实测基线」回填（locust 压测 → 连接预算 / p50 / p90） | ⚠️ **回填前不得对外宣称任何并发能力**（该文件自述纪律） | ⬜ |
+| E0-① | GitHub 默认分支 `master` → `dev` | 访客首页 = dev；master 保留里程碑合并职责 | ✅（2026-10-11 已切换） |
+| E0-② | **21 个 open issue 分诊** | 每条给出：转挂账编号 / 关闭 / 保留；结论以 issue 评论留痕 | ✅（2026-10-11：21→5；10 关 + 3 挂本路线图 + 2 保留） |
+| 存量分支清账 | 13 条存量分支逐条合/弃 | 远端分支收敛到活跃集 | ✅（2026-10-11：8 条 OPEN 全部合入 + 5 条已合分支删除；见 §5） |
+| 基线回填 | `capacity-model.md` §5「实测基线」回填（locust 压测 → 连接预算 / p50 / p90） | ⚠️ **回填前不得对外宣称任何并发能力**（该文件自述纪律） | ⬜（待执行本地压测，约 1h） |
 | CI 复验 | `ubuntu-latest` 自 **2026-10-19** 起迁移 Ubuntu 26 | 迁移日后首个 PR：三档 lint/test + infra + e2e 全绿 | ⬜（定时） |
-| 事故残留 | `.workbuddy/restore_results_from_recycle.py`（一次性还原脚本）确认删除；`_arm7_results_backup/` 本机已不存在（2026-10-11 实测） | **需主理人确认**（事故物证，删前 review） | ⬜（待确认） |
+| 事故残留 | `.workbuddy/restore_results_from_recycle.py` + `_arm7_results_backup/` | 事故物证清理 | ✅（2026-10-11：备份目录此前已不存在；脚本已删） |
 
 ## 2. 批次 1：证据链「最后一公里」（下一批次主线，≈1~2 周；**单独立项 → 需求 34**）
 
@@ -62,32 +62,14 @@
 
 - ⚠️ **ADR-0009 仍为草稿：确认前不进入生产实现**（见 `docs/project-status.md`「L3 首发参数与立项」行）。
 
-## 5. 存量分支清账（13 条，2026-10-11 实测 PR 状态）
+## 5. 存量分支清账 —— ✅ 已完成（2026-10-11）
 
-> 全部 `git branch -r --no-merged`（squash 合并不产生祖先关系）；处置前逐条 `git diff origin/dev...<branch>` 核对是否有遗漏。
-
-**A. PR 已合 → 分支可直接删（5 条）**
-
-| 分支 | 对应 PR |
-|---|---|
-| `docs/1010-readme-refresh` | #179（已合） |
-| `fix/140-audit-p1-remediation` | #141（已合） |
-| `feature/20-p0-backup-encryption` | #94（已合） |
-| `feature/20-p0-cookie-password` | #90（已合） |
-| `feature/20-p0-security-panel` | #92（已合） |
-
-**B. PR 仍 OPEN → 逐条「合 / 弃」决策（8 条）**
-
-| 分支 | PR | 内容 | 建议 |
-|---|---|---|---|
-| `feature/145-pg-backup-drill` | #148 | `tools/backup-verify.sh`（新鲜度 + `pg_restore -l` + md5）+ CI 双路径自检 + runbook 章节（+184 行） | **优先核**：dev 目前只有 backup/restore 演练、无 verify 脚本 ⇒ 很可能需合 |
-| `chore/146-w9-baseline` | #149 | W9 基线相关 | 核对后合/弃 |
-| `docs/1008-operations-docs` | #157 | 运维文档（2026-10-08） | 核对后合/弃 |
-| `fix/144-test-env-isolation` | #147 | 测试环境隔离 | 核对后合/弃 |
-| `fix/150-judge-timeout-robustness` | #152 | 裁判超时稳健性 | 部分能力可能已在 dev ⇒ diff 后定 |
-| `fix/151-critic-replan-semantics` | #153 | critic 返工收敛 | 同上 |
-| `fix/154-validation-budget-floor` | #155 | 校验预算地板 | 同上 |
-| `fix/154-validator-sharded-context` | #156 | 校验分片上下文 | 同上 |
+- **8 条 OPEN PR 全部合入 dev**：#147（测试环境隔离）/ #152（裁判超时稳健性）/ #153（critic replan 收敛）/
+  #155（校验预算地板）/ #156（validator 分片上下文，rebase 后合入）/ #148（backup-verify 脚本）/
+  #157（运维文档）/ #149（W9 质量基线）；关联 issue 自动关闭：#145 / #146 / #150 / #151 / #154
+- **5 条已合分支已删**：`docs/1010-readme-refresh`(#179) / `fix/140-audit-p1-remediation`(#141) /
+  `feature/20-p0-*`(#94/#90/#92)（其中 4 条此前已删，`fix/140` 补删）
+- 全部合并后 dev CI 绿；远端零残留存量分支
 
 ## 6. 对外材料（剩余）
 
@@ -109,3 +91,4 @@
 | 日期 | 变更 | 说明 |
 |---|---|---|
 | 2026-10-11 | 建稿 | 需求 33 收尾后盘点整理：批次 0~2 + 上线并行轨 + 分支清账 + 对外材料；已剔除登记类问题，并按本机实测纠正「open issue 21 条」「`_arm7_results_backup/` 已不存在」两处 |
+| 2026-10-11 | 批次 0 执行 | E0-① 默认分支切 `dev`；E0-② issue 分诊 21→5；存量分支清账（8 合 + 5 删）；事故脚本删除；剩余：capacity 基线回填（待压测）、CI Ubuntu 26 复验（10-19 后） |
