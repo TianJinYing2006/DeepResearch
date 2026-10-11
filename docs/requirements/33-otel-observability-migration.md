@@ -18,7 +18,7 @@
 | 编号 | 28 |
 | 标题 | OTel 观测迁移（Langfuse → OTel 原生，对齐国内技术栈叙事） |
 | 优先级 | P1 |
-| 状态 | 已合（PR #181 → dev `7355ba4`；真实冒烟见 §9.1） |
+| 状态 | 已合（PR #181/#182 → dev；真实冒烟见 §9.1、自托管 spike 见 §9.2） |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #180 |
 | 关联 PR | — |
@@ -155,7 +155,7 @@ deepresearch-worker）；CLI 自初始化路径。
 - [x] `tools/verify_otel_trace.py` 重写替代 `verify_w3_trace.py`（旧脚本已删除）
 - [x] `egress.py` 数据去向披露项按新后端改写（`otel_configured` + `otel_endpoint_host`）
 - [x] 真实冒烟：一次 research → span 树完整（含多轮 critic 循环），结论 + 截图入档（2026-10-11 完成，见 §9.1：86 spans / 62 gens / 对账 0 差 / verify PASS；截图 `local-artifacts/otel-smoke-2026-10-11-jaeger-trace.png`）
-- [ ] 自托管 Langfuse OTLP ingest spike（TBD-1 选项 B 实测，随真实冒烟一并做）
+- [x] 自托管 Langfuse OTLP ingest spike（TBD-1 选项 B 实测，2026-10-11 完成，见 §9.2；发现并修复根 span 假父指针）
 - [x] README:21/89/390 更新；简历口径更新（落地才写，随收口）
 - [x] 依赖清理（`requirements.txt` 移除 langfuse）与 openai 锁复评结论记录（暂留锁，TBD-8）；
       全量回归 1002 收集 = 715 通过 + 260 跳过 + 27 既有环境失败（与需求 27 基线逐项一致，零新增）
@@ -205,6 +205,39 @@ deepresearch-worker）；CLI 自初始化路径。
      抛 `UnicodeEncodeError`（实测复现）→ 跑 CLI 冒烟必须 `PYTHONIOENCODING=utf-8`；
      PowerShell `*>` 产出 UTF-16 日志 → `verify_otel_trace.py` 已加 BOM/编码自适应。
 
+### 9.2 自托管 Langfuse OTLP ingest spike（2026-10-11，TBD-1 选项 B 实测）
+
+- **栈**：自托管 Langfuse **v4.56.0**（`local-artifacts/langfuse-selfhost/docker-compose.yml`，本机条件裁剪：
+  daocloud 镜像源 / 本机 pgsty-minio / 本机 PG16+Redis7 / 内部服务不占宿主端口 / mem_limit /
+  headless 引导 `LANGFUSE_INIT_*`，admin 账号 `admin@deepresearch.local`）
+- **接入**：`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:3000/api/public/otel` +
+  `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <base64(pk:sk)>`（**引擎代码零改动，纯 env**）
+- **结论（ClickHouse `events_full` 与 UI 双核对）**：
+  - ✅ 原样 GenAI span 可被 v4 直接摄取：`chat <model>` 自动映射为 **GENERATION**；
+    `gen_ai.usage.input/output/total` → `usage_details`（实测 14/1/15）；`gen_ai.request.model` →
+    `provided_model_name`；全部 `dr.*` 与 resource 属性进 metadata；span 层级/名称/latency 完整
+  - ⚠️ **成本**：Langfuse 不认 qwen-plus 定价（catalog 无此模型）→ `cost_details` 为空；
+    `dr.cost_estimate_cny` 以 metadata 留存——**成本口径继续以本地定价表为准**（TBD-4 设计如此）
+  - ⚠️ **Input/Output 面板为空**：我们只发 `dr.messages_preview`/`dr.completion_preview`（进 metadata），
+    未用 Langfuse 专属 `langfuse.observation.input/output` 约定——预览可在 metadata 查看；
+    如需填面板需加 Langfuse 专属属性（与「后端可插拔」耦合，暂不加，登记为已知取舍）
+  - 🐛→✅ **修复**：首轮实测发现根 span 带悬空父指针（旧 `NonRecordingSpan` 强制 trace_id 方案的副作用）→
+    Langfuse 把根标成非根（`isRootObservation=false` + 幽灵父节点）；已改为 **IdGenerator 播种**
+    （`_SeededIdGenerator`：根 span 正常创建、无父指针），复验 `parent_span_id=""`、UI 树根正确
+  - 📌 v4 API 备忘：公共 API 迁至 `/api/public/v2/observations`（v1 `/api/public/traces` 已 404）；
+    数据在新事件存储 `events_full`（旧 `observations`/`traces` 表为空）
+- **资源口径**：整套栈约 2~2.5G（web 需 >1G 堆：`mem_limit 2g` + `NODE_OPTIONS`；clickhouse ~0.5G）；
+  spike 期间临时停 `docker-ragflow-cpu-1`，完成后已恢复
+- **截图**：`local-artifacts/langfuse-spike-2026-10-11-trace.png`（UI 树 + 15 tokens + metadata）
+- **复现命令**：
+  ```bash
+  docker compose -f local-artifacts/langfuse-selfhost/docker-compose.yml up -d
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:3000/api/public/otel \
+  OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64(pk:sk)>" \
+  DR_OTEL_TRACE_URL_TEMPLATE="http://localhost:3000/project/dr-otel/traces/{trace_id}" \
+  PYTHONIOENCODING=utf-8 python cli.py "研究主题"
+  ```
+
 ## 10. 排期（本批次）
 
 > 口径：粗估按单主线开发节奏（人日），不含设计评审等待；周次绑定向 status board 收口后回填。
@@ -219,8 +252,8 @@ deepresearch-worker）；CLI 自初始化路径。
 
 合计 ≈ 4.5~5 人日；建议作为下一批次主线。
 
-> **进度（2026-10-11）**：批次 A~E 主体完成——PR #181 已合入 dev（`7355ba4`）；真实冒烟完成（见 §9.1）；
-> 剩余 = 自托管 Langfuse OTLP spike（批次 D 收尾）与飞书镜像同步（批次 E）。
+> **进度（2026-10-11）**：批次 A~E 主体完成——PR #181/#182 已合入 dev；真实冒烟（§9.1）与
+> 自托管 Langfuse spike（§9.2）均完成；剩余 = 飞书镜像同步（批次 E）与 lock 重生成。
 
 ## 11. 同期批次排期：对照 EvidenceFlow 的借鉴项（独立立项）
 
@@ -256,3 +289,5 @@ deepresearch-worker）；CLI 自初始化路径。
 | 2026-10-11 | 同步 | 飞书镜像 | 已创建「需求设计文档：OTel 观测迁移」（docx `YHiEdRhNpoqRs4xUMyxcIFBHnXX`，经导入接口；`~` 转义版已核验）；正文在个人空间，待客户端移入 `DeepResearch 需求文档` 文件夹（同需求 27 情形） | 本文档 |
 | 2026-10-11 | 合并 | 收口 | PR #181 CI 6/6 绿后 squash 合入 dev（`7355ba4`）；需求 33 状态置「已合」 | PR #181 / `7355ba4` |
 | 2026-10-11 | 冒烟 | 真实 CLI + 本地 Jaeger | 见 §9.1：86 spans / 62 gens / usage 对账 0 差 / verify PASS；发现 .env MaaS 端点缺 qwen-turbo（环境层，非迁移回归）+ Windows 重定向编码坑（`PYTHONIOENCODING=utf-8` 必带）；`verify_otel_trace.py` 增加日志编码自适应 | 本文档 |
+| 2026-10-11 | 冒烟 | 自托管 Langfuse OTLP spike | 见 §9.2：原样 GenAI span 直摄（GENERATION + usage 映射实证）；成本/Input-Output 面板为已知取舍；v4 API/事件存储备忘；资源口径入档 | 本文档 |
+| 2026-10-11 | 修复 | 根 span 假父指针（spike 实测发现） | `_forced_parent`（NonRecordingSpan）→ `_SeededIdGenerator` 播种：根 span 无父指针（Langfuse 根判定恢复）；单测补 `root.parent is None` 断言 | `fix/181-root-span-parent` |

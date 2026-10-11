@@ -46,7 +46,7 @@ def _enable_with_memory(monkeypatch):
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
     exporter = InMemorySpanExporter()
-    provider = TracerProvider()
+    provider = TracerProvider(id_generator=obs._build_seeded_id_generator())
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     monkeypatch.setattr(obs, "_ready", True)
     monkeypatch.setattr(obs, "_provider", provider)
@@ -119,8 +119,9 @@ def test_start_trace_forces_trace_id_and_node_parenting(monkeypatch):
     assert "R1-检索" in names
     root = next(s for s in spans if s.name.startswith("deepresearch: "))
     child = next(s for s in spans if s.name == "R1-检索")
-    assert format(root.context.trace_id, "032x") == tid  # 强制 trace_id 生效
+    assert format(root.context.trace_id, "032x") == tid  # 播种 trace_id 生效
     assert format(child.context.trace_id, "032x") == tid  # 子 span 同 trace
+    assert root.parent is None  # 需求 33 修复：根 span 不再带悬空假父指针
     assert child.parent is not None and child.parent.span_id == root.context.span_id  # 父子关系
     assert root.attributes["dr.thread_id"] == "dr-x"
     assert len(root.name) <= len("deepresearch: ") + 80  # 根 span 名截断

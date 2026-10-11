@@ -3,7 +3,8 @@
 设计要点（对应需求 33 §5 TBD，速查）：
 - TBD-2：generation 单点显式埋点 —— `LLMClient.chat` 是全项目唯一 LLM 出口，
   在其内部开 `gen_ai.*` span；不做 monkey-patch（吸取 `langfuse.openai` 全局 wrap 的版本耦合教训）。
-- TBD-3：根 trace 的 trace_id 由本模块自持（32-hex），并强制注入根 span ——
+- TBD-3：根 trace 的 trace_id 由本模块自持（32-hex），经自定义 IdGenerator 播种给根 span
+  （**无假父指针**——spike 实测 NonRecordingSpan 方案会让 Langfuse 把根观测标成非根）；
   CLI `finally` 在异常路径也能取到 id 回显 URL（W3 Q5 语义保留）。
 - TBD-4：成本本地自算（`config.llm.pricing` 精确单价），逐调用估算写 span 属性
   `dr.cost_estimate_cny`（后端可展示，替代 Langfuse 控制台 cost 列）；
@@ -21,6 +22,7 @@ import json
 import logging
 import os
 import re
+import threading
 import uuid
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
@@ -47,6 +49,47 @@ def _enabled() -> bool:
 
 _ready = False
 _provider: Any = None
+
+
+# ---------------- trace id 播种（TBD-3：根 span 无假父指针） ----------------
+
+_seeded_trace_id: Optional[int] = None
+_seed_lock = threading.Lock()
+
+
+def _seed_trace_id(trace_id: str) -> None:
+    """为下一条新建根 span 预置 trace_id（由 IdGenerator 一次性消费）。"""
+    global _seeded_trace_id
+    try:
+        value = int(trace_id, 16)
+    except (TypeError, ValueError):
+        return
+    if value <= 0:
+        return
+    with _seed_lock:
+        _seeded_trace_id = value
+
+
+def _take_seeded_trace_id() -> Optional[int]:
+    global _seeded_trace_id
+    with _seed_lock:
+        value = _seeded_trace_id
+        _seeded_trace_id = None
+    return value
+
+
+def _build_seeded_id_generator() -> Any:
+    """IdGenerator：优先返回被播种的 trace_id（仅根 span 创建时消费），否则随机。"""
+    from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
+
+    class _SeededIdGenerator(RandomIdGenerator):
+        def generate_trace_id(self) -> int:
+            forced = _take_seeded_trace_id()
+            if forced:
+                return forced
+            return super().generate_trace_id()
+
+    return _SeededIdGenerator()
 
 
 def _ensure() -> Any:
@@ -76,7 +119,7 @@ def _ensure() -> Any:
             "service.version": os.environ.get("DR_WORKER_VERSION", "dev"),
             "deployment.environment.name": os.environ.get("DR_ENV", "local"),
         })
-        provider = TracerProvider(resource=resource)
+        provider = TracerProvider(resource=resource, id_generator=_build_seeded_id_generator())
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
         trace_api.set_tracer_provider(provider)
         _provider = provider
@@ -153,21 +196,6 @@ def create_trace_id(thread_id: str) -> Optional[str]:
     return uuid.uuid4().hex
 
 
-def _forced_parent(trace_id: str) -> Any:
-    """把指定 trace_id 强制注入上下文（根 span 沿用该 id）。"""
-    from opentelemetry import trace as trace_api
-    from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
-    from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
-
-    span_ctx = SpanContext(
-        trace_id=int(trace_id, 16),
-        span_id=RandomIdGenerator().generate_span_id(),
-        is_remote=False,
-        trace_flags=TraceFlags(TraceFlags.SAMPLED),
-    )
-    return trace_api.set_span_in_context(NonRecordingSpan(span_ctx))
-
-
 @contextmanager
 def start_trace(
     trace_id: str,
@@ -178,7 +206,9 @@ def start_trace(
 ) -> Iterator[Any]:
     """根 span（一次研究 = 一条 trace）。未启用时 no-op（yield None）。
 
-    trace_id 由 `create_trace_id` 自持并强制注入 —— 异常路径 CLI 也能回显 URL（W3 Q5）。
+    trace_id 由 `create_trace_id` 自持，经 IdGenerator 播种给根 span（**无假父指针**）——
+    异常路径 CLI 也能回显 URL（W3 Q5）。注意：若进程内复用了外部 provider（如 Worker
+    先初始化 web 侧），播种不生效，根 span 用随机 id（该路径无 URL 回显需求）。
     """
     tracer = _tracer()
     if tracer is None or not trace_id:
@@ -189,14 +219,8 @@ def start_trace(
         "dr.topic": topic[:SPAN_INPUT_TRUNCATE],
         "dr.user_instructions": user_instructions[:SPAN_INPUT_TRUNCATE],
     }
-    try:
-        parent = _forced_parent(trace_id)
-    except Exception as exc:  # noqa: BLE001 —— 强制 id 失败退回默认生成，不阻塞主流程
-        logger.warning("trace id 注入失败（退回默认生成）：%s", exc)
-        parent = None
-    with tracer.start_as_current_span(
-        f"deepresearch: {topic[:80]}", context=parent, attributes=attrs
-    ) as root:
+    _seed_trace_id(trace_id)
+    with tracer.start_as_current_span(f"deepresearch: {topic[:80]}", attributes=attrs) as root:
         yield root
 
 
