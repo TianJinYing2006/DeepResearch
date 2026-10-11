@@ -6,11 +6,11 @@
 > ⇒ 需新增 `docs/decisions/0012-*.md` 正式记录反转理由与代价，并在需求 3 变更记录追加注记。
 > **排期**：本文档承载「本批次 OTel 迁移排期」（§10）与「同期批次排期：对照 EvidenceFlow 的
 > 借鉴项」（§11，独立立项）两部分。
-> **飞书镜像**：**已创建（2026-10-11）** —— docx token `YHiEdRhNpoqRs4xUMyxcIFBHnXX`｜
+> **飞书镜像**：**已同步（2026-10-11，lark-cli 重建并直入目标文件夹）** —— docx token `MlvZdwL0SoaVYmxHjVrciGkcnad`｜
 > 显示名「需求设计文档：OTel 观测迁移」｜
-> URL https://wcnnpvbxd7li.feishu.cn/docx/YHiEdRhNpoqRs4xUMyxcIFBHnXX
-> （经导入接口创建；正文文档在个人空间，待客户端移入 `DeepResearch 需求文档` 文件夹
-> `MYR6fazL5la0ardJdUecOBkVnd8`）。
+> URL https://wcnnpvbxd7li.feishu.cn/docx/MlvZdwL0SoaVYmxHjVrciGkcnad
+> （位于 `DeepResearch 需求文档` 文件夹 `MYR6fazL5la0ardJdUecOBkVnd8`；旧导入版
+> `YHiEdRhNpoqRs4xUMyxcIFBHnXX` 已删除）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -252,8 +252,8 @@ deepresearch-worker）；CLI 自初始化路径。
 
 合计 ≈ 4.5~5 人日；建议作为下一批次主线。
 
-> **进度（2026-10-11）**：批次 A~E 主体完成——PR #181/#182 已合入 dev；真实冒烟（§9.1）与
-> 自托管 Langfuse spike（§9.2）均完成；剩余 = 飞书镜像同步（批次 E）与 lock 重生成。
+> **进度（2026-10-11）**：批次 A~E 全部完成——PR #181/#182/#183 已合入 dev；真实冒烟（§9.1）、
+> 自托管 Langfuse spike（§9.2）与飞书镜像重建（见文首「飞书镜像」）均完成；剩余 = lock 重生成（低优先）。
 
 ## 11. 同期批次排期：对照 EvidenceFlow 的借鉴项（独立立项）
 
@@ -287,6 +287,7 @@ deepresearch-worker）；CLI 自初始化路径。
 | 2026-10-11 | 实现 | 需求 33 代码主体（Issue #180） | observability.py 重写（OTel 原生）；client.py generation 单点；graph.py 接线；`OtelConfig` 替换 LangfuseConfig；egress 披露；`verify_otel_trace.py` 替代 `verify_w3_trace.py`；requirements 移除 langfuse（openai 锁暂留）；tests 重写/适配 + 无 langfuse import 守卫；README / `.env.example` / 运维法务口径切换 | `feature/180-otel-observability-migration` / PR #181 |
 | 2026-10-11 | 自测 | 本地全量回归（3.13.14 venv） | ruff 全过；pytest **1002 收集 = 715 通过 + 260 跳过（PG/Redis 缺失镜像 CI skip 语义）+ 27 既有环境失败（与需求 27 基线逐项一致，零新增）** | 本机 |
 | 2026-10-11 | 同步 | 飞书镜像 | 已创建「需求设计文档：OTel 观测迁移」（docx `YHiEdRhNpoqRs4xUMyxcIFBHnXX`，经导入接口；`~` 转义版已核验）；正文在个人空间，待客户端移入 `DeepResearch 需求文档` 文件夹（同需求 27 情形） | 本文档 |
+| 2026-10-11 | 同步 | 飞书镜像重建（lark-cli，直入文件夹） | 设备码登录（user=于晏；`HERMES_HOME` 排除后走全局配置，未动 Hermes）→ `docs +create --parent-token` 直建入 `DeepResearch 需求文档`（`MlvZdwL0SoaVYmxHjVrciGkcnad`）→ 整档覆盖 + `docs +fetch` 回查（`<del>`=0 / DoD 清单 11 项 / 标题正确）；旧导入文档 `YHiEd…` 已删除 | 本文档 |
 | 2026-10-11 | 合并 | 收口 | PR #181 CI 6/6 绿后 squash 合入 dev（`7355ba4`）；需求 33 状态置「已合」 | PR #181 / `7355ba4` |
 | 2026-10-11 | 冒烟 | 真实 CLI + 本地 Jaeger | 见 §9.1：86 spans / 62 gens / usage 对账 0 差 / verify PASS；发现 .env MaaS 端点缺 qwen-turbo（环境层，非迁移回归）+ Windows 重定向编码坑（`PYTHONIOENCODING=utf-8` 必带）；`verify_otel_trace.py` 增加日志编码自适应 | 本文档 |
 | 2026-10-11 | 冒烟 | 自托管 Langfuse OTLP spike | 见 §9.2：原样 GenAI span 直摄（GENERATION + usage 映射实证）；成本/Input-Output 面板为已知取舍；v4 API/事件存储备忘；资源口径入档 | 本文档 |
