@@ -18,7 +18,7 @@
 | **RAG 多源融合** | 网络搜索（博查 / Tavily 可切）+ arXiv 学术检索 + 私有知识库（Qdrant 向量 + BM25 混合、RRF 融合、可选云端 rerank）**三路**证据并行召回。代码执行工具受关键词触发，但默认**不作为事实证据**（`CODE_EXEC_EVIDENCE_ENABLED=false`，理由见 §3.2） |
 | **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级（W2：来源类型标注/失败隔离/运行溯源四桶） |
 | **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划+裁决，W4 拆 planner/critic 分档可配强推理） |
-| **全链路可观测** | Langfuse trace：每节点 span（含 critic 循环逐跳 `R{k}`）+ 每次 LLM 调用 generation（token/cost），CLI/Web 知情打印 + trace URL 回显；可选 OTel（OTLP / Prometheus 双路径，默认关） |
+| **全链路可观测** | OTel（OTLP）trace：每节点 span（含 critic 循环逐跳 `R{k}`）+ 每次 LLM 调用 generation（`gen_ai.*` 语义 + token/成本估算），Web/CLI 同栈导出、后端可插拔（Jaeger / 自托管 Langfuse）；Web 侧另有 OTLP/Prometheus 指标双路径（默认关）；CLI 知情打印 + trace URL 回显 |
 | **评测体系** | 两阶段管道（`--run-only` 存原文产出 / `--eval-only` 零成本复算）+ 七指标聚合 + 质量闸（`verdict` + ±stderr），入口 `research_engine/eval/run.py` |
 | **故障可归因（W8）** | 工具/provider/RAG/内部错误均有明确 `failure_reason`；`run_status`/`invoke_status`/`metrics_status` 三层状态分层，失败 run 不会伪装成成功 |
 | **可复现与产物治理（W8）** | 每轮 run 落盘配置快照、五开关生效值、`prompt_hash`（含分角色 `prompt_slots`）、`scorer_version` 与 git 修订；质量闸出 `verdict` + ±stderr；评测产物白名单 ≡ git 跟踪集合 |
@@ -117,18 +117,27 @@ cp .env.example .env
 
 **Semantic Scholar 引用补全**（可选）：设 `SEMANTIC_SCHOLAR_API_KEY` 后，arXiv 论文的 `citationCount` 回填进报告溯源（"只采不决策"——不加权证据排序）；无 key 整条静默跳过。
 
-### 3.1 可观测性（Langfuse，可选）
+### 3.1 可观测性（OpenTelemetry，可选）
 
-> **三态开关**：`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` **三件套齐备即自动启用**（trace 上报）；设 `LANGFUSE_ENABLED=false` 可强制禁用（CI/单测默认已禁用，零外发）；缺任一 key 自动降级，主流程零影响。
+> **三态开关**：配置 `OTEL_EXPORTER_OTLP_ENDPOINT` 即自动启用（trace 经 OTLP 导出）；设 `DR_OTEL_ENABLED=false` 可强制禁用（CI/单测默认已禁用，零外发）；缺端点自动降级，主流程零影响。Web（API/Worker）与引擎（CLI）同栈同 env。
 
 启用后：
 - CLI/Web 启动打印**知情行**（数据去向 + 脱敏策略）；
-- CLI 运行结束回显 **trace URL**（Langfuse 控制台可回放完整 span 树）；
-- 控制台展示每次 LLM 调用的 usage 与成本（Qwen 未内置定价时 cost 列为空，成本以本地守恒口径为准）。
+- CLI 运行结束按模板回显 **trace URL**（`DR_OTEL_TRACE_URL_TEMPLATE`，如 Jaeger `http://localhost:16686/trace/{trace_id}`）；
+- 每次 LLM 调用记录 `gen_ai.*` 属性（provider/model/usage）与逐调用成本估算（`dr.cost_estimate_cny`，本地定价表、人民币口径）。
 
-脱敏默认策略：节点 span 只记录截断输入（≤200 字符）；LLM 调用正文单字段 >4000 字符截断；敏感替换默认关闭（避免误伤论文/代码中的数字信息），需要时设 `LANGFUSE_MASK_SENSITIVE=true`。
+本地演示（零外部依赖）：
 
-开源逃生门：若观测事件超限，设 `LANGFUSE_SAMPLE_RATE=0.1` 采样（默认 1.0 全采）。
+```bash
+docker run --rm -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+DR_OTEL_TRACE_URL_TEMPLATE=http://localhost:16686/trace/{trace_id} \
+python cli.py "研究主题"
+```
+
+后端可插拔：任意 OTLP 后端均可（Jaeger / 自托管 Langfuse OTLP ingest / Tempo 等）。
+
+脱敏默认策略：节点 span 只记录截断输入（≤200 字符）；LLM messages/completion 单字段 >4000 字符截断；敏感替换默认关闭（避免误伤论文/代码中的数字信息），需要时设 `DR_OTEL_MASK_SENSITIVE=true`。
 
 ### 4. 启动 Qdrant
 
@@ -173,7 +182,7 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 - 容器冒烟（2026-09-26）：api + worker + PG + Redis 全栈，真实任务由 Worker 完成（17 事件 / token 799 / ¥0.0096 / 2.3s）；
 - CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
 - Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
-- 境外服务按推荐基线默认关闭（`LANGFUSE_ENABLED=false` / `ENABLE_ARXIV=false`）；
+- 外部服务按推荐基线默认关闭（OTel 导出 `DR_OTEL_ENABLED=false` / `ENABLE_ARXIV=false`）；
 - **账号（P4-A / P1-10 / 需求 24）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（Argon2id + httpOnly `__Host-` Session + CSRF 双提交）；邀请制（`DR_INVITE_ONLY` 默认 `true`）；会话治理（列表 / 终止其他设备 / 空闲超时）；CLI：`python -m web.backend.admin create-invite` / `create-user` / `ban-user` / `create-reset-token`；自助找回密码（`DR_SMTP_*`，未配置整条关闭且恒 200 防枚举）。
 - **配额与限流（P4-B / P1-1 / P1-2）**：单用户 `DR_DAILY_RUNS_PER_USER` 次/日、并发 `DR_MAX_USER_CONCURRENT`；单次预算 `DR_RUN_BUDGET_CNY=¥1.50`、全局月度 `DR_MONTHLY_BUDGET_CNY=¥1,500`（100% 熔断新任务，查询/导出不受影响）；准入与月度预留在 **PostgreSQL 单事务 + `pg_advisory_xact_lock`** 下原子判定（并发不再一起越闸）；`GET /api/quota` 查余量；请求指纹幂等（同键不同载荷 409 `idempotency_conflict`）；限流为 **Redis 滑动窗口（Lua）** 多实例共享，Redis 故障 fail-open 并回落进程内计数（`ratelimit_redis_error` 指标）——多实例下限流为准入参考而非强保证。
 - **RAG 三层与隔离（P5-A / 需求 23 / P0-8）**：知识库块带 `user_id`/`tenant_id`/`visibility`，检索作用域**下推 Qdrant `must` 过滤** + Python 后置兜底（owner 只见本人 private，匿名只见无主历史块，绝不跨用户）；分块 v2（结构保真、token 预算）、双路召回 + RRF、可选云端 rerank（`DR_RAG_RERANK` 默认关，失败 fail-open）；上传面已上线：流式落盘 + 扩展名/magic bytes 校验 + 内容寻址 `doc_id` 幂等 + 异步摄取管线（隔离区 → 202 → Worker 状态机，可选 ClamAV，90 天清扫）。
@@ -468,7 +477,7 @@ plan → research → critic ──(conditional_edge)──┐
 |------|--------|--------------------|---------------------|
 | Validator | 图内节点（双层校验） | 无 | 无 |
 | 代码沙箱 | 三层纵深（subprocess+AST+Audit Hook）⚠️ 当前**不构成恶意代码隔离**，见 §3.2 | 无 | 无 |
-| 可观测 | Langfuse 全链路 trace | LangSmith（可选） | 无 |
+| 可观测 | OTel 全链路 trace（OTLP 可插拔后端） | LangSmith（可选） | 无 |
 | 量化评测 | 20 条 + 7 指标 + 双轨成本 | Deep Research Bench 100 题 | 无 |
 | 生产化（L3） | 账号 / 配额熔断 / 多租户隔离 / 内容安全与申诉 / 队列 Worker / 备份恢复演练 | 无 | 无 |
 | LICENSE | MIT | MIT | MIT |

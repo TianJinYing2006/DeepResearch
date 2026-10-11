@@ -117,7 +117,7 @@ def _run_one(
     while attempt <= 1:
         try:
             t0 = time.time()
-            # eval 环境禁止 Langfuse 观测干扰（fail-silent 主路径不受影响，trace 归 CLI/Web）
+            # eval 环境禁止观测导出干扰（fail-silent 主路径不受影响，trace 归 CLI/Web；需求 33 起为 OTel）
             state = graph.run(topic, thread_id=f"eval-{q_id}-{uuid.uuid4().hex[:6]}")
             raw = {
                 "q_id": q_id,

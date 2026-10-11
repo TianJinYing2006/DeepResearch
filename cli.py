@@ -40,7 +40,7 @@ def main():
             if url:
                 print(f"🔗 Trace URL: {url}")
             else:
-                print("⚠️ Trace URL 不可用（观测未初始化或 flush 未尽，见日志）")
+                print("⚠️ Trace URL 不可用（观测未初始化 / 未配置 URL 模板 / flush 未尽，见日志）")
 
     # W8 Arm 1（§5.1.4 五件套之④）：run() 已改为「返回 state 而不 re-raise」，
     # 若不在此处判 failed 退出，脚本化调用将**静默当作成功** —— 那是把异常换个地方吞掉。

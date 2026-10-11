@@ -181,7 +181,7 @@ def _run_eval(arm: Arm, run_index: int, concurrency: int, timeout_s: float, data
     env = os.environ.copy()
     # 使用真实 Qdrant（已验证 127.0.0.1:6333 可用）；如需降级改 :memory:
     env["QDRANT_URL"] = "http://127.0.0.1:6333"
-    env["LANGFUSE_ENABLED"] = "false"
+    env["DR_OTEL_ENABLED"] = "false"
     env.update({k: v for k, v in arm.env.items() if v})
     # VALIDATOR_MODEL 为空时移除，让代码使用默认回落
     if "VALIDATOR_MODEL" in env and not env["VALIDATOR_MODEL"]:

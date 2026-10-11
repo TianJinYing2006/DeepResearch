@@ -38,6 +38,7 @@ def test_snapshot_has_no_secrets_and_follows_profile(monkeypatch):
     assert snapshot["llm"]["endpoint_host"] == "dashscope.aliyuncs.com"
     assert snapshot["search"]["provider"] == "bocha"
     assert snapshot["egress"]["arxiv_enabled"] is False
+    assert snapshot["egress"]["otel_configured"] is False  # 需求 33：未配置端点 = 零外发
     assert "secret-key-xyz" not in str(snapshot)
 
 

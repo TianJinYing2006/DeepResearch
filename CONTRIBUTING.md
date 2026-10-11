@@ -45,7 +45,7 @@ feature/<issue>-<slug> | fix/<issue>-<slug>
   - 自测结果（lint / test / eval 命令与输出）
   - DoD 逐条勾选
   - 风险与影响范围
-  - Langfuse trace 截图（若涉及可观测）
+  - OTel trace 截图（若涉及可观测）
 - **门禁**：CI（ruff lint + pytest + eval 冒烟）必须绿；eval 不回归（引用准确率 ≥ 基线 −2%）。
 - **合并前**：`git rebase dev` 解决冲突；squash 合入 dev。
 - **合后**：删 feature 分支；需求文档状态置「已合」。
@@ -75,7 +75,7 @@ feature/<issue>-<slug> | fix/<issue>-<slug>
 ---
 
 ## 7. 合规
-- 密钥（Langfuse / API key）只在 `.env` 与 GitHub Secrets；**不进飞书、不进 git**。
+- 密钥（模型 / 搜索等 API key）只在 `.env` 与 GitHub Secrets；**不进飞书、不进 git**。
 - 飞书只放架构 / 方案 / 结论，不放密钥。
 - 遵守 robots / 速率限制，引用保留来源（呼应 NFR6）。
 

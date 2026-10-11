@@ -178,7 +178,7 @@
   - [ ] 向属地网信部门与云厂商确认：需要的是相关 AI 服务登记/备案、算法备案、安全评估，还是仅使用已备案模型并履行展示与管理义务
   - [ ] 确认结论写入本文件「落档记录」
 - [ ] 已备案模型信息公示：在显著位置或产品详情页展示所使用的已备案服务、模型名称与备案号
-- [ ] 数据出境评估：L3-A/B 默认不发送用户内容出境；Tavily / Langfuse Cloud / arXiv / Semantic Scholar 默认关闭，恢复须独立评审（需求 10 §3.1 第 16 项 + 本文件 §4 登记）
+- [ ] 数据出境评估：L3-A/B 默认不发送用户内容出境；Tavily / arXiv / Semantic Scholar 默认关闭，OTel trace 默认不导出（配置 `OTEL_EXPORTER_OTLP_ENDPOINT` 才启用，推荐自托管后端），恢复/开启须独立评审（需求 10 §3.1 第 16 项 + 本文件 §4 登记）
 - [ ] 商用供应商授权确认（模型 / 搜索 / 可观测）
 
 **合规口径提醒（不得简化）**：
@@ -198,7 +198,7 @@
 > **P1-9 起每个 run 创建时固化数据流向快照**（`runs.request.egress`：模型/provider/端点域/策略版本/境外开关，不含密钥），
 > 历史任务可逐条解释「当时数据发给了谁」；快照随 `/api/research/{run_id}` 与导出 JSON 展示。
 > **政策基线（2026-09-24，推荐基线 v2）**：L3-A/B 默认不发送用户内容至境外服务；
-> Tavily、Langfuse Cloud、Semantic Scholar、arXiv 默认关闭，恢复须独立功能开关 + 数据流向提示 + 重新评审。
+> Tavily、Semantic Scholar、arXiv 默认关闭；OTel trace 默认不导出（无端点即零外发），恢复/开启须独立功能开关 + 数据流向提示 + 重新评审。
 
 | 供应商 / 服务 | 用途 | 可能发送的数据 | 地域 / 留存 | 状态 |
 |--------------|------|---------------|------------|------|
@@ -207,7 +207,7 @@
 | Tavily | 网络搜索（备用/降级源） | 检索查询词 | 境外 | **L3-A/B 默认关闭**；启用须独立评审 |
 | arXiv | 学术检索（`ENABLE_ARXIV`） | 检索查询词（源自用户研究问题，等同出境） | 境外 | **L3-A/B 默认关闭**；恢复须独立评审并提示数据流向 |
 | Semantic Scholar | 可选的引用数后处理 | 检索查询词 | 境外 | **L3-A/B 默认关闭**；启用须独立评审 |
-| Langfuse Cloud | 可观测（trace / 成本） | 提示词与输出（`truncate_len=4000`；`mask_sensitive` 默认 false） | 境外（cloud.langfuse.com） | **L3-A/B 默认关闭**；替代 = PostgreSQL 运行统计 + 结构化日志；自托管另行评估运维负担 |
+| OTel trace 导出（需求 33） | 可观测（trace / 成本估算） | span 属性 + 提示词/输出截断预览（单字段 4000 / 节点 200 字符；`DR_OTEL_MASK_SENSITIVE` 默认 false）；不含密钥 | **取决于后端**：推荐自托管（Jaeger / 自托管 Langfuse OTLP ingest，境内可控） | **默认关闭**（未配置 `OTEL_EXPORTER_OTLP_ENDPOINT` = 零外发）；开启须登记后端地域 |
 | 错误追踪（需求 25） | 前后端异常聚合 | 错误堆栈、页面路径、请求 ID、版本号（**不含**输入内容/Cookie/请求体/邮箱） | 自托管 GlitchTip（境内；compose profile `errors`）；可换 ARMS（境内托管）/Sentry Cloud（须出境评审） | 默认关闭（DSN 空）；启用后按本表登记，PII 清洗见 `web/backend/observability.py` |
 | Qdrant | 向量库（默认 `127.0.0.1:6333`） | 上传文档分块与向量 | 取决于部署 | 自托管可控；L3 改为多租户隔离 |
 | 新增（L3）：PostgreSQL / Redis / 对象存储 | 权威状态 / 队列 / 报告 | 用户资料、任务、事件、报告、上传文件 | 单云单地域（国内，待填） | 部署后登记 |

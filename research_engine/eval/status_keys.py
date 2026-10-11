@@ -114,8 +114,8 @@ BARE_STATUS_SITES: Tuple[Dict[str, str], ...] = (
                     "`docs/eval-w7-conclusion.md` 为准，不回改",
     },
     {
-        "site": "Langfuse trace 的 `status`（`tools/verify_w3_trace.py`）",
-        "semantics": "Langfuse 服务端的 trace 状态",
+        "site": "外部可观测后端 trace 的 span `status`（`tools/verify_otel_trace.py`；需求 33 前为 Langfuse `verify_w3_trace.py`）",
+        "semantics": "OTel 后端（Jaeger / 自托管 Langfuse）返回的 span 状态（`otel.status_code`）",
         "why_kept": "外部系统的字段，本仓不产生、不拥有",
     },
 )

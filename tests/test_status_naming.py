@@ -456,8 +456,8 @@ def test_bare_status_sites_registry_is_true():
     runs = json.loads(W7_MANIFEST.read_text(encoding="utf-8"))["runs"]
     assert runs and all(LEGACY_STATUS in r for r in runs), "登记表第 2 条落点不成立"
 
-    # 第 3 条：Langfuse trace 的 status（外部字段）
-    assert "Langfuse" in blob
+    # 第 3 条：外部可观测后端 trace 的 span status（需求 33 起为 OTel；登记保留 Langfuse 历史别名）
+    assert "OTel" in blob and "Langfuse" in blob
 
 
 def test_history_has_no_vacuous_status_field():
