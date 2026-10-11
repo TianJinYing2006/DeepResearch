@@ -195,7 +195,7 @@ deepresearch-worker）；CLI 自初始化路径。
 
 合计 ≈ 4.5~5 人日；建议作为下一批次主线。
 
-> **进度（2026-10-11）**：批次 A~D 主体已落地（见 §7 DoD 与 §12 变更记录，分支 `feature/180-otel-observability-migration`）；
+> **进度（2026-10-11）**：批次 A~D 主体已落地（见 §7 DoD 与 §12 变更记录；PR #181）；
 > 剩余 = 真实冒烟 + 自托管 Langfuse OTLP spike（批次 D 收尾）与提交/PR 评审（批次 E，待人工确认）。
 
 ## 11. 同期批次排期：对照 EvidenceFlow 的借鉴项（独立立项）
@@ -227,6 +227,6 @@ deepresearch-worker）；CLI 自初始化路径。
 |---|---|---|---|---|
 | 2026-10-11 | 文档 | 主理人拍板：可观测层对齐国内趋势，Langfuse → OTel | 建稿（草稿）：反转记录、现状盘点、TBD-1~8、DoD、排期（含同期 EvidenceFlow 借鉴项排期） | 本文档 |
 | 2026-10-11 | 设计 | ADR-0012 | 反转记录建立：需求 3:53「OTel OTLP 出局」→ OTel 原生（代价接受清单 + W3 资产平移清单 + 影响范围） | `docs/decisions/0012-otel-observability-migration.md` |
-| 2026-10-11 | 实现 | 需求 33 代码主体（Issue #180） | observability.py 重写（OTel 原生）；client.py generation 单点；graph.py 接线；`OtelConfig` 替换 LangfuseConfig；egress 披露；`verify_otel_trace.py` 替代 `verify_w3_trace.py`；requirements 移除 langfuse（openai 锁暂留）；tests 重写/适配 + 无 langfuse import 守卫；README / `.env.example` / 运维法务口径切换 | `feature/180-otel-observability-migration`（未提交） |
+| 2026-10-11 | 实现 | 需求 33 代码主体（Issue #180） | observability.py 重写（OTel 原生）；client.py generation 单点；graph.py 接线；`OtelConfig` 替换 LangfuseConfig；egress 披露；`verify_otel_trace.py` 替代 `verify_w3_trace.py`；requirements 移除 langfuse（openai 锁暂留）；tests 重写/适配 + 无 langfuse import 守卫；README / `.env.example` / 运维法务口径切换 | `feature/180-otel-observability-migration` / PR #181 |
 | 2026-10-11 | 自测 | 本地全量回归（3.13.14 venv） | ruff 全过；pytest **1002 收集 = 715 通过 + 260 跳过（PG/Redis 缺失镜像 CI skip 语义）+ 27 既有环境失败（与需求 27 基线逐项一致，零新增）** | 本机 |
 | 2026-10-11 | 同步 | 飞书镜像 | 已创建「需求设计文档：OTel 观测迁移」（docx `YHiEdRhNpoqRs4xUMyxcIFBHnXX`，经导入接口；`~` 转义版已核验）；正文在个人空间，待客户端移入 `DeepResearch 需求文档` 文件夹（同需求 27 情形） | 本文档 |
