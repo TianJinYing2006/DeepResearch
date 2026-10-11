@@ -273,9 +273,9 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 - [x] TBD-0 决策：**不采**（2026-10-11 拍板；理由与后果见 §5）
 - [x] **N1（第 0 项，硬前置）**：✅ **已完成（2026-10-11）** —— cron 已在跑（每日 03:30 加密 + COS）
       + 真实恢复演练通过（21/11/22 与生产逐项一致；记录见 `release-runbook.md` §10.3）⇒ E1 可开始写库
-- [ ] E1：`safe_fetch` 接入 researcher（唯一抓取入口，**含 robots 检查**）；web 候选 top-3 落盘快照
-      （`snapshots` + `run_snapshots` 两表，含 `extractor_version`）；失败降级为 snippet-only 不阻塞；
-      robots 拒绝 ⇒ `snapshot_status=skipped_robots`（不写 `degradation_log`）
+- [x] E1：✅ **已交付（2026-10-11）**：`safe_fetch` 接入 researcher（唯一抓取入口，**含 robots 检查**）；
+      web 候选 top-3 落盘快照（`snapshots` + `run_snapshots` 两表 / 迁移 `0022`，含 `extractor_version`）；
+      失败降级为 snippet-only 不阻塞；robots 拒绝 ⇒ `snapshot_status=skipped_robots`（不写 `degradation_log`）
 - [ ] **E3（提前，先于 E2）**：`find_in_source` 落地 —— 快照滑窗 + 字面重叠打分产出候选窗口；
       长证据改按 claim 窗口喂裁判（替代 `evidence.py:139-144` 的 >4000 头尾截断）
 - [ ] **E2（依赖 E3）**：`Citation` 增 `quote` / `char_start` / `char_end` / `snapshot_id`；
@@ -346,3 +346,4 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 | 2026-10-11 | 复核 | 优化版入库前复核修正 | 清理残留矛盾（§3/§6/§8 三处 eval 配对 → 确定性断言，对齐 §5.0 A2）；TBD-1 迁移编号勘误（`0005` → `0022`，现库最新 `0021`）；代码引用抽查通过（`researcher.py:210` / `render.py:187,232` / `repair.py:70-121` / `test_arm1_run_status.py:149-151` / `test_arm3_python_version_gate.py:164`） | 本文档 |
 | 2026-10-11 | 拍板 | TBD-1~4 五处「待确认」逐项拍板（主理人） | ①TBD-1：**64 KB 采用**（按 UTF-8 字节数、超限截断必标记不静默）②TBD-2①：15 次 / 并发 4 **采用** + 重试 ≤2 次计入额度 ③TBD-2②：**robots.txt 遵守**（原「倾向不做」被否决；不可检查时仅抓明确批准来源、默认拒绝）④TBD-3：动态渲染不做、无正文标「暂不支持」⑤TBD-4：新增轻量关键词抽取（`extract_entities` 仍用于实体）；N1 硬前置重申 | 本文档 |
 | 2026-10-11 | 执行 | N1 硬前置完成（第 0 项） | 核实服务器 cron 已在跑（2026-10-02 起每日 03:30 加密 + COS；日志全 ok）+ **云上真实恢复演练通过**（离线私钥解密 208 条目 → 临时容器流式恢复 → 断言 21/11/22 与生产逐项一致 → 清理）；md5 三方一致；顺手修复服务器 `tools/backup-verify.sh` 事故空目录；记录见 `release-runbook.md` §10.3 | 本文档 |
+| 2026-10-11 | 实现 | E1 网页快照落盘交付 | 新增 `research_engine/net/webtext.py`（提取器 `webtext.v1`；bs4 结构化 + UTF-8 字节截断标记）/ `robots.py`（遵守；不可检查时仅「明确批准来源」、默认拒绝）/ `web_fetch.py`（预算三闸 15/5MB/90s + 重试≤2 计入额度 + 同域名 200ms 串行 + 熔断 2 次 + 失败分类复用工具层 5 值 + OTel span）/ `snapshots.py`（内容寻址 `sha256(版本+正文)` + run 上下文）；迁移 `0022_snapshots`（+ checks）；`web/backend/snapshots.py`；runner/worker/cli 绑定（Researcher 构建时捕获，防并行丢 ContextVar；CLI 无库仍抓取、正文进证据并标 `disabled`）；finding 正文取头 4000 字符（全文在快照）；抓取失败不写 `degradation_log`（N5）；单测 28 条 + 真 PG 契约（入 CI infra）+ 全量套件绿（1041 采集 0 失败） | 本文档 |

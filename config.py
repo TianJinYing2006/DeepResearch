@@ -258,6 +258,50 @@ class ExperimentConfig:
 
 
 @dataclass
+class WebSnapshotConfig:
+    """需求 34 E1：网页快照抓取与落盘（TBD-1~3 拍板口径，2026-10-11）。
+
+    - `enabled`：功能总开关（`DR_WEB_SNAPSHOT_ENABLED=false` 完全回到「标题 + 摘要」行为）；
+    - 预算三闸（run 级）：次数 ≤15 / 原始字节 ≤5MB / 抓取耗时 ≤90s，每次**尝试**都计数（含重试）；
+    - 文本上限按 **UTF-8 字节数**（TBD-1 拍板）：快照入库 64KB（超限截断并标记）；
+      finding 正文另行取头 4000 字符（对齐裁判层既有 4000 截断阈值，控制 prompt 体积；
+      全文在快照中，E2/E3 由快照回查，不依赖 finding 正文）；
+    - robots：遵守（TBD-2② 拍板）；无法完成检查 ⇒ 仅抓 `approved_domains` 明确批准来源（默认拒绝）。
+    """
+
+    enabled: bool = field(
+        default_factory=lambda: _env("DR_WEB_SNAPSHOT_ENABLED", "true").lower() != "false")
+    top_n: int = field(default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_TOP_N", "3")))
+    finding_max_chars: int = field(
+        default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_FINDING_MAX_CHARS", "4000")))
+    max_text_bytes: int = field(
+        default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_MAX_TEXT_BYTES", str(64 * 1024))))
+    max_fetches_per_run: int = field(
+        default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_MAX_FETCHES", "15")))
+    max_bytes_per_run: int = field(
+        default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_MAX_BYTES", str(5 * 1024 * 1024))))
+    max_seconds_per_run: float = field(
+        default_factory=lambda: float(_env("DR_WEB_SNAPSHOT_MAX_SECONDS", "90")))
+    connect_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("DR_WEB_SNAPSHOT_CONNECT_TIMEOUT", "3")))
+    read_timeout_seconds: float = field(
+        default_factory=lambda: float(_env("DR_WEB_SNAPSHOT_READ_TIMEOUT", "10")))
+    max_response_bytes: int = field(
+        default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_MAX_RESPONSE_BYTES", str(2 * 1024 * 1024))))
+    max_retries: int = field(default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_MAX_RETRIES", "2")))
+    per_domain_interval_seconds: float = field(
+        default_factory=lambda: float(_env("DR_WEB_SNAPSHOT_DOMAIN_INTERVAL", "0.2")))
+    max_domain_failures: int = field(
+        default_factory=lambda: int(_env("DR_WEB_SNAPSHOT_DOMAIN_FAILURES", "2")))
+    #: robots 检查不可完成时唯一允许的来源白名单（逗号分隔 hostname；默认空 = 默认拒绝）
+    approved_domains: set = field(default_factory=lambda: {
+        d.strip().lower() for d in _env("DR_WEB_FETCH_APPROVED_DOMAINS").split(",") if d.strip()
+    })
+    user_agent: str = field(
+        default_factory=lambda: _env("DR_WEB_SNAPSHOT_USER_AGENT", "DeepResearchBot/1.0"))
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -268,6 +312,7 @@ class Config:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     mail: MailConfig = field(default_factory=MailConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    web_snapshot: WebSnapshotConfig = field(default_factory=WebSnapshotConfig)
 
 
 config = Config()

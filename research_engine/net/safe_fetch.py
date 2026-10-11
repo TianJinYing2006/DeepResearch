@@ -87,9 +87,16 @@ def validate_url(url: str, *,
 
 def safe_fetch(url: str, *, allowed_hosts: Optional[set[str]] = None,
                timeout: float = DEFAULT_TIMEOUT_SECONDS,
+               connect_timeout: Optional[float] = None,
                max_bytes: int = DEFAULT_MAX_BYTES) -> FetchResult:
-    """SSRF 安全的 GET：校验 → pin IP → 禁重定向 → 限时限量。"""
+    """SSRF 安全的 GET：校验 → pin IP → 禁重定向 → 限时限量。
+
+    ``timeout`` 为读取超时；``connect_timeout`` 单独控制连接阶段（默认同 ``timeout``）——
+    需求 34 E1：大陆单机出口对境外站点用「连接 3s 快速失败 + 读取 10s」两段式，
+    避免境外不可达候选拖长单轮（N2）。
+    """
     scheme, host, addresses = validate_url(url, allowed_hosts=allowed_hosts)
+    connect = timeout if connect_timeout is None else connect_timeout
     parts = urlsplit(url)
     path = parts.path or "/"
     if parts.query:
@@ -100,12 +107,12 @@ def safe_fetch(url: str, *, allowed_hosts: Optional[set[str]] = None,
         pool = urllib3.HTTPSConnectionPool(
             addresses[0], port=port, server_hostname=host,  # pin IP，SNI/证书仍按原 host
             cert_reqs="CERT_REQUIRED",
-            timeout=urllib3.Timeout(connect=timeout, read=timeout), retries=False,
+            timeout=urllib3.Timeout(connect=connect, read=timeout), retries=False,
         )
     else:
         pool = urllib3.HTTPConnectionPool(
             addresses[0], port=port,
-            timeout=urllib3.Timeout(connect=timeout, read=timeout), retries=False,
+            timeout=urllib3.Timeout(connect=connect, read=timeout), retries=False,
         )
     status = 0
     content_type = ""

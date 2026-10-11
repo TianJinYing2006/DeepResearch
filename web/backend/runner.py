@@ -38,6 +38,11 @@ from research_engine.runtime_profile import (
     set_profile,
     set_task_deadline,
 )
+from research_engine.snapshots import (
+    FetchContext,
+    pop_fetch_context,
+    push_fetch_context,
+)
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
@@ -60,6 +65,7 @@ from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
 from .moderation import ModerationDecision, apply_output_gate, evaluate_output
 from .persistence import persist_forced, persist_terminal
+from .snapshots import PgSnapshotStore
 from .store import QuotaExceeded, RunStore
 from .usage import make_store_sink
 
@@ -573,12 +579,21 @@ class RunManager:
                 profile: Optional[RuntimeProfile] = None) -> None:
         usage_token = None
         deadline_token = None
+        fetch_token = None
         if self._store is not None:
             # P1-4：本线程的逐调用用量落进 usage_ledger（无 store 时为 no-op）
             usage_token = push_usage_sink(
                 make_store_sink(self._store, run_id=run_id, attempt=1))
         try:
             from config import config
+
+            # 需求 34 E1：本 run 的网页抓取上下文（预算三闸 + robots + 熔断；
+            # store 缺省时仍抓取、仅标记 disabled —— CLI/eval 同语义）
+            if config.web_snapshot.enabled:
+                fetch_token = push_fetch_context(FetchContext.create(
+                    store=PgSnapshotStore(self._store) if self._store is not None else None,
+                    run_id=run_id,
+                ))
 
             # P0 profile 固化：档位装进**本线程**运行作用域（不再改全局 config，
             # 并发 / 串行 run 之间互不污染）；无档位时核心链路回落全局 config。
@@ -682,6 +697,8 @@ class RunManager:
                 reset_task_deadline(deadline_token)
             if usage_token is not None:
                 pop_usage_sink(usage_token)
+            if fetch_token is not None:
+                pop_fetch_context(fetch_token)
             with self._condition:
                 self._finished.add(run_id)
                 self._active.discard(run_id)

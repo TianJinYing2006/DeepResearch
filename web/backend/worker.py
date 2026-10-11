@@ -42,6 +42,11 @@ from research_engine.runtime_profile import (
     set_profile,
     set_task_deadline,
 )
+from research_engine.snapshots import (
+    FetchContext,
+    pop_fetch_context,
+    push_fetch_context,
+)
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
@@ -69,6 +74,7 @@ from .queue import RunQueue
 from .rag_pipeline import cleanup_stale_generations
 from .retention import run_retention
 from .runner import _env_int, _estimate_cost_cny
+from .snapshots import PgSnapshotStore
 from .store import LeaseLostError, RunOwnership, RunStore
 from .usage import make_store_sink
 
@@ -366,12 +372,17 @@ class Worker:
         # 时限已过则拒绝新调用——节点最大耗时因此可证有界）
         timeout_at = row.get("timeout_at")
         deadline_token = None
+        fetch_token = None
         if timeout_at is not None:
             deadline_token = set_task_deadline(
                 (timeout_at - datetime.now(UTC)).total_seconds())
         # P1-4：逐调用用量落进 usage_ledger（attempt = 本行 attempt）
         usage_token = push_usage_sink(make_store_sink(
             self._store, run_id=run_id, attempt=attempt))
+        # 需求 34 E1：本 run 的网页抓取上下文（预算三闸 + robots + 熔断 + 快照落盘）
+        if config.web_snapshot.enabled:
+            fetch_token = push_fetch_context(FetchContext.create(
+                store=PgSnapshotStore(self._store), run_id=run_id))
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
             target=self._heartbeat_loop, args=(run_id, hb_stop, lease_lost, attempt),
@@ -393,6 +404,8 @@ class Worker:
         finally:
             if deadline_token is not None:
                 reset_task_deadline(deadline_token)
+            if fetch_token is not None:
+                pop_fetch_context(fetch_token)
             pop_usage_sink(usage_token)
             hb_stop.set()
             heartbeat.join(timeout=1.0)
