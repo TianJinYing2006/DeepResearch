@@ -18,7 +18,7 @@
 | 编号 | 28 |
 | 标题 | OTel 观测迁移（Langfuse → OTel 原生，对齐国内技术栈叙事） |
 | 优先级 | P1 |
-| 状态 | 进行中（实现完成；真实冒烟 + 自托管 Langfuse spike + PR 评审待收口） |
+| 状态 | 已合（PR #181 → dev `7355ba4`；真实冒烟见 §9.1） |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #180 |
 | 关联 PR | — |
@@ -154,7 +154,7 @@ deepresearch-worker）；CLI 自初始化路径。
 - [x] CLI/Web：URL 回显（后端模板）+ 成本行（人民币、定价表）+ 对账差口径不变
 - [x] `tools/verify_otel_trace.py` 重写替代 `verify_w3_trace.py`（旧脚本已删除）
 - [x] `egress.py` 数据去向披露项按新后端改写（`otel_configured` + `otel_endpoint_host`）
-- [ ] 真实冒烟：一次 research → span 树完整（含多轮 critic 循环），结论 + 截图入档（待配端点/后端后执行）
+- [x] 真实冒烟：一次 research → span 树完整（含多轮 critic 循环），结论 + 截图入档（2026-10-11 完成，见 §9.1：86 spans / 62 gens / 对账 0 差 / verify PASS；截图 `local-artifacts/otel-smoke-2026-10-11-jaeger-trace.png`）
 - [ ] 自托管 Langfuse OTLP ingest spike（TBD-1 选项 B 实测，随真实冒烟一并做）
 - [x] README:21/89/390 更新；简历口径更新（落地才写，随收口）
 - [x] 依赖清理（`requirements.txt` 移除 langfuse）与 openai 锁复评结论记录（暂留锁，TBD-8）；
@@ -181,6 +181,30 @@ deepresearch-worker）；CLI 自初始化路径。
 - 回归：pytest 全量（注意 `--basetemp` 纪律，见 `docs/project-status.md:19`）；ruff。
 - 守卫：单测断言 `research_engine` 无 `langfuse` import。
 
+### 9.1 冒烟记录（2026-10-11，真实 CLI + 本地 Jaeger）
+
+- **环境**：本地 `jaegertracing/all-in-one`（Docker：UI `:16686` / OTLP HTTP `:4318`）；
+  `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`；
+  `DR_OTEL_TRACE_URL_TEMPLATE=http://localhost:16686/trace/{trace_id}`；
+  `PYTHONIOENCODING=utf-8`（Windows 重定向必带，见「发现 2」）。
+- **预检（零 LLM）**：`start_trace + span_node` → Jaeger 2 spans 落库、URL 模板回显正确。
+- **主冒烟**：`python cli.py "什么是RAG？"` → trace `3d9148055303491caaa629150d4fb082`
+  （Jaeger：http://localhost:16686/trace/3d9148055303491caaa629150d4fb082）：
+  - **86 spans / 62 generations**；span 序列含根 span（`deepresearch: 什么是RAG？`）、`规划`、
+    `R1~R6 检索/裁决/修订`（多轮 critic 循环）、`写作/校验/修复引用/渲染`；
+  - **usage 对账**：本地 `token_used = 198,449` ≡ 后端 `gen_ai.usage.total_tokens` 合计
+    **198,449（差值 0）**；引用校验 85/85 存在性通过；
+  - `tools/verify_otel_trace.py` 结论 **PASS**（6/6 结构断言）；
+  - 截图存档：`local-artifacts/otel-smoke-2026-10-11-jaeger-trace.png`（gitignore 本地资产）。
+- **冒烟发现（环境层，非迁移回归）**：
+  1. **`.env` 的 MaaS 专属端点未部署 `qwen-turbo`** → fast 档 39 次调用全部
+     `404 Model not exist`（OTel 错误 span 直接定位模型名）→ 预算按预占保守记账被烧穿、
+     报告退化兜底（复现挂账 #154 现象）。进程内 `FAST_MODEL=qwen-plus` 复跑即恢复正常。
+     **建议**：`.env` 显式 `FAST_MODEL=qwen-plus`，或在 MaaS 端点补部署 qwen-turbo。
+  2. **Windows 重定向编码坑**：stdout 重定向时 Python 回退 GBK，emoji 打印（🔍/💰）
+     抛 `UnicodeEncodeError`（实测复现）→ 跑 CLI 冒烟必须 `PYTHONIOENCODING=utf-8`；
+     PowerShell `*>` 产出 UTF-16 日志 → `verify_otel_trace.py` 已加 BOM/编码自适应。
+
 ## 10. 排期（本批次）
 
 > 口径：粗估按单主线开发节奏（人日），不含设计评审等待；周次绑定向 status board 收口后回填。
@@ -195,8 +219,8 @@ deepresearch-worker）；CLI 自初始化路径。
 
 合计 ≈ 4.5~5 人日；建议作为下一批次主线。
 
-> **进度（2026-10-11）**：批次 A~D 主体已落地（见 §7 DoD 与 §12 变更记录；PR #181）；
-> 剩余 = 真实冒烟 + 自托管 Langfuse OTLP spike（批次 D 收尾）与提交/PR 评审（批次 E，待人工确认）。
+> **进度（2026-10-11）**：批次 A~E 主体完成——PR #181 已合入 dev（`7355ba4`）；真实冒烟完成（见 §9.1）；
+> 剩余 = 自托管 Langfuse OTLP spike（批次 D 收尾）与飞书镜像同步（批次 E）。
 
 ## 11. 同期批次排期：对照 EvidenceFlow 的借鉴项（独立立项）
 
@@ -230,3 +254,5 @@ deepresearch-worker）；CLI 自初始化路径。
 | 2026-10-11 | 实现 | 需求 33 代码主体（Issue #180） | observability.py 重写（OTel 原生）；client.py generation 单点；graph.py 接线；`OtelConfig` 替换 LangfuseConfig；egress 披露；`verify_otel_trace.py` 替代 `verify_w3_trace.py`；requirements 移除 langfuse（openai 锁暂留）；tests 重写/适配 + 无 langfuse import 守卫；README / `.env.example` / 运维法务口径切换 | `feature/180-otel-observability-migration` / PR #181 |
 | 2026-10-11 | 自测 | 本地全量回归（3.13.14 venv） | ruff 全过；pytest **1002 收集 = 715 通过 + 260 跳过（PG/Redis 缺失镜像 CI skip 语义）+ 27 既有环境失败（与需求 27 基线逐项一致，零新增）** | 本机 |
 | 2026-10-11 | 同步 | 飞书镜像 | 已创建「需求设计文档：OTel 观测迁移」（docx `YHiEdRhNpoqRs4xUMyxcIFBHnXX`，经导入接口；`~` 转义版已核验）；正文在个人空间，待客户端移入 `DeepResearch 需求文档` 文件夹（同需求 27 情形） | 本文档 |
+| 2026-10-11 | 合并 | 收口 | PR #181 CI 6/6 绿后 squash 合入 dev（`7355ba4`）；需求 33 状态置「已合」 | PR #181 / `7355ba4` |
+| 2026-10-11 | 冒烟 | 真实 CLI + 本地 Jaeger | 见 §9.1：86 spans / 62 gens / usage 对账 0 差 / verify PASS；发现 .env MaaS 端点缺 qwen-turbo（环境层，非迁移回归）+ Windows 重定向编码坑（`PYTHONIOENCODING=utf-8` 必带）；`verify_otel_trace.py` 增加日志编码自适应 | 本文档 |

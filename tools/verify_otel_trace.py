@@ -47,8 +47,21 @@ def _api_base() -> Optional[str]:
     return template.split(marker)[0].rstrip("/") or None
 
 
+def _read_log(path: str) -> str:
+    """读日志（自适应编码）：PowerShell `*>` 重定向产出 UTF-16，Git Bash/直接重定向为 UTF-8。"""
+    raw = open(path, "rb").read()
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        return raw.decode("utf-16")
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("gbk", errors="replace")
+
+
 def main() -> int:
-    log = open(_resolve_log(), encoding="utf-8").read()
+    log = _read_log(_resolve_log())
 
     # 1) 从 CLI 输出提取 trace URL / token 数
     url_m = re.search(r"Trace URL: (\S+)", log)
