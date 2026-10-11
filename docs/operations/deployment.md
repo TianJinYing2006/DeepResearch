@@ -80,22 +80,16 @@ smoke 校验了 bundle hash（只有前端），Python 侧无版本锚点。见 
 
 ## 6. 已知缺口与风险（按优先级）
 
-### 6.1 P0 · 数据库备份未配置
+### 6.1 ✅ P0 · 数据库备份（已配置 + 已演练，2026-10-11 关闭）
 
-服务器上有**代码包备份**（`.tar.gz`），但**没有 `pg_dump` 数据备份**。
-两者不是一回事：代码坏了可以回退镜像，**数据库坏了（误删 volume / 迁移事故 / 主机故障）用户数据就是真丢**——
-runs、账号、审计、知识库三层全在 `pg_data` 卷里，且当前已有真实内测数据。
+~~服务器上有代码包备份（`.tar.gz`），但没有 `pg_dump` 数据备份~~ → **已解决**：
 
-最小可用做法（宿主机 cron，无需改 compose）：
-
-```sh
-# 每天 03:00；判据是 pg_restore -l 能列出目录，只落文件不算备份
-0 3 * * * docker compose -f /opt/deepresearch/docker-compose.staging.yml exec -T postgres \
-  pg_dump -Fc -U deepresearch deepresearch > /opt/deepresearch/backups/pg_$(date +\%Y\%m\%d_\%H\%M\%S).dump
-```
-
-校验：`pg_restore -l <dump>` 能列出即成功（与 `tools/backup.sh` 同口径；该脚本默认输出 `/backups`，保留 14 份，支持 `BACKUP_RECIPIENT_CERT` 非对称加密）。
-配完后**必须做一次真实恢复演练**——CI 里的恢复演练跑的是 CI 环境，不代表云上可恢复。
+- **cron 已在跑**（root）：`30 3 * * * /opt/deepresearch/tools/backup-cron.sh`（`pg_dump -Fc` → 非对称加密
+  `.pem` → rclone 同步 COS；本地保留 14 份，当前 12 份）；日志 `/var/log/dr-backup.log`，
+  截至 2026-10-11 每日 `backup + COS sync ok`；
+- **真实恢复演练通过（2026-10-11）**：最新备份用离线私钥解密（`pg_restore -l` 208 条目）→ 云上临时容器
+  `dr-drill` 流式恢复（exit 0）→ 断言 **schema_migrations/runs/run_artifacts = 21/11/22，与生产库逐项一致** → 容器清理；
+- md5 三方核对一致（服务器本地 = COS = 解密机）；完整记录见 `release-runbook.md` §10.3（§9 状态已同步）。
 
 ### 6.2 P1 · 无构建版本锚点（非 git 仓库部署）
 
@@ -120,3 +114,4 @@ runs、账号、审计、知识库三层全在 `pg_data` 卷里，且当前已�
 | 日期 | 改动 | 关联 |
 |---|---|---|
 | 2026-10-07 | 初版落库：整理主理人口述的部署形态，并与 `docker-compose.staging.yml` / `Caddyfile` 逐项核对；补充 §6 缺口清单 | 本次 |
+| 2026-10-11 | §6.1 P0 关闭 | 备份 cron 核实已在跑（2026-10-02 起，每日 03:30 加密 + COS）；云上真实恢复演练通过（记录 `release-runbook.md` §10.3）；修复 `tools/backup-verify.sh` 服务器事故空目录 | 本次 |

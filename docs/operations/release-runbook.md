@@ -215,7 +215,7 @@ curl --ssl-revoke-best-effort -fsS https://<公网IP>/api/health/ready
 | 演练 | 状态 | 说明 |
 |---|---|---|
 | 备份 → 清库 → 恢复 | ✅ 每次 CI `infra` job 执行 | `tools/backup.sh` + `tools/restore.sh` + 种子数据/结构断言双向验证 |
-| 云上恢复演练（staging，临时容器） | ⏳ 待主理人执行（检查单见 §10） | 未执行前按「无备份」对待；CI 演练只代表 CI 环境 |
+| 云上恢复演练（staging，临时容器） | ✅ 已执行（2026-10-11） | 离线私钥解密（208 条目）→ 云上临时容器恢复 → 断言与生产一致（schema_migrations/runs/run_artifacts = 21/11/22）；记录见 §10.3 |
 | 应用版本回滚 | ⏳ 未演练（staging 执行后回填本节） | 本文 §6.1 为流程；回滚能力验证前，发布窗口需预留人工介入 |
 | 迁移失败中断 | ⏳ 未演练 | 依赖 migrate 单事务语义；可在 staging 用损坏 fixture 演练 |
 
@@ -224,17 +224,18 @@ curl --ssl-revoke-best-effort -fsS https://<公网IP>/api/health/ready
 > 背景：备份/恢复/加密脚本已入仓（PR #93/#94），CI 每次 PR 跑「备份→清库→恢复」，
 > 但**云上未安装备份 cron、未做真实恢复演练**（`deployment.md` §6.1 / 上文 §9）。
 > 判据：`pg_restore -l` 能列出目录才算成功；**未验证的备份视为不存在**。
+> **✅ 2026-10-11：§10.1 全部核实完成、§10.2 演练已执行（记录见 §10.3）—— 本节转为留档检查单（重装时仍适用）。**
 
 ### 10.1 一次性安装（服务器 root）
 
-- [ ] 1. `backup-recipient.crt` 公钥放 `/opt/deepresearch/`；**私钥离线保管**（密码管理器/离线盘），服务器不留（需求 20 §8）
-- [ ] 2. rclone COS 配置就绪：`/root/.config/rclone/rclone.conf`（remote 名默认 `cos`）
-- [ ] 3. 安装 cron：`30 3 * * * /opt/deepresearch/tools/backup-cron.sh >> /var/log/dr-backup.log 2>&1`
-- [ ] 4. 手动首跑：`bash /opt/deepresearch/tools/backup-cron.sh` → 日志出现 `backup + COS sync ok`
-- [ ] 5. 校验：`BACKUP_DIR=/opt/deepresearch/backups bash /opt/deepresearch/tools/backup-verify.sh`
-      （默认 structure-only；持有离线私钥的机器可做 decrypted 校验）
-- [ ] 6. COS 侧核对：对象存在、大小与本地一致；md5 一致（`rclone md5sum cos:<bucket>/backups/<文件>` 与 `backup-verify.sh` 输出的 md5 比对；对象为分片上传无 md5 时，回退记录本地 md5 供抽验）
-- [ ] 7. 失败可见：`/var/log/dr-backup.log` 可查；webhook 未配置时在告警登记中备注（P2-6）
+- [x] 1. `backup-recipient.crt` 公钥放 `/opt/deepresearch/`；**私钥离线保管**（当前在开发机 `local-artifacts/deploy/dr-backup.key`，⚠️ 建议移入密码管理器/离线介质），服务器不留（需求 20 §8）
+- [x] 2. rclone COS 配置就绪：`/root/.config/rclone/rclone.conf`（remote 名默认 `cos`）
+- [x] 3. 安装 cron：`30 3 * * * /opt/deepresearch/tools/backup-cron.sh >> /var/log/dr-backup.log 2>&1`
+- [x] 4. 手动首跑：`bash /opt/deepresearch/tools/backup-cron.sh` → 日志出现 `backup + COS sync ok`
+- [x] 5. 校验：`BACKUP_DIR=/opt/deepresearch/backups bash /opt/deepresearch/tools/backup-verify.sh`
+      （默认 structure-only；持有离线私钥的机器可做 decrypted 校验）—— 2026-10-11 结构校验通过（新鲜度 + md5 输出）
+- [x] 6. COS 侧核对：对象存在、大小与本地一致；md5 一致（`rclone md5sum cos:<bucket>/backups/<文件>` 与 `backup-verify.sh` 输出的 md5 比对；对象为分片上传无 md5 时，回退记录本地 md5 供抽验）—— 2026-10-11 **三方一致**
+- [x] 7. 失败可见：`/var/log/dr-backup.log` 可查；webhook 未配置时在告警登记中备注（P2-6）
 
 ### 10.2 恢复演练（建议临时容器执行，不碰生产库）
 
@@ -265,11 +266,11 @@ docker rm -f dr-drill; rm -f /tmp/drill.dump
 
 | 项 | 值 |
 |---|---|
-| 演练日期 / 执行人 | |
-| 备份点（文件 / 时间 / 大小 / md5） | |
-| 产物形态（明文 / .enc / .pem） | |
-| 解密与 `pg_restore -l` | 通过 / 失败 |
-| 恢复耗时（下载 + 解密 + 恢复 + 断言） | |
-| 断言（schema_migrations / runs / run_artifacts） | |
-| 失败项与改进项 | |
-| 结论（可恢复 / 不可恢复） | |
+| 演练日期 / 执行人 | 2026-10-11 23:10~23:20（CST）/ opencode（主理人授权，经 `ubuntu@82.156.88.246`） |
+| 备份点（文件 / 时间 / 大小 / md5） | `deepresearch_20261010_193001.dump.pem`（2026-10-11 03:30 CST 生成；220,327 B；md5 `e4e54e1091fa4ea1f9404d53b10ba146`） |
+| 产物形态（明文 / .enc / .pem） | .pem（openssl smime 非对称）→ 离线私钥解密成功（明文 161,871 B；`pg_restore -l` 208 条目） |
+| 解密与 `pg_restore -l` | 通过 |
+| 恢复耗时（下载 + 解密 + 恢复 + 断言） | ≈2 分钟（下载+解密+判据 ≈1 分钟；容器启动→就绪→流式恢复→断言 ≈1 分钟） |
+| 断言（schema_migrations / runs / run_artifacts） | **21 / 11 / 22**（与生产库逐项一致） |
+| 失败项与改进项 | 无失败。① 明文经 ssh stdin **流式恢复、未落服务器磁盘**；② 离线私钥现位于开发机 `local-artifacts/deploy/dr-backup.key`，⚠️ 建议移入密码管理器/离线介质；③ 顺手修复服务器 `tools/backup-verify.sh` 事故空目录（历史 docker `-v` 挂载缺失文件所致）→ 已替换为仓库版（md5 一致） |
+| 结论（可恢复 / 不可恢复） | **可恢复** |

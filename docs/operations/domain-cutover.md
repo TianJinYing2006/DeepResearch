@@ -242,35 +242,16 @@ curl -fsS https://ikaoju.cn/api/legal/privacy         # 镜像内 docs/legal 可
 
 | 优先级 | 事项 | 说明 |
 |---|---|---|
-| **P0** | **把数据库备份装上 cron + 做一次真实恢复演练** | `deployment.md` §6.1 的 P0 缺口：服务器只有代码包备份、**无 `pg_dump`**。当前已有真实内测数据。**这比换域名重要得多** |
+| ~~**P0**~~ ✅ | ~~把数据库备份装上 cron + 做一次真实恢复演练~~ **已完成（2026-10-11）** | cron 已在跑（每日 03:30 加密 + COS）；真实恢复演练通过（21/11/22 与生产一致；记录见 `release-runbook.md` §10.3）。原缺口已关闭：`deployment.md` §6.1 |
 | P1 | 前端加备案号展示位 | §5 第 1 项，上线前必须完成 |
 | P1 | 补构建版本锚点 `BUILD_INFO` | `deployment.md` §6.2：服务器非 git 仓库，无法回答「跑的是哪个 commit」 |
 | P2 | 固定 `qdrant/qdrant:latest` 的具体 tag | 其余服务均已钉版本，仅 qdrant 未钉 |
 
-### 6.1 P0 备份：脚本已有，只差部署
+### 6.1 ✅ P0 备份：已部署 + 已演练（2026-10-11 关闭）
 
-✅ **脚本已存在于仓库**：`tools/backup.sh`（`pg_dump -Fc` + **`pg_restore -l` 可读性校验**，
-校验不过不算备份成功；保留 14 份）+ `tools/backup-cron.sh`（每日 + 非对称加密 + rclone 同步 COS）。
-⇒ **不是要写脚本，是服务器上没配 cron。**
-
-**A. 最小可用（今天就能配，5 行）** —— 本地明文 dump，够挡住「卷误删 / 迁移事故」：
-
-```bash
-# 服务器 root，先手动跑一次确认能出文件
-docker compose -f /opt/deepresearch/docker-compose.staging.yml exec -T postgres \
-  pg_dump -Fc -U deepresearch deepresearch > /opt/deepresearch/backups/pg_test.dump
-pg_restore -l /opt/deepresearch/backups/pg_test.dump | head   # 能列出目录才算成功
-
-# 装 cron（每天 03:00）
-(crontab -l 2>/dev/null; echo '0 3 * * * docker compose -f /opt/deepresearch/docker-compose.staging.yml exec -T postgres pg_dump -Fc -U deepresearch deepresearch > /opt/deepresearch/backups/pg_$(date +\%Y\%m\%d_\%H\%M\%S).dump') | crontab -
-```
-
-**B. 完整版（推荐）** —— 走 `tools/backup-cron.sh`，带加密与异地：
-先生成密钥对，**私钥离线保管、服务器只放公钥证书**；再配 rclone 的 COS remote；
-最后 `30 3 * * * /opt/deepresearch/tools/backup-cron.sh >> /var/log/dr-backup.log 2>&1`。
-前提：证书 `/opt/deepresearch/backup-recipient.crt` 存在（缺失时脚本直接 exit 1）。
-
-⚠️ **两种都得做恢复演练**：`pg_restore -l` 能列出 ≠ 云上能恢复。
-CI 里跑的是 CI 环境，**不代表你的服务器能恢复**。备份配完当天必须真恢复一次。
+**已落地**（完整版 B）：服务器 root crontab `30 3 * * * /opt/deepresearch/tools/backup-cron.sh`
+（`pg_dump -Fc` → 非对称加密 `.pem` → rclone 同步 COS），2026-10-02 起每日运行、日志全 ok。
+**2026-10-11 完成真实恢复演练**：离线私钥解密 → 云上临时容器恢复 → 断言与生产一致（21/11/22）→ 清理。
+完整检查单与记录：`release-runbook.md` §10.1/§10.3（本小节转为留档，重装时按 §10.1 执行）。
 
 **不要做的事**：不要在备案期间改 `DR_DOMAIN`、不要提前把域名解析到服务器。
