@@ -8,13 +8,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from contextlib import nullcontext
 
+from config import config
 from research_engine.graph import create_graph
 from research_engine.observability import (  # W3（Q4/Q5/Q6）：知情打印 + flush/URL + 成本
     flush_and_get_url,
     format_cost_report,
     status_line,
 )
+from research_engine.snapshots import FetchContext, use_fetch_context
 from research_engine.state import RUN_STATUS_FAILED  # W8 Arm 1（§5.1.4 五件套之④）
 
 
@@ -28,19 +31,25 @@ def main():
     # W3（Q4）：启动知情打印（数据去向 + 脱敏策略）
     print(status_line())
 
-    graph = create_graph()
-    print(f"开始研究：{args.topic}\n")
-    try:
-        result = graph.run(args.topic, args.instructions)
-    finally:
-        # W3（Q5）：CLI 是生命周期终点，退出前 flush + 回显 trace URL。
-        # graph.trace_id 在 run 内进入前已赋值（自持主键），成功/异常（含硬闸）均可取到。
-        if graph.trace_id:
-            url = flush_and_get_url(graph.trace_id)
-            if url:
-                print(f"🔗 Trace URL: {url}")
-            else:
-                print("⚠️ Trace URL 不可用（观测未初始化 / 未配置 URL 模板 / flush 未尽，见日志）")
+    # 需求 34 E1：CLI 无任务库（store=None）——抓取继续、正文进证据，快照标记 disabled；
+    # 绑定 run 级抓取上下文（预算三闸 + robots + 熔断）须在 create_graph 之前
+    #（Researcher 构建时捕获，防并行节点丢 ContextVar）；退出即复位。
+    fetch_ctx = (use_fetch_context(FetchContext.create(store=None, run_id=None))
+                 if config.web_snapshot.enabled else nullcontext())
+    with fetch_ctx:
+        graph = create_graph()
+        print(f"开始研究：{args.topic}\n")
+        try:
+            result = graph.run(args.topic, args.instructions)
+        finally:
+            # W3（Q5）：CLI 是生命周期终点，退出前 flush + 回显 trace URL。
+            # graph.trace_id 在 run 内进入前已赋值（自持主键），成功/异常（含硬闸）均可取到。
+            if graph.trace_id:
+                url = flush_and_get_url(graph.trace_id)
+                if url:
+                    print(f"🔗 Trace URL: {url}")
+                else:
+                    print("⚠️ Trace URL 不可用（观测未初始化 / 未配置 URL 模板 / flush 未尽，见日志）")
 
     # W8 Arm 1（§5.1.4 五件套之④）：run() 已改为「返回 state 而不 re-raise」，
     # 若不在此处判 failed 退出，脚本化调用将**静默当作成功** —— 那是把异常换个地方吞掉。

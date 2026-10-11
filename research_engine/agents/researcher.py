@@ -16,6 +16,7 @@ W4 重构（grill Q1/Q5/Q6/Q8）：
 """
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from typing import Any, Dict, List, Tuple
@@ -26,15 +27,20 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     classify_exception,
     is_fault_reason,
 )
+from research_engine.net.web_fetch import STATUS_DISABLED, STATUS_NOT_ATTEMPTED
+from research_engine.net.webtext import EXTRACTOR_VERSION
 from research_engine.rag.identity import extract_entities, hit_matches_entities
 from research_engine.rag.retriever import HybridRetriever
 from research_engine.rag.scope import current_scope
 from research_engine.sanitize import strip_invisible
 from research_engine.search.arxiv import ArxivSearchProvider
 from research_engine.search.base import SearchProvider, create_search_provider
+from research_engine.snapshots import current_fetch_context
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.tools.code_exec import exec_code, should_execute
 from research_engine.usage import UsageRecord, UsageSinkError, emit_usage
+
+_log = logging.getLogger("deepresearch.researcher")
 
 # R2.4 Q5=A 第一层：自指/元描述关键词启发式初标（漏标由 validator verdict 兜底复核）
 META_KEYWORDS = (
@@ -95,6 +101,9 @@ class Researcher:
         # LangGraph 并行执行节点时线程不继承 ContextVar，运行期 current_scope() 会丢；
         # 捕获后由 _search_rag 显式传入，保证多租户过滤在任意线程都生效。
         self._rag_scope = current_scope()
+        # 需求 34 E1：抓取上下文同理在构建时捕获（runner/worker/cli 均在 create_graph 前绑定）；
+        # 运行期再取一次兜底（测试/直连调用绑定晚于构建的场景）。
+        self._fetch_ctx = current_fetch_context()
         # W8 Arm 1：降级记录缓冲区（共享实现，见 state.DegradationSink）
         self.degradations = DegradationSink()
 
@@ -143,11 +152,12 @@ class Researcher:
         # 单向派生：reason 直接取 resp.failure_reason，禁止在此手写第二个字面量
         if is_fault_reason(resp.failure_reason):
             self._record_degradation("web_search", resp.failure_reason, detail=resp.failure_detail)
-        findings = []
+        candidates: List[Tuple[Any, ResearchFinding]] = []
         for r in resp.results:
             # P2-1a：剥离不可见 Unicode（外部内容统一净化，防走私指令）
             content = strip_invisible(f"{r.title}\n{r.snippet}")
-            findings.append(
+            candidates.append((
+                r,
                 ResearchFinding(
                     content=_truncate_head(content, WEB_SNIPPET_MAX),
                     source=r.url,
@@ -155,9 +165,68 @@ class Researcher:
                     confidence=0.6,
                     is_meta=_is_meta_content(content),
                     metadata=r.metadata or {},
-                )
-            )
-        return findings
+                ),
+            ))
+        # 需求 34 E1：top-N 候选实抓正文 + 快照落盘（失败降级 snippet-only，不阻塞）
+        self._attach_web_snapshots(candidates)
+        return [finding for _, finding in candidates]
+
+    # ---- 需求 34 E1：网页快照（抓取策略见 net/web_fetch.py；落盘见 snapshots.py）----
+
+    def _attach_web_snapshots(self, candidates: List[Tuple[Any, ResearchFinding]]) -> None:
+        """对 top-N 候选实抓正文并（尽力）落盘快照；失败降级 snippet-only。
+
+        纪律（需求 34 N5 / TBD-7 红线①）：
+        - 抓取/落盘失败**不写 `degradation_log`**、不推导 `run_status=degraded`；
+        - 未绑定抓取上下文（功能关 / 未接线）⇒ **零行为变化**（不抓、不加标记）；
+        - 抓取成功但无 store（CLI/eval）⇒ 正文仍进 finding，标记 `snapshot_status=disabled`。
+        """
+        ctx = getattr(self, "_fetch_ctx", None) or current_fetch_context()
+        if ctx is None:
+            return
+        cfg = config.web_snapshot
+        top_n = max(0, cfg.top_n)
+        for _, finding in candidates[top_n:]:
+            metadata = dict(finding.metadata)
+            metadata["snapshot_status"] = STATUS_NOT_ATTEMPTED
+            finding.metadata = metadata
+        top = candidates[:top_n]
+        if not top:
+            return
+        outcomes = ctx.fetcher.fetch_many([r.url for r, _ in top])
+        for (r, finding), outcome in zip(top, outcomes):
+            self._apply_web_snapshot(ctx, r, finding, outcome)
+
+    def _apply_web_snapshot(self, ctx: Any, r: Any, finding: ResearchFinding,
+                            outcome: Any) -> None:
+        metadata = dict(finding.metadata)
+        metadata["snapshot_status"] = outcome.status
+        if outcome.reason:
+            metadata["snapshot_reason"] = outcome.reason
+        if outcome.ok and outcome.extracted is not None:
+            extracted = outcome.extracted
+            content = f"{r.title}\n\n{extracted.text}" if r.title else extracted.text
+            # finding 正文取头 N 字符（默认 4000，对齐裁判层既有截断阈值；全文在快照中）
+            finding.content = _truncate_head(
+                strip_invisible(content), config.web_snapshot.finding_max_chars)
+            if ctx.store is not None and ctx.run_id:
+                try:
+                    metadata["snapshot_id"] = ctx.store.save_snapshot(
+                        run_id=ctx.run_id,
+                        url=r.url,
+                        content_type=outcome.content_type,
+                        source_bytes=outcome.source_bytes,
+                        text=extracted.text,
+                        text_truncated=extracted.truncated,
+                        extractor_version=EXTRACTOR_VERSION,
+                    )
+                except Exception as exc:  # noqa: BLE001 —— 落盘失败降级 disabled，不阻塞
+                    _log.warning("快照落盘失败（降级 disabled）：%s", exc)
+                    metadata["snapshot_status"] = STATUS_DISABLED
+                    metadata["snapshot_detail"] = f"store_error:{type(exc).__name__}"
+            else:
+                metadata["snapshot_status"] = STATUS_DISABLED
+        finding.metadata = metadata
 
     def _search_rag(self, query: str) -> List[ResearchFinding]:
         """RAG 知识库检索（去重契约：source=rag:<filename>，Q8 教训防饿死）。
