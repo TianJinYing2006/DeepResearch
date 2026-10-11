@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, List
 
 from config import config
-from research_engine.budget import CallAdmissionDenied, admit_call
+from research_engine.budget import CallAdmissionDenied, admit_call, budget_remaining
 from research_engine.llm.router import get_router
 from research_engine.state import ResearchFinding, SubQuestion
 from research_engine.usage import UsageSinkError
@@ -55,10 +55,18 @@ class ContextManager:
                 # F13：组数上限之外保持原文 —— 单节点 LLM 调用数有界
                 compressed.extend(group)
                 continue
+            # A3（2026-10-07）：校验地板——写/压缩阶段不得把预算吃到校验无法执行。
+            # 剩余低于地板时保持原文（不再发起压缩调用），给 validator 留最低额度。
+            # 注意：跳过压缩会让 Writer 输入变大（压缩的收益被放弃），这是「宁可贵、
+            # 不可盲」的取舍；重型题总额是否上调由 mini 锚点数据决定（Issue #154）。
+            floor = int(getattr(config.research, "validation_floor", 0) or 0)
+            if floor and budget_remaining(state) <= floor:
+                compressed.extend(group)
+                continue
             try:
                 admit_call(state)
             except CallAdmissionDenied:
-                # F13：预算/时限耗尽 ⇒ 原文兜底（不再发起调用）
+                # F13：预占/时限耗尽 → 原文兜底（不再发起调用）
                 compressed.extend(group)
                 continue
             texts = "\n".join(f"- {f.content}" for f in group)
