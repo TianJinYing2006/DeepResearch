@@ -1,30 +1,26 @@
-"""Langfuse 可观测层（W3，grill Q1~Q7 全部定稿，见 docs/requirements/3-langfuse-observability.md）。
+"""OTel 可观测层（需求 33：Langfuse → OTel 原生迁移，反转 W3 接入决策）。
 
-设计要点（速查）：
-- Q1=B'：接入 = langfuse.openai 包装器（模块级全局 wrap openai 方法，LLM generation 自动记录
-  usage/cost，LLMClient 代码零改动）+ start_as_current_observation 显式 span（弃 @observe：
-  装饰器会把函数入参/返回值整包塞进 span，含 report 全文，体积爆炸难脱敏）。
-- Q1 约束①：enabled 才 import langfuse.openai —— 全局 monkey-patch，未启用/单测环境禁止导包。
-- Q2=A1'：trace id 必须 32-hex（4.x 硬性要求），由 client.create_trace_id(seed=唯一串) 确定性生成；
-  seed 含 thread_id+时间戳+uuid → 每次运行唯一，同 thread 多次运行不覆盖（Langfuse 按 id upsert）；
-  metadata.thread_id 关联可过滤同 thread 全部历史。
-- Q2=C1'：循环扁平兄弟 span，命名 R{k}-检索 / R{k}-裁决（轮次前缀便于控制台圈出单轮全貌）；
-  span 中文展示名 + metadata.node 英文键。
-- Q3=D'：本地对账在 client.py 的 LLMClient.tokens_total（无条件计数），本模块只提供报告入口。
-- Q4：三态开关（enabled=auto 三件套齐即启用 / false 强制禁用 / 缺 key 自动降级）+ 知情打印；
-  脱敏 mask 回调：str 字段 >truncate_len 截断；敏感替换默认关（LANGFUSE_MASK_SENSITIVE=true 才做
-  11 位数字形态替换，避免误伤论文/代码数字）。
-- Q5：get_langfuse() 惰性单例 fail-silent（未启用/构造失败 → None）；CLI 退出前 flush + URL 回显
-  （自持 trace_id，finally 兜底成功/异常）；Web 不 flush（常驻进程后台线程自然上传）。
-- Q6：成本展示 —— token 用 state.token_used 精确值，单价取 config.llm.pricing 最贵 output 档做
-  保守上界，人民币为主（W5 eval 复用同一张定价表）。
-- Q7：截断长度作为常量放本模块（TRUNCATE_LEN / SPAN_INPUT_TRUNCATE），不进 config 开关。
+设计要点（对应需求 33 §5 TBD，速查）：
+- TBD-2：generation 单点显式埋点 —— `LLMClient.chat` 是全项目唯一 LLM 出口，
+  在其内部开 `gen_ai.*` span；不做 monkey-patch（吸取 `langfuse.openai` 全局 wrap 的版本耦合教训）。
+- TBD-3：根 trace 的 trace_id 由本模块自持（32-hex），并强制注入根 span ——
+  CLI `finally` 在异常路径也能取到 id 回显 URL（W3 Q5 语义保留）。
+- TBD-4：成本本地自算（`config.llm.pricing` 精确单价），逐调用估算写 span 属性
+  `dr.cost_estimate_cny`（后端可展示，替代 Langfuse 控制台 cost 列）；
+  CLI 汇总行沿用保守上界口径（人民币为主）。
+- TBD-5：URL 回显走可配模板 `DR_OTEL_TRACE_URL_TEMPLATE`（如 Jaeger `.../trace/{trace_id}`）。
+- TBD-6：三态开关（`DR_OTEL_ENABLED=false` 强制禁用 / 端点齐备自动启用 / 缺端点自动降级）
+  + 双层 fail-silent；截断常量进代码不进配置（W3 Q7 纪律保留）。
+- TBD-7：OTel 全局 provider 单次 `set` —— 进程内已有 SDK provider（Worker 先初始化 web 侧）
+  时直接复用，不重复覆盖；CLI 进程由本模块初始化（`service.name` 可配）。
+- 与 `web/backend/otel.py` 同 env（`OTEL_EXPORTER_OTLP_ENDPOINT`）；未配置导出时零行为变化。
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
-import time
 import uuid
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
@@ -33,104 +29,143 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
-# Q7：策略常量进代码，不见开关
-TRUNCATE_LEN = 4000           # generation 字段截断（Q4 mask）
-SPAN_INPUT_TRUNCATE = 200     # 节点 span input 截断（Q6 体积闭环）
+# 策略常量进代码，不见开关（W3 Q7 / 需求 33 TBD-6）
+TRUNCATE_LEN = 4000           # generation 字段截断（messages / completion 预览）
+SPAN_INPUT_TRUNCATE = 200     # 节点 span input 截断（体积闭环）
 
 
-# ---------------- 三态开关（Q4） ----------------
+# ---------------- 三态开关（TBD-6） ----------------
 
 def _enabled() -> bool:
-    lc = config.langfuse
-    if lc.enabled == "false":
+    oc = config.otel
+    if oc.enabled == "false":
         return False
-    if lc.enabled == "true":  # 显式开启仍需三件套
-        return bool(lc.public_key and lc.secret_key and lc.host)
-    # auto（默认）：三件套齐备即启用
-    return bool(lc.public_key and lc.secret_key and lc.host)
+    return bool((oc.endpoint or "").strip())
 
 
-# ---------------- 惰性单例（Q5 fail-silent 第二层） ----------------
+# ---------------- 惰性单例 / provider（TBD-7，fail-silent） ----------------
 
-_langfuse: Any = None
-_langfuse_ready = False
-
-
-def mask_callback(*, data: Any) -> Any:
-    """Q4 脱敏回调（langfuse MaskFunction：按字段值调用，input/output/metadata 各自过一遍）。
-
-    仅做长度裁剪；敏感替换默认关（避免误伤论文/代码中的数字信息）。
-    """
-    lc = config.langfuse
-    if isinstance(data, str):
-        if len(data) > TRUNCATE_LEN:
-            data = data[:TRUNCATE_LEN] + "…[truncated]"
-        if lc.mask_sensitive:
-            data = re.sub(r"\b\d{11}\b", "***", data)  # 保守：11 位数字（手机号形态）
-    return data
+_ready = False
+_provider: Any = None
 
 
-def get_langfuse() -> Any:
-    """惰性单例。未启用/构造失败返回 None（所有调用点 if lf is not None: 防御）。
-
-    关键约束（Q1）：仅在启用时 import langfuse.openai（触发全局 wrap），
-    未启用/单测环境绝不导包 —— 防 monkey-patch 泄漏到其他调用方。
-    """
-    global _langfuse, _langfuse_ready
-    if _langfuse_ready:
-        return _langfuse
-    _langfuse_ready = True
+def _ensure() -> Any:
+    """惰性初始化 OTel（幂等）。未启用/构造失败 → None（所有调用点防御）。"""
+    global _ready, _provider
+    if _ready:
+        return _provider
+    _ready = True
     if not _enabled():
-        _langfuse = None
         return None
     try:
-        from langfuse import Langfuse  # 延迟导入：未启用时零依赖零开销
+        from opentelemetry import trace as trace_api
+        from opentelemetry.sdk.trace import TracerProvider
 
-        lc = config.langfuse
-        # Q1 约束①：启用才导包，全局 wrap openai 方法（observability 一处 import 覆盖全部 agent）
-        import langfuse.openai  # noqa: F401
+        existing = trace_api.get_tracer_provider()
+        if isinstance(existing, TracerProvider):
+            # TBD-7：进程内已有 SDK provider（如 Worker 进程先初始化 web 侧）→ 复用不覆盖
+            _provider = existing
+            return _provider
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        _langfuse = Langfuse(
-            public_key=lc.public_key,
-            secret_key=lc.secret_key,
-            host=lc.host,
-            sample_rate=lc.sample_rate,
-            mask=mask_callback,
-        )
-        logger.info("Langfuse 可观测性：已启用 (host=%s) | 脱敏：长度裁剪 %d 字符 | 敏感替换: %s",
-                    lc.host, TRUNCATE_LEN, "开" if lc.mask_sensitive else "关")
-    except Exception as exc:  # Q5 fail-silent 第一层兜底：观测坏了绝不拖累主流程
-        logger.warning("Langfuse 初始化失败，观测降级为禁用：%s", exc)
-        _langfuse = None
-    return _langfuse
+        oc = config.otel
+        resource = Resource.create({
+            "service.name": oc.service_name,
+            "service.version": os.environ.get("DR_WORKER_VERSION", "dev"),
+            "deployment.environment.name": os.environ.get("DR_ENV", "local"),
+        })
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        trace_api.set_tracer_provider(provider)
+        _provider = provider
+        logger.info("OTel 可观测性：已启用 (endpoint=%s, service=%s)", oc.endpoint, oc.service_name)
+    except Exception as exc:  # noqa: BLE001 —— TBD-6 第一层兜底：观测坏了绝不拖累主流程
+        logger.warning("OTel 初始化失败，观测降级为禁用：%s", exc)
+        _provider = None
+    return _provider
 
+
+def _tracer() -> Any:
+    provider = _ensure()
+    if provider is None:
+        return None
+    return provider.get_tracer("deepresearch.engine")
+
+
+# ---------------- 脱敏（TBD-6：常量 + 默认关的敏感替换） ----------------
+
+def mask_text(value: str) -> str:
+    """单字段 >TRUNCATE_LEN 截断；敏感替换默认关（`DR_OTEL_MASK_SENSITIVE=true` 才做）。"""
+    if not isinstance(value, str):
+        return value
+    if len(value) > TRUNCATE_LEN:
+        value = value[:TRUNCATE_LEN] + "…[truncated]"
+    if config.otel.mask_sensitive:
+        value = re.sub(r"\b\d{11}\b", "***", value)  # 保守：11 位数字（手机号形态）
+    return value
+
+
+def _preview(value: Any, limit: int = SPAN_INPUT_TRUNCATE) -> Optional[str]:
+    """把任意 input 规整为截断字符串（None 原样返回）。"""
+    if value is None:
+        return None
+    try:
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        text = str(value)
+    return text[:limit]
+
+
+def _attr_value(value: Any) -> Any:
+    """把 metadata 值规整为 OTel 可接受的标量（复杂结构降级为截断 JSON）。"""
+    if isinstance(value, str):
+        return value[:SPAN_INPUT_TRUNCATE]
+    if isinstance(value, (bool, int, float)):
+        return value
+    return _preview(value) or ""
+
+
+# ---------------- 知情打印（TBD-6） ----------------
 
 def status_line() -> str:
-    """Q4 知情打印（CLI/Web 启动时展示：数据去向 + 处理方式）。"""
-    lf = get_langfuse()
-    if lf is None:
-        return ("🔍 Langfuse 可观测性：已禁用"
-                "（未配置 LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST 或 LANGFUSE_ENABLED=false）")
-    lc = config.langfuse
-    return (f"🔍 Langfuse 可观测性：已启用 (host={lc.host})"
+    """CLI/Web 启动时展示：数据去向 + 处理方式。"""
+    provider = _ensure()
+    if provider is None:
+        return ("🔍 OTel 可观测性：已禁用"
+                "（未配置 OTEL_EXPORTER_OTLP_ENDPOINT 或 DR_OTEL_ENABLED=false）")
+    return (f"🔍 OTel 可观测性：已启用 (endpoint={config.otel.endpoint}, "
+            f"service={config.otel.service_name})"
             f" | 脱敏：长度裁剪 {TRUNCATE_LEN} 字符"
-            f" | 敏感替换: {'开' if lc.mask_sensitive else '关'}"
-            f" | LANGFUSE_ENABLED={lc.enabled}")
+            f" | 敏感替换: {'开' if config.otel.mask_sensitive else '关'}")
 
 
-# ---------------- trace 结构（Q2） ----------------
+# ---------------- trace 结构（TBD-3） ----------------
 
 def create_trace_id(thread_id: str) -> Optional[str]:
-    """Q2（4.x 修正落地）：trace id 硬性要求 32-hex，由官方 create_trace_id(seed=唯一串) 生成。
+    """自持 trace id（32-hex，OTel TraceId 格式）。未启用返回 None（走无观测路径）。
 
-    seed = {thread_id}|{时间戳}|{uuid8} → 每次运行唯一（同 thread 重跑不覆盖历史 trace）；
-    未启用返回 None。
+    每次运行唯一（同 thread 重跑不共享 id）；thread 维度用 `dr.thread_id` 属性过滤。
     """
-    lf = get_langfuse()
-    if lf is None:
+    if _ensure() is None:
         return None
-    seed = f"{thread_id}|{time.strftime('%Y%m%d%H%M%S')}|{uuid.uuid4().hex[:8]}"
-    return lf.create_trace_id(seed=seed)
+    return uuid.uuid4().hex
+
+
+def _forced_parent(trace_id: str) -> Any:
+    """把指定 trace_id 强制注入上下文（根 span 沿用该 id）。"""
+    from opentelemetry import trace as trace_api
+    from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
+    from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
+    span_ctx = SpanContext(
+        trace_id=int(trace_id, 16),
+        span_id=RandomIdGenerator().generate_span_id(),
+        is_remote=False,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+    )
+    return trace_api.set_span_in_context(NonRecordingSpan(span_ctx))
 
 
 @contextmanager
@@ -141,68 +176,144 @@ def start_trace(
     thread_id: str,
     user_instructions: str = "",
 ) -> Iterator[Any]:
-    """Q2 根 trace：以指定 trace_id 开启（trace_context 传入），一次研究 = 一条 trace。
+    """根 span（一次研究 = 一条 trace）。未启用时 no-op（yield None）。
 
-    未启用时 no-op（yield None）。root span 名 = deepresearch: <topic>（截断 80）。
+    trace_id 由 `create_trace_id` 自持并强制注入 —— 异常路径 CLI 也能回显 URL（W3 Q5）。
     """
-    lf = get_langfuse()
-    if lf is None:
+    tracer = _tracer()
+    if tracer is None or not trace_id:
         yield None
         return
-    meta: Dict[str, Any] = {"thread_id": thread_id, "sample_rate": config.langfuse.sample_rate}
-    inp: Any = {"topic": topic[:SPAN_INPUT_TRUNCATE]}
-    if user_instructions:
-        inp["user_instructions"] = user_instructions[:SPAN_INPUT_TRUNCATE]
-    with lf.start_as_current_observation(
-        trace_context={"trace_id": trace_id},
-        name=f"deepresearch: {topic[:80]}",
-        as_type="span",
-        input=inp,
-        metadata=meta,
+    attrs: Dict[str, Any] = {
+        "dr.thread_id": thread_id,
+        "dr.topic": topic[:SPAN_INPUT_TRUNCATE],
+        "dr.user_instructions": user_instructions[:SPAN_INPUT_TRUNCATE],
+    }
+    try:
+        parent = _forced_parent(trace_id)
+    except Exception as exc:  # noqa: BLE001 —— 强制 id 失败退回默认生成，不阻塞主流程
+        logger.warning("trace id 注入失败（退回默认生成）：%s", exc)
+        parent = None
+    with tracer.start_as_current_span(
+        f"deepresearch: {topic[:80]}", context=parent, attributes=attrs
     ) as root:
         yield root
 
 
 @contextmanager
 def span_node(name: str, *, node: str, input: Any = None, **meta: Any) -> Iterator[Any]:
-    """Q2 节点 span：中文展示名 + metadata.node 英文键。
+    """节点 span：中文展示名 + `dr.node` 英文键（W3 B1）；meta 平铺为 `dr.*` 属性。
 
     未启用时 no-op（yield None），节点代码零成本降级。
     """
-    lf = get_langfuse()
-    if lf is None:
+    tracer = _tracer()
+    if tracer is None:
         yield None
         return
-    metadata: Dict[str, Any] = {"node": node, **meta}
-    with lf.start_as_current_observation(name=name, as_type="span", input=input, metadata=metadata) as sp:
+    attrs: Dict[str, Any] = {"dr.node": node}
+    preview = _preview(input)
+    if preview is not None:
+        attrs["dr.input"] = preview
+    for key, value in meta.items():
+        if value is not None:
+            attrs[f"dr.{key}"] = _attr_value(value)
+    with tracer.start_as_current_span(name, attributes=attrs) as sp:
         yield sp
 
 
-# ---------------- 收尾（Q5/Q6） ----------------
+# ---------------- LLM generation 单点（TBD-2 / TBD-4） ----------------
+
+@contextmanager
+def llm_call_span(model: str, *, role: str, messages: Any = None) -> Iterator[Any]:
+    """LLM 调用 span（`gen_ai.*` 语义）。未启用时 no-op（yield None）。"""
+    tracer = _tracer()
+    if tracer is None:
+        yield None
+        return
+    from opentelemetry.trace import SpanKind
+
+    attrs: Dict[str, Any] = {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": "dashscope",
+        "gen_ai.request.model": model,
+        "dr.role": role,
+    }
+    if messages is not None:
+        try:
+            attrs["dr.messages_preview"] = mask_text(
+                json.dumps(messages, ensure_ascii=False, default=str))
+        except Exception:  # noqa: BLE001
+            pass
+    with tracer.start_as_current_span(f"chat {model}", kind=SpanKind.CLIENT, attributes=attrs) as sp:
+        yield sp
+
+
+def _estimate_cost_cny(model: str, input_tokens: int, output_tokens: int) -> Optional[float]:
+    """按定价表精确估算单次调用成本（元）；模型不在表内返回 None。"""
+    price = config.llm.pricing.get(model)
+    if not price:
+        return None
+    try:
+        return round(input_tokens / 1000.0 * float(price.get("input", 0.0))
+                     + output_tokens / 1000.0 * float(price.get("output", 0.0)), 6)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def record_llm_result(span: Any, resp: Any, content: str = "") -> None:
+    """成功路径：usage / cost / 正文预览写入 span（fail-silent，绝不抛）。"""
+    if span is None:
+        return
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            inp = int(getattr(usage, "prompt_tokens", 0) or 0)
+            out = int(getattr(usage, "completion_tokens", 0) or 0)
+            total = int(getattr(usage, "total_tokens", 0) or 0)
+            span.set_attribute("gen_ai.usage.input_tokens", inp)
+            span.set_attribute("gen_ai.usage.output_tokens", out)
+            if total:
+                span.set_attribute("gen_ai.usage.total_tokens", total)
+            cost = _estimate_cost_cny(getattr(resp, "model", "") or "", inp, out)
+            if cost is not None:
+                span.set_attribute("dr.cost_estimate_cny", cost)
+        resp_id = getattr(resp, "id", None)
+        if resp_id:
+            span.set_attribute("gen_ai.response.id", str(resp_id))
+        if content:
+            span.set_attribute("dr.completion_preview", mask_text(content))
+    except Exception as exc:  # noqa: BLE001 —— 观测旁路绝不拖累主链路
+        logger.warning("OTel generation 记录失败（忽略）：%s", exc)
+
+
+# ---------------- 收尾（TBD-5 / 成本） ----------------
 
 def flush_and_get_url(trace_id: str) -> Optional[str]:
-    """Q5：CLI 退出前 flush（尽力而为，超时/异常不阻塞退出）+ 回显 trace URL。
+    """CLI 退出前 flush（尽力而为，超时不阻塞退出）+ 按模板回显 trace URL。
 
-    - flush 失败返回 None（上层打印警告）；
-    - URL 在 flush 完成后才有效。
+    - 未启用 / 未配置模板 → None；
+    - flush 失败 → None（上层打印警告）；URL 在 flush 完成后才有意义。
     """
-    lf = get_langfuse()
-    if lf is None or not trace_id:
+    provider = _ensure()
+    if provider is None or not trace_id:
         return None
     try:
-        lf.flush()
+        provider.force_flush(timeout_millis=5000)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Langfuse flush 失败（trace 可能未完整上报）：%s", exc)
+        logger.warning("OTel flush 失败（trace 可能未完整上报）：%s", exc)
+        return None
+    template = (config.otel.trace_url_template or "").strip()
+    if not template:
         return None
     try:
-        return lf.get_trace_url(trace_id=trace_id)
+        return template.format(trace_id=trace_id)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("获取 trace URL 失败：%s", exc)
+        logger.warning("trace URL 模板渲染失败：%s", exc)
         return None
 
 
 def format_cost_report(token_used: int) -> str:
-    """Q6：成本展示 —— 精确 token + 最贵 output 单价保守上界，人民币为主。
+    """成本展示 —— 精确 token + 最贵 output 单价保守上界，人民币为主（W3 Q6 口径保留）。
 
     单价取 config.llm.pricing 各模型 output 档的最大值（最保守、永不低估，
     呼应 W1 硬闸的保守精神）；W5 eval 复用同一张定价表算平均 token 成本。

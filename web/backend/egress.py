@@ -27,8 +27,8 @@ def _host(url: str) -> str:
 def build_egress_snapshot(profile: Optional[RuntimeProfile]) -> dict:
     """构造 run 级数据流向快照（写进 `runs.request["egress"]`，随导出展示）。"""
     model = profile.model if profile is not None else config.llm.smart_model
-    langfuse_configured = bool(config.langfuse.public_key and config.langfuse.secret_key) and (
-        (config.langfuse.enabled or "").lower() != "false")
+    otel_configured = bool((config.otel.endpoint or "").strip()) and (
+        (config.otel.enabled or "").lower() != "false")
     return {
         "policy_version": profile.version if profile is not None else "legacy",
         "profile": profile.name if profile is not None else None,
@@ -50,7 +50,8 @@ def build_egress_snapshot(profile: Optional[RuntimeProfile]) -> dict:
             "rag_chunks_to_llm": True,
             "query_to_search": True,
             "arxiv_enabled": bool(config.search.enable_arxiv),
-            "langfuse_configured": langfuse_configured,
+            "otel_configured": otel_configured,
+            "otel_endpoint_host": _host(config.otel.endpoint) if otel_configured else "",
         },
         "policy_note": "L3-A/B 默认不发送用户内容至境外服务；恢复须独立评审（需求 10 §3.1 第 16 项）",
     }

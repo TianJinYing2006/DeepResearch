@@ -21,6 +21,7 @@ from research_engine.budget import (
     reserve_call,
     settle_call,
 )
+from research_engine.observability import llm_call_span, record_llm_result
 from research_engine.runtime_profile import task_deadline_remaining
 from research_engine.usage import UsageRecord, emit_usage
 
@@ -102,16 +103,19 @@ class LLMClient:
             kwargs["timeout"] = resolved_timeout
 
         client = self._get_client()
-        try:
-            if has_deadline:
-                client = client.with_options(max_retries=0)
-            resp = client.chat.completions.create(**kwargs)
-        except BaseException:
-            # 调用失败（超时/网络）：预占按保守口径计入（可能已消耗输入 token），
-            # 由 settle_call 的默认语义完成记账后原样抛出。
-            settle_call(reservation)
-            raise
-        content = resp.choices[0].message.content or ""
+        # 需求 33（TBD-2）：generation 单点 span —— 唯一 LLM 出口在此，未启用时 no-op
+        with llm_call_span(self.model, role=self.role, messages=messages) as gen_span:
+            try:
+                if has_deadline:
+                    client = client.with_options(max_retries=0)
+                resp = client.chat.completions.create(**kwargs)
+            except BaseException:
+                # 调用失败（超时/网络）：预占按保守口径计入（可能已消耗输入 token），
+                # 由 settle_call 的默认语义完成记账后原样抛出（span 自动标 error）。
+                settle_call(reservation)
+                raise
+            content = resp.choices[0].message.content or ""
+            record_llm_result(gen_span, resp, content)  # fail-silent：观测旁路
         self._accumulate_usage(resp, state, reservation)  # D'：无条件调用（内部处理 state=None）
         return content
 

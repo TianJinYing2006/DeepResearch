@@ -36,9 +36,8 @@ from research_engine.critic import Critic, route_critic
 from research_engine.evidence import dedupe_new_findings, ensure_evidence_identity  # F08/F10
 from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
-from research_engine.observability import (  # W3：可观测层（Q1~Q7）
+from research_engine.observability import (  # 需求 33：OTel 原生可观测层（W3 接入的迁移）
     create_trace_id,
-    get_langfuse,
     span_node,
     start_trace,
 )
@@ -116,7 +115,7 @@ class DeepResearchGraph:
         self.context = ContextManager()
         self.critic = Critic()  # llm_fn=None → 生产路径走真实 LLM
         self.renderer = ReportRenderer()  # W2：validate 后渲染可审计展示版（Q1=A 挂 validate→END）
-        self.trace_id: str | None = None  # W3（Q2/Q5）：本次运行的 Langfuse trace id（CLI 收尾回显用）
+        self.trace_id: str | None = None  # 需求 33（原 W3 Q2/Q5）：本次运行的 OTel trace id（CLI 收尾回显用）
         self.tokens_diff: int | None = None  # W3（Q3=D'）：本次 run 的对账差值（漏传 state 累计）
         # W8 Arm 1（§5.1.4）：异常退出契约 —— 保留原始异常对象供调试。
         # run() 不再 re-raise（改为返回 run_status="failed" 的 state），故调用方只能从这里取到异常。
@@ -519,9 +518,8 @@ class DeepResearchGraph:
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
         token_base = LLMClient.tokens_total  # Q3=D'：run 级对账基线（类级累计跨 run 增长）
         self.last_exception = None
-        lf = get_langfuse()
         try:
-            if lf is None or not self.trace_id:
+            if not self.trace_id:
                 result = self.graph.invoke(initial, cfg)
             else:
                 with start_trace(self.trace_id, topic, thread_id=thread_id,
@@ -623,11 +621,10 @@ class DeepResearchGraph:
         token_base = LLMClient.tokens_total  # Q3=D'：与 run() 同一对账口径
         self.last_exception = None
         self.last_stop_reason = STOP_RUNNING
-        lf = get_langfuse()
         # 生成器整体包在 trace 内（消费是连续的）；未启用观测时用 nullcontext 保持结构一致。
         ctx = (start_trace(self.trace_id, topic, thread_id=thread_id,
                            user_instructions=user_instructions)
-               if (lf is not None and self.trace_id) else nullcontext())
+               if self.trace_id else nullcontext())
         with ctx:
             yield from self._iter_steps(initial, cfg, should_cancel, token_base)
 

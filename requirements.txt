@@ -2,7 +2,7 @@
 # LLM 与 Agent 编排
 langgraph>=0.2.0
 langchain-core>=0.3.0
-openai>=1.50,<1.93  # 锁 1.x 兼容轨道：langfuse.openai 包装器适配 1.50~1.92（3.x 致 generation 正文缺失 / usage 计量错乱，W3.2 实测）
+openai>=1.50,<1.93  # 锁 1.x：原为 langfuse.openai 包装器适配窗口（W3.2 实测）；需求 33 移除包装器后暂留锁，待独立复评（TBD-8）
 
 # RAG / 向量检索
 qdrant-client>=1.9.0
@@ -36,9 +36,6 @@ python-multipart>=0.0.20,<0.1
 python-dotenv>=1.0.0
 pydantic>=2.7.0
 requests>=2.31.0
-
-# 可观测（W3：Langfuse 全链路 trace；版本锁定防 wrap 机制漂移，grill Q1）
-langfuse>=4.15,<5
 
 # 错误追踪（需求 25：Sentry 协议；DSN 空 = 关闭，默认自托管 GlitchTip）
 sentry-sdk[fastapi]>=2.71,<3

@@ -33,7 +33,7 @@ jobs:
       DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
       BOCHA_API_KEY: ${{ secrets.BOCHA_API_KEY }}
       QDRANT_URL: http://127.0.0.1:6333
-      LANGFUSE_ENABLED: "false"
+      DR_OTEL_ENABLED: "false"
     steps:
       # v7: Node 24 + ESM（v5 起要求 runner >= v2.327.1，GitHub-hosted 已满足）
       # 升级目的：消除 "Node.js 20 is deprecated" 告警

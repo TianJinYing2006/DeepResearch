@@ -50,7 +50,7 @@
   - **LLM generation**：`from langfuse.openai import openai`（模块级 drop-in，实测 langfuse 4.15.1）——模块导入时全局 wrap openai 的 `chat.completions.create`，自动记录 prompt/completion/latency/errors/**usage + cost(USD)**；LLMClient 内原版 `OpenAI(base_url=...)` 实例化照常命中，**observability.py 一处 import 覆盖所有 agent**。
   - **节点 span**：**弃用 `@observe` 装饰器**（3.x 装饰器自动把函数入参/返回值整包塞进 span，含 report 全文/网页正文 → 体积爆炸 + 脱敏困难）；改用 **4.x `client.start_as_current_observation(name=..., type="SPAN")`** 显式 with 块，只放必要字段（截断版 input + metadata），脱敏源头可控。
   - **注意事项（设计约束）**：① **enabled 才 import `langfuse.openai`**——机制是全局 monkey-patch，未启用/单测环境禁止导包，防 double-trace 泄漏；② **版本锁定 `langfuse>=4.15,<5`** + 冒烟脚本（trace 落库 + generation 挂树）进 DoD；③ **API 映射**：用户初稿 `langfuse_context.start_span` 系 3.x API（4.15.1 已移除 `langfuse.decorators`/`langfuse_context`），以 `start_as_current_observation` 为准；④ 生成自动挂载依赖 context 传播（`get_current_trace_id`/`get_current_observation_id` 实测存在），必须在 `start_as_current_observation` 的 with 块内调用 LLM；⑤ **openai 锁 1.x 兼容轨道（W3.2 实测追加）**：`langfuse.openai` 包装器适配区间 1.50.0~1.92.0，openai 3.x 会致 generation 正文缺失/usage 计量错乱 → `requirements.txt` 锁 `openai>=1.50,<1.93`。
-  - CallbackHandler 出局（对自研 LLM 的 generation 缺位）；OTel OTLP 出局（Python 侧样板过重；WeChatBot 走 OTel 系 Java SDK 弃用所致，Python 无此限制）。
+  - CallbackHandler 出局（对自研 LLM 的 generation 缺位）；OTel OTLP 出局（Python 侧样板过重；WeChatBot 走 OTel 系 Java SDK 弃用所致，Python 无此限制）。⚠️ **2026-10-11 已被需求 33 反转**：引擎埋点迁 OTel 原生（Langfuse 降为可选 OTLP 后端），见 `docs/requirements/33-otel-observability-migration.md` + `docs/decisions/0012-otel-observability-migration.md`。
   - **TBD-2 trace 结构（✅ 设计评审 Q2 终判=A1'+B1+C1'，2026-09-03 拍板）**：
   - **粒度与标识（A1'）**：1 run = 1 trace；**trace id = `{thread_id}_{timestamp}_{uuid4[:8]}`（每次运行唯一）**——Langfuse 按 id upsert，同 `thread_id` 重跑（Web 追问/调试显式传 id/未来续跑）会**覆盖历史 trace**，唯一化后经 `metadata.thread_id` 过滤仍可查看同 thread 全部历史版本（个人项目迭代对比的生命线）；trace name = `deepresearch: <topic>`（截断 80 字符）。
   - **span 命名（B1）**：中文展示名 + `metadata.node` 英文键（如展示「检索 R1」/「裁决 R1」，`metadata.node="research"`）——人读中文、机器按英文过滤。
@@ -128,6 +128,7 @@
 | 2026-09-03 | 设计定稿 | 设计评审 Q7 拍板，7 项待定项全部清零 | **TBD-7 终判**：`LangfuseConfig` 7 字段（截断常量进代码不进配置）+ `.env.example` 6 变量 + README「可观测性」/面试演示资产/简历回填口径（落地才写）；DoD §7 与测试策略 §9 按 Q1~Q7 完整填充 | 本文档 |
 | 2026-09-03 | 实现完成 | 设计评审 定稿后落地（并行会话完成，本会话验证） | 实现 commit `7b61ab3`(dev)：observability.py(214 行) + config `LangfuseConfig`/分层 `pricing` + `LLMClient.tokens_total`(Q3 D') + graph 7 节点 span 包裹(C1') + cli 收尾(Q5/Q6) + conftest 三重隔离 + test_observability 15 项；**pytest 38 passed**；两处 4.x 落地修正：trace id 用官方 `create_trace_id(seed=...)` 生成 32-hex（文档原拼串含下划线不合规）、mask 回调签名 `(*, data)` | `7b61ab3` |
 | 2026-09-04 | 修复 | 真实冒烟暴露 W3.2（openai 版本错配 + D' 实现 bug） | **W3.2 修复**：`requirements.txt` 锁 `openai>=1.50,<1.93`（3.6.0 → 1.92.3，对齐包装器适配窗口 `1.50~1.92`）；`client.py` `chat()` 无条件调 `_accumulate_usage`（D' 真实路径修复）+ 新增真实路径回归测试；单调用验证 generation 正文/usage 归正（`trace 56d50439…`，usage input+output=total=26=本地零差值） | 待 commit |
+| 2026-10-11 | 反转 | 需求 33：OTel 观测迁移 | **本文档 §5 拍板「OTel OTLP 出局」被需求 33 反转**：引擎埋点迁 OTel 原生（`gen_ai.*` 单点埋点 + OTLP 可插拔后端），Langfuse SDK 从依赖中移除、降为可选 OTLP 后端；反转理由与代价见 `docs/requirements/33-otel-observability-migration.md` + `docs/decisions/0012-otel-observability-migration.md` | #180 |
 
 ## 11. 实现与冒烟记录（2026-09-04）
 - 实现：commit `7b61ab3`（dev，pytest 38 全绿）；README「可观测性」小节见 `e9722e3`；缺 key 降级冒烟通过（知情打印已禁用 + fail-silent）。

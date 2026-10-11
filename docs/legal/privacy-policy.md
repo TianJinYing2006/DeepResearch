@@ -14,7 +14,7 @@
 
 ## 2. 数据存在哪里 / 会流向谁
 
-- 默认策略：**L3-A/B 不向境外服务发送用户内容**；境外服务（Tavily、Langfuse Cloud、arXiv、Semantic Scholar）默认关闭。
+- 默认策略：**L3-A/B 不向境外服务发送用户内容**；境外服务（Tavily、arXiv、Semantic Scholar）默认关闭；运行 trace 仅在显式配置 OTLP 端点（`OTEL_EXPORTER_OTLP_ENDPOINT`，可指向自托管后端、数据不出境）时导出，默认关闭。
 - 当前启用：阿里云百炼（模型推理 / Embedding）、博查（网络搜索）、自托管 PostgreSQL / Redis / Qdrant / 对象存储。
 - 每次研究产生的检索查询词、报告草稿会发送至上述模型与搜索服务商处理；不用于其训练用途以服务商条款为准。
 - **错误诊断数据（需求 25）**：前端异常与服务端错误会发送到自托管错误追踪服务（Sentry 协议，默认 GlitchTip，境内存储）；

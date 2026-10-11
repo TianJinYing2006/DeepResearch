@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 
 # 支持区间（闭区间）：下界 3.11 对齐 CI；上界 3.13 的依据见 §5.3.2
-# （`.deps` 里 168 个 cp313 轮子的教训 + 既有先例 `openai>=1.50,<1.93` / `langfuse>=4.15,<5`）
+# （`.deps` 里 168 个 cp313 轮子的教训 + 历史先例 `openai>=1.50,<1.93`；原 `langfuse` 锁已按需求 33 移除）
 PY_MIN = (3, 11)
 PY_MAX = (3, 13)
 

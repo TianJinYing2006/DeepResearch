@@ -230,10 +230,10 @@ def _make_graph_with(fake: _FakeGraph):
 
 
 def _patch_no_observability(monkeypatch):
-    """把 W3 观测与 token 对账打桩，保证零 LLM / 零网络。"""
+    """把观测（需求 33：trace id 打桩为 None → 无观测路径）与 token 对账打桩，保证零 LLM / 零网络。"""
     import research_engine.graph as G
 
-    monkeypatch.setattr(G, "get_langfuse", lambda: None)
+    monkeypatch.setattr(G, "create_trace_id", lambda thread_id: None)
     monkeypatch.setattr(G.LLMClient, "tokens_total", 0, raising=False)
 
 

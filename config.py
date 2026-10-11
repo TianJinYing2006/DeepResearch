@@ -163,19 +163,17 @@ class ResearchConfig:
 
 
 @dataclass
-class LangfuseConfig:
-    """Langfuse 可观测配置（W3，grill Q4/Q6/Q7 定稿）。
+class OtelConfig:
+    """OTel 可观测配置（需求 33：Langfuse → OTel 原生迁移，替换 W3 LangfuseConfig）。
 
-    三态开关（Q4）：enabled=auto 时三件套齐备即自动启用；enabled=false 强制禁用；
-    缺任一 key 自动降级（零外发）。禁用态下 observability 不会 import langfuse.openai。
+    三态开关：endpoint 齐备且 enabled != false 即自动启用；`DR_OTEL_ENABLED=false` 强制禁用；
+    缺 endpoint 自动降级（零外发）。与 web/backend/otel.py 同 env（OTEL_EXPORTER_OTLP_ENDPOINT）。
     """
-    public_key: str = field(default_factory=lambda: _env("LANGFUSE_PUBLIC_KEY"))
-    secret_key: str = field(default_factory=lambda: _env("LANGFUSE_SECRET_KEY"))
-    host: str = field(default_factory=lambda: _env("LANGFUSE_HOST", "https://cloud.langfuse.com"))
-    enabled: str = field(default_factory=lambda: _env("LANGFUSE_ENABLED", "auto").lower())
-    sample_rate: float = field(default_factory=lambda: float(_env("LANGFUSE_SAMPLE_RATE", "1.0")))
-    mask_sensitive: bool = field(default_factory=lambda: _env("LANGFUSE_MASK_SENSITIVE", "false").lower() == "true")
-    truncate_len: int = 4000  # Q7：常量级配置（策略进代码，不见开关）
+    endpoint: str = field(default_factory=lambda: _env("OTEL_EXPORTER_OTLP_ENDPOINT"))
+    enabled: str = field(default_factory=lambda: _env("DR_OTEL_ENABLED", "auto").lower())
+    service_name: str = field(default_factory=lambda: _env("DR_OTEL_SERVICE_NAME", "research-engine"))
+    trace_url_template: str = field(default_factory=lambda: _env("DR_OTEL_TRACE_URL_TEMPLATE"))
+    mask_sensitive: bool = field(default_factory=lambda: _env("DR_OTEL_MASK_SENSITIVE", "false").lower() == "true")
 
 
 @dataclass
@@ -254,7 +252,7 @@ class Config:
     search: SearchConfig = field(default_factory=SearchConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
     research: ResearchConfig = field(default_factory=ResearchConfig)
-    langfuse: LangfuseConfig = field(default_factory=LangfuseConfig)
+    otel: OtelConfig = field(default_factory=OtelConfig)
     code_exec: CodeExecConfig = field(default_factory=CodeExecConfig)
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     mail: MailConfig = field(default_factory=MailConfig)

@@ -19,7 +19,7 @@
 #   云上一键部署时宿主机没有实例 ⇒ RAG 上传直接不可用）。现默认指向 compose 内服务，
 #   仍可用 QDRANT_URL 覆盖为外部实例。
 # - Worker 服务在 P3 增加；API 现在仍走请求进程内 RunManager（P2/P3 迁移到队列）。
-# - 境外服务按推荐基线 v2 默认关闭（LANGFUSE_ENABLED=false / ENABLE_ARXIV=false）。
+# - 外部服务按推荐基线 v2 默认关闭（OTel 导出 DR_OTEL_ENABLED=false / ENABLE_ARXIV=false）。
 #
 # 内存预算（面向 4 GB 轻量机，2026-09-30 实测估算）：
 #   常驻约 2.6 GB（Worker ~600 + Qdrant ~500 + 系统/Docker ~400 + API ~400
@@ -66,10 +66,8 @@ x-app-environment: &app-environment
   SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
   BOCHA_API_KEY: "${BOCHA_API_KEY:-}"
   ENABLE_ARXIV: "${ENABLE_ARXIV:-false}"
-  LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
-  LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
-  LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
-  LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+  # 需求 33：OTel 可观测（默认关闭；设 OTEL_EXPORTER_OTLP_ENDPOINT 指向自托管后端才导出）
+  DR_OTEL_ENABLED: "${DR_OTEL_ENABLED:-false}"
   # P1-8：OpenTelemetry（默认关闭；设置 OTLP 端点或打开 Prometheus 抓取才启用）
   OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
   DR_METRICS_PROMETHEUS: "${DR_METRICS_PROMETHEUS:-false}"
