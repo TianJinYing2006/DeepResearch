@@ -24,10 +24,10 @@
 | CI 复验 | `ubuntu-latest` 自 **2026-10-19** 起迁移 Ubuntu 26 | 迁移日后首个 PR：三档 lint/test + infra + e2e 全绿 | ⬜（定时） |
 | 事故残留 | `.workbuddy/restore_results_from_recycle.py` + `_arm7_results_backup/` | 事故物证清理 | ✅（2026-10-11：备份目录此前已不存在；脚本已删） |
 
-## 2. 批次 1：证据链「最后一公里」（下一批次主线，≈1~2 周；**单独立项 → 需求 34**）
+## 2. 批次 1：证据链「最后一公里」（下一批次主线，≈1~2 周；**已立项：`docs/requirements/34-evidence-chain-last-mile.md` / Issue #188**）
 
 > 纪律（W8 教训）：E1–E5 会改 researcher 证据面 ⇒ **立项时先拍板是否需要 before 基线**（改动前采集，错过不可逆）。
-> 立项时另建 Issue，并同步 `docs/project-status.md`。
+> 状态：草稿已入库；**TBD-0（before 基线）等待拍板**；设计评审（TBD-1~8）待排。
 
 | 编号 | 事项 | 映射挂账 | 依赖 | 粗估 | 状态 |
 |---|---|---|---|---|---|
