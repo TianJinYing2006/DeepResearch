@@ -6,6 +6,7 @@ import {
   EvidenceMargin,
   ReflectionList,
   ReportCard,
+  ReportPreviewCard,
   SourcesList,
   ValidatorStats,
 } from './features/report/ReportPanels'
@@ -117,6 +118,7 @@ export default function App() {
     connectionStatus,
     error,
     result,
+    reportPreview,
     progress,
     start,
     resume,
@@ -452,6 +454,11 @@ export default function App() {
               onNewTopic={handleNewTopic}
             />
             {launchOpen && <BoundaryCard />}
+
+            {/* 需求 35 R4：报告完成前渐进渲染正文（终局由下方 ReportCard 整段替换） */}
+            {!result && reportPreview && (
+              <ReportPreviewCard preview={reportPreview} stopping={status === 'stopping'} />
+            )}
 
             {result && (
               <>

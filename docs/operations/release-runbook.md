@@ -219,6 +219,37 @@ curl --ssl-revoke-best-effort -fsS https://<公网IP>/api/health/ready
 - **演练**：kill worker → 租约清扫接管 → 断言 `resumed` 续跑（无重复已完成节点、预算不低估）；
   删 checkpoint / 改版本号 ⇒ 断言 `replayed` 显式标注（`reason=no_checkpoint` / `version_incompatible`）。
 
+### 7.3 报告正文流式协议（需求 35 R4：REPORT_DELTA / REPORT_RESET）
+
+**帧协议**（自定义扩展事件；`run_events` 按 sequence 回放，支持 `Last-Event-ID`）
+
+| 事件 | payload | 语义 |
+|---|---|---|
+| `REPORT_DELTA` | `{text, offset}` | 正文增量；`offset` = 本轮（上次 reset 后）累计字符数 |
+| `REPORT_RESET` | `{}` | 清空预览缓冲 |
+
+**客户端重建规则（前端已按此实现）**
+1. 预览 = **最近一次 `REPORT_RESET` 之后**所有 `REPORT_DELTA` 的顺序拼接；
+2. 终局以 `RUN_FINISHED.result.report` **整段替换**（绝不把终局正文追加到预览之后）；
+3. 断线重连带 `Last-Event-ID` ⇒ 续发缺失增量（offset 连续可校验）。
+
+**服务端行为**
+- 流式开始先发 `REPORT_RESET`（重试 / 重跑 / 接管后重放安全）；
+- 每累计 `DR_REPORT_STREAM_FLUSH_CHARS`（默认 400）字符合并为一条 `REPORT_DELTA`；
+  收尾与 reset 前强制冲刷（保证 `RUN_FINISHED` 之前全部正文已入事件流）；
+- **半截失败**（已发增量后 LLM 断流）⇒ 再发 `REPORT_RESET` + 降级非流式重试
+  （留痕 `non_stream_retry`）；重试再失败 ⇒ 兜底报告（既有路径）；
+- 总开关 `DR_REPORT_STREAM_ENABLED=false` 完全回到节点级事件（无增量）。
+
+**输出闸边界（P0-4 口径延伸）**：正文增量在审核决定产生前即发帧（发起者可见草稿）；
+flagged / blocked 的**回放对 `REPORT_DELTA` 同样脱敏**（正文只在产物 / 管理通道），
+查看 / 导出 / 分享仍被闸。
+
+**测试**：`tests/test_report_stream.py`（chat_stream / sink / Writer 降级）、
+`tests/test_report_events.py`（持久化粒度 / 断线重连 / 半截失败）、
+`tests/test_output_gate.py::test_stored_stream_redacts_flagged_report_delta`（回放脱敏）、
+前端 `src/lib/reportPreview.test.ts`。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

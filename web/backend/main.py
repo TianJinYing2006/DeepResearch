@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 
-from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, sse_frame
+from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, REPORT_DELTA, sse_frame
 from .alerts import alert_webhook_url, collect_alerts
 from .appeals import submit_appeal
 from .auth import (
@@ -2483,6 +2483,10 @@ async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncI
                 # P0-4：flagged / blocked 的历史回放不携带正文（原文只在产物里）
                 if flagged and event["event_type"] == "RUN_FINISHED":
                     payload = _redact_report_payload(payload)
+                elif flagged and event["event_type"] == REPORT_DELTA:
+                    # 需求 35 R4：正文增量在 flagged 回放中同样脱敏（正文只在产物/管理通道）
+                    payload = {"text": "", "offset": payload.get("offset", 0),
+                               "output_under_review": True}
                 yield sse_frame(
                     event_id=cursor,
                     event_type=event["event_type"],

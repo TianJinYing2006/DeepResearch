@@ -19,14 +19,20 @@ TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
 
 
 class TinyGraph:
-    """最小假 graph：可配节点数 / 延迟 / 报告正文 / 每步 token（零 LLM）。"""
+    """最小假 graph：可配节点数 / 延迟 / 报告正文 / 每步 token（零 LLM）。
+
+    需求 35 R4：`stream_text` 模拟 Writer 流式增量（经 report_stream sink 上报），
+    `stream_reset=True` 模拟「已发增量后半截失败」（再发一次 reset，终局报告整段替换）。
+    """
 
     def __init__(self, steps: int = 3, delay: float = 0.01, report: str = "",
-                 token_per_step: int = 0):
+                 token_per_step: int = 0, stream_text: str = "", stream_reset: bool = False):
         self.steps = steps
         self.delay = delay
         self.report = report
         self.token_per_step = token_per_step
+        self.stream_text = stream_text
+        self.stream_reset = stream_reset
 
     def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
                  resume=False):
@@ -40,6 +46,14 @@ class TinyGraph:
                 yield RunStep(index=i + 1, node=None, state=state,
                               terminal=True, stop_reason=STOP_CANCELLED)
                 return
+        if self.stream_text:
+            from research_engine.report_stream import emit_report_delta, emit_report_reset
+
+            emit_report_reset()  # 协议不变式 1：流式开始先 reset
+            for start in range(0, len(self.stream_text), 100):
+                emit_report_delta(self.stream_text[start:start + 100])
+            if self.stream_reset:
+                emit_report_reset()  # 半截失败 ⇒ 清预览（终局整段替换）
         state.report = self.report
         state.report_display = self.report
         yield RunStep(index=self.steps, node=None, state=state,

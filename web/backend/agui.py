@@ -26,6 +26,12 @@ STATE_DELTA = "STATE_DELTA"
 # 这条正是硬伤 3（降级事后才可见）的解药。
 DEGRADATION = "DEGRADATION"
 
+# 需求 35 R4（TBD-6 拍板）：报告正文流式协议（自定义扩展，同属 custom events）。
+# - REPORT_DELTA：正文增量（payload: {text, offset}；offset = 本轮（上次 reset 后）累计字符数）；
+# - REPORT_RESET：清空预览缓冲（流式开始 / 半截失败时发出；终局正文整段替换，绝不拼接）。
+REPORT_DELTA = "REPORT_DELTA"
+REPORT_RESET = "REPORT_RESET"
+
 # 心跳间隔（秒）。依据：nginx 默认 proxy_read_timeout=60 ⇒ 15s 留 4 倍余量。
 # （GPT Researcher 用 30s 心跳作参照，本项目取更保守的 15s。）
 HEARTBEAT_SECONDS = 15

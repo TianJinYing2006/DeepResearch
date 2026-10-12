@@ -36,6 +36,7 @@ from research_engine.evidence import serialize_evidence_index
 from research_engine.evidence_manifest import build_evidence_manifest  # 需求 35 R2
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
+from research_engine.report_stream import pop_report_sink, push_report_sink
 from research_engine.runtime_profile import (
     RuntimeProfile,
     effective_research_config,
@@ -74,6 +75,7 @@ from .otel import run_span, setup_otel
 from .persistence import persist_terminal
 from .queue import RunQueue
 from .rag_pipeline import cleanup_stale_generations
+from .report_events import ReportEventBuffer  # 需求 35 R4：报告流式事件缓冲
 from .retention import run_retention
 from .runner import _env_int, _estimate_cost_cny
 from .snapshots import PgSnapshotStore
@@ -449,6 +451,22 @@ class Worker:
         if config.web_snapshot.enabled:
             fetch_token = push_fetch_context(FetchContext.create(
                 store=PgSnapshotStore(self._store), run_id=run_id))
+        # 需求 35 R4（TBD-6）：报告正文流式旁路（REPORT_DELTA / REPORT_RESET 落 run_events）
+        report_buffer = None
+        report_token = None
+        if config.report_stream.enabled:
+            def _emit_report_event(event_type: str, payload: dict[str, Any]) -> None:
+                try:
+                    self._store.append_event(run_id, event_type, payload, owner=ownership)
+                except LeaseLostError:
+                    pass  # 租约已失效：流式旁路静默（执行侧在节点边界收口）
+                except Exception as exc:  # noqa: BLE001 —— 体感旁路不打断主链路
+                    _log(f"run {run_id}: report event append failed: "
+                         f"{type(exc).__name__}: {exc}")
+
+            report_buffer = ReportEventBuffer(
+                _emit_report_event, flush_chars=config.report_stream.flush_chars)
+            report_token = push_report_sink(report_buffer.on_delta, report_buffer.on_reset)
         hb_stop = threading.Event()
         heartbeat = threading.Thread(
             target=self._heartbeat_loop, args=(run_id, hb_stop, lease_lost, attempt),
@@ -458,7 +476,7 @@ class Worker:
         try:
             # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
             with run_span("dr.run", **{"dr.run_id": run_id, "dr.attempt": attempt}):
-                self._execute(run_id, row, ownership, lease_lost)
+                self._execute(run_id, row, ownership, lease_lost, report_buffer)
         except LeaseLostError:
             # 租约已被接管（或任务已终局）：本执行者放弃全部写入，由新执行者收口
             _log(f"run {run_id}: 租约已失效（attempt={attempt} 被接管），放弃本次执行")
@@ -472,6 +490,10 @@ class Worker:
                 reset_task_deadline(deadline_token)
             if fetch_token is not None:
                 pop_fetch_context(fetch_token)
+            if report_buffer is not None:
+                report_buffer.flush()  # 兜底冲刷（异常路径也不丢尾部增量）
+            if report_token is not None:
+                pop_report_sink(report_token)
             pop_usage_sink(usage_token)
             hb_stop.set()
             heartbeat.join(timeout=1.0)
@@ -506,7 +528,8 @@ class Worker:
     # ------------------------------------------------------------------ 执行
 
     def _execute(self, run_id: str, row: dict[str, Any], ownership: RunOwnership,
-                 lease_lost: threading.Event) -> None:
+                 lease_lost: threading.Event,
+                 report_buffer: Any = None) -> None:
         request = row.get("request") or {}
         topic = row["topic"]
         self._apply_profile(request)
@@ -570,6 +593,8 @@ class Worker:
                     # 租约已被接管：不写终局（新执行者负责收口），直接放弃
                     _log(f"run {run_id}: 租约已失效，跳过终局写入（等待新执行者）")
                     return
+                if report_buffer is not None:
+                    report_buffer.flush()  # 终局前冲刷尾部增量（RUN_FINISHED 之前）
                 timed_out = (
                     step.stop_reason == STOP_CANCELLED
                     and timeout_at is not None and datetime.now(UTC) >= timeout_at

@@ -302,6 +302,21 @@ class WebSnapshotConfig:
 
 
 @dataclass
+class ReportStreamConfig:
+    """需求 35 R4：报告正文流式（TBD-6 拍板，2026-10-12）。
+
+    - `enabled`：总开关（`DR_REPORT_STREAM_ENABLED=false` 完全回到节点级事件，无增量）；
+    - `flush_chars`：``REPORT_DELTA`` 落库/发帧的**持久化粒度**（每累计 N 字符合并一条
+      事件进 `run_events`，支持 `Last-Event-ID` 断线重连；收尾/重置前强制冲刷）。
+    """
+
+    enabled: bool = field(
+        default_factory=lambda: _env("DR_REPORT_STREAM_ENABLED", "true").lower() != "false")
+    flush_chars: int = field(
+        default_factory=lambda: max(1, int(_env("DR_REPORT_STREAM_FLUSH_CHARS", "400"))))
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -313,6 +328,7 @@ class Config:
     mail: MailConfig = field(default_factory=MailConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     web_snapshot: WebSnapshotConfig = field(default_factory=WebSnapshotConfig)
+    report_stream: ReportStreamConfig = field(default_factory=ReportStreamConfig)
 
 
 config = Config()
