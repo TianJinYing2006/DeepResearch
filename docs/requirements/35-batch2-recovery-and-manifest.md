@@ -13,11 +13,11 @@
 | 编号 | 35 |
 | 标题 | 批次 2「恢复与清单」：来源身份分组（12.4）+ evidence manifest（E7）+ 跨进程恢复（E6）+ 体验①② |
 | 优先级 | P1 |
-| 状态 | 进行中 |
+| 状态 | 已合 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #201 |
-| 关联 PR | — |
-| 创建 / 更新 | 2026-10-12 |
+| 关联 PR | #202~#208 |
+| 创建 / 更新 | 2026-10-12 / 2026-10-13 |
 | 前置评审 | **TBD-0~7 全部已拍板（2026-10-12，按 v2 推荐）**；v2 已闭合设计评审 6 点（见 §11） |
 
 ## 2. 问题背景
@@ -173,14 +173,20 @@
       降级非流式重试**（留痕 `non_stream_retry`），终局 `result.report` 整段替换；
       Worker/Runner 双路径接线 + 终局前强制冲刷；flagged 回放对 `REPORT_DELTA` 同样脱敏；
       前端渐进渲染（预览卡，reset 清空、终局替换）；运维协议见 `release-runbook.md` §7.3
-- [ ] R5：档位耗时 p50/p90 报告（结论 = 是否值得并行实验；quick 补测如实标注）+
-      对照实验方案与 Send 决策记录
+- [x] R5：✅ **已交付（2026-10-13）** —— 真实 run 数据标定（staging `runs` 全量终局样本）：
+      quick n=10（p50 26.1s / p90 35.7s）、standard n=1（302.2s，样本不足如实标注）、deep n=0；
+      工具 `tools/profile_latency.py`（`--dsn` / `--since-days`，输出 Markdown 表）；
+      基线 + 结论 + 方案入 `capacity-model.md` §6：**值得做固定题集对照实验**（standard 长链路
+      串行段有重叠空间）；**决策记录：暂不启动 `Send` 开发**（触发条件 = standard/deep 各 ≥20
+      终局样本后按方案执行对照实验）；quick 补测不替代 standard/deep（TBD-7）
 - [x] 测试：单测（身份/去重/分组/manifest 结构/checkpoint 往返）+ 真 PG 契约（manifest 写入、
       checkpoint 表）+ 全量套件绿 + 恢复演练（kill → 接管 → 续跑；
       **resumed 与 replayed 两路径分别断言**）✅ R1/R2/R3 交付即验证；演练见
       `tests/test_resume_drill_pg.py`（真 PG + 真 saver；CI infra lane）
-- [ ] 文档：需求 27 §12.2/§12.4/§12.10 状态回填；口径断点登记（若动输出面）；
-      README/运维文档同步（落地才写）
+- [x] 文档：✅ 需求 27 §12.2/§12.4/§12.10 状态回填（R3 交付时，PR #206）；
+      口径断点登记：R1~R5 未动评测输出面（`SCORER_VERSION` 不变，w9.1）；
+      运维文档同步：`release-runbook.md` §7.2（恢复三语义）/§7.3（流式协议）、
+      `capacity-model.md` §6（档位耗时标定）
 
 ## 8. 影响范围与风险
 
@@ -231,3 +237,4 @@
 | 2026-10-12 | 实现 | R2 evidence manifest 交付 | 新增 `research_engine/evidence_manifest.py`（有序工作清单 + 引用 span + 修复记录 + 规格版本；retrieval 模式解析含 **via_origins**——压缩证据沿 origin 链；`manifest_version=1`）；`persistence.persist_terminal` 增 `evidence_manifest` 参数（终局**同事务**写产物 + 并入导出 result 副本；run_events payload 不重复携带）；runner/worker 终局路径构建并传入；单测 7 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-13 | 实现 | R3 跨进程恢复交付 | 依赖：`langgraph-checkpoint-postgres`（`>=3.1,<4`；lock 外科式 `==3.1.2`）；`web/backend/checkpoint.py`（进程级单例 + 幂等 `setup()` + fail-silent + atexit 关池）；`state.py` 增 `CHECKPOINT_SCHEMA_VERSION=1`；`graph.py` checkpointer 可注入 + `iter_run(resume=)`（`stream(None)` + 跳过恢复首帧）；`worker.py` `resolve_execution_mode`（fresh/resumed/replayed + 版本比对 + 账本注入）+ 终局 `max(state, 账本)` 对账 + `RUN_STARTED`/终局 payload 留痕；单测 8 + PG 契约 2 + **演练 2**（kill→接管→续跑双路径）；全量套件 0 失败；运维语义 `release-runbook.md` §7.2 | 本文档 |
 | 2026-10-13 | 实现 | R4 报告流式交付 | `research_engine/report_stream.py`（contextvar sink，与 usage 同构）+ `LLMClient.chat_stream` + Router 出口 + Writer 流式/降级路径；`web/backend/report_events.py`（缓冲：粒度 400 字符合并 + reset 先冲刷）+ Worker/Runner 接线 + 终局前冲刷；`agui.py` 增 `REPORT_DELTA`/`REPORT_RESET`；flagged 回放增量脱敏（`main.py`）；前端：类型 + `reportPreview` 折叠 + 预览卡（reset 清空/终局替换）；测试：单测 7 + 端到端 4 + 回放脱敏 1 + 前端 4；全量套件 0 失败；协议 `release-runbook.md` §7.3 | 本文档 |
+| 2026-10-13 | 实现 | R5 档位耗时标定交付 | `tools/profile_latency.py`（p50/p90/avg/max + 样本不足标注）；staging 实测：quick n=10（p50 26.1s/p90 35.7s）、standard n=1（302.2s）、deep n=0；基线/结论/对照实验方案/决策记录入 `capacity-model.md` §6（**值得做对照实验；暂不启动 `Send`**，触发条件=样本 ≥20） | 本文档 |
