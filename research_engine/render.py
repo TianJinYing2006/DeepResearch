@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from research_engine.agents.validator import Validator
 from research_engine.repair import REPAIR_UNCITED_NOTE
@@ -304,10 +304,43 @@ class ReportRenderer:
             "> - 处置：在主题中补充术语全称 / 领域限定词后重跑；本次结论请对照来源核验",
         ])
 
+    # ---- 交付自检（需求 34 E4：零模型三项；只标注，不改交付状态）----
+
+    def build_delivery_self_check(self, check: Optional[Dict[str, Any]]) -> str:
+        """报告尾部：交付自检结果（需求 34 E4 / TBD-6）。
+
+        零模型、离线；**只标注**——不参与 ``run_status`` 判定，也不写降级日志
+        （同 :meth:`build_planner_governance` / :meth:`build_retrieval_warning` 的既有纪律）。
+        """
+        checks = list((check or {}).get("checks") or [])
+        if not checks:
+            return ""
+        lines = ["\n\n---\n## 🧾 交付自检（零模型）"]
+        for item in checks:
+            label = item.get("label") or item.get("id")
+            violations = int(item.get("violations", 0) or 0)
+            checked = int(item.get("checked", 0) or 0)
+            if violations:
+                status = f"⚠️ {violations} 条需复核（检查 {checked} 条）"
+            else:
+                status = f"✅ 通过（检查 {checked} 条）"
+            lines.append(f"- **{label}**：{status}")
+            if item.get("id") == "quote_in_dropped_span" and item.get("info"):
+                lines.append(f"  - （另有 {item['info']} 条失败引用位于已移除句——返工正常结果）")
+            for sample in (item.get("samples") or [])[:3]:
+                if isinstance(sample, dict):
+                    detail = (sample.get("sentence") or sample.get("reason")
+                              or sample.get("finding_id") or str(sample))
+                else:
+                    detail = str(sample)
+                lines.append(f"  - {str(detail)[:120]}")
+        return "\n".join(lines)
+
     # ---- 主入口 ----
 
     def render(self, report: str, citations: List[Citation],
-               findings: List[ResearchFinding], state: Any) -> str:
+               findings: List[ResearchFinding], state: Any, *,
+               delivery_self_check: Optional[Dict[str, Any]] = None) -> str:
         """渲染 report_display：正文标注 → 可信声明 → 失败附录 → 运行溯源。
 
         任何异常直接返回原 report（降级，不阻断主流程）。
@@ -317,6 +350,7 @@ class ReportRenderer:
             display += self.build_trust_statement(citations, state)
             display += self.build_failed_appendix(citations)
             display += self.build_planner_governance(state)
+            display += self.build_delivery_self_check(delivery_self_check)
             display += self.build_run_provenance(state)
             # 检索健康告警**置顶**：降级明细默认折叠在 UI 里，不置顶等于没有告警
             warning = self.build_retrieval_warning(state)

@@ -232,6 +232,10 @@ class ResearchState(BaseModel):
     report_display: str = Field(default="", description="渲染后报告（R2.1/2.2/2.5：类型标注+⚠️+附录+溯源块，由 render 节点产出，不回流 report）")
     citations: List[Citation] = Field(default_factory=list)
     validator_stats: Dict[str, Any] = Field(default_factory=dict, description="Validator extraction/denominator accounting")
+    # 需求 34 E4：交付自检（零模型三项；只标注，不改交付状态；不写 degradation_log）
+    delivery_self_check: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="E4 交付自检：{checks:[{id,label,checked,violations,samples}],counts:{}}")
 
     # 过程追踪（用于 Web UI 实时展示）—— Q7=A：add reducer，节点只 return 本步新增条目
     progress: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list)

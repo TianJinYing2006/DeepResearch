@@ -70,7 +70,10 @@ def repair_report(
     - ``removed_claims``：删除句数；
     - ``failed_before``：返工前失败引用数（含 UNKNOWN）；
     - ``kept_unknown``：因 UNKNOWN（校验未完成）而保留、未删除的引用数；
-    - ``downgraded_uncited``：被追加降格标注的未引用事实句数。
+    - ``downgraded_uncited``：被追加降格标注的未引用事实句数；
+    - ``removed_spans`` / ``downgraded_spans``：**区间明细**（需求 34 E4 回写；
+      ⚠️ 坐标为**修改前**的报告文本坐标，供审计/repair_log；交付自检与最终引用
+      坐标对齐，采用最终文本中的占位区，见 ``self_check._check_dropped_span``）。
     """
     before_failed = sum(1 for c in citations if not c.verified)
     kept_unknown = sum(1 for c in citations if not c.verified and not _definitively_failed(c))
@@ -81,6 +84,8 @@ def repair_report(
         "failed_before": before_failed,
         "kept_unknown": kept_unknown,
         "downgraded_uncited": 0,
+        "removed_spans": [[int(start), int(end)] for start, end in spans],
+        "downgraded_spans": [],
     }
     if not report or (not spans and not uncited_facts):
         return report, stats
@@ -102,6 +107,7 @@ def repair_report(
 
     text = report
     removed = downgraded = 0
+    downgraded_spans: List[List[int]] = []
     floor = len(text) + 1  # 已处理区间的最小起点（倒序处理）
     for pos, kind, payload in operations:
         if pos > floor:
@@ -117,7 +123,12 @@ def repair_report(
                 continue
             text = text[:pos] + REPAIR_UNCITED_NOTE + text[pos:]
             downgraded += 1
+            try:
+                downgraded_spans.append([int(payload.get("start")), int(payload.get("end"))])
+            except (TypeError, ValueError):
+                pass
             floor = pos
     stats["removed_claims"] = removed
     stats["downgraded_uncited"] = downgraded
+    stats["downgraded_spans"] = downgraded_spans
     return text, stats
