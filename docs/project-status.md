@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-12（批次 2 立项）**：需求 35「恢复与清单」（12.4 来源身份分组 / E7 evidence manifest / E6 跨进程恢复 + 体验①②）草稿入库（`docs/requirements/35-batch2-recovery-and-manifest.md`）+ Issue #201；**TBD-0~7 待主理人逐项拍板**（TBD-0 建议不采 before 基线：12.4 仅影响 RAG 路径、评测路径无 KB；E7/E6/体验不改输出面）；飞书镜像已建（`C5afdrWMGoqhlux1FFUcsCyDntb`）。 |
 | 更新 | **2026-10-12（批次 1 收口完成 ⇒ 需求 34 已合）**：真实冒烟全断言通过（run `smoke-20261012191906-2cd619`：19 引用 / 8 located 全部 L0~L2 离线复算 / 0 无标记 / 快照 3 份内容寻址 / 预算 15/15·2.2MB·54.8s / 自检三项 0 违例 / 分级 9 可修 0 致命）；端到端集成测试（`test_evidence_chain_e2e`）与冒烟工具（`tools/smoke_evidence_chain.py`）入库；口径断点登记（`SCORER_VERSION` **w9.1**，趋势表「尺子变了」将标注跨断点不可比）；README「证据链可回溯」行 + 需求 27 §12.6/§12.8 回填；**需求 34 状态 → 已合，DoD 全勾**。 |
 | 更新 | **2026-10-11（批次 1 E5 交付 ⇒ E1~E5 全部完成）**：分级处置清单化（PR #199）：`evidence_grading.py`（`unknown_source_id`=致命·阻断（R02）；`quote_not_found`+快照在=致命·降格标注不删除；`snapshot_missing`/`quote_stale`/裸 URL 未引用=可修·标注；其余快照状态登记）；红线①（UNKNOWN/缺失/过期不判事实错误）与红线②（不新增 FailureReason；arm1/arm3 硬断言不动）单测锁定；`report_display` 附录；单测 10 条 + 全量套件 0 失败。**批次 1 功能全齐 ⇒ 进入收口（真实冒烟 + 确定性断言 + 口径断点登记 + README/文档回填）**。 |
 | 更新 | **2026-10-11（批次 1 E4 交付）**：交付自检（PR #198）：`self_check.py` 零模型三项（引文可定位=偏移切片复核+L0~L2 兜底；落在被删/降格段落=与最终报告占位区交集、失败引用计 info 不误报；版本断言缺来源=三类版本模式句须带引用标记）；repair 回写 `removed_spans`/`downgraded_spans`；`report_display` 附录（只标注、不改交付状态、不写降级日志）；单测 11 条 + 全量套件 0 失败。**下一步：E5（分级处置）→ 批次收口**。 |
