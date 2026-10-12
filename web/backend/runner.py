@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from research_engine.evidence import serialize_evidence_index
+from research_engine.evidence_manifest import build_evidence_manifest  # 需求 35 R2
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
 from research_engine.runtime_profile import (
@@ -527,7 +528,8 @@ class RunManager:
                           result: Optional[Dict[str, Any]] = None,
                           report: Optional[str] = None,
                           meta: Optional[Dict[str, Any]] = None,
-                          moderation: Optional[ModerationDecision] = None) -> None:
+                          moderation: Optional[ModerationDecision] = None,
+                          evidence_manifest: Optional[Dict[str, Any]] = None) -> None:
         """终局落库（P3 起实现抽到 `persistence.persist_terminal`；失败只留痕）。
 
         P0-4：`moderation` 是本次运行唯一一次审核决定的不可变结果，随终局同事务
@@ -546,7 +548,8 @@ class RunManager:
                 egress = (self._status.get(run_id) or {}).get("egress")
             finalized = persist_terminal(store, run_id, seq, event_type, payload,
                                          result=result, report=report, meta=meta, topic=topic,
-                                         moderation=moderation, egress=egress)
+                                         moderation=moderation, egress=egress,
+                                         evidence_manifest=evidence_manifest)
             if not finalized:
                 # 状态已被清扫 / 强制收口抢先：终局写入整体回滚（P0-6）
                 self._set_persistence_error(run_id, RuntimeError("terminal_conflict"))
@@ -793,4 +796,5 @@ class RunManager:
         if seq is not None:
             self._persist_terminal(run_id, seq, RUN_FINISHED, payload,
                                    result=result, report=report, meta=meta,
-                                   moderation=decision)
+                                   moderation=decision,
+                                   evidence_manifest=build_evidence_manifest(run_id, step.state))
