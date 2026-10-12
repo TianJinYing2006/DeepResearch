@@ -29,13 +29,25 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 from config import config
+from research_engine import evidence as evidence_module
 from research_engine.budget import CallAdmissionDenied, admit_call
-from research_engine.evidence import build_evidence_index, resolve_evidence_text
+from research_engine.evidence import (
+    EVIDENCE_WINDOW_MARK,
+    build_evidence_index,
+    resolve_evidence_text,
+    truncate_evidence_text,
+)
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
+from research_engine.find_in_source import SourceWindow, find_in_source, select_windows
 from research_engine.llm.client import LLMClient
 from research_engine.runtime_profile import effective_llm_model
+from research_engine.snapshots import load_snapshot_text
 from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.usage import UsageSinkError
+
+#: 需求 34 E3：先按「不截断」解析原文（窗口化决策在 _text_for 内做，
+#: 替代 resolve_evidence_text 内部的头尾截断；不可窗口化时手工走同一截断函数）
+_RAW_EVIDENCE_MAX = 10 ** 9
 
 # W7 Arm3：validator 修复关闭时（TBD-8 基线对照）回退到 v1.1 提示与行为
 VALIDATOR_SYSTEM_LEGACY = """你是研究事实核查员。你的任务是校验报告中的论断与引用。
@@ -249,10 +261,46 @@ class Validator:
 
         index = evidence_index or {}
 
+        # 需求 34 E3：本批引用的 claim 按 finding 编号归组（快照窗口喂裁判的查询输入）
+        claims_by_number: Dict[str, List[str]] = {}
+        source_to_ids = cls._source_to_ids(findings)
+        for r in to_check or []:
+            claim = str(r.get("claim") or "").strip()
+            if not claim:
+                continue
+            fid = str(r.get("finding_id") or "")
+            if fid:
+                claims_by_number.setdefault(fid, []).append(claim)
+            elif r.get("source"):
+                for mapped in source_to_ids.get(r["source"], []):
+                    claims_by_number.setdefault(mapped, []).append(claim)
+
         def _text_for(f: ResearchFinding, number: int) -> str:
-            text, status = resolve_evidence_text(f, index)
-            if stats is not None and status in ("truncated", "missing", "partial"):
-                stats[status] = stats.get(status, 0) + 1
+            raw, status = resolve_evidence_text(f, index, max_chars=_RAW_EVIDENCE_MAX)
+            budget = evidence_module.EVIDENCE_TEXT_MAX_CHARS  # 动态读取（可被测试/调参覆盖）
+            windowed_applied = False
+            if len(raw) > budget:
+                # E3：优先按 claim 从快照取支持窗口；不可得时回落既有头尾截断
+                windowed = cls._windowed_evidence(
+                    f, claims_by_number.get(str(number), []), index, max_chars=budget)
+                if windowed is not None:
+                    text = windowed
+                    windowed_applied = True
+                    if status == "raw":
+                        status = "windowed"
+                else:
+                    text = truncate_evidence_text(raw, budget)
+                    if status == "raw":
+                        status = "truncated"
+            else:
+                text = raw
+            if stats is not None:
+                # 两个维度独立计数：喂料形态（windowed/truncated）与 origin 健康度
+                # （missing/partial 仍按原口径进 UNKNOWN；windowed 不掩盖 partial）
+                if windowed_applied:
+                    stats["windowed"] = stats.get("windowed", 0) + 1
+                if status in ("truncated", "missing", "partial"):
+                    stats[status] = stats.get(status, 0) + 1
             if statuses is not None:
                 statuses[str(number)] = status
                 statuses[f"src:{f.source}"] = status
@@ -286,6 +334,40 @@ class Validator:
 
         # 未触发裁剪或触发安全阀：回退全量
         return _render(None), False
+
+    @classmethod
+    def _windowed_evidence(cls, f: ResearchFinding, claims: List[str],
+                           index: Dict[str, ResearchFinding], *,
+                           max_chars: int) -> Optional[str]:
+        """需求 34 E3：按 claim 从快照取支持窗口（替代超预算头尾截断）。
+
+        - 快照来源：finding 自身或其 origin 链上带 ``metadata["snapshot_id"]`` 的原文；
+        - 任一窗口都找不到（无快照 / 无重叠 / 读取失败）⇒ None（调用方回落头尾截断）；
+        - 读取失败静默降级（不写降级日志，N5 口径）。
+        """
+        if not claims:
+            return None
+        origin_ids = list((getattr(f, "metadata", None) or {}).get("origin_evidence_ids") or [])
+        sources = [f] + [index[eid] for eid in origin_ids if eid in index]
+        windows: List[SourceWindow] = []
+        seen: set = set()
+        for src in sources:
+            sid = str((getattr(src, "metadata", None) or {}).get("snapshot_id") or "")
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            snapshot_text = load_snapshot_text(sid)
+            if not snapshot_text:
+                continue
+            for claim in claims:
+                windows.extend(find_in_source(claim, snapshot_text))
+        if not windows:
+            return None
+        picked = select_windows(windows, max_total_chars=max_chars)
+        if not picked:
+            return None
+        # 前缀标记：单窗口时 join 不产生分隔符，必须先给出「以下为窗口摘录」的信号
+        return EVIDENCE_WINDOW_MARK + EVIDENCE_WINDOW_MARK.join(w.text for w in picked)
 
     @classmethod
     def _build_findings_text(
@@ -610,6 +692,7 @@ class Validator:
                 "evidence_truncated_count": 0,
                 "evidence_missing_count": 0,
                 "evidence_partial_count": 0,
+                "evidence_windowed_count": 0,
                 "evidence_unknown_citation_count": 0,
             })
             return []
@@ -946,6 +1029,8 @@ class Validator:
             "evidence_missing_count": evidence_stats.get("missing", 0),
             # R04（审计）：部分 origin 缺失同样不可判通过（独立计数，不静默）
             "evidence_partial_count": evidence_stats.get("partial", 0),
+            # 需求 34 E3：按 claim 快照窗口喂裁判的条数（替代头尾截断）
+            "evidence_windowed_count": evidence_stats.get("windowed", 0),
             "evidence_unknown_citation_count": evidence_unknown_citations,
             # R01（审计）：裁决对齐审计 —— 缺裁决引用数 / 未消费裁决数
             "verdict_missing_for_citation_count": verdict_missing_for_citation,

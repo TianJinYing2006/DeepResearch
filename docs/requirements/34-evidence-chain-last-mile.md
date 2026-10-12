@@ -276,8 +276,8 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 - [x] E1：✅ **已交付（2026-10-11）**：`safe_fetch` 接入 researcher（唯一抓取入口，**含 robots 检查**）；
       web 候选 top-3 落盘快照（`snapshots` + `run_snapshots` 两表 / 迁移 `0022`，含 `extractor_version`）；
       失败降级为 snippet-only 不阻塞；robots 拒绝 ⇒ `snapshot_status=skipped_robots`（不写 `degradation_log`）
-- [ ] **E3（提前，先于 E2）**：`find_in_source` 落地 —— 快照滑窗 + 字面重叠打分产出候选窗口；
-      长证据改按 claim 窗口喂裁判（替代 `evidence.py:139-144` 的 >4000 头尾截断）
+- [x] **E3（提前，先于 E2）**：✅ **已交付（2026-10-11）** —— `find_in_source` 落地（滑窗 800/步长 100 + 字级 2-gram 覆盖率打分 + Top-3）；
+      长证据按 claim 从快照取窗口喂裁判（`evidence_windowed_count` 入 stats；不可得时回落头尾截断）
 - [ ] **E2（依赖 E3）**：`Citation` 增 `quote` / `char_start` / `char_end` / `snapshot_id`；
       校验器代码复核「引文可定位」（L0~L2 + `match_level`）
 - [ ] E4：`delivery_self_check` 零模型三项；输出入 `report_display`（只标注、不写 `degradation_log`）
@@ -347,3 +347,4 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 | 2026-10-11 | 拍板 | TBD-1~4 五处「待确认」逐项拍板（主理人） | ①TBD-1：**64 KB 采用**（按 UTF-8 字节数、超限截断必标记不静默）②TBD-2①：15 次 / 并发 4 **采用** + 重试 ≤2 次计入额度 ③TBD-2②：**robots.txt 遵守**（原「倾向不做」被否决；不可检查时仅抓明确批准来源、默认拒绝）④TBD-3：动态渲染不做、无正文标「暂不支持」⑤TBD-4：新增轻量关键词抽取（`extract_entities` 仍用于实体）；N1 硬前置重申 | 本文档 |
 | 2026-10-11 | 执行 | N1 硬前置完成（第 0 项） | 核实服务器 cron 已在跑（2026-10-02 起每日 03:30 加密 + COS；日志全 ok）+ **云上真实恢复演练通过**（离线私钥解密 208 条目 → 临时容器流式恢复 → 断言 21/11/22 与生产逐项一致 → 清理）；md5 三方一致；顺手修复服务器 `tools/backup-verify.sh` 事故空目录；记录见 `release-runbook.md` §10.3 | 本文档 |
 | 2026-10-11 | 实现 | E1 网页快照落盘交付 | 新增 `research_engine/net/webtext.py`（提取器 `webtext.v1`；bs4 结构化 + UTF-8 字节截断标记）/ `robots.py`（遵守；不可检查时仅「明确批准来源」、默认拒绝）/ `web_fetch.py`（预算三闸 15/5MB/90s + 重试≤2 计入额度 + 同域名 200ms 串行 + 熔断 2 次 + 失败分类复用工具层 5 值 + OTel span）/ `snapshots.py`（内容寻址 `sha256(版本+正文)` + run 上下文）；迁移 `0022_snapshots`（+ checks）；`web/backend/snapshots.py`；runner/worker/cli 绑定（Researcher 构建时捕获，防并行丢 ContextVar；CLI 无库仍抓取、正文进证据并标 `disabled`）；finding 正文取头 4000 字符（全文在快照）；抓取失败不写 `degradation_log`（N5）；单测 28 条 + 真 PG 契约（入 CI infra）+ 全量套件绿（1041 采集 0 失败） | 本文档 |
+| 2026-10-11 | 实现 | E3 `find_in_source` 定位内核交付 | 新增 `research_engine/find_in_source.py`（轻量关键词抽取：中文 2-gram + 英文词 + 停用词；滑窗 800/步长 100；覆盖率打分 Top-3；非重叠选择 + 预算闸）；`snapshots.load_snapshot_text`（run 级缓存读）+ PG `load_snapshot`；validator 接入：超预算证据优先按 claim 快照窗口喂裁判（`EVIDENCE_WINDOW_MARK`），不可得回落既有头尾截断（口径不变）；stats 新增 `evidence_windowed_count`（喂料形态与 origin 健康度独立计数，partial 不被掩盖）；单测 14 条 + 既有证据/校验测试全绿 + 全量套件 0 失败 | 本文档 |

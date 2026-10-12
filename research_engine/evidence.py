@@ -24,6 +24,17 @@ from research_engine.state import ResearchFinding
 EVIDENCE_TEXT_MAX_CHARS = 4000
 #: 头尾保留时的显式截断标记（进 LLM 输入，模型可见）
 EVIDENCE_TRUNCATION_MARK = "\n…[证据截断]…\n"
+#: 需求 34 E3：快照窗口喂裁判时的显式标记（替代超预算头尾截断；模型可见）
+EVIDENCE_WINDOW_MARK = "\n…[快照相关窗口]…\n"
+
+
+def truncate_evidence_text(text: str, max_chars: int = EVIDENCE_TEXT_MAX_CHARS) -> str:
+    """超预算时头尾保留（头 75% / 尾 25%）+ 显式标记；未超预算原样返回。"""
+    if len(text) <= max_chars:
+        return text
+    head = max(1, int(max_chars * 0.75))
+    tail = max(0, max_chars - head)
+    return text[:head] + EVIDENCE_TRUNCATION_MARK + (text[-tail:] if tail else "")
 
 
 def compute_content_hash(content: str) -> str:
@@ -137,9 +148,7 @@ def resolve_evidence_text(
         text = "\n---\n".join(parts)
         status = "partial" if missing_count else "raw"
     if len(text) > max_chars:
-        head = max(1, int(max_chars * 0.75))
-        tail = max(0, max_chars - head)
-        text = text[:head] + EVIDENCE_TRUNCATION_MARK + (text[-tail:] if tail else "")
+        text = truncate_evidence_text(text, max_chars)
         if status == "raw":
             status = "truncated"
     return text, status
