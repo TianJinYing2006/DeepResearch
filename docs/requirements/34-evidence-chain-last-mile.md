@@ -278,8 +278,8 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
       失败降级为 snippet-only 不阻塞；robots 拒绝 ⇒ `snapshot_status=skipped_robots`（不写 `degradation_log`）
 - [x] **E3（提前，先于 E2）**：✅ **已交付（2026-10-11）** —— `find_in_source` 落地（滑窗 800/步长 100 + 字级 2-gram 覆盖率打分 + Top-3）；
       长证据按 claim 从快照取窗口喂裁判（`evidence_windowed_count` 入 stats；不可得时回落头尾截断）
-- [ ] **E2（依赖 E3）**：`Citation` 增 `quote` / `char_start` / `char_end` / `snapshot_id`；
-      校验器代码复核「引文可定位」（L0~L2 + `match_level`）
+- [x] **E2（依赖 E3）**：✅ **已交付（2026-10-11）** —— `Citation` 增 `quote` / `char_start` / `char_end` / `snapshot_id` / `quote_status` / `match_level`；
+      校验器代码复核「引文可定位」（`quote_locate.py`：L0 精确 → L1 空白折叠 → L2 标点归一；未命中 ⇒ `not_found` 进 E5，不判引用错误）
 - [ ] E4：`delivery_self_check` 零模型三项；输出入 `report_display`（只标注、不写 `degradation_log`）
 - [ ] E5：分级处置落地（致命 vs 可修清单化；`unknown_source_id` 阻断、其余降格不删除）
 - [ ] 测试（**口径已按 §5.0 A2 改为确定性断言，不再要求 eval 配对**）：
@@ -348,3 +348,4 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 | 2026-10-11 | 执行 | N1 硬前置完成（第 0 项） | 核实服务器 cron 已在跑（2026-10-02 起每日 03:30 加密 + COS；日志全 ok）+ **云上真实恢复演练通过**（离线私钥解密 208 条目 → 临时容器流式恢复 → 断言 21/11/22 与生产逐项一致 → 清理）；md5 三方一致；顺手修复服务器 `tools/backup-verify.sh` 事故空目录；记录见 `release-runbook.md` §10.3 | 本文档 |
 | 2026-10-11 | 实现 | E1 网页快照落盘交付 | 新增 `research_engine/net/webtext.py`（提取器 `webtext.v1`；bs4 结构化 + UTF-8 字节截断标记）/ `robots.py`（遵守；不可检查时仅「明确批准来源」、默认拒绝）/ `web_fetch.py`（预算三闸 15/5MB/90s + 重试≤2 计入额度 + 同域名 200ms 串行 + 熔断 2 次 + 失败分类复用工具层 5 值 + OTel span）/ `snapshots.py`（内容寻址 `sha256(版本+正文)` + run 上下文）；迁移 `0022_snapshots`（+ checks）；`web/backend/snapshots.py`；runner/worker/cli 绑定（Researcher 构建时捕获，防并行丢 ContextVar；CLI 无库仍抓取、正文进证据并标 `disabled`）；finding 正文取头 4000 字符（全文在快照）；抓取失败不写 `degradation_log`（N5）；单测 28 条 + 真 PG 契约（入 CI infra）+ 全量套件绿（1041 采集 0 失败） | 本文档 |
 | 2026-10-11 | 实现 | E3 `find_in_source` 定位内核交付 | 新增 `research_engine/find_in_source.py`（轻量关键词抽取：中文 2-gram + 英文词 + 停用词；滑窗 800/步长 100；覆盖率打分 Top-3；非重叠选择 + 预算闸）；`snapshots.load_snapshot_text`（run 级缓存读）+ PG `load_snapshot`；validator 接入：超预算证据优先按 claim 快照窗口喂裁判（`EVIDENCE_WINDOW_MARK`），不可得回落既有头尾截断（口径不变）；stats 新增 `evidence_windowed_count`（喂料形态与 origin 健康度独立计数，partial 不被掩盖）；单测 14 条 + 既有证据/校验测试全绿 + 全量套件 0 失败 | 本文档 |
+| 2026-10-11 | 实现 | E2 逐字引文 + offset 交付 | `Citation` 增 6 字段（`quote`/`char_start`/`char_end`/`snapshot_id`/`quote_status`/`match_level`）；新增 `research_engine/quote_locate.py`（两段式第二段：折叠视图句选 + L0→L1→L2 定位回原文，存**原文切片** + 偏移；多命中按窗口 hint 就近消歧）；validator `_attach_quotes`（含 origin 链；not_found 也记录被检快照；无快照引用字段留空）；stats 增 `quote_located_count` / `quote_not_found_count`；单测 15 条 + 全量套件 0 失败 | 本文档 |

@@ -150,6 +150,13 @@ class Citation(BaseModel):
         default_factory=list, description="F12：反对/冲突证据编号（只记录，不影响判定）")
     independent_source_count: int = Field(
         default=0, description="F12：支持证据的独立来源数（source 去重；同文档多分块不重复计）")
+    # 需求 34 E2：逐字引文 + 快照内偏移（代码定位；L0~L2 复核）
+    quote: str = Field(default="", description="E2：快照内逐字引文（原文切片；空=未定位）")
+    char_start: int = Field(default=-1, description="E2：引文在快照内的起始字符偏移（-1=未定位）")
+    char_end: int = Field(default=-1, description="E2：引文在快照内的结束字符偏移（开区间）")
+    snapshot_id: str = Field(default="", description="E2：引文所属快照的内容寻址 id（sha256）")
+    quote_status: str = Field(default="", description="E2：located / not_found / stale / ''（无快照）")
+    match_level: str = Field(default="", description="E2：定位级别 L0（精确）/ L1（空白折叠）/ L2（标点归一）")
 
 
 class ResearchState(BaseModel):

@@ -40,6 +40,7 @@ from research_engine.evidence import (
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.find_in_source import SourceWindow, find_in_source, select_windows
 from research_engine.llm.client import LLMClient
+from research_engine.quote_locate import extract_quote
 from research_engine.runtime_profile import effective_llm_model
 from research_engine.snapshots import load_snapshot_text
 from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
@@ -370,6 +371,65 @@ class Validator:
         return EVIDENCE_WINDOW_MARK + EVIDENCE_WINDOW_MARK.join(w.text for w in picked)
 
     @classmethod
+    def _attach_quotes(cls, citations: List[Citation], findings: List[ResearchFinding],
+                       evidence_index: Dict[str, ResearchFinding]) -> Dict[str, int]:
+        """需求 34 E2：为引用定位快照内逐字引文（代码定位 + L0~L2 复核）。
+
+        - 仅对存在且（自身或 origin 链上）带 ``metadata["snapshot_id"]`` 的引用生效；
+          无快照的引用保持空字段（由 finding.metadata["snapshot_status"] 解释，E5 分级消费）；
+        - 命中 ⇒ quote / char_start / char_end / snapshot_id / match_level 落 Citation；
+        - 未命中（无窗口/无重叠/定位失败/快照不可读）⇒ ``quote_status=not_found``
+          （进 E5 分级，**不判「引用错误」**——TBD-5 红线）；
+        - 读取失败静默降级（不写降级日志，N5 口径）。
+        """
+        counts = {"located": 0, "not_found": 0}
+        by_number = {str(i): f for i, f in enumerate(findings, 1)}
+        for c in citations:
+            if not c.existence:
+                continue
+            finding = by_number.get(str(c.finding_id))
+            if finding is None and c.source:
+                finding = next((f for f in findings if f.source == c.source), None)
+            if finding is None:
+                continue
+            origin_ids = list((getattr(finding, "metadata", None) or {}).get(
+                "origin_evidence_ids") or [])
+            sources = [finding] + [
+                evidence_index[eid] for eid in origin_ids if eid in evidence_index]
+            seen: set = set()
+            first_sid = ""
+            located = None
+            located_sid = ""
+            for src in sources:
+                sid = str((getattr(src, "metadata", None) or {}).get("snapshot_id") or "")
+                if not sid or sid in seen:
+                    continue
+                seen.add(sid)
+                if not first_sid:
+                    first_sid = sid
+                snapshot_text = load_snapshot_text(sid)
+                if not snapshot_text:
+                    continue
+                located = extract_quote(c.claim, snapshot_text)
+                if located is not None:
+                    located_sid = sid
+                    break
+            if not seen:
+                continue  # 无快照：不适用（quote_status 留空）
+            c.snapshot_id = located_sid or first_sid  # 定位失败也记录被检查的快照（E5/审计用）
+            if located is None:
+                c.quote_status = "not_found"
+                counts["not_found"] += 1
+                continue
+            c.quote = located.quote
+            c.char_start = located.start
+            c.char_end = located.end
+            c.match_level = located.level
+            c.quote_status = "located"
+            counts["located"] += 1
+        return counts
+
+    @classmethod
     def _build_findings_text(
         cls,
         findings: List[ResearchFinding], to_check: List[Dict[str, Any]],
@@ -694,6 +754,8 @@ class Validator:
                 "evidence_partial_count": 0,
                 "evidence_windowed_count": 0,
                 "evidence_unknown_citation_count": 0,
+                "quote_located_count": 0,
+                "quote_not_found_count": 0,
             })
             return []
 
@@ -1014,6 +1076,8 @@ class Validator:
                 contradicting_evidence_ids=citation_contradicting,
                 independent_source_count=independent_count,
             ))
+        # 需求 34 E2：逐字引文 + offset（代码定位；快照内 L0~L2 复核，不只信 LLM 裁决）
+        quote_stats = self._attach_quotes(result, findings, evidence_index)
         unconsumed_verdicts = 0
         if fixes_enabled:
             all_verdict_items = list(unused_verdicts) + [
@@ -1032,6 +1096,9 @@ class Validator:
             # 需求 34 E3：按 claim 快照窗口喂裁判的条数（替代头尾截断）
             "evidence_windowed_count": evidence_stats.get("windowed", 0),
             "evidence_unknown_citation_count": evidence_unknown_citations,
+            # 需求 34 E2：逐字引文定位（located / not_found；空字段=无快照不适用）
+            "quote_located_count": quote_stats.get("located", 0),
+            "quote_not_found_count": quote_stats.get("not_found", 0),
             # R01（审计）：裁决对齐审计 —— 缺裁决引用数 / 未消费裁决数
             "verdict_missing_for_citation_count": verdict_missing_for_citation,
             "verdict_unused_count": unconsumed_verdicts,
