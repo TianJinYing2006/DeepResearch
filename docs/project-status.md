@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-11（批次 1 E5 交付 ⇒ E1~E5 全部完成）**：分级处置清单化（PR #199）：`evidence_grading.py`（`unknown_source_id`=致命·阻断（R02）；`quote_not_found`+快照在=致命·降格标注不删除；`snapshot_missing`/`quote_stale`/裸 URL 未引用=可修·标注；其余快照状态登记）；红线①（UNKNOWN/缺失/过期不判事实错误）与红线②（不新增 FailureReason；arm1/arm3 硬断言不动）单测锁定；`report_display` 附录；单测 10 条 + 全量套件 0 失败。**批次 1 功能全齐 ⇒ 进入收口（真实冒烟 + 确定性断言 + 口径断点登记 + README/文档回填）**。 |
 | 更新 | **2026-10-11（批次 1 E4 交付）**：交付自检（PR #198）：`self_check.py` 零模型三项（引文可定位=偏移切片复核+L0~L2 兜底；落在被删/降格段落=与最终报告占位区交集、失败引用计 info 不误报；版本断言缺来源=三类版本模式句须带引用标记）；repair 回写 `removed_spans`/`downgraded_spans`；`report_display` 附录（只标注、不改交付状态、不写降级日志）；单测 11 条 + 全量套件 0 失败。**下一步：E5（分级处置）→ 批次收口**。 |
 | 更新 | **2026-10-11（批次 1 E2 交付）**：逐字引文 + offset（PR #197）：`Citation` 增 `quote`/`char_start`/`char_end`/`snapshot_id`/`quote_status`/`match_level`；新增 `quote_locate.py`（两段式第二段：折叠视图句选 + **L0→L1→L2** 定位回原文，存**原文切片**与偏移；多命中按窗口 hint 消歧）；validator `_attach_quotes`（含 origin 链；not_found 亦记录被检快照；无快照字段留空）；stats 增 `quote_located_count`/`quote_not_found_count`；单测 15 条 + 全量套件 0 失败。**下一步：E4（零模型自检）+ E5（分级处置）**。 |
 | 更新 | **2026-10-11（批次 1 E3 交付）**：`find_in_source` 定位内核（PR #196 → dev）：中文 2-gram 滑窗（800/步长 100）覆盖率打分 Top-3 + validator 按 claim 从快照取窗口喂裁判（超预算证据；不可得回落头尾截断；`evidence_windowed_count` 入 stats；partial/missing 仍判 UNKNOWN 不被掩盖）；`load_snapshot_text` run 级缓存读；单测 14 条 + 全量套件 0 失败。**下一步：E2（逐字引文 + offset + 校验器代码复核）**。 |
