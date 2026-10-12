@@ -109,7 +109,10 @@ def effective_per_subq_hop_cap(state: ResearchState, rc: Any = None) -> int:
 class DeepResearchGraph:
     """深度研究图（W1：显式 frontier 循环 + Critic 条件边）。"""
 
-    def __init__(self):
+    def __init__(self, checkpointer: Any = None):
+        # 需求 35 R3（TBD-5）：checkpointer 可注入——Worker 传 PG saver（跨进程恢复）；
+        # CLI/测试默认 None ⇒ MemorySaver（进程内，行为与历史一致）。
+        self._checkpointer = checkpointer
         self.planner = Planner()
         self.researcher = Researcher()
         self.writer = Writer()
@@ -162,7 +165,7 @@ class DeepResearchGraph:
         g.add_edge("render", END)
 
         # 有循环 → 必须挂 checkpointer + 设 recursion_limit（run 时传）
-        return g.compile(checkpointer=MemorySaver())
+        return g.compile(checkpointer=self._checkpointer or MemorySaver())
 
     # ---- 节点实现（Q7=A：纯函数，只 return delta，绝不就地改 state）----
 
@@ -608,6 +611,8 @@ class DeepResearchGraph:
         user_instructions: str = "",
         thread_id: str | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        *,
+        resume: bool = False,
     ) -> Iterator[RunStep]:
         """流式运行：每完成一个 graph 节点 yield 一次完整 state 快照。
 
@@ -629,6 +634,9 @@ class DeepResearchGraph:
         if thread_id is None:
             thread_id = f"dr-{uuid.uuid4().hex[:12]}"
         initial = ResearchState(topic=topic, user_instructions=user_instructions)
+        # 需求 35 R3（TBD-4）：resume=True ⇒ stream(None) 从最新 checkpoint 续跑
+        # （不重放已完成节点）；`initial` 仅作异常兜底（fallback），不进流。
+        stream_input = None if resume else initial
         cfg = {"configurable": {"thread_id": thread_id},
                "recursion_limit": effective_research_config().max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
@@ -640,23 +648,33 @@ class DeepResearchGraph:
                            user_instructions=user_instructions)
                if self.trace_id else nullcontext())
         with ctx:
-            yield from self._iter_steps(initial, cfg, should_cancel, token_base)
+            yield from self._iter_steps(stream_input, cfg, should_cancel, token_base,
+                                        fallback_state=initial, skip_leading=resume)
 
     def _iter_steps(
         self,
-        initial: ResearchState,
+        stream_input: Any,
         cfg: Dict[str, Any],
         should_cancel: Callable[[], bool] | None,
         token_base: int,
+        *,
+        fallback_state: ResearchState,
+        skip_leading: bool = False,
     ) -> Iterator[RunStep]:
         """:meth:`iter_run` 的生成器主体（分离出来只为让 try/except 覆盖整个流）。"""
         seen_degradations = 0
         index = 0
-        last_state = initial
+        last_state = fallback_state
         stop = STOP_COMPLETED
         clock = time.perf_counter()
+        first_chunk = True
         try:
-            for chunk in self.graph.stream(initial, cfg, stream_mode="values"):
+            for chunk in self.graph.stream(stream_input, cfg, stream_mode="values"):
+                if skip_leading and first_chunk:
+                    # 恢复路径：首帧为恢复点 checkpoint 状态（非新完成节点）——跳过防重复计数
+                    first_chunk = False
+                    continue
+                first_chunk = False
                 state = ResearchState(**chunk) if isinstance(chunk, dict) else chunk
                 # ⚠️ 实测（2026-09-20）：values 模式**首帧是初始 state**（progress 为空）
                 #    ⇒ node 为 None，无节点信息，跳过且不计数。
@@ -681,7 +699,7 @@ class DeepResearchGraph:
                     break
         except Exception as exc:  # noqa: BLE001 —— 与 run() 同口径：转结构化状态，不吞
             self.last_exception = exc
-            last_state = self._recover_from_exception(exc, cfg, initial)
+            last_state = self._recover_from_exception(exc, cfg, fallback_state)
             stop = STOP_ERROR
 
         # 终局 step：正常结束 / 取消 / 异常 **三种都会产出且仅产出一个**
@@ -693,5 +711,6 @@ class DeepResearchGraph:
         self.tokens_diff = (LLMClient.tokens_total - token_base) - last_state.token_used
 
 
-def create_graph() -> DeepResearchGraph:
-    return DeepResearchGraph()
+def create_graph(checkpointer: Any = None) -> DeepResearchGraph:
+    """构建研究图；``checkpointer=None`` ⇒ MemorySaver（需求 35 R3：Worker 传 PG saver）。"""
+    return DeepResearchGraph(checkpointer=checkpointer)

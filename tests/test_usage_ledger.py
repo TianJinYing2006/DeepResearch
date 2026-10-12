@@ -64,7 +64,8 @@ def test_make_store_sink_prices_llm_and_labels_others():
 
 
 class _UsageGraph:
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         from research_engine.state import ResearchState
         from research_engine.streaming import STOP_COMPLETED, RunStep
         emit_usage(UsageRecord(kind="llm", provider="dashscope", model="qwen-plus",

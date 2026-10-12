@@ -1,6 +1,7 @@
 # DeepResearch 依赖
 # LLM 与 Agent 编排
 langgraph>=0.2.0
+langgraph-checkpoint-postgres>=3.1,<4
 langchain-core>=0.3.0
 openai>=1.50,<1.93  # 锁 1.x：原为 langfuse.openai 包装器适配窗口（W3.2 实测）；需求 33 移除包装器后暂留锁，待独立复评（TBD-8）
 

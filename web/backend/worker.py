@@ -65,6 +65,7 @@ from .agui import (
     STEP_FINISHED,
 )
 from .alerts import collect_alerts, default_thresholds, process_deliveries_once, sync_alerts
+from .checkpoint import get_pg_checkpointer  # 需求 35 R3：PG checkpoint（跨进程恢复）
 from .deletion import process_deletions_once
 from .errors import error_payload
 from .ingestion import process_ingestions_once, purge_expired_documents
@@ -96,11 +97,13 @@ def _env_flag(name: str, default: str = "false") -> bool:
     return (os.getenv(name) or default).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def make_graph_factory() -> Callable[[], Any]:
+def make_graph_factory(checkpointer: Any = None) -> Callable[[], Any]:
     """Worker 图工厂（P2-7）：默认真实研究图；`DR_LOADTEST_GRAPH=1` 换演示假图。
 
     假图（`DemoGraph`）不调用 LLM / 检索（零费用、零外呼），事件序列与真实图同管线，
     专用于 Locust 容量标定与 staging 联调；**生产环境不得设置该开关**。
+
+    需求 35 R3（TBD-5）：真实图传入 PG checkpointer（跨进程恢复）；None ⇒ MemorySaver。
     """
     if _env_flag("DR_LOADTEST_GRAPH"):
         from .demo_graph import DemoGraph
@@ -115,7 +118,67 @@ def make_graph_factory() -> Callable[[], Any]:
             return DemoGraph(step_seconds=step_seconds)
 
         return factory
-    return create_graph
+
+    def factory() -> DeepResearchGraph:
+        return create_graph(checkpointer=checkpointer)
+
+    return factory
+
+
+def resolve_execution_mode(graph: Any, run_id: str, attempt: int,
+                           store: Any) -> tuple:
+    """需求 35 R3（TBD-4/5）：解析本次执行模式与预算对账。
+
+    - checkpoint 存在且版本兼容 ⇒ ``resumed``（从节点续跑）；预算以 ``usage_ledger``
+      汇总为口径（``update_state`` 注入——防「节点已调用 LLM、未完成即崩溃」后的低估）；
+    - checkpoint 存在但版本不兼容 ⇒ ``replayed``（``reason=version_incompatible``）；
+    - attempt≥2 且无 checkpoint ⇒ ``replayed``（``reason=no_checkpoint``，降级重跑，
+      **不算恢复成功**）；
+    - 首跑无 checkpoint ⇒ ``fresh``。
+
+    返回 ``(mode, info)``；info 含 checkpoint_tokens / ledger_tokens / reconciled / reason。
+    测试替身（无 ``.graph``）按 attempt 判定（不触库）。
+    """
+    from research_engine.state import CHECKPOINT_SCHEMA_VERSION
+
+    inner = getattr(graph, "graph", None)
+    has_checkpoint = False
+    version_ok = False
+    checkpoint_tokens = 0
+    if inner is not None:
+        try:
+            snapshot = inner.get_state({"configurable": {"thread_id": run_id}})
+            values = getattr(snapshot, "values", None) or {}
+            if values:
+                has_checkpoint = True
+                version_ok = (values.get("checkpoint_schema_version")
+                              == CHECKPOINT_SCHEMA_VERSION)
+                checkpoint_tokens = int(values.get("token_used", 0) or 0)
+        except Exception as exc:  # noqa: BLE001 —— 读取失败按「无 checkpoint」处理
+            _log(f"resume {run_id}: checkpoint 读取失败（按无 checkpoint）：{exc}")
+            has_checkpoint = False
+    if has_checkpoint and version_ok:
+        ledger_tokens = checkpoint_tokens
+        try:
+            ledger_tokens = int(store.sum_llm_tokens(run_id) or 0)
+        except Exception as exc:  # noqa: BLE001 —— 账本不可读时退回 checkpoint 值
+            _log(f"resume {run_id}: 账本汇总失败（退回 checkpoint 值）：{exc}")
+        reconciled = ledger_tokens > checkpoint_tokens
+        if reconciled and inner is not None:
+            try:
+                # TBD-4：恢复时 state 预算以账本汇总初始化（不重置、不低估）
+                inner.update_state({"configurable": {"thread_id": run_id}},
+                                   {"token_used": ledger_tokens})
+            except Exception as exc:  # noqa: BLE001 —— 对账写回失败不阻塞执行
+                _log(f"resume {run_id}: 预算对账写回失败（忽略）：{exc}")
+        return "resumed", {"checkpoint_tokens": checkpoint_tokens,
+                           "ledger_tokens": ledger_tokens, "reconciled": reconciled}
+    if has_checkpoint and not version_ok:
+        return "replayed", {"checkpoint_tokens": checkpoint_tokens,
+                            "reason": "version_incompatible"}
+    if attempt >= 2:
+        return "replayed", {"reason": "no_checkpoint"}
+    return "fresh", {}
 
 
 class Worker:
@@ -135,6 +198,8 @@ class Worker:
         self._store = store
         self._queue = queue
         self._graph_factory = graph_factory
+        # 需求 35 R3：本次执行的模式与预算对账信息（fresh/resumed/replayed；终局 payload 用）
+        self._execution_info: dict[str, Any] = {}
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
         self.lease_seconds = (
             lease_seconds if lease_seconds is not None
@@ -411,6 +476,7 @@ class Worker:
             hb_stop.set()
             heartbeat.join(timeout=1.0)
             self._current_run_id = None
+            self._execution_info = {}
 
     def _heartbeat_loop(self, run_id: str, stop: threading.Event,
                         lease_lost: threading.Event, attempt: int) -> None:
@@ -453,6 +519,12 @@ class Worker:
             rag_revision = 0
         set_scope(user_id=row.get("user_id"), revision=rag_revision)
         graph = self._graph_factory()
+        # 需求 35 R3（TBD-4/5）：解析执行模式（fresh/resumed/replayed）+ 预算对账
+        execution_mode, resume_info = resolve_execution_mode(
+            graph, run_id, ownership.attempt, self._store)
+        self._execution_info = {"mode": execution_mode, **resume_info}
+        if execution_mode != "fresh":
+            _log(f"run {run_id}: 执行模式={execution_mode} attempt={ownership.attempt} {resume_info}")
         effective = effective_research_config()
         timeout_at = row.get("timeout_at")
 
@@ -480,6 +552,8 @@ class Worker:
             "search_provider": config.search.provider,
             "enable_arxiv": config.search.enable_arxiv,
             "timeout_seconds": timeout_seconds,
+            # 需求 35 R3（TBD-5）：执行模式显式落库（run_events）
+            "execution_mode": execution_mode,
         })
 
         seen_progress = 0
@@ -488,7 +562,8 @@ class Worker:
         last_state = None
         budget_exceeded = False
         for step in graph.iter_run(
-            topic, request.get("instructions", ""), thread_id=run_id, should_cancel=should_stop
+            topic, request.get("instructions", ""), thread_id=run_id, should_cancel=should_stop,
+            resume=(execution_mode == "resumed"),
         ):
             if step.terminal:
                 if lease_lost.is_set():
@@ -582,6 +657,18 @@ class Worker:
         """把一次执行的结果写成终局（正常完成 / 取消 / 超时 / 预算停止共用）。"""
         topic = row["topic"]
         report = state.report_display or state.report
+        # 需求 35 R3（TBD-4）：终局成本与账本对账——账本为累计事实源，绝不低估。
+        # replayed 重跑路径 state 从零累计，但已死尝试的调用已入账（usage_ledger 含 attempt）；
+        # resumed 路径亦有兜底（注入值 vs 账本在竞态下的守恒校验）。
+        try:
+            ledger_tokens = int(self._store.sum_llm_tokens(run_id) or 0)
+        except Exception:  # noqa: BLE001 —— 对账失败不阻塞终局写入
+            ledger_tokens = 0
+        token_used = max(int(state.token_used or 0), ledger_tokens)
+        if ledger_tokens > int(state.token_used or 0):
+            self._execution_info = {**self._execution_info,
+                                    "ledger_tokens": ledger_tokens,
+                                    "final_tokens": token_used}
         result = {
             "report": report,
             "citations": [citation.model_dump(mode="json") for citation in state.citations],
@@ -590,28 +677,34 @@ class Worker:
             "visited_sources": list(state.visited_sources),
             "reflection_log": list(state.reflection_log),
             # F08（审计）：轻量证据索引（稳定 ID/内容 hash/定位/检索时间，不含正文）
-            # —— 导出可复核证据链；摘要层可经 origin_evidence_ids 回指这些条目
+            # —— 与 RunManager 路径同口径，导出可复核证据链；摘要层可经 origin_evidence_ids 回指这些条目
             "evidence_index": serialize_evidence_index(state.findings),
+            # 需求 35 R3（TBD-4/5）：执行模式与预算对账（导出可审计）
+            "execution_mode": self._execution_info.get("mode", "fresh"),
+            "budget_reconciliation": self._execution_info,
         }
-        cost = _estimate_cost_cny(state.token_used)
+        cost = _estimate_cost_cny(token_used)
         started = row.get("started_at") or row["created_at"]
         elapsed = round(max(0.0, (datetime.now(UTC) - started).total_seconds()), 1)
         payload = {
             "cancelled": cancelled,
             "stop_reason": stop_reason,
             "run_status": state.run_status,
-            "token_used": state.token_used,
+            "token_used": token_used,
             "cost_estimate_cny": cost,
             "elapsed_seconds": elapsed,
             "degradation_count": len(state.degradation_log),
             "has_report": bool(report),
             "result": result,
+            # 需求 35 R3（TBD-5）：执行模式 + 预算对账（终局 payload 显式留痕）
+            "execution_mode": self._execution_info.get("mode", "fresh"),
+            "budget_reconciliation": self._execution_info,
         }
         meta = {
             "run_status": state.run_status,
             "stop_reason": stop_reason,
             "cancelled": cancelled,
-            "token_used": state.token_used,
+            "token_used": token_used,
             "cost_estimate_cny": cost,
             "budget_used_cny": cost,
             "elapsed_seconds": elapsed,
@@ -667,7 +760,9 @@ def main() -> int:
     redis_url = (os.getenv("DR_REDIS_URL") or "").strip()
     queue = RunQueue(redis_url) if redis_url else None
     setup_otel("deepresearch-worker")  # P1-8：默认关闭，配置导出端点才启用
-    worker = Worker(RunStore(dsn), queue, graph_factory=make_graph_factory())
+    # 需求 35 R3（TBD-5）：PG checkpoint（不可用 ⇒ None，回落 MemorySaver/重跑语义）
+    worker = Worker(RunStore(dsn), queue,
+                    graph_factory=make_graph_factory(get_pg_checkpointer(dsn)))
     if queue is None:
         _log("未配置 DR_REDIS_URL：仅按任务库轮询领取（唤醒信号降级）")
 

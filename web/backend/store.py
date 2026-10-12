@@ -523,6 +523,23 @@ class RunStore:
             cur.execute(sql, values)
             return cur.fetchone() is not None
 
+    def sum_llm_tokens(self, run_id: str) -> int:
+        """需求 35 R3（TBD-4）：账本汇总（累计费用事实源）——恢复时 state 预算对账用。
+
+        取 usage_ledger 中该 run 的 LLM 调用（kind='llm'，含全部 attempt）：
+        ``max(total_tokens, input+output)`` 求和（provider 未回传 total 时兜底）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(GREATEST(total_tokens, input_tokens + output_tokens)), 0) AS n
+                  FROM usage_ledger WHERE run_id = %s AND kind = 'llm'
+                """,
+                (run_id,),
+            )
+            row = cur.fetchone()
+        return int(row["n"] or 0)
+
     def update_usage(self, run_id: str, *, token_used: int, cost_estimate_cny: float,
                      budget_used_cny: float,
                      owner: Optional[RunOwnership] = None) -> None:

@@ -8,7 +8,24 @@ from web.backend.worker import make_graph_factory
 
 def test_default_factory_is_real_graph(monkeypatch):
     monkeypatch.delenv("DR_LOADTEST_GRAPH", raising=False)
-    assert make_graph_factory() is worker_mod.create_graph
+    calls = []
+
+    def fake_create_graph(*, checkpointer=None):
+        calls.append(checkpointer)
+        return "real-graph"
+
+    monkeypatch.setattr(worker_mod, "create_graph", fake_create_graph)
+    factory = make_graph_factory()
+    assert factory() == "real-graph"
+    assert calls == [None]  # 需求 35 R3：无 checkpointer ⇒ MemorySaver 语义
+
+
+def test_factory_passes_checkpointer_through(monkeypatch):
+    monkeypatch.delenv("DR_LOADTEST_GRAPH", raising=False)
+    monkeypatch.setattr(worker_mod, "create_graph",
+                        lambda *, checkpointer=None: checkpointer)
+    sentinel = object()
+    assert make_graph_factory(sentinel)() is sentinel
 
 
 def test_loadtest_factory_builds_demo_graph(monkeypatch):

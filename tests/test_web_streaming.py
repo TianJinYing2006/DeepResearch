@@ -35,7 +35,8 @@ class FakeGraph:
         self.delay = delay
         self.degrade_at = degrade_at
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         state = ResearchState(topic=topic)
         for i in range(self.steps):
             time.sleep(self.delay)
