@@ -44,6 +44,7 @@ from research_engine.observability import (  # 需求 33：OTel 原生可观测�
 from research_engine.render import ReportRenderer
 from research_engine.repair import repair_report  # F11（3b）：有界返工
 from research_engine.runtime_profile import effective_research_config
+from research_engine.self_check import run_delivery_self_check  # 需求 34 E4：交付自检
 from research_engine.state import ResearchState, SubQuestion
 from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行载体
     STOP_CANCELLED,
@@ -470,6 +471,9 @@ class DeepResearchGraph:
                 "kept_unknown": stats.get("kept_unknown", 0),
                 "downgraded_uncited": stats.get("downgraded_uncited", 0),
                 "citation_count": len(state.citations),
+                # 需求 34 E4：区间明细回写（修改前坐标，供审计/自检追溯）
+                "removed_spans": stats.get("removed_spans", []),
+                "downgraded_spans": stats.get("downgraded_spans", []),
             }],
             "progress": [{
                 "stage": "repair",
@@ -484,12 +488,16 @@ class DeepResearchGraph:
         # W2（Q1=A/Q4=A/Q6=A/R2.5）：render 节点统一 post-process：
         # 类型标注 + 失败 ⚠️ + 可信声明（双口径）+ 失败附录 + 运行溯源。
         # 展示层增强写 report_display，不回流 report（Writer 纯编号协议保持字节级不变）。
+        # 需求 34 E4：交付自检（零模型三项）——只标注，不改交付状态、不写降级日志。
         with span_node("渲染", node="render"):
+            self_check = run_delivery_self_check(state.report, state.citations)
             # F08：类型标注的编号基准与 Writer/Validator 一致（工作摘要层）
             display = self.renderer.render(state.report, state.citations,
-                                           state.working_findings or state.findings, state)
+                                           state.working_findings or state.findings, state,
+                                           delivery_self_check=self_check)
         return {
             "report_display": display,
+            "delivery_self_check": self_check,
             "status": "done",
             # W8 Arm 1：与 _validate 同源判定（幂等，两次结果一致）
             "run_status": state.resolve_run_status(has_report=bool(state.report)),
