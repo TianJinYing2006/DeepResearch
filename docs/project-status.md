@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-11（批次 1 E3 交付）**：`find_in_source` 定位内核（PR #196 → dev）：中文 2-gram 滑窗（800/步长 100）覆盖率打分 Top-3 + validator 按 claim 从快照取窗口喂裁判（超预算证据；不可得回落头尾截断；`evidence_windowed_count` 入 stats；partial/missing 仍判 UNKNOWN 不被掩盖）；`load_snapshot_text` run 级缓存读；单测 14 条 + 全量套件 0 失败。**下一步：E2（逐字引文 + offset + 校验器代码复核）**。 |
 | 更新 | **2026-10-11（批次 1 E1 交付）**：网页快照落盘（PR #194 → dev `706ded6`，CI 6/6 含 infra）：`safe_fetch` 接入 researcher（唯一抓取入口）+ robots 遵守（不可检查仅批准来源）+ 预算三闸（15/5MB/90s）+ 重试≤2 计入额度 + PG 两表（迁移 `0022_snapshots` + checks）+ runner/worker/cli 绑定；失败降级 snippet-only 不写 `degradation_log`；单测 28 条 + 真 PG 契约（入 CI infra）+ 全量套件绿（1041 采集 0 失败）；飞书镜像已同步。**下一步：E3（`find_in_source` 定位内核）**。 |
 | 更新 | **2026-10-11（批次 1 前置 N1 完成）**：服务器备份 cron 核实已在跑（每日 03:30 加密 .pem + COS；日志全 ok）+ **云上真实恢复演练通过**（离线私钥解密 → 临时容器恢复 → 断言 schema_migrations/runs/run_artifacts = 21/11/22 与生产逐项一致；md5 三方一致；记录 `release-runbook.md` §10.3）；`deployment.md` §6.1 / `domain-cutover.md` §6.1 同步关闭；**E1 可开始**。 |
 | 更新 | **2026-10-11（批次 1 立项）**：需求 34「证据链最后一公里」（E1 快照落盘 / E2 逐字引文 / E3 `find_in_source` / E4 零模型自检 / E5 分级处置）草稿入库（`docs/requirements/34-evidence-chain-last-mile.md`）+ Issue #188；**TBD-0~8 全部已拍板（2026-10-11）**（TBD-0 不采；TBD-1~4 五项：64 KB / 上限 15+并发 4+重试≤2 / robots 遵守 / 动态渲染不做 / 轻量关键词抽取）；飞书镜像已建并重同步（`KmeVd0fsGo1WWkxz35ucMhy6nFe`）；N1 硬前置（备份 cron + 恢复演练）重申。 |
