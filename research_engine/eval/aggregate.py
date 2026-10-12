@@ -31,7 +31,13 @@ from research_engine.eval.stats import summarize_metric
 #: w9.0（审计 F15）：coverage 改为按序号对齐（缺项 ⇒ judge_failed，分母语义收紧）、
 #: 新增独立裁判 `citation_judge_*` 与 `uncited_fact_ratio` 指标 —— 口径已变，
 #: 与 w8.1 及更早的 run 数值**不可直接相减**。
-SCORER_VERSION = "w9.0"
+#:
+#: w9.1（需求 34 E1~E5 批次收口，2026-10-11）：证据面与校验输入口径变更 ——
+#: web 候选实抓正文落盘快照、裁判按 claim 读快照窗口（替代超预算头尾截断）、
+#: 引用携带逐字引文/偏移、交付自检与分级处置入 report_display；
+#: **与 w9.0 及更早的 run 数值不可直接相减**（本批次未采 before 基线，
+#: 配对结论随批次 2 的 12.11 新基线以新口径统一重建）。
+SCORER_VERSION = "w9.1"
 
 #: 指标名 → (metrics 段名, 段内键名)。**新增指标只改这里**。
 METRIC_SOURCES: Tuple[Tuple[str, str, str], ...] = (

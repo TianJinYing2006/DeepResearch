@@ -15,7 +15,7 @@
 | 编号 | 34 |
 | 标题 | 证据链「最后一公里」：网页快照 + 逐字引文 + 零模型自检（E1~E5） |
 | 优先级 | P1 |
-| 状态 | 草稿 |
+| 状态 | 已合 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #188 |
 | 关联 PR | #189 / #191 |
@@ -284,20 +284,23 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
       输出入 `report_display` 附录（`render.build_delivery_self_check`；只标注、不写 `degradation_log`）；repair 回写区间明细（`removed_spans` / `downgraded_spans`）
 - [x] E5：✅ **已交付（2026-10-11）** —— 分级处置清单化（`evidence_grading.py`：致命/可修 + 明确动作；`unknown_source_id` 阻断复用 R02、其余降格标注不删除）；
       输出入 `report_display` 附录；红线锁定：UNKNOWN/快照缺失/offset 过期不判事实错误、不新增 FailureReason 枚举
-- [ ] 测试（**口径已按 §5.0 A2 改为确定性断言，不再要求 eval 配对**）：
-      - [ ] 单测（离线）：抓取 mock（成功 / 超时 / 非 HTML / 超限 / 3xx / robots 拒绝 / 重试）、三级规范化匹配、
+- [x] 测试（**口径已按 §5.0 A2 改为确定性断言，不再要求 eval 配对**）：
+      - [x] 单测（离线）：抓取 mock（成功 / 超时 / 非 HTML / 超限 / 3xx / robots 拒绝 / 重试）、三级规范化匹配、
             自检三项（含误报锁）、分级判定
-      - [ ] 集成：fake fetch + 小快照端到端（finding → snapshot → quote → 自检 → 渲染附录）
-      - [ ] **确定性断言（替代 eval 配对）**：一次真实冒烟中
+      - [x] 集成：fake fetch + 小快照端到端（finding → snapshot → quote → 自检 → 渲染附录）
+            （`tests/test_evidence_chain_e2e.py`）
+      - [x] **确定性断言（替代 eval 配对）**：一次真实冒烟中
             **每条引用要么 `quote_status ∈ {located, not_found}`，要么显式 `snapshot_status=missing`；
             零条「无 quote 且无 missing 标记」的引用**；located 者可按 L0~L2 离线复算定位
-      - [ ] **故障可归因率不退化**：抓取失败不入 `degradation_log`，
+            （冒烟实证：19 引用 / 8 located / 0 not_found / 0 无标记 / 0 偏移违例）
+      - [x] **故障可归因率不退化**：抓取失败不入 `degradation_log`，
             `tests/test_arm1_run_status.py` 全绿（三态断言未松动）
-      - [ ] **预算闸可观测**：单次 run 的抓取次数 / 字节 / 时间三项均有值且未越上限
-      - [ ] 自检离线可跑（无网络、无 key）
-      - [ ] 真实冒烟（引用可回溯快照）
-- [ ] 文档：README / 渲染口径同步（落地才写）；需求 27 §12.6 / §12.8 状态回填；
-      **eval 报告「尺子变了」检查登记本批次口径断点**（Arm 6 已有该机制）
+      - [x] **预算闸可观测**：单次 run 的抓取次数 / 字节 / 时间三项均有值且未越上限
+            （冒烟实证：15/15 次 · 2.2MB/5MB · 54.8s/90s）
+      - [x] 自检离线可跑（无网络、无 key）
+      - [x] 真实冒烟（引用可回溯快照）
+- [x] 文档：README 已加「证据链可回溯」行；需求 27 §12.6 / §12.8 已回填；
+      **eval 口径断点已登记**（`SCORER_VERSION` w9.0 → **w9.1**；趋势表「尺子变了」检查将标注跨断点不可比）
 
 ## 8. 影响范围与风险
 
@@ -319,6 +322,12 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 - ✅ **替代：确定性断言**（同 D-18 口径）—— 引用可回溯率 + 零无标记引用 + 自检离线可跑 +
   故障可归因率不退化 + 预算闸可观测（判据见 §7）。
 - 冒烟：真实 topic → 抽查引用可回溯到快照片段 + 自检附录输出 + 抓取预算三项计数。
+- **收口实证（2026-10-12，run `smoke-20261012191906-2cd619`，quick 档 / qwen-plus 绕行本机 MaaS 端点）**：
+  19 引用中 8 条逐字引文全部 L0~L2 离线复算通过（0 偏移违例）、0 条无标记、0 条阻断；
+  快照落盘 3 份（内容寻址去重）；预算 **15/15 次 · 2.2MB/5MB · 54.8s/90s**（触顶即停）；
+  自检三项 0 违例、分级处置 9 项可修登记（missing×2 / not_attempted×2 / skipped_robots×5）；
+  `run_status=degraded` 仅环境噪声（arXiv 超时 + 校验 LLM 瞬时失败），**零 web_fetch 降级**（N5）。
+  工件：`local-artifacts/smoke-e1e5.json`；复跑：`python tools/smoke_evidence_chain.py`。
 
 ## 10. 排期（引用 roadmap §2）
 
@@ -353,3 +362,4 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 | 2026-10-11 | 实现 | E2 逐字引文 + offset 交付 | `Citation` 增 6 字段（`quote`/`char_start`/`char_end`/`snapshot_id`/`quote_status`/`match_level`）；新增 `research_engine/quote_locate.py`（两段式第二段：折叠视图句选 + L0→L1→L2 定位回原文，存**原文切片** + 偏移；多命中按窗口 hint 就近消歧）；validator `_attach_quotes`（含 origin 链；not_found 也记录被检快照；无快照引用字段留空）；stats 增 `quote_located_count` / `quote_not_found_count`；单测 15 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-11 | 实现 | E4 交付自检交付 | 新增 `research_engine/self_check.py`（三项：`quote_locatable`=偏移切片复核 + L0~L2 兜底；`quote_in_dropped_span`=与最终报告占位区交集、失败引用计 info 不误报；`version_claim_has_source`=三类版本断言句须带引用标记）；`repair.py` 回写 `removed_spans`/`downgraded_spans`（修改前坐标；repair_log 同步）；graph `_render` 计算并入 `state.delivery_self_check` + `report_display` 附录（照 `build_planner_governance` 模式）；只标注不改交付状态、不写 `degradation_log`（N5）；单测 11 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-11 | 实现 | E5 分级处置交付 | 新增 `research_engine/evidence_grading.py`（清单化：`unknown_source_id`=致命·阻断（复用 R02 删除）；`quote_not_found`+快照在=致命·降格标注不删除；`snapshot_missing`/`quote_stale`/裸 URL 未引用=可修·标注；其余快照状态登记）；graph `_render` 计算并入 `state.evidence_grading` + `report_display` 附录；红线①（UNKNOWN/缺失/过期不判事实错误）与红线②（不新增 FailureReason 枚举；arm1/arm3 硬断言不动）单测锁定；单测 10 条 + 全量套件 0 失败 | 本文档 |
+| 2026-10-12 | 收口 | 批次 1 收口完成 | 真实冒烟（`smoke-20261012191906-2cd619`：8/8 located 引文离线复算、0 无标记、预算 15/15·2.2MB·54.8s、自检/分级 0 致命）+ 端到端集成测试（`test_evidence_chain_e2e`）+ 冒烟工具（`tools/smoke_evidence_chain.py`）+ 口径断点登记（`SCORER_VERSION` w9.0→**w9.1**）+ README「证据链可回溯」行 + 需求 27 §12.6/§12.8 回填；**DoD 全部勾选，状态 → 已合** | 本文档 |
