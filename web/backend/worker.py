@@ -33,6 +33,7 @@ from typing import Any, Callable, Optional
 
 from config import config
 from research_engine.evidence import serialize_evidence_index
+from research_engine.evidence_manifest import build_evidence_manifest  # 需求 35 R2
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
 from research_engine.runtime_profile import (
@@ -626,7 +627,8 @@ class Worker:
         finalized = persist_terminal(self._store, run_id, None, RUN_FINISHED, payload,
                                      result=result, report=report, meta=meta, topic=topic,
                                      moderation=decision,
-                                     egress=egress, owner=ownership)
+                                     egress=egress, owner=ownership,
+                                     evidence_manifest=build_evidence_manifest(run_id, state))
         if not finalized:
             # 状态已被清扫 / 强制收口抢先 / 所有权已失效：终局写入整体回滚（P0-6 / F04）
             _log(f"finalize {run_id}: terminal_conflict 或租约已失效，终局写入整体回滚")

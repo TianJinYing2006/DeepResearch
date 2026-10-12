@@ -48,6 +48,7 @@ def persist_terminal(
     moderation_status: Optional[str] = None,
     egress: Optional[dict[str, Any]] = None,
     owner: Optional[RunOwnership] = None,
+    evidence_manifest: Optional[dict[str, Any]] = None,
 ) -> bool:
     """写终局事件 + 状态 + 产物 + 审核证据（**同一事务**，P0-6 / P0-4）；任一失败即抛异常。
 
@@ -97,11 +98,21 @@ def persist_terminal(
         artifacts["report_md"] = _artifact_payload(
             run_id, "report_md", report, "text/markdown; charset=utf-8", attempt=attempt)
     if result is not None and meta is not None:
-        export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=result,
+        # 需求 35 R2：manifest 单列入产物，同时并入导出载荷（导出的 result 副本带 manifest；
+        # 备份到 run_events 的事件 payload 不重复携带，保持事件体积可控）
+        export_result = result
+        if evidence_manifest is not None:
+            export_result = {**result, "evidence_manifest": evidence_manifest}
+        export = build_export_payload(run_id=run_id, topic=topic, meta=meta, result=export_result,
                                       egress=egress)
         artifacts["export_json"] = _artifact_payload(
             run_id, "export_json", json.dumps(export, ensure_ascii=False), "application/json",
             attempt=attempt)
+    if evidence_manifest is not None:
+        # TBD-3：`evidence_manifest` 独立产物（JSON），与终局同事务写入
+        artifacts["evidence_manifest"] = _artifact_payload(
+            run_id, "evidence_manifest", json.dumps(evidence_manifest, ensure_ascii=False),
+            "application/json", attempt=attempt)
     return store.finalize_run(
         run_id,
         event_type=event_type,

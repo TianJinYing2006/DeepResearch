@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-12（批次 2 R2 交付）**：evidence manifest（PR #205）：`manifest_version=1` **有序工作清单**（N ↔ 稳定 ID/origin/hash/来源身份）+ 引用 claim span + 修复前后 + 规格版本；**原文可取得性模式**（snapshot / rag_generation / **via_origins**（压缩证据沿 origin 链）/ content_hash_only）；终局**同事务**落 `run_artifacts`（kind=`evidence_manifest`）+ 并入 `export_json`；单测 7 条 + 全量套件 0 失败。**下一步：R3（跨进程恢复）**。 |
 | 更新 | **2026-10-12（批次 2 拍板 + R1 交付）**：TBD-0~7 全部拍板（按 v2 推荐；不采全量 before 基线 + RAG 回归夹具护栏）；**R1 来源身份分组交付**（PR #204）：`compute_finding_evidence_id`（rag=`sha256(scope|doc_id|chunk_id)` **不含哈希**；web/arxiv/legacy 保持内容寻址）+ `generation` 落元数据 + 压缩分组 `(doc_id, generation, sq_id)`（同名不同文档不混编）+ 回归夹具 10 条；全量套件 0 失败。**下一步：R2（evidence manifest）**。 |
 | 更新 | **2026-10-12（批次 2 立项）**：需求 35「恢复与清单」（12.4 来源身份分组 / E7 evidence manifest / E6 跨进程恢复 + 体验①②）草稿入库（`docs/requirements/35-batch2-recovery-and-manifest.md`）+ Issue #201；**TBD-0~7 待主理人逐项拍板**（TBD-0 建议不采 before 基线：12.4 仅影响 RAG 路径、评测路径无 KB；E7/E6/体验不改输出面）；飞书镜像已建（`C5afdrWMGoqhlux1FFUcsCyDntb`）。 |
 | 更新 | **2026-10-12（批次 1 收口完成 ⇒ 需求 34 已合）**：真实冒烟全断言通过（run `smoke-20261012191906-2cd619`：19 引用 / 8 located 全部 L0~L2 离线复算 / 0 无标记 / 快照 3 份内容寻址 / 预算 15/15·2.2MB·54.8s / 自检三项 0 违例 / 分级 9 可修 0 致命）；端到端集成测试（`test_evidence_chain_e2e`）与冒烟工具（`tools/smoke_evidence_chain.py`）入库；口径断点登记（`SCORER_VERSION` **w9.1**，趋势表「尺子变了」将标注跨断点不可比）；README「证据链可回溯」行 + 需求 27 §12.6/§12.8 回填；**需求 34 状态 → 已合，DoD 全勾**。 |

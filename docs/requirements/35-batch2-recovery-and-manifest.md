@@ -152,9 +152,11 @@
       `metadata` 增 `generation`；分组键 `evidence_group_key`（rag=`(doc_id, generation, sq_id)`）；
       **回归夹具** `tests/test_evidence_identity.py`（同名不同文档不误去重 / 不同 generation
       不同身份 / 同位置内容变化身份不变 / `chunk_id` 格式锁 / 压缩分组不混编）
-- [ ] R2：`evidence_manifest` 终局落盘（run_artifacts；版本字段；含 **有序工作清单** ↔
-      origin/快照/版本/span/修复前后）；**两验收层**：完整性可校验（长期）/ 保留期内原文可取得
-      （web 快照 / RAG generation 窗口）+ 导出可读
+- [x] R2：✅ **已交付（2026-10-12）** —— `research_engine/evidence_manifest.py`（`manifest_version=1`；
+      **有序工作清单** N ↔ 稳定 ID/origin/hash/来源身份 + 引用 claim span + 修复前后 + 规格版本）；
+      **两验收层**：完整性可校验（长期）/ 原文可取得（`retrieval.mode`：snapshot / rag_generation /
+      via_origins / content_hash_only）；终局**同事务**落 `run_artifacts`（kind=`evidence_manifest`）
+      + 并入导出（`export_json.result.evidence_manifest`）
 - [ ] R3：PG checkpoint 落盘 + Worker 接管续跑（checkpoint 存在且版本兼容）；**执行模式落库
       （`resumed`/`replayed`）**；**账本对账**：含「节点已调用 LLM、未完成即 kill → 恢复后
       预算不低估、终局成本同口径」场景；无 checkpoint/版本不兼容 ⇒ 显式 `replayed`（不算恢复）
@@ -214,3 +216,4 @@
 | 2026-10-12 | 评审 | 设计评审（主理人）6 点闭合 | ① 身份去 `content_hash`、`generation` 进契约与分组（`chunk_id` 格式验收锁定；metadata 显式存）；② 预算以 `usage_ledger` 为累计事实源 + 对账规则 + 「节点已调用未完成即 kill」场景；③ manifest 增 **Writer 有序工作清单** + 两验收层（完整性可校验 / 保留期内原文可取得）+ RAG 保留策略；④ 执行模式 `resumed`/`replayed` 显式落库、重跑不冒充恢复（演练双路径断言）；⑤ 流式 delta 持久化粒度 + `report_reset` 协议 + 断线重连/半截失败测试；⑥ R5 限定为「是否值得并行实验」+ 固定题集对照；TBD-0 补确定性 RAG 回归夹具（「未覆盖 ≠ 无影响」） | 本文档 |
 | 2026-10-12 | 拍板 | TBD-0~7 逐项拍板（主理人） | **全部按 v2 推荐**：①不采全量 before 基线 + RAG 回归夹具；②rag 身份 `sha256(scope|doc_id|chunk_id)`（不含哈希）+ metadata 存 generation；③分组键 `(doc_id, generation, sq_id)`；④manifest 落 `run_artifacts`（有序工作清单 + 两验收层 + RAG 保留窗口）；⑤账本为事实源 + 只做从节点恢复 + resumed/replayed 落库；⑥官方 checkpoint-postgres；⑦流式并入本批（delta 粒度 + `report_reset`）；⑧R5=是否值得并行实验 | 本文档 |
 | 2026-10-12 | 实现 | R1 来源身份分组交付 | `evidence.py` 增 `compute_finding_evidence_id`（rag=版本化位置 `sha256(scope|doc_id|chunk_id)`，**不含 content_hash**；web/arxiv/legacy 保持内容寻址）+ `evidence_group_key`（rag=`(doc_id, generation, sq_id)`）+ `rag_chunk_generation`（格式锁）；`researcher.py` RAG metadata 增 `generation`；`context/manager.py` 压缩分组改身份键（同名不同文档不混编）；回归夹具 10 条 + 全量套件 0 失败 | 本文档 |
+| 2026-10-12 | 实现 | R2 evidence manifest 交付 | 新增 `research_engine/evidence_manifest.py`（有序工作清单 + 引用 span + 修复记录 + 规格版本；retrieval 模式解析含 **via_origins**——压缩证据沿 origin 链；`manifest_version=1`）；`persistence.persist_terminal` 增 `evidence_manifest` 参数（终局**同事务**写产物 + 并入导出 result 副本；run_events payload 不重复携带）；runner/worker 终局路径构建并传入；单测 7 条 + 全量套件 0 失败 | 本文档 |
