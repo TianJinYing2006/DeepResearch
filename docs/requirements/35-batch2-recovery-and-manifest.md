@@ -165,8 +165,14 @@
       checkpoint 不可用 fail-silent 回落 MemorySaver；**kill→接管→续跑演练**（真 PG + 真 saver：
       resumed 不重放已完成节点/终局 120 不低估；replayed 显式标注/终局 130 同口径）；
       单测 8 + PG 契约 2 + 演练 2；运维语义见 `release-runbook.md` §7.2
-- [ ] R4：Writer 流式（`chat_stream` + SSE `report_delta` + 前端）；**增量持久化粒度 +
-      `report_reset` 失败协议**；断线重连 + 半截失败测试；失败降级不产生半截拼接
+- [x] R4：✅ **已交付（2026-10-13）** —— `LLMClient.chat_stream`（DashScope OpenAI 兼容，
+      与 `chat` 同口径准入/记账/时限）+ `LLMClient`/Router 流式出口；Writer 经
+      `research_engine/report_stream.py` 旁路（无 sink 的 CLI/eval 保持原非流式路径）；
+      **协议不变式**：流式开始先 `REPORT_RESET`；增量每 400 字符（`DR_REPORT_STREAM_FLUSH_CHARS`）
+      合并一条 `REPORT_DELTA`（`{text, offset}`）进 `run_events`；**半截失败 ⇒ 再 reset +
+      降级非流式重试**（留痕 `non_stream_retry`），终局 `result.report` 整段替换；
+      Worker/Runner 双路径接线 + 终局前强制冲刷；flagged 回放对 `REPORT_DELTA` 同样脱敏；
+      前端渐进渲染（预览卡，reset 清空、终局替换）；运维协议见 `release-runbook.md` §7.3
 - [ ] R5：档位耗时 p50/p90 报告（结论 = 是否值得并行实验；quick 补测如实标注）+
       对照实验方案与 Send 决策记录
 - [x] 测试：单测（身份/去重/分组/manifest 结构/checkpoint 往返）+ 真 PG 契约（manifest 写入、
@@ -224,3 +230,4 @@
 | 2026-10-12 | 实现 | R1 来源身份分组交付 | `evidence.py` 增 `compute_finding_evidence_id`（rag=版本化位置 `sha256(scope|doc_id|chunk_id)`，**不含 content_hash**；web/arxiv/legacy 保持内容寻址）+ `evidence_group_key`（rag=`(doc_id, generation, sq_id)`）+ `rag_chunk_generation`（格式锁）；`researcher.py` RAG metadata 增 `generation`；`context/manager.py` 压缩分组改身份键（同名不同文档不混编）；回归夹具 10 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-12 | 实现 | R2 evidence manifest 交付 | 新增 `research_engine/evidence_manifest.py`（有序工作清单 + 引用 span + 修复记录 + 规格版本；retrieval 模式解析含 **via_origins**——压缩证据沿 origin 链；`manifest_version=1`）；`persistence.persist_terminal` 增 `evidence_manifest` 参数（终局**同事务**写产物 + 并入导出 result 副本；run_events payload 不重复携带）；runner/worker 终局路径构建并传入；单测 7 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-13 | 实现 | R3 跨进程恢复交付 | 依赖：`langgraph-checkpoint-postgres`（`>=3.1,<4`；lock 外科式 `==3.1.2`）；`web/backend/checkpoint.py`（进程级单例 + 幂等 `setup()` + fail-silent + atexit 关池）；`state.py` 增 `CHECKPOINT_SCHEMA_VERSION=1`；`graph.py` checkpointer 可注入 + `iter_run(resume=)`（`stream(None)` + 跳过恢复首帧）；`worker.py` `resolve_execution_mode`（fresh/resumed/replayed + 版本比对 + 账本注入）+ 终局 `max(state, 账本)` 对账 + `RUN_STARTED`/终局 payload 留痕；单测 8 + PG 契约 2 + **演练 2**（kill→接管→续跑双路径）；全量套件 0 失败；运维语义 `release-runbook.md` §7.2 | 本文档 |
+| 2026-10-13 | 实现 | R4 报告流式交付 | `research_engine/report_stream.py`（contextvar sink，与 usage 同构）+ `LLMClient.chat_stream` + Router 出口 + Writer 流式/降级路径；`web/backend/report_events.py`（缓冲：粒度 400 字符合并 + reset 先冲刷）+ Worker/Runner 接线 + 终局前冲刷；`agui.py` 增 `REPORT_DELTA`/`REPORT_RESET`；flagged 回放增量脱敏（`main.py`）；前端：类型 + `reportPreview` 折叠 + 预览卡（reset 清空/终局替换）；测试：单测 7 + 端到端 4 + 回放脱敏 1 + 前端 4；全量套件 0 失败；协议 `release-runbook.md` §7.3 | 本文档 |

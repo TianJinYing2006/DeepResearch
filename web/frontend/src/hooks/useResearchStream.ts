@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { csrfHeaders, httpError, toStructuredError } from '../lib/api'
 import { applyEvent, computeProgress, emptySummary, type ProgressSummary } from '../lib/progress'
+import { applyReportEvent } from '../lib/reportPreview'
 import {
   AGUI_EVENT_TYPES,
   isAguiEvent,
@@ -59,6 +60,8 @@ export function useResearchStream() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [error, setError] = useState<StructuredError | null>(null)
   const [result, setResult] = useState<ResearchResult | null>(null)
+  /** 需求 35 R4：正文流式预览（最近一次 REPORT_RESET 之后的增量拼接；终局整段替换）。 */
+  const [reportPreview, setReportPreview] = useState('')
   // R5（审计 U50）：进度增量累加（每事件 O(1)），不再每次全量重扫事件流
   const [summary, setSummary] = useState<ProgressSummary>(emptySummary)
   const sourceRef = useRef<EventSource | null>(null)
@@ -77,9 +80,10 @@ export function useResearchStream() {
 
   const attachStream = useCallback((nextRunId: string) => {
     closeSource()
-    // 新流（含刷新回放）从头累加：清空旧运行的进度摘要
+    // 新流（含刷新回放）从头累加：清空旧运行的进度摘要与正文预览
     summaryRef.current = emptySummary()
     setSummary(summaryRef.current)
+    setReportPreview('')
     const source = new EventSource(`/api/research/${nextRunId}/stream`)
     sourceRef.current = source
 
@@ -93,6 +97,13 @@ export function useResearchStream() {
       try {
         const parsed: unknown = JSON.parse(message.data)
         if (!isAguiEvent(parsed)) throw new Error('未知事件类型')
+
+        // 需求 35 R4：正文增量/重置只进预览缓冲，不进 events（时间线/计数保持活动语义）
+        if (parsed.type === 'REPORT_DELTA' || parsed.type === 'REPORT_RESET') {
+          setReportPreview((previous) => applyReportEvent(previous, parsed))
+          return
+        }
+
         setEvents((previous) => [...previous, parsed])
         summaryRef.current = applyEvent(summaryRef.current, parsed)
         setSummary(summaryRef.current)
@@ -240,6 +251,7 @@ export function useResearchStream() {
     connectionStatus,
     error,
     result,
+    reportPreview,
     progress,
     start,
     resume,

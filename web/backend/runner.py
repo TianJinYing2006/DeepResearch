@@ -32,6 +32,7 @@ from research_engine.evidence import serialize_evidence_index
 from research_engine.evidence_manifest import build_evidence_manifest  # 需求 35 R2
 from research_engine.graph import DeepResearchGraph, create_graph
 from research_engine.rag.scope import set_scope
+from research_engine.report_stream import pop_report_sink, push_report_sink  # 需求 35 R4
 from research_engine.runtime_profile import (
     RuntimeProfile,
     effective_research_config,
@@ -66,6 +67,7 @@ from .errors import ApiError, error_payload
 from .export import build_export_payload, render_markdown
 from .moderation import ModerationDecision, apply_output_gate, evaluate_output
 from .persistence import persist_forced, persist_terminal
+from .report_events import ReportEventBuffer  # 需求 35 R4：报告流式事件缓冲
 from .snapshots import PgSnapshotStore
 from .store import QuotaExceeded, RunStore
 from .usage import make_store_sink
@@ -583,6 +585,8 @@ class RunManager:
         usage_token = None
         deadline_token = None
         fetch_token = None
+        report_token = None
+        report_buffer = None
         if self._store is not None:
             # P1-4：本线程的逐调用用量落进 usage_ledger（无 store 时为 no-op）
             usage_token = push_usage_sink(
@@ -597,6 +601,13 @@ class RunManager:
                     store=PgSnapshotStore(self._store) if self._store is not None else None,
                     run_id=run_id,
                 ))
+            # 需求 35 R4（TBD-6）：报告正文流式旁路（REPORT_DELTA / REPORT_RESET）
+            if config.report_stream.enabled:
+                report_buffer = ReportEventBuffer(
+                    lambda event_type, payload: self._emit(run_id, event_type, payload),
+                    flush_chars=config.report_stream.flush_chars)
+                report_token = push_report_sink(report_buffer.on_delta,
+                                                report_buffer.on_reset)
 
             # P0 profile 固化：档位装进**本线程**运行作用域（不再改全局 config，
             # 并发 / 串行 run 之间互不污染）；无档位时核心链路回落全局 config。
@@ -650,6 +661,8 @@ class RunManager:
                     if (step.stop_reason == STOP_CANCELLED and not cancel_event.is_set()
                             and deadline is not None and time.monotonic() >= deadline):
                         self._timed_out.add(run_id)
+                    if report_buffer is not None:
+                        report_buffer.flush()  # 终局前冲刷尾部增量（RUN_FINISHED 之前）
                     self._emit_terminal(run_id, step)
                     break
 
@@ -702,6 +715,10 @@ class RunManager:
                 pop_usage_sink(usage_token)
             if fetch_token is not None:
                 pop_fetch_context(fetch_token)
+            if report_buffer is not None:
+                report_buffer.flush()  # 兜底冲刷（异常路径也不丢尾部增量）
+            if report_token is not None:
+                pop_report_sink(report_token)
             with self._condition:
                 self._finished.add(run_id)
                 self._active.discard(run_id)

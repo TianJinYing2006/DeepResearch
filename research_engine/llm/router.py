@@ -36,6 +36,12 @@ class LLMRouter:
     def smart_chat(self, system: str, user: str, state: Optional[Any] = None) -> str:
         return self._smart.chat(build_messages(system, user), state=state)
 
+    def smart_chat_stream(self, system: str, user: str, state: Optional[Any] = None,
+                          on_delta: Optional[Any] = None) -> str:
+        """需求 35 R4：smart 层流式（Writer 正文增量；无 sink 时调用方不会走到这里）。"""
+        return self._smart.chat_stream(build_messages(system, user), state=state,
+                                       on_delta=on_delta)
+
     def smart_json(self, system: str, user: str, state: Optional[Any] = None) -> Dict:
         return self._smart.chat_json(build_messages(system, user), state=state)
 

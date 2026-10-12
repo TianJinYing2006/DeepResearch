@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
@@ -117,6 +117,77 @@ class LLMClient:
             content = resp.choices[0].message.content or ""
             record_llm_result(gen_span, resp, content)  # fail-silent：观测旁路
         self._accumulate_usage(resp, state, reservation)  # D'：无条件调用（内部处理 state=None）
+        return content
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        state: Optional[Any] = None,
+        timeout: Optional[float] = None,
+        on_delta: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """流式对话（DashScope OpenAI 兼容），返回完整文本。
+
+        需求 35 R4 / TBD-6：与 :meth:`chat` **同口径**的准入 / 记账 / 时限，仅传输层换流式：
+
+        - 预算预占 / 结算、``state.token_used``、usage 账本与 chat 共用 ``_accumulate_usage``；
+        - 每收到一段增量调用 ``on_delta(text)``（sink 侧 fail-silent，不影响本调用）；
+        - 调用失败（含**中途断流**）：与 chat 相同——预占按保守口径计入后原样抛出，
+          半截文本不返回（调用方决定降级；预览由 ``report_stream`` 的 reset 协议收口）。
+        """
+        has_deadline = task_deadline_remaining() is not None
+        resolved_timeout = self._resolve_timeout(timeout)
+        reservation = None
+        if state is not None:
+            reservation = reserve_call(
+                state,
+                input_tokens=estimate_messages_tokens(messages),
+                desired_output=max_tokens,
+            )
+        kwargs: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else config.llm.temperature,
+            "stream": True,
+            # OpenAI 兼容语义：末帧携带 usage；缺 usage 时按预占保守结算（R05 口径）
+            "stream_options": {"include_usage": True},
+        }
+        if reservation is not None:
+            kwargs["max_tokens"] = reservation.output_tokens
+        elif max_tokens:
+            kwargs["max_tokens"] = max_tokens
+        if resolved_timeout is not None:
+            kwargs["timeout"] = resolved_timeout
+
+        client = self._get_client()
+        with llm_call_span(self.model, role=self.role, messages=messages) as gen_span:
+            usage_chunk = None
+            parts: List[str] = []
+            try:
+                if has_deadline:
+                    client = client.with_options(max_retries=0)
+                stream = client.chat.completions.create(**kwargs)
+                for chunk in stream:
+                    if getattr(chunk, "usage", None) is not None:
+                        usage_chunk = chunk
+                    choices = getattr(chunk, "choices", None) or []
+                    if not choices:
+                        continue
+                    delta = getattr(choices[0], "delta", None)
+                    text = (getattr(delta, "content", None) or "") if delta is not None else ""
+                    if text:
+                        parts.append(text)
+                        if on_delta is not None:
+                            on_delta(text)
+            except BaseException:
+                # 中途失败：预占按保守口径计入（可能已消耗输入/部分输出），原样抛出
+                settle_call(reservation)
+                raise
+            content = "".join(parts)
+            record_llm_result(gen_span, usage_chunk, content)  # fail-silent：观测旁路
+        self._accumulate_usage(usage_chunk, state, reservation)
         return content
 
     @staticmethod

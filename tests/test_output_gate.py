@@ -86,6 +86,29 @@ def test_stored_stream_redacts_flagged_payload(monkeypatch):
     assert "output_under_review" in body
 
 
+def test_stored_stream_redacts_flagged_report_delta(monkeypatch):
+    """需求 35 R4：flagged 回放的正文增量（REPORT_DELTA）同样脱敏；正常 run 原样透传。"""
+    store = FakeStore()
+    _seed_run(store, "flagdelta1", body="# 含 badword 的报告", flagged=True)
+    store.append_event("flagdelta1", "REPORT_DELTA",
+                       {"text": "含 badword 的增量正文", "offset": 12}, sequence=1)
+    monkeypatch.setattr(api, "store", store)
+
+    with TestClient(api.app).stream("GET", "/api/research/flagdelta1/stream") as response:
+        body = "".join(response.iter_lines())
+    assert "badword" not in body
+    assert "output_under_review" in body
+
+    clean_store = FakeStore()
+    _seed_run(clean_store, "cleandelta1", body="# 正常报告", flagged=False)
+    clean_store.append_event("cleandelta1", "REPORT_DELTA",
+                             {"text": "正常增量", "offset": 4}, sequence=1)
+    monkeypatch.setattr(api, "store", clean_store)
+    with TestClient(api.app).stream("GET", "/api/research/cleandelta1/stream") as response:
+        clean_body = "".join(response.iter_lines())
+    assert "正常增量" in clean_body
+
+
 def test_persist_terminal_writes_moderation_status_atomically():
     store = FakeStore()
     store.create_run("modatom01", "t", {}, status="RUNNING")

@@ -18,6 +18,30 @@ type ReportCardProps = {
   onShare?: () => void
 }
 
+/** 需求 35 R4：正文流式预览卡（报告完成前渐进渲染）。
+ *
+ * 终局到达后由 `ReportCard` 的完整报告**整段替换**（绝不拼接）；
+ * 半截失败由后端发 `REPORT_RESET`，预览清空回到空态。 */
+export function ReportPreviewCard({ preview, stopping }: { preview: string; stopping?: boolean }) {
+  return (
+    <section id="stage-report" className="surface-card overflow-hidden" data-testid="report-preview">
+      <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+        <div>
+          <p className="text-xs font-medium text-stamp-blue">报告</p>
+          <h2 className="mt-1 text-xl font-semibold text-ink">研究报告</h2>
+          <p className="mt-1 text-xs text-ink-muted">
+            正文生成中… · {preview.length.toLocaleString('zh-CN')} 字符
+            {stopping ? '（正在收尾）' : ''}
+          </p>
+        </div>
+      </div>
+      <div className="px-5 py-6 sm:px-8 sm:py-8">
+        <ReportView report={preview} />
+      </div>
+    </section>
+  )
+}
+
 export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, onCopy, onExport, shareEnabled, onShare }: ReportCardProps) {
   return (
     <section id="stage-report" className="surface-card overflow-hidden">

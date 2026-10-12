@@ -4,6 +4,8 @@ export const AGUI_EVENT_TYPES = [
   'STEP_FINISHED',
   'STATE_DELTA',
   'DEGRADATION',
+  'REPORT_DELTA',
+  'REPORT_RESET',
   'RUN_FINISHED',
   'RUN_ERROR',
 ] as const
@@ -112,6 +114,23 @@ export interface DegradationEvent extends AguiEvent {
   reason: string
   detail: string
   fallback_action: string
+}
+
+/** 需求 35 R4（TBD-6 协议）：报告正文增量。
+ *
+ * `offset` = 本轮（上次 `REPORT_RESET` 之后）累计字符数——仅用于连续性诊断；
+ * 预览 = reset 之后所有 delta 的**顺序拼接**。 */
+export interface ReportDeltaEvent extends AguiEvent {
+  type: 'REPORT_DELTA'
+  text: string
+  offset: number
+}
+
+/** 需求 35 R4：清空预览缓冲（流式开始 / 半截失败时发出）。
+ *
+ * 终局正文经 `RUN_FINISHED.result.report` **整段替换**，绝不追加到预览之后。 */
+export interface ReportResetEvent extends AguiEvent {
+  type: 'REPORT_RESET'
 }
 
 export interface CitationResult {

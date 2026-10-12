@@ -13,6 +13,11 @@ from research_engine.agents.planner import research_spec_text  # F14：研究规
 from research_engine.context.manager import ContextManager
 from research_engine.failure_reasons import FailureReason  # W8 Arm 1
 from research_engine.llm.router import get_router
+from research_engine.report_stream import (  # 需求 35 R4：报告流式增量旁路
+    emit_report_delta,
+    emit_report_reset,
+    report_stream_active,
+)
 from research_engine.state import DegradationEntry, DegradationSink, ResearchFinding, SubQuestion
 from research_engine.usage import UsageSinkError
 
@@ -114,7 +119,29 @@ class Writer:
             )
 
         try:
-            report = self.router.smart_chat(system, user, state=state)
+            if report_stream_active():
+                # 需求 35 R4（TBD-6 协议不变式 1）：每次流式开始先 reset（清客户端预览缓冲）
+                # ——重试 / 重跑 / 接管后重放都安全；随后增量经 sink 落 REPORT_DELTA。
+                emit_report_reset()
+                try:
+                    report = self.router.smart_chat_stream(
+                        system, user, state=state, on_delta=emit_report_delta)
+                except UsageSinkError:
+                    raise
+                except Exception as stream_error:  # noqa: BLE001
+                    # TBD-6 ②：半截失败 ⇒ 再发 reset（清预览，绝不拼接到半截文本后），
+                    # 降级非流式重试；重试再失败由外层走兜底报告路径（各自留痕）。
+                    emit_report_reset()
+                    self.degradations._record_degradation(
+                        component="llm",
+                        reason=FailureReason.LLM_ERROR.value,
+                        detail=f"stream failed, retry non-stream: {stream_error}",
+                        fallback_action="non_stream_retry",
+                        node="writer",
+                    )
+                    report = self.router.smart_chat(system, user, state=state)
+            else:
+                report = self.router.smart_chat(system, user, state=state)
         except UsageSinkError:
             # F06：strict 记账失败必须上抛（不得退化为兜底报告）
             raise
