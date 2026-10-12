@@ -1,0 +1,50 @@
+name: Deploy staging
+
+# 需求 35 收口（2026-10-13）：staging 自动部署。
+#
+# 触发链路：
+#   - **CI（dev）绿后自动部署**：workflow_run 链式触发，保证只部署 CI 通过的提交；
+#   - **手动 workflow_dispatch**：补部署 / 验证链路（同一条服务器侧脚本）。
+#
+# 安全口径（登记在 release-runbook.md §3）：
+#   - 部署私钥仅存仓库 Secret `DEPLOY_SSH_KEY`；服务器侧 authorized_keys 以
+#     **forced command** 限定该密钥只能执行 `/opt/deepresearch/tools/deploy.sh`
+#     （no-pty / no-port-forwarding / no-agent-forwarding / no-X11-forwarding / no-user-rc）；
+#   - 服务器 host key 指纹**固定在下方**（防中间人）；
+#   - ⚠️ 权限事实：能合入 dev 即具备 staging 部署能力（CD 的固有性质，勿在 dev 上合并未审代码）。
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - name: 准备 SSH（部署密钥 + 固定 host key）
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cat > ~/.ssh/known_hosts <<'EOF'
+          82.156.88.246 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH/swjFVZi3J6R1fbMORhsRgVLxZbs6pe6XXqibmvKOL
+          EOF
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: 触发服务器部署（forced command：仅允许执行 tools/deploy.sh）
+        run: ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 ubuntu@82.156.88.246 deploy
