@@ -236,6 +236,10 @@ class ResearchState(BaseModel):
     delivery_self_check: Dict[str, Any] = Field(
         default_factory=dict,
         description="E4 交付自检：{checks:[{id,label,checked,violations,samples}],counts:{}}")
+    # 需求 34 E5：证据链分级处置（致命 vs 可修清单化；只分级/标注，不改交付状态）
+    evidence_grading: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="E5 分级处置：{items:[{grade,reason,action,...}],counts:{}}")
 
     # 过程追踪（用于 Web UI 实时展示）—— Q7=A：add reducer，节点只 return 本步新增条目
     progress: Annotated[List[Dict[str, Any]], operator.add] = Field(default_factory=list)

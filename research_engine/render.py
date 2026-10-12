@@ -336,11 +336,36 @@ class ReportRenderer:
                 lines.append(f"  - {str(detail)[:120]}")
         return "\n".join(lines)
 
+    # ---- 证据链分级处置（需求 34 E5：致命 vs 可修清单化；只分级/标注）----
+
+    def build_evidence_grading(self, grading: Optional[Dict[str, Any]]) -> str:
+        """报告尾部：证据链分级处置清单（需求 34 E5 / TBD-7）。
+
+        只标注：不参与 ``run_status`` 判定；「阻断」动作复用 repair R02 的既有删除路径。
+        """
+        counts = dict((grading or {}).get("counts") or {})
+        items = list((grading or {}).get("items") or [])
+        if not counts or not counts.get("total"):
+            return ""
+        by_reason = dict(counts.get("by_reason") or {})
+        reason_text = "、".join(f"`{reason}` ×{amount}" for reason, amount in by_reason.items())
+        lines = ["\n\n---\n## 🧮 证据链分级处置（只标注）",
+                 f"- **致命**：{counts.get('fatal', 0)} 条 · **可修**：{counts.get('repairable', 0)} 条（合计 {counts.get('total', 0)}）",
+                 f"- 分布：{reason_text}"]
+        for item in items[:5]:
+            grade = "致命" if item.get("grade") == "fatal" else "可修"
+            target = item.get("finding_id") or item.get("source") or ""
+            detail = item.get("snippet") or ""
+            suffix = f"（{detail}）" if detail else ""
+            lines.append(f"  - [{grade}] `{item.get('reason')}` {target}：{item.get('action')}{suffix}")
+        return "\n".join(lines)
+
     # ---- 主入口 ----
 
     def render(self, report: str, citations: List[Citation],
                findings: List[ResearchFinding], state: Any, *,
-               delivery_self_check: Optional[Dict[str, Any]] = None) -> str:
+               delivery_self_check: Optional[Dict[str, Any]] = None,
+               evidence_grading: Optional[Dict[str, Any]] = None) -> str:
         """渲染 report_display：正文标注 → 可信声明 → 失败附录 → 运行溯源。
 
         任何异常直接返回原 report（降级，不阻断主流程）。
@@ -351,6 +376,7 @@ class ReportRenderer:
             display += self.build_failed_appendix(citations)
             display += self.build_planner_governance(state)
             display += self.build_delivery_self_check(delivery_self_check)
+            display += self.build_evidence_grading(evidence_grading)
             display += self.build_run_provenance(state)
             # 检索健康告警**置顶**：降级明细默认折叠在 UI 里，不置顶等于没有告警
             warning = self.build_retrieval_warning(state)

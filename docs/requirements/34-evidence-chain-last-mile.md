@@ -282,7 +282,8 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
       校验器代码复核「引文可定位」（`quote_locate.py`：L0 精确 → L1 空白折叠 → L2 标点归一；未命中 ⇒ `not_found` 进 E5，不判引用错误）
 - [x] E4：✅ **已交付（2026-10-11）** —— `delivery_self_check` 零模型三项（引文可定位 / 落在被删降格段落 / 版本号断言缺来源）；
       输出入 `report_display` 附录（`render.build_delivery_self_check`；只标注、不写 `degradation_log`）；repair 回写区间明细（`removed_spans` / `downgraded_spans`）
-- [ ] E5：分级处置落地（致命 vs 可修清单化；`unknown_source_id` 阻断、其余降格不删除）
+- [x] E5：✅ **已交付（2026-10-11）** —— 分级处置清单化（`evidence_grading.py`：致命/可修 + 明确动作；`unknown_source_id` 阻断复用 R02、其余降格标注不删除）；
+      输出入 `report_display` 附录；红线锁定：UNKNOWN/快照缺失/offset 过期不判事实错误、不新增 FailureReason 枚举
 - [ ] 测试（**口径已按 §5.0 A2 改为确定性断言，不再要求 eval 配对**）：
       - [ ] 单测（离线）：抓取 mock（成功 / 超时 / 非 HTML / 超限 / 3xx / robots 拒绝 / 重试）、三级规范化匹配、
             自检三项（含误报锁）、分级判定
@@ -351,3 +352,4 @@ finding 引用 snapshot_id → 按 claim 在快照中检索窗口（find_in_sour
 | 2026-10-11 | 实现 | E3 `find_in_source` 定位内核交付 | 新增 `research_engine/find_in_source.py`（轻量关键词抽取：中文 2-gram + 英文词 + 停用词；滑窗 800/步长 100；覆盖率打分 Top-3；非重叠选择 + 预算闸）；`snapshots.load_snapshot_text`（run 级缓存读）+ PG `load_snapshot`；validator 接入：超预算证据优先按 claim 快照窗口喂裁判（`EVIDENCE_WINDOW_MARK`），不可得回落既有头尾截断（口径不变）；stats 新增 `evidence_windowed_count`（喂料形态与 origin 健康度独立计数，partial 不被掩盖）；单测 14 条 + 既有证据/校验测试全绿 + 全量套件 0 失败 | 本文档 |
 | 2026-10-11 | 实现 | E2 逐字引文 + offset 交付 | `Citation` 增 6 字段（`quote`/`char_start`/`char_end`/`snapshot_id`/`quote_status`/`match_level`）；新增 `research_engine/quote_locate.py`（两段式第二段：折叠视图句选 + L0→L1→L2 定位回原文，存**原文切片** + 偏移；多命中按窗口 hint 就近消歧）；validator `_attach_quotes`（含 origin 链；not_found 也记录被检快照；无快照引用字段留空）；stats 增 `quote_located_count` / `quote_not_found_count`；单测 15 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-11 | 实现 | E4 交付自检交付 | 新增 `research_engine/self_check.py`（三项：`quote_locatable`=偏移切片复核 + L0~L2 兜底；`quote_in_dropped_span`=与最终报告占位区交集、失败引用计 info 不误报；`version_claim_has_source`=三类版本断言句须带引用标记）；`repair.py` 回写 `removed_spans`/`downgraded_spans`（修改前坐标；repair_log 同步）；graph `_render` 计算并入 `state.delivery_self_check` + `report_display` 附录（照 `build_planner_governance` 模式）；只标注不改交付状态、不写 `degradation_log`（N5）；单测 11 条 + 全量套件 0 失败 | 本文档 |
+| 2026-10-11 | 实现 | E5 分级处置交付 | 新增 `research_engine/evidence_grading.py`（清单化：`unknown_source_id`=致命·阻断（复用 R02 删除）；`quote_not_found`+快照在=致命·降格标注不删除；`snapshot_missing`/`quote_stale`/裸 URL 未引用=可修·标注；其余快照状态登记）；graph `_render` 计算并入 `state.evidence_grading` + `report_display` 附录；红线①（UNKNOWN/缺失/过期不判事实错误）与红线②（不新增 FailureReason 枚举；arm1/arm3 硬断言不动）单测锁定；单测 10 条 + 全量套件 0 失败 | 本文档 |
