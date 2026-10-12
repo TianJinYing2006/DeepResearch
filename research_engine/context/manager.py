@@ -9,6 +9,7 @@ from typing import Any, List
 
 from config import config
 from research_engine.budget import CallAdmissionDenied, admit_call, budget_remaining
+from research_engine.evidence import evidence_group_key  # 需求 35 R1：版本化身份分组键
 from research_engine.llm.router import get_router
 from research_engine.state import ResearchFinding, SubQuestion
 from research_engine.usage import UsageSinkError
@@ -41,16 +42,21 @@ class ContextManager:
                 and total_chars <= config.research.compress_trigger_chars):
             return findings
 
-        # 审计 P1#3：按 (来源, 子问题) 分组压缩 —— 同一文件下不同子问题的材料
-        # 不得混合（否则摘要跨子问题串接属性，并被错误归因到首个 sq_id）
+        # 审计 P1#3：按（版本化）身份 + 子问题分组压缩 —— 同一文件下不同子问题的材料
+        # 不得混合（否则摘要跨子问题串接属性，并被错误归因到首个 sq_id）；
+        # 需求 35 R1/TBD-2：分组键改 evidence_group_key —— rag 用
+        # (doc_id, generation, sq_id)，同名不同文档/不同版本不再混编。
         by_group: dict = {}
         for f in findings:
-            by_group.setdefault((f.source, f.sq_id), []).append(f)
+            by_group.setdefault(evidence_group_key(f), []).append(f)
 
         compressed: List[ResearchFinding] = []
         router = get_router()
         max_groups = int(getattr(config.research, "compress_max_groups", 0) or 0)
-        for index, ((source, group_sq_id), group) in enumerate(by_group.items()):
+        for index, (group_key, group) in enumerate(by_group.items()):
+            # 展示名不承担身份职责（R1）：提示词/来源字段仍用首条的 source
+            source = group[0].source
+            group_sq_id = group[0].sq_id
             if max_groups > 0 and index >= max_groups:
                 # F13：组数上限之外保持原文 —— 单节点 LLM 调用数有界
                 compressed.extend(group)
