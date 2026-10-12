@@ -42,7 +42,8 @@ class ReportGraph:
         self.delay = delay
         self.report = report
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         state = ResearchState(topic=topic)
         for i in range(self.steps):
             time.sleep(self.delay)
@@ -67,7 +68,8 @@ class ReportGraph:
 class StuckGraph:
     """节点内部挂死：完全不理会 `should_cancel`（模拟一次 HTTP 调用卡住）。"""
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         state = ResearchState(topic=topic)
         state.progress.append({"stage": "n0", "msg": "m"})
         yield RunStep(index=0, node="n0", state=state, duration_ms=1)
@@ -80,7 +82,8 @@ class StuckGraph:
 class LateCompletionGraph:
     """忽略 `should_cancel`：节点跑过协作式时限后仍**正常完成**（完成与超时同时发生）。"""
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         state = ResearchState(topic=topic)
         state.progress.append({"stage": "n0", "msg": "m"})
         yield RunStep(index=0, node="n0", state=state, duration_ms=1)
@@ -94,7 +97,8 @@ class LateCompletionGraph:
 class ErrorGraph:
     """终局走 STOP_ERROR（图内结构化异常路径），state.error 已按 W8 口径写入。"""
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         state = ResearchState(topic=topic)
         state.progress.append({"stage": "n0", "msg": "m"})
         yield RunStep(index=0, node="n0", state=state, duration_ms=1)
@@ -348,7 +352,8 @@ def test_slot_is_released_after_cancel():
 def test_slot_is_released_after_runner_crash():
     """工作线程崩溃也必须释放并发位（异常不得把槽带走）。"""
     class Boom:
-        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
             raise RuntimeError("boom")
 
     mgr = RunManager(graph_factory=Boom, max_concurrent_runs=1)
@@ -376,7 +381,8 @@ def test_worker_thread_is_released_after_all_terminal_paths():
     assert _wait_thread_gone(rid2), "取消路径必须释放线程"
 
     class Boom:
-        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
             raise RuntimeError("boom")
 
     mgr3 = RunManager(graph_factory=Boom)
@@ -512,7 +518,8 @@ def test_http_errors_are_structured_not_bare_strings(monkeypatch):
 
 def test_runner_crash_payload_is_structured():
     class Boom:
-        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
             raise RuntimeError("boom")
 
     mgr = RunManager(graph_factory=Boom)

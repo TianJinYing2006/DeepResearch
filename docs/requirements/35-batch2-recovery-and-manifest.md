@@ -157,16 +157,22 @@
       **两验收层**：完整性可校验（长期）/ 原文可取得（`retrieval.mode`：snapshot / rag_generation /
       via_origins / content_hash_only）；终局**同事务**落 `run_artifacts`（kind=`evidence_manifest`）
       + 并入导出（`export_json.result.evidence_manifest`）
-- [ ] R3：PG checkpoint 落盘 + Worker 接管续跑（checkpoint 存在且版本兼容）；**执行模式落库
-      （`resumed`/`replayed`）**；**账本对账**：含「节点已调用 LLM、未完成即 kill → 恢复后
-      预算不低估、终局成本同口径」场景；无 checkpoint/版本不兼容 ⇒ 显式 `replayed`（不算恢复）
+- [x] R3：✅ **已交付（2026-10-13）** —— `langgraph-checkpoint-postgres`（`thread_id=run_id`；
+      **库自管 schema**，Worker 首启幂等建表）+ 执行模式解析 `fresh`/`resumed`/`replayed`
+      （checkpoint 版本比对；无 checkpoint/版本不兼容 ⇒ 显式降级含 `reason`）落 `RUN_STARTED`
+      + 终局 payload；**账本对账**：`usage_ledger` 为累计事实源——`resumed` 经 `update_state`
+      注入、终局 `max(state, 账本)` 口径（**预算不低估**，`replayed` 重跑路径同样同口径）；
+      checkpoint 不可用 fail-silent 回落 MemorySaver；**kill→接管→续跑演练**（真 PG + 真 saver：
+      resumed 不重放已完成节点/终局 120 不低估；replayed 显式标注/终局 130 同口径）；
+      单测 8 + PG 契约 2 + 演练 2；运维语义见 `release-runbook.md` §7.2
 - [ ] R4：Writer 流式（`chat_stream` + SSE `report_delta` + 前端）；**增量持久化粒度 +
       `report_reset` 失败协议**；断线重连 + 半截失败测试；失败降级不产生半截拼接
 - [ ] R5：档位耗时 p50/p90 报告（结论 = 是否值得并行实验；quick 补测如实标注）+
       对照实验方案与 Send 决策记录
-- [ ] 测试：单测（身份/去重/分组/manifest 结构/checkpoint 往返）+ 真 PG 契约（manifest 写入、
-      checkpoint 表）+ 全量套件绿 + 恢复演练（kill → 接管 → 续跑，本地 compose；
-      **resumed 与 replayed 两路径分别断言**）
+- [x] 测试：单测（身份/去重/分组/manifest 结构/checkpoint 往返）+ 真 PG 契约（manifest 写入、
+      checkpoint 表）+ 全量套件绿 + 恢复演练（kill → 接管 → 续跑；
+      **resumed 与 replayed 两路径分别断言**）✅ R1/R2/R3 交付即验证；演练见
+      `tests/test_resume_drill_pg.py`（真 PG + 真 saver；CI infra lane）
 - [ ] 文档：需求 27 §12.2/§12.4/§12.10 状态回填；口径断点登记（若动输出面）；
       README/运维文档同步（落地才写）
 
@@ -217,3 +223,4 @@
 | 2026-10-12 | 拍板 | TBD-0~7 逐项拍板（主理人） | **全部按 v2 推荐**：①不采全量 before 基线 + RAG 回归夹具；②rag 身份 `sha256(scope|doc_id|chunk_id)`（不含哈希）+ metadata 存 generation；③分组键 `(doc_id, generation, sq_id)`；④manifest 落 `run_artifacts`（有序工作清单 + 两验收层 + RAG 保留窗口）；⑤账本为事实源 + 只做从节点恢复 + resumed/replayed 落库；⑥官方 checkpoint-postgres；⑦流式并入本批（delta 粒度 + `report_reset`）；⑧R5=是否值得并行实验 | 本文档 |
 | 2026-10-12 | 实现 | R1 来源身份分组交付 | `evidence.py` 增 `compute_finding_evidence_id`（rag=版本化位置 `sha256(scope|doc_id|chunk_id)`，**不含 content_hash**；web/arxiv/legacy 保持内容寻址）+ `evidence_group_key`（rag=`(doc_id, generation, sq_id)`）+ `rag_chunk_generation`（格式锁）；`researcher.py` RAG metadata 增 `generation`；`context/manager.py` 压缩分组改身份键（同名不同文档不混编）；回归夹具 10 条 + 全量套件 0 失败 | 本文档 |
 | 2026-10-12 | 实现 | R2 evidence manifest 交付 | 新增 `research_engine/evidence_manifest.py`（有序工作清单 + 引用 span + 修复记录 + 规格版本；retrieval 模式解析含 **via_origins**——压缩证据沿 origin 链；`manifest_version=1`）；`persistence.persist_terminal` 增 `evidence_manifest` 参数（终局**同事务**写产物 + 并入导出 result 副本；run_events payload 不重复携带）；runner/worker 终局路径构建并传入；单测 7 条 + 全量套件 0 失败 | 本文档 |
+| 2026-10-13 | 实现 | R3 跨进程恢复交付 | 依赖：`langgraph-checkpoint-postgres`（`>=3.1,<4`；lock 外科式 `==3.1.2`）；`web/backend/checkpoint.py`（进程级单例 + 幂等 `setup()` + fail-silent + atexit 关池）；`state.py` 增 `CHECKPOINT_SCHEMA_VERSION=1`；`graph.py` checkpointer 可注入 + `iter_run(resume=)`（`stream(None)` + 跳过恢复首帧）；`worker.py` `resolve_execution_mode`（fresh/resumed/replayed + 版本比对 + 账本注入）+ 终局 `max(state, 账本)` 对账 + `RUN_STARTED`/终局 payload 留痕；单测 8 + PG 契约 2 + **演练 2**（kill→接管→续跑双路径）；全量套件 0 失败；运维语义 `release-runbook.md` §7.2 | 本文档 |

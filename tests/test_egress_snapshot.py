@@ -15,7 +15,8 @@ from web.backend.runner import RunManager
 
 
 class _OneStepGraph:
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         from research_engine.state import ResearchState
         from research_engine.streaming import STOP_COMPLETED, RunStep
         state = ResearchState(topic=topic)

@@ -205,7 +205,8 @@ class _ScopeProbeGraph:
     def __init__(self):
         self.seen: list[str | None] = []
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         self.seen.append(current_scope().user_id)
         state = ResearchState(topic=topic)
         state.report = "# r"

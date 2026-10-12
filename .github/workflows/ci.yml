@@ -123,7 +123,7 @@ jobs:
           DR_TEST_DATABASE_URL: postgresql://deepresearch:deepresearch-local@127.0.0.1:5432/deepresearch
           DR_TEST_REDIS_URL: redis://127.0.0.1:6379/0
           OTEL_SDK_DISABLED: "true"
-        run: pytest tests/test_run_store.py tests/test_worker_integration.py tests/test_retention.py tests/test_pg_pool.py tests/test_notify.py tests/test_alert_delivery.py tests/test_appeals.py tests/test_snapshot_store_pg.py -q
+        run: pytest tests/test_run_store.py tests/test_worker_integration.py tests/test_retention.py tests/test_pg_pool.py tests/test_notify.py tests/test_alert_delivery.py tests/test_appeals.py tests/test_snapshot_store_pg.py tests/test_checkpoint_pg.py tests/test_resume_drill_pg.py -q
 
       # P8-A 恢复演练：真实脚本「备份（校验可读）→ 清库 → 恢复」；用种子数据与结构断言双向验证。
       # 没有恢复演练就不算有备份（上线清单 §3.8）。

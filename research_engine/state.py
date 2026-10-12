@@ -21,6 +21,10 @@ RUN_STATUS_DEGRADED = "degraded"  # 走过 fallback 但最终产出了报告
 RUN_STATUS_FAILED = "failed"  # 无报告产出（含 run() 层捕获到异常）
 RUN_STATUSES = (RUN_STATUS_SUCCESS, RUN_STATUS_DEGRADED, RUN_STATUS_FAILED)
 
+#: 需求 35 R3（TBD-5）：checkpoint 状态模式版本——恢复时与 checkpoint 内值比对，
+#: 不一致 ⇒ 显式 `replayed`（不冒充恢复）。状态字段增删改时递增。
+CHECKPOINT_SCHEMA_VERSION = 1
+
 
 @dataclass
 class DegradationEntry:
@@ -164,6 +168,8 @@ class ResearchState(BaseModel):
     # 输入
     topic: str = Field(description="研究主题")
     user_instructions: str = Field(default="", description="用户附加要求")
+    # 需求 35 R3（TBD-5）：checkpoint 状态模式版本（恢复兼容性比对；见 CHECKPOINT_SCHEMA_VERSION）
+    checkpoint_schema_version: int = Field(default=CHECKPOINT_SCHEMA_VERSION)
 
     # ---- F14（审计）：研究规格与计划身份 ----
     research_spec: Dict[str, Any] = Field(

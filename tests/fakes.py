@@ -28,7 +28,8 @@ class TinyGraph:
         self.report = report
         self.token_per_step = token_per_step
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         state = ResearchState(topic=topic)
         for i in range(self.steps):
             time.sleep(self.delay)
@@ -48,7 +49,8 @@ class TinyGraph:
 class BoomGraph:
     """第一步就抛异常：验证 Worker 的 crash 兜底。"""
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         raise RuntimeError("boom")
         yield  # pragma: no cover —— 生成器语法占位
 
@@ -1517,6 +1519,17 @@ class FakeStore:
     def list_usage(self, *, run_id=None, limit=200):
         rows = [row for row in self.usage if run_id is None or row["run_id"] == run_id]
         return [dict(row) for row in rows[::-1][:limit]]
+
+    def sum_llm_tokens(self, run_id):
+        """需求 35 R3：账本汇总（与 RunStore.sum_llm_tokens 同口径）。"""
+        total = 0
+        for row in self.usage:
+            if row.get("run_id") != run_id or row.get("kind") != "llm":
+                continue
+            total += max(int(row.get("total_tokens", 0) or 0),
+                         int(row.get("input_tokens", 0) or 0)
+                         + int(row.get("output_tokens", 0) or 0))
+        return total
 
     def usage_summary(self, *, run_id=None, since=None):
         rows = [row for row in self.usage

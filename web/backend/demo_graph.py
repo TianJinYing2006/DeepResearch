@@ -46,6 +46,8 @@ class DemoGraph:
         user_instructions: str = "",
         thread_id: Optional[str] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
+        *,
+        resume: bool = False,  # 需求 35 R3：Worker 统一传参；演示图不支持恢复，忽略
     ) -> Iterator[RunStep]:
         state = ResearchState(topic=topic, user_instructions=user_instructions)
         for i, (node, msg) in enumerate(DEMO_NODES):

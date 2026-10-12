@@ -251,6 +251,10 @@
   locator、claim span、修复前后记录、规格版本）；快照遵循用户隔离与保留期，不必全部内嵌
   到 SSE 或用户下载文件。
 - **前置/依赖**：12.4。
+- **✅ 已交付（需求 35 R2，2026-10-12；PR #205）**：`research_engine/evidence_manifest.py`
+  （`manifest_version=1`）——有序工作清单（N → 稳定 ID/origin IDs/正文快照引用/文档版本/locator/
+  claim span/修复前后/规格版本）+ 两验收层（完整性可校验 / 原文可取得：`snapshot` / `rag_generation` /
+  `via_origins` / `content_hash_only`）；终局同事务落 `run_artifacts`（kind=`evidence_manifest`）并并入导出。
 
 ### 12.3 R08 · 独立裁判与主链路解耦（P2）
 
@@ -269,6 +273,10 @@
 - **目标**：正文 blob 的内容 hash 与证据**出现位置**分离（blob 可复用，证据身份 =
   用户作用域 + doc_id/版本 + chunk_id/span）；同一片段可有多个 provenance；来源展示名
   不承担身份职责。
+- **✅ 已交付（需求 35 R1，2026-10-12；PR #204）**：rag 证据身份 =
+  `sha256(scope|doc_id|chunk_id)`（**不含内容哈希**，版本化位置）；`generation` 落元数据；
+  压缩分组键 `(doc_id, generation, sq_id)`（同名不同文档不混编）；web/arxiv/legacy 保持内容寻址；
+  回归夹具 `tests/test_evidence_identity.py` 10 条。
 
 ### 12.5 R10-PG · 真实 PostgreSQL 并发注入验收（P1 收尾）
 
@@ -320,6 +328,11 @@
   接管是**重跑**，不是节点继续执行。
 - **目标**：持久化 checkpoint（含版本）；先明确外部调用幂等、预算累计与 evidence manifest
   版本，再区分「SSE 回放 / 重新执行 / 从节点恢复」三种语义。
+- **✅ 已交付（需求 35 R3，2026-10-13；PR #206）**：`langgraph-checkpoint-postgres`
+  （`thread_id=run_id`；库自管 schema，Worker 首启幂等建表）+ `fresh/resumed/replayed`
+  三语义显式落库（含降级 `reason`）+ 账本对账（`usage_ledger` 为累计事实源，终局
+  `max(state, 账本)` 口径防低估）+ kill→接管→续跑演练（真 PG 双路径断言）；三语义与对账规则
+  见 `release-runbook.md` §7.2。
 
 ### 12.11 能力 7 · 新基线评测与复杂 Agent
 
@@ -337,3 +350,5 @@
 | 2026-10-07 | 同步 | 飞书镜像闭环 | 飞书「需求设计文档：Agent 审计整改」（`DuTTdoYcgoQI3SxQt0wcWFSMnJe`）已**原位同步**：状态置「已合」、元信息状态格更新、变更记录补「合并 / 后续清单」两行、文末追加 §12 全文（11 项含设计背景）；文件夹内 `Wb3YdpvIoo5J4pxJfgFcCxgwnbc` 为指向占位（导入接口把正文文档建在个人空间；应用缺 `docx:document.block:convert` 权限无法整档覆盖，待客户端手动整理文件位置） | 本文档 |
 | 2026-10-07 | 合并 | P1 整改交付 | PR #141 CI 6/6 绿后 squash 合入 dev（`2e1eb82`）；需求 27 状态置「已合」 | PR #141 / `2e1eb82` |
 | 2026-10-07 | 文档 | 后续批次清单 | 新增 §12：R06–R09、R10-PG 验收、长证据窗口、外部账本与能力 4–7，共 11 项，逐条记录设计背景与目标 | PR #142 |
+| 2026-10-11 | 实现 | 批次 1 回填（需求 34 E1~E5） | §12.6（F07-P2 长证据窗口）与 §12.8（能力 4 search→read→extract）置 ✅ 已交付：`find_in_source` 窗口喂裁判 + 逐字引文 + 分级处置；web 正文实抓 + 快照落盘 | PR #194/#196/#197/#199 |
+| 2026-10-13 | 文档 | 批次 2 回填（需求 35 R1/R2/R3） | §12.4（R09 文档身份）置 ✅（R1：`sha256(scope\|doc_id\|chunk_id)` 不含哈希 + 分组身份键）；§12.2（R07 manifest）置 ✅（R2：`evidence_manifest.py` + 两验收层 + 同事务落库）；§12.10（能力 6 跨进程恢复）置 ✅（R3：PG checkpoint + 三语义落库 + 账本对账 + 双路径演练） | PR #204/#205/#206 |

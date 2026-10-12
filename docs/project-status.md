@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-13（批次 2 R3 交付）**：跨进程恢复（PR #206）：`langgraph-checkpoint-postgres`（`thread_id=run_id`；**库自管 schema**，Worker 首启幂等建表）+ 执行模式 `fresh`/`resumed`/`replayed` 解析落库（checkpoint 版本比对；无 checkpoint/版本不兼容 ⇒ 显式降级含 `reason`；fail-silent 回落 MemorySaver）+ **账本对账**（`usage_ledger` 为累计事实源：resumed 注入 + 终局 `max(state, 账本)` 口径，**预算不低估**；replayed 重跑同口径）+ **kill→接管→续跑演练**（真 PG + 真 saver：resumed 不重放已完成节点/终局 120；replayed 显式标注/终局 130）；单测 8 + PG 契约 2 + 演练 2 + 全量套件 0 失败；运维语义见 `release-runbook.md` §7.2。**下一步：R4（报告流式）/ R5（档位耗时标定）**。 |
 | 更新 | **2026-10-12（批次 2 R2 交付）**：evidence manifest（PR #205）：`manifest_version=1` **有序工作清单**（N ↔ 稳定 ID/origin/hash/来源身份）+ 引用 claim span + 修复前后 + 规格版本；**原文可取得性模式**（snapshot / rag_generation / **via_origins**（压缩证据沿 origin 链）/ content_hash_only）；终局**同事务**落 `run_artifacts`（kind=`evidence_manifest`）+ 并入 `export_json`；单测 7 条 + 全量套件 0 失败。**下一步：R3（跨进程恢复）**。 |
 | 更新 | **2026-10-12（批次 2 拍板 + R1 交付）**：TBD-0~7 全部拍板（按 v2 推荐；不采全量 before 基线 + RAG 回归夹具护栏）；**R1 来源身份分组交付**（PR #204）：`compute_finding_evidence_id`（rag=`sha256(scope|doc_id|chunk_id)` **不含哈希**；web/arxiv/legacy 保持内容寻址）+ `generation` 落元数据 + 压缩分组 `(doc_id, generation, sq_id)`（同名不同文档不混编）+ 回归夹具 10 条；全量套件 0 失败。**下一步：R2（evidence manifest）**。 |
 | 更新 | **2026-10-12（批次 2 立项）**：需求 35「恢复与清单」（12.4 来源身份分组 / E7 evidence manifest / E6 跨进程恢复 + 体验①②）草稿入库（`docs/requirements/35-batch2-recovery-and-manifest.md`）+ Issue #201；**TBD-0~7 待主理人逐项拍板**（TBD-0 建议不采 before 基线：12.4 仅影响 RAG 路径、评测路径无 KB；E7/E6/体验不改输出面）；飞书镜像已建（`C5afdrWMGoqhlux1FFUcsCyDntb`）。 |

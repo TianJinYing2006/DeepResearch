@@ -196,6 +196,29 @@ curl --ssl-revoke-best-effort -fsS https://<公网IP>/api/health/ready
 - 域名 302 到 `dnspod.qcloud.com/static/webblock.html` 或 TLS 被 reset：域名未备案（大陆云拦截）；
 - caddy `unhealthy`：`docker compose logs caddy`；healthcheck 探的是容器内 admin API `:2019`。
 
+### 7.2 跨进程恢复（需求 35 R3：resumed / replayed / fresh）
+
+**三语义（勿混用）**
+
+| 语义 | 触发 | 行为 | 计费 |
+|---|---|---|---|
+| SSE 回放 | 客户端带 `Last-Event-ID` 重连 | 从 `run_events` 按 sequence 补发（不重跑、不重算） | 不计 |
+| 从节点恢复（`resumed`） | Worker 接管时 checkpoint 存在且版本兼容 | 从最后完成节点续跑；预算按 `usage_ledger` 汇总对账后注入 | 续跑新增调用如实累计 |
+| 降级重跑（`replayed`） | checkpoint 缺失 / 版本不兼容 | **从头重跑**（不算恢复成功，如实标注） | 全部调用重复累计（账本含 attempt） |
+| 首跑（`fresh`） | attempt=1 且无 checkpoint | 正常执行 | 正常 |
+
+- **幂等边界 = 节点边界**：恢复后未完成节点会**重执行**（LLM 调用不可幂等）——重复调用如实记账；
+- **checkpoint 存储**：`langgraph-checkpoint-postgres`（`thread_id=run_id`；库自管 schema——`checkpoints` /
+  `checkpoint_blobs` / `checkpoint_writes`，Worker 首启幂等建表；**不入本项目 `migrations/`**）；
+- **预算对账规则（TBD-4）**：`usage_ledger` 为累计费用事实源——恢复时若账本汇总 > checkpoint 内
+  `token_used`（存在未完成节点的调用），以账本口径注入 state，**恢复路径预算不低估**；
+- **兼容策略**：`ResearchState.checkpoint_schema_version` 与 `CHECKPOINT_SCHEMA_VERSION` 比对，不一致 ⇒ `replayed`；
+- **执行模式留痕**：`RUN_STARTED` 事件与终局 payload 均含 `execution_mode` / `budget_reconciliation`（可审计）；
+- **降级口径**：PG checkpoint 不可用（未配置 / 连接失败）⇒ Worker 回落 MemorySaver，模式退化为
+  `fresh` / `replayed`，**不阻塞主链路**；
+- **演练**：kill worker → 租约清扫接管 → 断言 `resumed` 续跑（无重复已完成节点、预算不低估）；
+  删 checkpoint / 改版本号 ⇒ 断言 `replayed` 显式标注（`reason=no_checkpoint` / `version_incompatible`）。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

@@ -31,7 +31,8 @@ class _OneStepGraph:
     是否在 sys.path，CI 上易碎；本文件只需一个「能启动」的 graph，内联最稳。
     """
 
-    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None):
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
         from research_engine.streaming import STOP_COMPLETED, RunStep
         state = ResearchState(topic=topic)
         yield RunStep(index=0, node=None, state=state,

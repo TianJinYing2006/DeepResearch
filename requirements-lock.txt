@@ -114,7 +114,10 @@ langgraph==1.2.11
 langgraph-checkpoint==4.2.0
     # via
     #   langgraph
+    #   langgraph-checkpoint-postgres
     #   langgraph-prebuilt
+langgraph-checkpoint-postgres==3.1.2
+    # via -r requirements.txt
 langgraph-prebuilt==1.1.0
     # via langgraph
 langgraph-sdk==0.4.4
@@ -207,11 +210,15 @@ protobuf==7.36.1
     #   opentelemetry-proto
     #   qdrant-client
 psycopg==3.3.6
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   langgraph-checkpoint-postgres
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via psycopg
 psycopg-pool==3.3.3
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   langgraph-checkpoint-postgres
 pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
 pydantic==2.13.5
