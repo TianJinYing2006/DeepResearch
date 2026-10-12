@@ -15,7 +15,7 @@ import hashlib
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterator, Optional, Protocol
 
 from config import config
@@ -34,6 +34,10 @@ class SnapshotStore(Protocol):
         """落盘一份快照并关联 run；返回内容寻址 id（sha256 hex）。"""
         ...  # pragma: no cover
 
+    def load_snapshot(self, sha256: str) -> Optional[str]:
+        """读快照正文（E3 窗口喂裁判用）；不存在/失败返回 None。"""
+        ...  # pragma: no cover
+
 
 def snapshot_id_for(text: str, extractor_version: str) -> str:
     """内容寻址 id（版本进哈希；见模块 docstring）。"""
@@ -49,6 +53,8 @@ class FetchContext:
     run_id: Optional[str]
     budget: FetchBudget
     fetcher: WebFetcher
+    #: E3：快照正文读缓存（sha256 → text|None；run 生命周期内有效）
+    snapshot_cache: dict = field(default_factory=dict)
 
     @classmethod
     def create(cls, *, store: Optional[SnapshotStore] = None,
@@ -104,3 +110,24 @@ def use_fetch_context(ctx: FetchContext) -> Iterator[None]:
         yield
     finally:
         _ctx.reset(token)
+
+
+def load_snapshot_text(snapshot_id: str) -> Optional[str]:
+    """读快照正文（需求 34 E3 窗口喂裁判用）。
+
+    - 无上下文 / 无 store（CLI）⇒ None（调用方回落头尾截断）；
+    - per-run 缓存（``FetchContext.snapshot_cache``）：同一快照只读一次；
+    - 读取失败静默降级（不写降级日志，N5 口径），缓存 None 防重复尝试。
+    """
+    ctx = _ctx.get()
+    if ctx is None or ctx.store is None or not snapshot_id:
+        return None
+    if snapshot_id in ctx.snapshot_cache:
+        return ctx.snapshot_cache[snapshot_id]
+    text: Optional[str] = None
+    try:
+        text = ctx.store.load_snapshot(snapshot_id)
+    except Exception as exc:  # noqa: BLE001 —— 读侧降级，不阻塞校验
+        _log.warning("快照读取失败（降级）：%s", exc)
+    ctx.snapshot_cache[snapshot_id] = text
+    return text

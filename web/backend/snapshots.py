@@ -40,3 +40,10 @@ class PgSnapshotStore:
                 (run_id, sha),
             )
         return sha
+
+    def load_snapshot(self, sha256: str) -> str | None:
+        """读快照正文（E3 窗口喂裁判用）；不存在返回 None。"""
+        with self._store._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT text FROM snapshots WHERE sha256 = %s", (sha256,))
+            row = cur.fetchone()
+        return row["text"] if row else None
