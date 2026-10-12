@@ -34,6 +34,7 @@ from research_engine.agents.writer import Writer
 from research_engine.context.manager import ContextManager
 from research_engine.critic import Critic, route_critic
 from research_engine.evidence import dedupe_new_findings, ensure_evidence_identity  # F08/F10
+from research_engine.evidence_grading import grade_evidence_chain  # 需求 34 E5：分级处置
 from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
 from research_engine.observability import (  # 需求 33：OTel 原生可观测层（W3 接入的迁移）
@@ -489,15 +490,20 @@ class DeepResearchGraph:
         # 类型标注 + 失败 ⚠️ + 可信声明（双口径）+ 失败附录 + 运行溯源。
         # 展示层增强写 report_display，不回流 report（Writer 纯编号协议保持字节级不变）。
         # 需求 34 E4：交付自检（零模型三项）——只标注，不改交付状态、不写降级日志。
+        # 需求 34 E5：证据链分级处置（致命 vs 可修清单化）——只分级/标注。
         with span_node("渲染", node="render"):
             self_check = run_delivery_self_check(state.report, state.citations)
+            grading = grade_evidence_chain(
+                state.citations, state.working_findings or state.findings, state.report)
             # F08：类型标注的编号基准与 Writer/Validator 一致（工作摘要层）
             display = self.renderer.render(state.report, state.citations,
                                            state.working_findings or state.findings, state,
-                                           delivery_self_check=self_check)
+                                           delivery_self_check=self_check,
+                                           evidence_grading=grading)
         return {
             "report_display": display,
             "delivery_self_check": self_check,
+            "evidence_grading": grading,
             "status": "done",
             # W8 Arm 1：与 _validate 同源判定（幂等，两次结果一致）
             "run_status": state.resolve_run_status(has_report=bool(state.report)),
