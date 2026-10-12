@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-12（批次 2 拍板 + R1 交付）**：TBD-0~7 全部拍板（按 v2 推荐；不采全量 before 基线 + RAG 回归夹具护栏）；**R1 来源身份分组交付**（PR #204）：`compute_finding_evidence_id`（rag=`sha256(scope|doc_id|chunk_id)` **不含哈希**；web/arxiv/legacy 保持内容寻址）+ `generation` 落元数据 + 压缩分组 `(doc_id, generation, sq_id)`（同名不同文档不混编）+ 回归夹具 10 条；全量套件 0 失败。**下一步：R2（evidence manifest）**。 |
 | 更新 | **2026-10-12（批次 2 立项）**：需求 35「恢复与清单」（12.4 来源身份分组 / E7 evidence manifest / E6 跨进程恢复 + 体验①②）草稿入库（`docs/requirements/35-batch2-recovery-and-manifest.md`）+ Issue #201；**TBD-0~7 待主理人逐项拍板**（TBD-0 建议不采 before 基线：12.4 仅影响 RAG 路径、评测路径无 KB；E7/E6/体验不改输出面）；飞书镜像已建（`C5afdrWMGoqhlux1FFUcsCyDntb`）。 |
 | 更新 | **2026-10-12（批次 1 收口完成 ⇒ 需求 34 已合）**：真实冒烟全断言通过（run `smoke-20261012191906-2cd619`：19 引用 / 8 located 全部 L0~L2 离线复算 / 0 无标记 / 快照 3 份内容寻址 / 预算 15/15·2.2MB·54.8s / 自检三项 0 违例 / 分级 9 可修 0 致命）；端到端集成测试（`test_evidence_chain_e2e`）与冒烟工具（`tools/smoke_evidence_chain.py`）入库；口径断点登记（`SCORER_VERSION` **w9.1**，趋势表「尺子变了」将标注跨断点不可比）；README「证据链可回溯」行 + 需求 27 §12.6/§12.8 回填；**需求 34 状态 → 已合，DoD 全勾**。 |
 | 更新 | **2026-10-11（批次 1 E5 交付 ⇒ E1~E5 全部完成）**：分级处置清单化（PR #199）：`evidence_grading.py`（`unknown_source_id`=致命·阻断（R02）；`quote_not_found`+快照在=致命·降格标注不删除；`snapshot_missing`/`quote_stale`/裸 URL 未引用=可修·标注；其余快照状态登记）；红线①（UNKNOWN/缺失/过期不判事实错误）与红线②（不新增 FailureReason；arm1/arm3 硬断言不动）单测锁定；`report_display` 附录；单测 10 条 + 全量套件 0 失败。**批次 1 功能全齐 ⇒ 进入收口（真实冒烟 + 确定性断言 + 口径断点登记 + README/文档回填）**。 |

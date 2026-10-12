@@ -275,6 +275,8 @@ class Researcher:
                     metadata={
                         "doc_id": h.get("doc_id"),
                         "chunk_id": h.get("chunk_id"),
+                        # 需求 35 R1：版本维度显式落元数据（身份/分组/审计用）
+                        "generation": h.get("generation"),
                         "title_path": title_path,
                         "locator": h.get("locator") or {},
                         "rank": rank,

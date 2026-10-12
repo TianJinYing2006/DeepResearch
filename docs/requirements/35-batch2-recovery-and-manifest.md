@@ -2,8 +2,8 @@
 
 > 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合
 > **来源**：`docs/roadmap.md` §3（批次 2：恢复与清单 + 体验）；挂账映射 **12.4**（R09）/ **12.2**（E7）/ **12.10**（E6）+ 体验①②。
-> **前置决策（P0）**：12.4 会改 RAG 证据身份/去重口径（现有基线未覆盖 RAG 变更，见 TBD-0）；E7/E6/体验不改输出面。
-> 按 W8 纪律立项时先拍板 before 基线 —— **建议不采全量 before 基线 + 确定性 RAG 回归夹具护栏**（见 §5 TBD-0，待主理人拍板）。
+> **前置决策（P0，已拍板）**：12.4 会改 RAG 证据身份/去重口径（现有基线未覆盖 RAG 变更，见 TBD-0）。
+> 按 W8 纪律立项时先拍板 before 基线 —— **2026-10-12 拍板：不采全量 before 基线 + 确定性 RAG 回归夹具护栏**（记录见 §5 TBD-0）。
 > 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/C5afdrWMGoqhlux1FFUcsCyDntb（`C5afdrWMGoqhlux1FFUcsCyDntb`，
 > 位于 `DeepResearch 需求文档` 文件夹，lark-cli 直建）。
 
@@ -13,12 +13,12 @@
 | 编号 | 35 |
 | 标题 | 批次 2「恢复与清单」：来源身份分组（12.4）+ evidence manifest（E7）+ 跨进程恢复（E6）+ 体验①② |
 | 优先级 | P1 |
-| 状态 | 草稿 |
+| 状态 | 进行中 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #201 |
 | 关联 PR | — |
 | 创建 / 更新 | 2026-10-12 |
-| 前置评审 | TBD-0~7 待主理人逐项拍板（见 §5）；**v2 已闭合设计评审 6 点（见 §11）** |
+| 前置评审 | **TBD-0~7 全部已拍板（2026-10-12，按 v2 推荐）**；v2 已闭合设计评审 6 点（见 §11） |
 
 ## 2. 问题背景
 
@@ -93,49 +93,47 @@
 | SSE 回放 | `main.py:2460` | `run_events` 按 `sequence` 回放 + `Last-Event-ID` | **R4**：delta 协议闭合（粒度 + `report_reset`） |
 | 档位耗时 | `profiles.py`（三档） | 未标定 | **R5**：p50/p90 标定 + 实验决策框架 |
 
-## 5. 优化方案（推荐 + 待确认）
+## 5. 优化方案（2026-10-12 全部拍板落档）
 
-- **TBD-0（前置，P0）before 基线**：**建议不采全量 before 基线**——但口径须写清：
-  「评测路径无 KB」只说明**现有基线未覆盖 RAG 变更，≠ R1 对输出无影响**；因此以
-  **确定性 RAG 回归夹具**（同名不同文档、不同 generation、同片段）作为该变更的口径护栏
-  （进 R1 验收）；E7 是新增产物不改输出面；E6 只影响异常路径；体验①② 为展示/标定。
-  配对结论仍随 **12.11 新基线**（批次 2 后段）统一重建。**待确认。**
-- **TBD-1（R1 身份设计）**：推荐按 source_type 分派 `evidence_id`（**身份不含内容哈希**）——
-  - `rag`：`ev_` + `sha256(scope | doc_id | chunk_id)[:16]`；`chunk_id` 已内嵌 generation
-    （`{doc_id}:g{n}:{i}`，**验收锁该格式**），同一位置内容变化 ⇒ 身份不变、`content_hash`
-    变化（供复核）；legacy 无 `chunk_id` ⇒ 回落内容寻址并登记；
+- **TBD-0（前置，P0）before 基线 —— ✅ 已拍板：不采全量 before 基线（2026-10-12）**：
+  口径：**现有基线未覆盖 RAG 变更 ≠ R1 对输出无影响** ⇒ 以**确定性 RAG 回归夹具**（同名不同
+  文档、不同 generation、同片段）作为口径护栏（进 R1 验收）；E7 为新增产物、E6 只影响异常路径、
+  体验①② 为展示/标定。配对结论仍随 **12.11 新基线**（批次 2 后段）统一重建。
+- **TBD-1（R1 身份设计）—— ✅ 已拍板（2026-10-12）：按推荐**：
+  - `rag`：`ev_` + `sha256(scope | doc_id | chunk_id)[:16]`（**身份不含内容哈希**）；
+    `chunk_id` 已内嵌 generation（`{doc_id}:g{n}:{i}`，**验收锁该格式**）；同一位置内容变化 ⇒
+    身份不变、`content_hash` 变化（供复核）；legacy 无 `chunk_id` ⇒ 回落内容寻址并登记；
   - `web` / `arxiv`：**保持** `source + content`（URL / abs 即位置）；
   - `finding.metadata` 增 `generation`（显式存，供分组/审计）；
-  - 「同一片段多 provenance」本批**只留接口**（`metadata["provenances"]` 预登记，不实现），
-    多 id 已表达位置语义。**待确认。**
-- **TBD-2（R1 压缩分组）**：推荐分组键改**版本化身份键**——`rag` 用
-  **`(doc_id, generation, sq_id)`**（generation 取自 finding 元数据；缺失回落 `chunk_id` 解析），
-  其余 `(source, sq_id)`（统一经 `evidence_group_key(f)` 帮助函数）。**待确认。**
-- **TBD-3（R2 manifest 形态）**：推荐 `run_artifacts` 新 kind **`evidence_manifest`**（JSON；
-  `manifest_version=1`；终局同事务写入），**不上新表**（避免再开备份/保留面）；内容含
-  **有序工作证据清单**（`Finding N` ↔ 稳定 ID / origin IDs / content_hash / 文档版本+locator /
-  `snapshot_id`）+ claim span + 修复前后 + 规格版本；**两验收层**：完整性可校验（长期）/
-  原文可取得（保留期内）；**RAG 原文保留策略**：随 generation 保留期（超期只保证可校验，
-  manifest 显式标注来源层与可取得窗口）；快照引用沿用 `0022`。**待确认。**
-- **TBD-4（R3 语义与幂等）**：推荐本批**只实现「从节点恢复」**；幂等边界 = **节点边界**
-  （恢复后重执行未完成节点，LLM 调用**可能重复**）；**预算对账**：`usage_ledger`（逐调用、
-  含 attempt）为**累计费用事实源**——恢复时 state 预算以**账本汇总**初始化（或
-  `max(checkpoint.token_used, 账本汇总)` 取账本口径），终局成本/展示同口径；写回（`update_usage`）
-  与账本的一致性校验入 stats；三语义 + 对账规则写入运维文档。**待确认。**
-- **TBD-5（R3 存储选型）**：推荐官方 **`langgraph-checkpoint-postgres`**（`thread_id=run_id`）；
-  依赖入 lock（**lock 重生成**）；checkpoint 带版本字段与兼容策略；**执行模式显式落库**
-  （`resumed` / `replayed` / `fresh`，进 run_events/终局 payload）——checkpoint 存在且版本兼容
-  ⇒ `resumed`（从节点续跑）；缺失/不兼容 ⇒ `replayed`（降级重跑，**不算恢复成功**）。**待确认。**
-- **TBD-6（R4 协议）**：推荐 `LLMClient.chat_stream`（DashScope OpenAI 兼容流式）+ Writer 增量发
-  SSE `report_delta`；**协议闭合**（评审点⑤）：① 增量事件**持久化粒度**（如每 N 字符 / 每帧，
-  进 run_events 以支持 `Last-Event-ID` 重连）；② 失败语义——**已发出增量后失败 ⇒ 发
-  `report_reset` 并整段替换**（或仅允许首个增量发出前降级为纯非流式）；③ 测试覆盖
-  **断线重连**与**半截输出后失败**；**范围确认**：并入本批 or 单独小需求。**待确认。**
-- **TBD-7（R5 标定口径）**：推荐用真实 run 数据（`runs.started_at/finished_at` +
-  `request.profile`）统计各档 p50/p90；**结论限定为「是否值得做并行实验」**——并行还影响吞吐、
-  并发尾延迟、预算与质量，不能仅凭分位数决策；后续用**固定题集对照实验**（并行 vs 非并行：
-  完成时间 / 费用 / 质量）才做 Send 决策；**quick 档补测不能替代 standard/deep 数据**（样本
-  不足时如实标注）。**待确认。**
+  - 「同一片段多 provenance」本批**只留接口**（`metadata["provenances"]` 预登记，不实现）。
+- **TBD-2（R1 压缩分组）—— ✅ 已拍板（2026-10-12）：按推荐**：分组键改**版本化身份键**——
+  `rag` 用 **`(doc_id, generation, sq_id)`**（generation 取自 finding 元数据；缺失回落 `chunk_id`
+  解析），其余 `(source, sq_id)`（统一经 `evidence_group_key(f)` 帮助函数）。
+- **TBD-3（R2 manifest 形态）—— ✅ 已拍板（2026-10-12）：按推荐**：
+  `run_artifacts` 新 kind **`evidence_manifest`**（JSON；`manifest_version=1`；终局同事务写入），
+  **不上新表**；内容含**有序工作证据清单**（`Finding N` ↔ 稳定 ID / origin IDs / content_hash /
+  文档版本+locator / `snapshot_id`）+ claim span + 修复前后 + 规格版本；**两验收层**：
+  完整性可校验（长期）/ 原文可取得（保留期内）；**RAG 原文保留策略**：随 generation 保留期
+  （超期只保证可校验，manifest 显式标注来源层与可取得窗口）；快照引用沿用 `0022`。
+- **TBD-4（R3 语义与幂等）—— ✅ 已拍板（2026-10-12）：按推荐**：本批**只实现「从节点恢复」**；
+  幂等边界 = **节点边界**（恢复后重执行未完成节点，LLM 调用**可能重复**）；**预算对账**：
+  `usage_ledger`（逐调用、含 attempt）为**累计费用事实源**——恢复时 state 预算以**账本汇总**
+  初始化（或 `max(checkpoint.token_used, 账本汇总)` 取账本口径），终局成本/展示同口径；
+  写回（`update_usage`）与账本的一致性校验入 stats；三语义 + 对账规则写入运维文档。
+- **TBD-5（R3 存储选型）—— ✅ 已拍板（2026-10-12）：按推荐**：官方
+  **`langgraph-checkpoint-postgres`**（`thread_id=run_id`）；依赖入 lock（**lock 重生成**）；
+  checkpoint 带版本字段与兼容策略；**执行模式显式落库**（`resumed` / `replayed` / `fresh`，
+  进 run_events/终局 payload）——checkpoint 存在且版本兼容 ⇒ `resumed`（从节点续跑）；
+  缺失/不兼容 ⇒ `replayed`（降级重跑，**不算恢复成功**）。
+- **TBD-6（R4 协议）—— ✅ 已拍板（2026-10-12）：按推荐 + 范围=并入本批**：
+  `LLMClient.chat_stream`（DashScope OpenAI 兼容流式）+ Writer 增量发 SSE `report_delta`；
+  ① 增量事件**持久化粒度**（如每 N 字符 / 每帧，进 run_events 以支持 `Last-Event-ID` 重连）；
+  ② 失败语义——**已发出增量后失败 ⇒ 发 `report_reset` 并整段替换**（或仅允许首个增量发出前
+  降级为纯非流式）；③ 测试覆盖**断线重连**与**半截输出后失败**；**并入本批（同需求跟踪）**。
+- **TBD-7（R5 标定口径）—— ✅ 已拍板（2026-10-12）：按推荐**：用真实 run 数据
+  （`runs.started_at/finished_at` + `request.profile`）统计各档 p50/p90；**结论限定为
+  「是否值得做并行实验」**；后续用**固定题集对照实验**（并行 vs 非并行：完成时间 / 费用 / 质量）
+  才做 Send 决策；**quick 档补测不能替代 standard/deep 数据**（样本不足时如实标注）。
 
 ## 6. 设计策略
 
@@ -148,10 +146,12 @@
 
 ## 7. 验收标准（DoD）
 
-- [ ] TBD-0 决策：**建议不采全量 before 基线 + 确定性 RAG 回归夹具护栏**（未采须在文档记录理由）
-- [ ] R1：证据身份含版本化位置（rag：scope+doc_id+chunk_id；web/arxiv 保持）；`metadata` 增
-      `generation`；去重/压缩按身份键；**确定性 RAG 回归夹具**（同名不同文档 / 不同 generation /
-      同片段：不误去重、分组不混编、`chunk_id` 格式锁定）
+- [x] TBD-0 决策：**不采全量 before 基线 + 确定性 RAG 回归夹具护栏**（2026-10-12 拍板；理由见 §5）
+- [x] R1：✅ **已交付（2026-10-12）** —— 身份分派 `compute_finding_evidence_id`
+      （rag=`sha256(scope|doc_id|chunk_id)`，**不含哈希**；web/arxiv/legacy 保持内容寻址）；
+      `metadata` 增 `generation`；分组键 `evidence_group_key`（rag=`(doc_id, generation, sq_id)`）；
+      **回归夹具** `tests/test_evidence_identity.py`（同名不同文档不误去重 / 不同 generation
+      不同身份 / 同位置内容变化身份不变 / `chunk_id` 格式锁 / 压缩分组不混编）
 - [ ] R2：`evidence_manifest` 终局落盘（run_artifacts；版本字段；含 **有序工作清单** ↔
       origin/快照/版本/span/修复前后）；**两验收层**：完整性可校验（长期）/ 保留期内原文可取得
       （web 快照 / RAG generation 窗口）+ 导出可读
@@ -196,7 +196,7 @@
 
 | 步骤 | 内容 | 依赖 | 粗估 |
 |---|---|---|---|
-| 0 | TBD-0~7 拍板 | — | 0.5 天 |
+| 0 | TBD-0~7 拍板 | — | ✅ 已完成（2026-10-12） |
 | R1 | 来源身份分组（12.4，含回归夹具） | 拍板 | 1~2 天 |
 | R2 | evidence manifest（E7，含有序清单/两验收层） | R1 | 2~3 天 |
 | R3 | 跨进程恢复（E6，含 lock/账本对账/双路径演练） | R2 | 3~5 天 |
@@ -212,3 +212,5 @@
 |---|---|---|---|---|
 | 2026-10-12 | 文档 | 批次 2 立项（roadmap §3） | 建稿：12.4/E7/E6 现状盘点（含代码行号）+ 体验①②；TBD-0~7（推荐 + 待确认）；DoD/排期；Issue #201 | 本文档 |
 | 2026-10-12 | 评审 | 设计评审（主理人）6 点闭合 | ① 身份去 `content_hash`、`generation` 进契约与分组（`chunk_id` 格式验收锁定；metadata 显式存）；② 预算以 `usage_ledger` 为累计事实源 + 对账规则 + 「节点已调用未完成即 kill」场景；③ manifest 增 **Writer 有序工作清单** + 两验收层（完整性可校验 / 保留期内原文可取得）+ RAG 保留策略；④ 执行模式 `resumed`/`replayed` 显式落库、重跑不冒充恢复（演练双路径断言）；⑤ 流式 delta 持久化粒度 + `report_reset` 协议 + 断线重连/半截失败测试；⑥ R5 限定为「是否值得并行实验」+ 固定题集对照；TBD-0 补确定性 RAG 回归夹具（「未覆盖 ≠ 无影响」） | 本文档 |
+| 2026-10-12 | 拍板 | TBD-0~7 逐项拍板（主理人） | **全部按 v2 推荐**：①不采全量 before 基线 + RAG 回归夹具；②rag 身份 `sha256(scope|doc_id|chunk_id)`（不含哈希）+ metadata 存 generation；③分组键 `(doc_id, generation, sq_id)`；④manifest 落 `run_artifacts`（有序工作清单 + 两验收层 + RAG 保留窗口）；⑤账本为事实源 + 只做从节点恢复 + resumed/replayed 落库；⑥官方 checkpoint-postgres；⑦流式并入本批（delta 粒度 + `report_reset`）；⑧R5=是否值得并行实验 | 本文档 |
+| 2026-10-12 | 实现 | R1 来源身份分组交付 | `evidence.py` 增 `compute_finding_evidence_id`（rag=版本化位置 `sha256(scope|doc_id|chunk_id)`，**不含 content_hash**；web/arxiv/legacy 保持内容寻址）+ `evidence_group_key`（rag=`(doc_id, generation, sq_id)`）+ `rag_chunk_generation`（格式锁）；`researcher.py` RAG metadata 增 `generation`；`context/manager.py` 压缩分组改身份键（同名不同文档不混编）；回归夹具 10 条 + 全量套件 0 失败 | 本文档 |

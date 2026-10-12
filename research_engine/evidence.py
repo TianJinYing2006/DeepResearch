@@ -15,9 +15,11 @@ Validator 校验忠实度时按 origin 链回到**原文层**（而非只读摘�
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from research_engine.rag.scope import current_scope
 from research_engine.state import ResearchFinding
 
 #: 单条工作证据喂给 Validator 的原文上限（超出做头尾保留 + 显式标记）
@@ -43,22 +45,79 @@ def compute_content_hash(content: str) -> str:
 
 
 def compute_evidence_id(source: str, content: str) -> str:
-    """稳定证据 ID（内容寻址）：``ev_`` + sha256(source + "\\n" + content) 前 16 位。"""
+    """稳定证据 ID（内容寻址）：``ev_`` + sha256(source + "\\n" + content) 前 16 位。
+
+    ⚠️ 需求 35 R1：这是 **web/arxiv/legacy** 口径（URL / abs 即位置）；
+    RAG 证据请用 :func:`compute_finding_evidence_id`（版本化位置，不含内容哈希）。
+    """
     payload = f"{source or ''}\n{content or ''}".encode()
     return "ev_" + hashlib.sha256(payload).hexdigest()[:16]
+
+
+#: RAG chunk_id 格式（需求 35 R1 验收锁定）：``{doc_id}:g{generation}:{index}``
+_RAG_CHUNK_ID_RE = re.compile(r"^.+:g(\d+):\d+$")
+
+
+def rag_chunk_generation(chunk_id: str) -> Optional[int]:
+    """从 ``{doc_id}:g{n}:{i}`` 解析 generation；不可解析返回 None（legacy 数据）。"""
+    match = _RAG_CHUNK_ID_RE.match(chunk_id or "")
+    return int(match.group(1)) if match else None
+
+
+def _scope_token() -> str:
+    """当前 RAG 作用域令牌（证据身份要素；匿名/未设置时为空串）。"""
+    scope = current_scope()
+    return f"{scope.user_id or ''}|{scope.tenant_id or ''}"
+
+
+def compute_finding_evidence_id(f: ResearchFinding) -> str:
+    """需求 35 R1：证据身份 = **版本化位置**（身份/内容解耦，TBD-1 拍板）。
+
+    - ``rag``（且有 doc_id + chunk_id）：``ev_`` + ``sha256(scope | doc_id | chunk_id)[:16]``
+      —— **不含 content_hash**（同一位置内容变化 ⇒ 身份不变、content_hash 变化供复核）；
+      ``chunk_id`` 已内嵌 generation（``{doc_id}:g{n}:{i}``，验收锁格式）；
+    - legacy（缺 doc_id/chunk_id）与 ``web`` / ``arxiv`` / ``code``：回落内容寻址
+      :func:`compute_evidence_id`（URL / abs 即位置；legacy 行为如实保留）。
+    """
+    if getattr(f, "source_type", "") == "rag":
+        metadata = getattr(f, "metadata", None) or {}
+        doc_id = str(metadata.get("doc_id") or "")
+        chunk_id = str(metadata.get("chunk_id") or "")
+        if doc_id and chunk_id:
+            payload = f"{_scope_token()}\n{doc_id}\n{chunk_id}".encode()
+            return "ev_" + hashlib.sha256(payload).hexdigest()[:16]
+    return compute_evidence_id(f.source, f.content)
+
+
+def evidence_group_key(f: ResearchFinding) -> Tuple[Any, ...]:
+    """需求 35 R1/TBD-2：压缩/聚合的**版本化身份键**。
+
+    - ``rag``：``(doc_id, generation, sq_id)``（generation 取 finding 元数据；
+      缺失回落从 ``chunk_id`` 解析）——同名不同文档/不同 generation 不再混编；
+    - 其余：``(source, sq_id)``（与历史口径一致）。
+    """
+    if getattr(f, "source_type", "") == "rag":
+        metadata = getattr(f, "metadata", None) or {}
+        doc_id = str(metadata.get("doc_id") or f.source)
+        generation = metadata.get("generation")
+        if generation is None:
+            generation = rag_chunk_generation(str(metadata.get("chunk_id") or ""))
+        return (doc_id, generation, getattr(f, "sq_id", ""))
+    return (f.source, getattr(f, "sq_id", ""))
 
 
 def ensure_evidence_identity(findings: List[ResearchFinding]) -> int:
     """补齐缺失的证据身份（就地写入；返回补齐条数）。
 
-    只写空字段 ⇒ 重复调用幂等；相同 ``(source, content)`` 恒定得到同一 ID，
-    跨进程/回放/导出均可复核。
+    只写空字段 ⇒ 重复调用幂等；需求 35 R1：身份按 source_type 分派
+    （rag=版本化位置 / 其余=内容寻址，见 :func:`compute_finding_evidence_id`），
+    跨进程/回放/导出均可复核（finding 已带 id 时一律用存储值，不重算）。
     """
     filled = 0
     for f in findings:
         changed = False
         if not getattr(f, "evidence_id", ""):
-            f.evidence_id = compute_evidence_id(f.source, f.content)
+            f.evidence_id = compute_finding_evidence_id(f)
             changed = True
         if not getattr(f, "content_hash", ""):
             f.content_hash = compute_content_hash(f.content)
@@ -114,7 +173,7 @@ def build_evidence_index(findings: List[ResearchFinding]) -> Dict[str, ResearchF
     for f in findings:
         eid = getattr(f, "evidence_id", "")
         if not eid:
-            eid = compute_evidence_id(f.source, f.content)
+            eid = compute_finding_evidence_id(f)
             f.evidence_id = eid
         index.setdefault(eid, f)
     return index
@@ -160,7 +219,7 @@ def serialize_evidence_index(findings: List[ResearchFinding]) -> List[Dict[str, 
     for f in findings:
         meta = f.metadata or {}
         rows.append({
-            "evidence_id": getattr(f, "evidence_id", "") or compute_evidence_id(f.source, f.content),
+            "evidence_id": getattr(f, "evidence_id", "") or compute_finding_evidence_id(f),
             "content_hash": getattr(f, "content_hash", "") or compute_content_hash(f.content),
             "source": f.source,
             "source_type": f.source_type,
