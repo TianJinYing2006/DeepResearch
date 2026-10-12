@@ -17,6 +17,7 @@
 | **多跳检索** | 基于"信息充分度"动态判断是否继续检索；全局预算 `max_total_hops=20`，每子问题跳数上限按实际子问题数动态切分 `ceil(20 / n)`（`config.per_subq_hop_cap=5` 仅在子问题数不可得时作静态兜底） |
 | **RAG 多源融合** | 网络搜索（博查 / Tavily 可切）+ arXiv 学术检索 + 私有知识库（Qdrant 向量 + BM25 混合、RRF 融合、可选云端 rerank）**三路**证据并行召回。代码执行工具受关键词触发，但默认**不作为事实证据**（`CODE_EXEC_EVIDENCE_ENABLED=false`，理由见 §3.2） |
 | **交叉验证防幻觉** | 引用存在性校验 + 关键论断多源印证 + 置信度分级（W2：来源类型标注/失败隔离/运行溯源四桶） |
+| **证据链可回溯（需求 34）** | web 候选实抓正文落盘**内容寻址快照**（robots 遵守 + 预算三闸 15 次/5MB/90s + 熔断，失败降级不阻塞）→ 引用携带**逐字引文 + 快照内字符偏移**（代码定位 L0~L2）→ 交付自检（零模型三项）与证据链分级处置（致命 vs 可修，只标注） |
 | **三层 LLM 分级** | fast（摘要）/ smart（写作）/ strategic（规划+裁决，W4 拆 planner/critic 分档可配强推理） |
 | **全链路可观测** | OTel（OTLP）trace：每节点 span（含 critic 循环逐跳 `R{k}`）+ 每次 LLM 调用 generation（`gen_ai.*` 语义 + token/成本估算），Web/CLI 同栈导出、后端可插拔（Jaeger / 自托管 Langfuse）；Web 侧另有 OTLP/Prometheus 指标双路径（默认关）；CLI 知情打印 + trace URL 回显 |
 | **评测体系** | 两阶段管道（`--run-only` 存原文产出 / `--eval-only` 零成本复算）+ 七指标聚合 + 质量闸（`verdict` + ±stderr），入口 `research_engine/eval/run.py` |
