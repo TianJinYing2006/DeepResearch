@@ -81,18 +81,40 @@ docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|
 
 ## 3. 发布步骤（T-0）
 
+### 3.0 自动部署（推荐；2026-10-13 起）
+
 ```bash
-# 3.1 拉取发布提交并构建镜像（tag = git SHA）
+# 链路：dev 合入 ⇒ CI 6/6 绿 ⇒ 「Deploy staging」workflow 自动 SSH 触发服务器侧脚本
+#   （也可在 Actions 页手动 workflow_dispatch，或服务器上直接执行）
+ssh ubuntu@82.156.88.246 "bash /opt/deepresearch/tools/deploy.sh"   # 手动补部署（部署 origin/dev 最新）
+bash tools/deploy.sh <sha|branch>                                    # 指定提交
+bash tools/deploy.sh --rollback rollback-<sha>                       # 应用回滚（仅镜像；DB 不动）
+
+# 脚本做什么（失败即中止，旧版本保持在线）：
+#   前置检查 → 新鲜备份+COS → 回滚镜像标记（rollback-<prev-sha>）→ 源码快照
+#   → git 同步（HTTP/1.1+重试）→ 构建（latest + SHA tag）→ 迁移（幂等 ×2）
+#   → 滚动 worker→api（--wait）→ 冒烟（本机+公网 readiness / checkpoint 探测 / worker 异常扫描）
+# 记录：$APP_DIR/deployments.log（时间 / 提交 / 结果）；回滚命令随失败信息打印。
+#
+# 安全口径：CD 密钥在 GitHub Secret `DEPLOY_SSH_KEY`，服务器侧以 forced command
+#   限定为只能执行本脚本（见 .github/workflows/deploy-staging.yml 头注释）；
+#   ⚠️ 能合入 dev 即具备 staging 部署能力 —— 勿在 dev 上合并未审代码。
+```
+
+### 3.1 手工步骤（fallback；与脚本同序，供排障/首次引导）
+
+```bash
+# 拉取发布提交并构建镜像（tag = git SHA）
 git fetch origin && git checkout <release-sha>
 export DR_IMAGE_TAG=$(git rev-parse --short HEAD)
 docker compose -f docker-compose.staging.yml build
 
-# 3.2 迁移（单事务批量执行 + 结构断言；失败即停止）
+# 迁移（单事务批量执行 + 结构断言；失败即停止）
 docker compose -f docker-compose.staging.yml up -d --wait postgres redis minio
 docker compose -f docker-compose.staging.yml run --rm migrate
 docker compose -f docker-compose.staging.yml run --rm migrate   # 二次执行应为幂等空跑
 
-# 3.3 先起 Worker，再切 API（队列模式下新 Worker 可消费旧任务）
+# 先起 Worker，再切 API（队列模式下新 Worker 可消费旧任务）
 docker compose -f docker-compose.staging.yml up -d --wait worker
 docker compose -f docker-compose.staging.yml up -d --wait api
 ```
