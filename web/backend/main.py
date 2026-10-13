@@ -32,8 +32,12 @@ from pydantic import BaseModel, Field
 
 from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
+from research_engine.usage import pop_usage_sink, push_usage_sink
 
+from . import followup as followup_mod
 from .agui import (
+    FOLLOWUP_ANSWERED,
+    FOLLOWUP_ASKED,
     HEARTBEAT_FRAME,
     HEARTBEAT_SECONDS,
     INTERACTION_EVENT_TYPES,
@@ -95,7 +99,7 @@ from .persistence import OPEN_STATUSES
 from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profile
 from .queue import RunQueue
 from .ratelimit import make_limiter
-from .runner import RunManager
+from .runner import RunManager, _estimate_cost_cny
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 from .upload_guard import (
     ALLOWED_EXT,
@@ -105,6 +109,7 @@ from .upload_guard import (
     sanitize_filename,
     stream_to_temp,
 )
+from .usage import make_store_sink
 
 app = FastAPI(title="DeepResearch", version="w9")
 
@@ -275,6 +280,10 @@ LOGIN_ACCOUNT_LIMITER = make_limiter(
     redis_url=_LIMITER_REDIS_URL)
 SUBMIT_LIMITER = make_limiter(
     "submit", int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
+# 需求 36 H3：追问按用户限流（每次追问都是真实 LLM 调用）
+FOLLOWUP_LIMITER = make_limiter(
+    "followup", int(_env_number("DR_FOLLOWUP_RATE_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
 # P1-2 / P0-10：可信反向代理。生产口径：显式配置代理 CIDR（反向代理必须清理
 # 外部传入的 X-Forwarded-* 头），应用只信任来自可信 hop 的 XFF / X-Forwarded-Proto。
@@ -519,6 +528,8 @@ def options() -> dict:
         "release": config.observability.sentry_release,
         # 需求 26：报告只读分享开关（前端据此隐藏分享入口）
         "share_enabled": SHARE_ENABLED,
+        # 需求 36 H3：报告后追问开关（前端据此决定是否显示追问入口）
+        "followup_enabled": bool(config.hitl.followup_enabled),
     }
 
 
@@ -835,7 +846,7 @@ def _redact_interaction_payload(payload: dict) -> dict:
     if not isinstance(payload, dict):
         return {"output_under_review": True}
     scrubbed = dict(payload)
-    for key in ("text", "questions", "plan", "summary", "content"):
+    for key in ("text", "questions", "plan", "summary", "content", "question", "answer"):
         if key not in scrubbed:
             continue
         scrubbed[key] = {} if isinstance(scrubbed[key], dict) else ""
@@ -2297,6 +2308,84 @@ def answer_interaction(run_id: str, req: InteractionAnswerRequest, request: Requ
     return {"ok": True, "outcome": outcome, "status": result.get("status"), "kind": kind}
 
 
+class FollowupRequest(BaseModel):
+    """需求 36 H3：报告后追问（不重搜）。"""
+
+    question: str = Field(..., min_length=1, max_length=followup_mod.MAX_QUESTION_CHARS)
+
+
+@app.post("/api/research/{run_id}/follow-up")
+def follow_up(run_id: str, req: FollowupRequest, request: Request) -> dict:
+    """报告后追问（需求 36 H3 / §12.3）：证据池 grounding + 服务端零模型校验。
+
+    - 前置：功能开关 + 所有权 + CSRF + 限流 + run 终局且有报告 + 输出 gate（flagged 阻断）；
+    - 上下文只来自本 run 的 `report_md` + `evidence_manifest`（**不触发检索/图/新 run**）；
+    - 引用 ID 逐字校验证据池（不在池 ⇒ `unverified_ids`，如实标注）；回答/引用设长度上限；
+    - 记账：usage_ledger（store sink，role=follow_up）+ run 成本增量（月度预算口径同源）；
+    - 审计：`FOLLOWUP_ASKED/FOLLOWUP_ANSWERED` 进 `run_events`（flagged 回放脱敏）；
+    - 失败只影响本次追问，**不改变原 run 终态与报告**。
+    """
+    _authorize_run(request, run_id)
+    _check_csrf(request)
+    user_id = (_session_user(request) or {}).get("user_id")
+    if not config.hitl.followup_enabled:
+        raise http_error("invalid_request", "追问功能未开启（DR_HITL_FOLLOWUP=false）")
+    if not FOLLOWUP_LIMITER.allow(f"followup:{user_id or _client_key(request)}"):
+        raise http_error("rate_limited", "追问过于频繁，稍后再试")
+    if store is None:
+        raise http_error("persistence_unavailable", "追问需要任务库（DR_DATABASE_URL）")
+    row = _store_call(store.get_run, run_id)
+    if row is None:
+        raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    if not row.get("finished_at"):
+        raise http_error("report_not_ready", "研究尚未结束，暂不能追问")
+    _enforce_output_policy(run_id)  # flagged / under-review 阻断（与导出同口径）
+    report = _artifact_text(run_id, "report_md")
+    if not report:
+        raise http_error("report_unavailable", "本次运行没有产出报告")
+    manifest = None
+    raw_manifest = _artifact_text(run_id, "evidence_manifest")
+    if raw_manifest:
+        try:
+            manifest = json.loads(raw_manifest)
+        except (TypeError, ValueError):
+            manifest = None
+    pool = followup_mod.pool_ids(manifest)
+    context = followup_mod.build_context(report, manifest)
+    question = req.question.strip()
+    _store_call(store.append_event, run_id, FOLLOWUP_ASKED, {"question": question[:200]})
+    attempt = int(row.get("attempt") or 1)
+    usage_token = push_usage_sink(make_store_sink(
+        store, run_id=run_id, attempt=attempt, detail={"role": "follow_up"}))
+    try:
+        data, token_delta = followup_mod._ask_llm(
+            followup_mod.build_system(), f"{context}\n\n【追问】{question}")
+    except Exception as exc:  # noqa: BLE001 —— 追问失败不影响原 run 终态/报告
+        raise http_error(
+            "followup_unavailable", f"追问调用失败：{type(exc).__name__}: {exc}"[:200]) from exc
+    finally:
+        pop_usage_sink(usage_token)
+    result = followup_mod.validate_response(data, pool)
+    if token_delta > 0:
+        # 追问成本并入本 run 账目（与展示同口径的保守上界；月度预算闸按 runs 表汇总）
+        new_tokens = int(row.get("token_used") or 0) + token_delta
+        new_cost = round(float(row.get("cost_estimate_cny") or 0.0)
+                         + _estimate_cost_cny(token_delta), 6)
+        _store_call(store.update_usage, run_id, token_used=new_tokens,
+                    cost_estimate_cny=new_cost, budget_used_cny=new_cost)
+    _store_call(store.append_event, run_id, FOLLOWUP_ANSWERED, {
+        "answer": result["answer"][:500],
+        "citations": result["citations"][:10],
+        "unverified_count": len(result["unverified_ids"]),
+        "grounded": result["grounded"],
+    })
+    _audit("followup_answered", request=request, actor_user_id=user_id,
+           target_type="run", target_id=run_id,
+           detail={"tokens": token_delta, "citations": len(result["citations"]),
+                   "unverified": len(result["unverified_ids"])})
+    return {"ok": True, **result}
+
+
 def _markdown_export_response(body: str, topic: Optional[str], run_id: str) -> Response:
     """需求 17（#77）：下载文件名 = 话题名；RFC 6266 双格式（filename* UTF-8 + ASCII 回退）。"""
     display, ascii_fallback = build_export_filename(topic, run_id)
@@ -2305,6 +2394,26 @@ def _markdown_export_response(body: str, topic: Optional[str], run_id: str) -> R
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": content_disposition(display, ascii_fallback)},
     )
+
+
+def _artifact_text(run_id: str, kind: str) -> Optional[str]:
+    """读取文本产物（P1-6：对象存储与 PG 双路径；失败/缺失返回 None，不抛）。"""
+    try:
+        artifact = store.get_artifact_row(run_id, kind)
+    except Exception:  # noqa: BLE001 —— 读取失败按「产物不可用」处理（由调用方转结构化错误）
+        return None
+    if not artifact:
+        return None
+    body = artifact.get("body") or ""
+    if artifact.get("storage") == "s3":
+        object_store = get_object_store()
+        if object_store is None:
+            return None
+        try:
+            body = object_store.get_text(artifact.get("object_key")) or ""
+        except Exception:  # noqa: BLE001
+            return None
+    return body
 
 
 def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:

@@ -324,6 +324,15 @@ Worker 认领后以 `resumed` 执行：`Command(resume=answer)` 注入挂起节�
 （挂起释放租约 / 恢复携带回答值）、`tests/test_hitl_interaction_pg.py`（真 PG 原子协议）、
 `tests/test_hitl_resume_drill_pg.py`（真 PG「挂起-退出-回答-恢复」演练）。
 
+**追问（H3，`POST /api/research/{run_id}/follow-up`）**：报告后基于**已有证据池**回答
+（不触发检索/图/新 run）。前置：`DR_HITL_FOLLOWUP=true` + 所有权 + CSRF + 限流
+（`DR_FOLLOWUP_RATE_PER_MINUTE`，默认 10/分）+ run 终局且有报告 + 输出 gate（flagged 阻断）。
+上下文只含 `report_md`（截断）与 `evidence_manifest` 有序清单（可引用 ID）；
+回答结构化为 `{answer, citations, unverified_ids}`，服务端**零模型**校验引用 ID 逐字在池
+（池外入 `unverified_ids`，不冒充已 grounded）。记账：`usage_ledger`（role=follow_up）+
+本 run 成本增量（月度预算同源）；`FOLLOWUP_ASKED/ANSWERED` 进 `run_events`（flagged 回放脱敏）；
+失败只影响本次追问（`followup_unavailable`），不改原 run 终态与报告。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

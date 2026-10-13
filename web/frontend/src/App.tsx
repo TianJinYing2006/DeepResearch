@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import AccountPanel from './components/AccountPanel'
 import ShareModal from './components/ShareModal'
 import { BoundaryCard, LaunchForm, RagStatusCard } from './features/launch/LaunchPanels'
+import { FollowupPanel, InteractionPanel } from './features/hitl/HitlPanels'
 import {
   EvidenceMargin,
   ReflectionList,
@@ -120,6 +121,14 @@ export default function App() {
     result,
     reportPreview,
     progress,
+    interaction,
+    interactionBusy,
+    interactionError,
+    answerInteraction,
+    followups,
+    followupBusy,
+    followupError,
+    askFollowup,
     start,
     resume,
     cancel,
@@ -433,6 +442,16 @@ export default function App() {
 
         {status === 'timeout' && <TimeoutCard timeoutSeconds={timeoutSeconds} />}
 
+        {/* 需求 36：等待人类输入的交互卡片（澄清 / 计划审批；SSE 关闭后仍可提交） */}
+        {interaction && (
+          <InteractionPanel
+            card={interaction}
+            busy={interactionBusy}
+            error={interactionError}
+            onAnswer={(action, text) => void answerInteraction(action, text)}
+          />
+        )}
+
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="min-w-0 space-y-6">
             <LaunchForm
@@ -476,6 +495,15 @@ export default function App() {
                 />
                 <ReflectionList log={result.reflection_log} />
                 <ValidatorStats stats={result.validator_stats} depth={result.depth} />
+                {/* 需求 36 H3：报告后追问（仅开关开启、报告可用且未被审核拦截时展示） */}
+                {options?.followup_enabled && hasReport && !outputUnderReview && (
+                  <FollowupPanel
+                    busy={followupBusy}
+                    error={followupError}
+                    entries={followups}
+                    onAsk={(question) => void askFollowup(question)}
+                  />
+                )}
               </>
             )}
             {shareRunId && (

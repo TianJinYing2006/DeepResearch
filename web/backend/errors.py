@@ -91,6 +91,10 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         409, False,
         "交互卡片已过期或已被新的一轮替代：刷新页面后按最新卡片重新回答。",
         component="web"),
+    "followup_unavailable": ErrorSpec(
+        503, True,
+        "追问模型调用失败：稍后重试；不影响原报告与本次运行状态。",
+        component="web"),
     # --- 账号与会话（P4-A） ----------------------------------------------
     "unauthenticated": ErrorSpec(
         401, False, "请先登录（httpOnly Session Cookie 已失效或未携带）。",
