@@ -82,6 +82,15 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         503, True,
         "任务持久化不可用（PostgreSQL 未配置或连接失败）：检查 DR_DATABASE_URL 与数据库状态。",
         component="web"),
+    # --- 需求 36：HITL 交互（等待/回答） -----------------------------------
+    "interaction_not_pending": ErrorSpec(
+        409, False,
+        "该任务当前不在等待回答状态（可能已回答、已取消或已过期）：刷新页面看最新状态。",
+        component="web"),
+    "interaction_conflict": ErrorSpec(
+        409, False,
+        "交互卡片已过期或已被新的一轮替代：刷新页面后按最新卡片重新回答。",
+        component="web"),
     # --- 账号与会话（P4-A） ----------------------------------------------
     "unauthenticated": ErrorSpec(
         401, False, "请先登录（httpOnly Session Cookie 已失效或未携带）。",

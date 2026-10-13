@@ -20,8 +20,15 @@ from .moderation import ModerationDecision
 if TYPE_CHECKING:  # 仅类型标注：store 运行期 import 本模块，运行期互相 import 会成环
     from .store import RunOwnership
 
-#: 允许迁移到终局的当前状态
+#: 允许迁移到终局的当前状态（**执行/队列活跃**集合：占并发槽与 worker 资源）
 ACTIVE_STATUSES = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
+
+#: 需求 36：HITL 等待态集合（等待人类输入；不持租约、**不占执行并发槽**，见 §12.2）。
+AWAITING_STATUSES = ("AWAITING_CLARIFICATION", "AWAITING_PLAN_APPROVAL")
+
+#: 需求 36：非终局全集（活跃 + 等待）——「尚未结束」语义的单一来源。
+#: 归档守卫 / 快照 running 判定 / 终局 allowed_from 用它；并发计数仍用 ACTIVE_STATUSES。
+OPEN_STATUSES = ACTIVE_STATUSES + AWAITING_STATUSES
 
 #: 传输层 stop_reason → 任务状态（§5.9.1；预算停止不伪装成 TIMED_OUT）
 _STATUS_BY_STOP_REASON = {
@@ -119,7 +126,8 @@ def persist_terminal(
         payload=payload,
         sequence=seq,
         new_status=new_status,
-        allowed_from=ACTIVE_STATUSES,
+        # 需求 36：终局允许从「活跃 + 等待」两类非终局状态收口（等待态到期/取消同口径）
+        allowed_from=OPEN_STATUSES,
         fields={key: value for key, value in fields.items() if value is not None},
         artifacts=artifacts,
         moderation=moderation_record,
@@ -158,7 +166,7 @@ def persist_forced(store, run_id: str, seq: Optional[int], payload: dict[str, An
         payload=payload,
         sequence=seq,
         new_status="CANCELLED" if reason == "cancel" else "TIMED_OUT",
-        allowed_from=ACTIVE_STATUSES,
+        allowed_from=OPEN_STATUSES,
         fields={
             "stop_reason": "user_cancelled" if reason == "cancel" else "timeout",
             "finished_at": datetime.now(UTC),
