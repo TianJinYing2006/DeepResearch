@@ -23,7 +23,10 @@ RUN_STATUSES = (RUN_STATUS_SUCCESS, RUN_STATUS_DEGRADED, RUN_STATUS_FAILED)
 
 #: 需求 35 R3（TBD-5）：checkpoint 状态模式版本——恢复时与 checkpoint 内值比对，
 #: 不一致 ⇒ 显式 `replayed`（不冒充恢复）。状态字段增删改时递增。
-CHECKPOINT_SCHEMA_VERSION = 1
+#: 需求 36 Phase 2 递增到 2：新增 HITL 澄清/审批字段（clarify_round / clarify_needed /
+#: clarification / user_scope / approval_round / plan_decision）；旧 checkpoint 一律
+#: 显式降级为 `replayed`（§12.6 第 5 项：版本迁移由「显式重跑」承担，不静默续跑）。
+CHECKPOINT_SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -179,6 +182,22 @@ class ResearchState(BaseModel):
     plan_version: int = Field(
         default=0, description="F14：计划版本号（初始 plan=1；成功 replan 递增，降级沿用不递增）"
     )
+
+    # ---- 需求 36（HITL）：澄清 / 计划审批的轮次与载荷（关闭态这些字段恒为默认值） ----
+    clarify_round: int = Field(
+        default=0, description="已发出的澄清轮次（≤ config.hitl.max_clarify_rounds）")
+    clarify_needed: bool = Field(
+        default=False, description="本轮澄清判定是否需要提问（条件边路由信号；关闭态恒 False）")
+    clarification: Dict[str, Any] = Field(
+        default_factory=dict,
+        description='澄清累积：{"questions": [...], "answers": [{"round","text","auto"}]}（治理数据，非故障）')
+    user_scope: str = Field(
+        default="", description="用户澄清确认的研究范围（并入 research_spec；关闭态恒空）")
+    approval_round: int = Field(
+        default=0, description="已完成的计划审批轮次（≤ config.hitl.max_approval_rounds）")
+    plan_decision: Dict[str, Any] = Field(
+        default_factory=dict,
+        description='最近一次审批决定：{"action": "approve"|"revise", "text", "round"}（治理数据，非故障）')
 
     # 规划
     subquestions: List[SubQuestion] = Field(default_factory=list)

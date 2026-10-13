@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from config import config as _config
 from research_engine.eval.aggregate import compute_metrics, sum_tokens_from_raw
 from research_engine.eval.metrics import _make_judge, compute_all, compute_cost
 from research_engine.eval.provenance import (
@@ -58,6 +59,12 @@ DEFAULT_DATASET = Path(__file__).resolve().parent / "dataset.jsonl"
 DEFAULT_CONCURRENCY = 3  # Q4：并发 3（ThreadPoolExecutor，不引 asyncio）
 TASK_TIMEOUT_S = 900  # Q4：任务级超时 15min（单条均值 6~9min 的 2 倍）
 RETRY_SLEEP_S = 2.0  # Q4：Level 1 瞬态重试前的等待
+
+# 需求 36（TBD-5）：eval 批量跑**强制关闭** HITL —— 澄清/审批会等待人类输入，
+# 自动化批量必须关闭；关闭态 = 既有评测口径（不改判定、不改输出面）。
+_config.hitl.clarify_enabled = False
+_config.hitl.plan_approval_enabled = False
+_config.hitl.followup_enabled = False
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 

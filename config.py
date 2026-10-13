@@ -15,6 +15,23 @@ def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(key: str, default: int) -> int:
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 @dataclass
 class LLMConfig:
     """三层 LLM 分级配置（借鉴 gpt-researcher 的 FAST/SMART/STRATEGIC）。
@@ -317,6 +334,37 @@ class ReportStreamConfig:
 
 
 @dataclass
+class HitlConfig:
+    """需求 36：HITL 交互闭环开关与等待策略（§12.2 / TBD-3、TBD-5）。
+
+    **默认全部关闭**（§12.1「保留默认关闭」；关闭态节点序列/事件序列与历史一致，
+    保护 W8 基线与评测可比性）。灰度按 §12.4：先内部单开关观察，再扩大。
+
+    - `clarify_enabled`：提交后、规划前的澄清提问（≤max_clarify_rounds 轮）；
+    - `plan_approval_enabled`：plan 产出后停等用户批准/自然语言修改（≤max_approval_rounds 轮）；
+    - `followup_enabled`：报告后追问（Phase 3 使用）；
+    - TTL：等待态到期——澄清到期按空回答继续（留痕）；审批到期**不自动批准**
+      （`TIMED_OUT` + `stop_reason=approval_expired`）。
+    - 仅队列模式（Worker）支持：API 进程在非 queue 模式启动时强制关闭（见 main.py）。
+    """
+
+    clarify_enabled: bool = field(
+        default_factory=lambda: _env_bool("DR_HITL_CLARIFY", False))
+    plan_approval_enabled: bool = field(
+        default_factory=lambda: _env_bool("DR_HITL_PLAN_APPROVAL", False))
+    followup_enabled: bool = field(
+        default_factory=lambda: _env_bool("DR_HITL_FOLLOWUP", False))
+    clarify_ttl_seconds: int = field(
+        default_factory=lambda: max(60, _env_int("DR_HITL_CLARIFY_TTL_SECONDS", 86400)))
+    approval_ttl_seconds: int = field(
+        default_factory=lambda: max(60, _env_int("DR_HITL_APPROVAL_TTL_SECONDS", 86400)))
+    max_clarify_rounds: int = field(
+        default_factory=lambda: max(1, _env_int("DR_HITL_MAX_CLARIFY_ROUNDS", 2)))
+    max_approval_rounds: int = field(
+        default_factory=lambda: max(1, _env_int("DR_HITL_MAX_APPROVAL_ROUNDS", 2)))
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -329,6 +377,7 @@ class Config:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     web_snapshot: WebSnapshotConfig = field(default_factory=WebSnapshotConfig)
     report_stream: ReportStreamConfig = field(default_factory=ReportStreamConfig)
+    hitl: HitlConfig = field(default_factory=HitlConfig)
 
 
 config = Config()

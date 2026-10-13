@@ -53,8 +53,29 @@ REPLAN_SYSTEM = """你是一位资深研究规划专家。之前的子问题分�
 }}
 """
 
-# ---- F14（审计）：研究规格（规划时固化，所有决策/产出节点消费同一份）----
+#: 需求 36 H2：用户反馈驱动的计划修订提示词（审批卡「修改」动作；≤2 轮由条件边控制）
+REVISE_SYSTEM = """你是一位资深研究规划专家。用户对当前的研究计划提出了**修改意见**。
+请严格根据用户反馈调整子问题分解（保留合理部分、按反馈修改），不要引入反馈之外的改动。
 
+要求：
+1. 数量控制在 {max_subquestions} 个以内
+2. 严格采纳用户反馈中的修改意图（增删子问题 / 调整侧重 / 收敛范围等）
+3. 每个子问题聚焦一个可独立检索的方面
+4. 严格按重要性降序输出；超过上限时**尾部**会被系统丢弃
+5. 必须遵守【研究规格】中的用户附加要求
+6. 若某新子问题延续了某个旧子问题的研究方向，必须在 id_mapping 中显式给出映射（旧 ID → 新 ID）；
+   未延续的旧子问题不要映射
+
+请以 JSON 格式输出：
+{{
+  "subquestions": [
+    {{"id": "q1", "question": "子问题内容", "rationale": "研究理由"}}
+  ],
+  "id_mapping": {{"旧子问题ID": "新子问题ID"}}
+}}
+"""
+
+# ---- F14（审计）：研究规格（规划时固化，所有决策/产出节点消费同一份）----
 #: 固定验收条件（与 Writer 系统提示的报告契约一致；规划时固化进规格）
 RESEARCH_SPEC_ACCEPTANCE = (
     "覆盖全部子问题（无材料小节必须显式写“信息不足”）；",
@@ -64,16 +85,23 @@ RESEARCH_SPEC_ACCEPTANCE = (
 )
 
 
-def build_research_spec(user_instructions: str) -> Dict[str, Any]:
+def build_research_spec(user_instructions: str, user_scope: str = "") -> Dict[str, Any]:
     """F14：把用户附加要求固化为研究规格（state.research_spec 的构造入口）。
 
     规格是**单一来源**：planner/writer/critic/replan 消费同一份，
     避免「用户要求只进了初始分解，后续节点各自丢失」。
+
+    需求 36 H1：`user_scope`（用户澄清确认的范围）**仅在非空时**并入规格
+    —— 关闭态 / 未触发澄清时，规格与历史逐字节一致（关闭态零漂移）。
     """
-    return {
+    spec: Dict[str, Any] = {
         "user_instructions": (user_instructions or "").strip(),
         "acceptance_criteria": list(RESEARCH_SPEC_ACCEPTANCE),
     }
+    scope = (user_scope or "").strip()
+    if scope:
+        spec["user_scope"] = scope
+    return spec
 
 
 def format_research_spec(spec: Any) -> str:
@@ -81,6 +109,9 @@ def format_research_spec(spec: Any) -> str:
     if not isinstance(spec, dict):
         return ""
     lines: List[str] = []
+    scope = str(spec.get("user_scope", "") or "").strip()
+    if scope:
+        lines.append(f"用户澄清确认的范围（必须作为参照标准）：{scope}")
     ui = str(spec.get("user_instructions", "") or "").strip()
     if ui:
         lines.append(f"用户附加要求（必须遵守）：{ui}")
@@ -110,6 +141,8 @@ PLANNER_EVENT_EMPTY_QUESTION_DROPPED = "empty_question_dropped"
 PLANNER_EVENT_DUPLICATE_ID_REWRITTEN = "duplicate_id_rewritten"
 #: F14：重规划显式映射（旧→新子问题 ID）；未映射的旧 ID 进 unmapped（其材料转未归类）
 PLANNER_EVENT_REPLAN_ID_MAPPING = "replan_id_mapping"
+#: 需求 36 H2：用户反馈驱动的计划修订（治理事件；非故障，不推 degraded）
+PLANNER_EVENT_PLAN_REVISED = "plan_revised"
 
 
 def build_planner_system(cfg=None) -> str:
@@ -132,6 +165,13 @@ def build_replan_system(cfg=None) -> str:
     return REPLAN_SYSTEM.format(max_subquestions=limit)
 
 
+def build_revise_system(cfg=None) -> str:
+    """需求 36：计划修订（用户反馈驱动）system 提示词的唯一产生点（同 W8 Arm 6 口径）。"""
+    limit = (cfg.research.max_subquestions if cfg is not None
+             else effective_research_config().max_subquestions)
+    return REVISE_SYSTEM.format(max_subquestions=limit)
+
+
 class Planner:
     """研究规划器。"""
 
@@ -144,6 +184,8 @@ class Planner:
         self.last_replan_mapping: Dict[str, str] = {}
         # F14：replan 是否走了降级路径（LLM 失败/解析为空 ⇒ 沿用旧计划，版本号不递增）
         self.last_replan_fallback: bool = False
+        # 需求 36：最近一次「用户反馈修订」是否走了降级路径（沿用旧计划）
+        self.last_revise_fallback: bool = False
 
     def drain_degradations(self) -> List[DegradationEntry]:
         """取走并清空降级记录（graph 节点调用）。"""
@@ -338,4 +380,75 @@ class Planner:
                 node="planner",
             )
             # 降级：沿用旧子问题，不空转
+            return subs
+
+    def revise_plan(
+        self,
+        topic: str,
+        subs: List[SubQuestion],
+        feedback: str,
+        state: Any = None,
+    ) -> List[SubQuestion]:
+        """需求 36 H2：按用户反馈修订计划（审批卡「修改」；条件边控制 ≤max_approval_rounds）。
+
+        与 `replan` 的关系：同一套解析/截断/ID 映射与降级纪律，驱动信号不同
+        （这里是**用户反馈**而不是 critic 的方向跑偏）。失败 ⇒ 沿用旧计划 + 降级留痕
+        （`last_revise_fallback=True`），由图节点在下一张审批卡上显式提示修订失败。
+        """
+        self.last_revise_fallback = False
+        router = get_router()
+        system = build_revise_system()
+        subs_text = "\n".join(f"- {s.id}: {s.question}" for s in subs) or "（无）"
+        spec_text = research_spec_text(state)
+        user = (
+            f"研究主题：{topic}\n\n"
+            + (f"研究规格：\n{spec_text}\n\n" if spec_text else "")
+            + f"现有子问题：\n{subs_text}\n\n"
+            f"用户修改意见：{feedback.strip() or '（未提供具体意见，请做最小必要调整）'}\n\n"
+            "请按用户反馈重新分解。"
+        )
+        try:
+            data = router.strategic_json(system, user, state=state)
+            new_subs = self._parse_subquestions(data, phase="revise")
+            if not new_subs:
+                self.last_revise_fallback = True
+                self.degradations._record_degradation(
+                    component="llm",
+                    reason=FailureReason.LLM_ERROR.value,
+                    detail="phase=revise; planner 返回的子问题解析后为空",
+                    fallback_action="keep_previous_subquestions",
+                    node="planner",
+                )
+                return subs
+            new_subs = self._bound_subquestions(new_subs, phase="revise") or subs
+            old_ids = {s.id for s in subs}
+            new_ids = {s.id for s in new_subs}
+            raw_map = data.get("id_mapping") if isinstance(data, dict) else None
+            mapping = {
+                str(k).strip(): str(v).strip()
+                for k, v in (raw_map.items() if isinstance(raw_map, dict) else [])
+                if str(k).strip() in old_ids and str(v).strip() in new_ids
+            }
+            self._record_planner_event(
+                PLANNER_EVENT_PLAN_REVISED,
+                "revise",
+                feedback_len=len(feedback or ""),
+                old_count=len(subs),
+                new_count=len(new_subs),
+                mapping=mapping,
+                unmapped=sorted(old_ids - set(mapping)),
+            )
+            return new_subs
+        except UsageSinkError:
+            # F06：strict 记账失败必须上抛（不得静默沿用旧计划）
+            raise
+        except Exception as e:  # noqa: BLE001
+            self.last_revise_fallback = True
+            self.degradations._record_degradation(
+                component="llm",
+                reason=FailureReason.LLM_ERROR.value,
+                detail=f"phase=revise; error={e}",
+                fallback_action="keep_previous_subquestions",
+                node="planner",
+            )
             return subs

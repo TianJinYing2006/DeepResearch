@@ -30,8 +30,13 @@ STOP_ERROR = "error"
 # 避免调用方各写各的字符串。🚨 它同样**不写** ResearchState.run_status
 # （与 cancelled 同口径：超时不是故障，不进 degradation_log）。
 STOP_TIMEOUT = "timeout"
+# 需求 36（§12.2）：图在 interrupt 处**挂起等待人类输入**——不是完成、不是取消、
+# 更不是故障。挂起由执行器（Worker）持久化为等待态（AWAITING_*）并在回答后
+# 用 `Command(resume=...)` 续跑；它同样**不写** run_status、不进 degradation_log。
+STOP_SUSPENDED = "suspended"
 
-STOP_REASONS = (STOP_RUNNING, STOP_COMPLETED, STOP_CANCELLED, STOP_ERROR, STOP_TIMEOUT)
+STOP_REASONS = (STOP_RUNNING, STOP_COMPLETED, STOP_CANCELLED, STOP_ERROR, STOP_TIMEOUT,
+                STOP_SUSPENDED)
 
 
 @dataclass(frozen=True)
@@ -49,8 +54,10 @@ class RunStep:
             利用 `degradation_log` 的 ``operator.add`` reducer 做切片得到。
         duration_ms: 本节点耗时（毫秒），落地 §5.4.1 的时间戳行动项 ——
             用于校准「取消最坏等待时间」。
-        terminal: 是否为终局 step（正常结束 / 取消 / 异常都会产出且仅产出一个）。
+        terminal: 是否为终局 step（正常结束 / 取消 / 异常 / 挂起都会产出且仅产出一个）。
         stop_reason: ``STOP_*`` 之一。非终局 step 恒为 ``STOP_RUNNING``。
+        interrupt: 需求 36：挂起载荷（仅 ``stop_reason=STOP_SUSPENDED`` 时非空），
+            图在 `interrupt()` 处给出的值（``{kind, round, content}``）。
     """
 
     index: int
@@ -60,6 +67,7 @@ class RunStep:
     duration_ms: int = 0
     terminal: bool = False
     stop_reason: str = STOP_RUNNING
+    interrupt: Optional[dict] = None
 
     @property
     def run_status(self) -> str:
