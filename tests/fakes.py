@@ -11,10 +11,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from research_engine.state import ResearchState
-from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, RunStep
+from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, STOP_SUSPENDED, RunStep
 from web.backend.store import LeaseLostError, QuotaExceeded
 
 ACTIVE = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
+AWAITING = ("AWAITING_CLARIFICATION", "AWAITING_PLAN_APPROVAL")
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
 
 
@@ -35,7 +36,7 @@ class TinyGraph:
         self.stream_reset = stream_reset
 
     def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
-                 resume=False):
+                 resume=False, resume_value=None):
         state = ResearchState(topic=topic)
         for i in range(self.steps):
             time.sleep(self.delay)
@@ -58,6 +59,66 @@ class TinyGraph:
         state.report_display = self.report
         yield RunStep(index=self.steps, node=None, state=state,
                       terminal=True, stop_reason=STOP_COMPLETED)
+
+
+class HitlTinyGraph:
+    """需求 36：可挂起的最小假图（Worker 挂起/恢复单元测试用，零 LLM）。
+
+    - 首跑：完成 n1 后产出终局 step `STOP_SUSPENDED`（interrupt 载荷 = kind/round/content）；
+    - 恢复：断言收到 `resume_value`（否则报错），完成 n2 后正常收口；
+    - `.graph` 内嵌桩：模拟 checkpoint 存在（使 Worker 的 `resolve_execution_mode`
+      解析为 `resumed` —— 与真实 PG saver 的语义对齐）。
+    """
+
+    def __init__(self, *, kind: str = "clarification", round_no: int = 1,
+                 content: Optional[dict] = None):
+        self.kind = kind
+        self.round_no = round_no
+        self.content = content or {"questions": ["范围？"]}
+        self.resume_values: list = []
+        self.graph = _FakeInner()
+
+    def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False, resume_value=None):
+        state = ResearchState(topic=topic)
+        if not resume:
+            # 模拟节点边界已写 checkpoint（resolve_execution_mode 恢复时据此判 resumed）
+            from research_engine.state import CHECKPOINT_SCHEMA_VERSION
+
+            self.graph.values = {"checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+                                 "token_used": 0}
+            state.progress.append({"stage": "n1", "msg": "m"})
+            yield RunStep(index=0, node="n1", state=state, duration_ms=1)
+            yield RunStep(index=1, node=None, state=state, terminal=True,
+                          stop_reason=STOP_SUSPENDED,
+                          interrupt={"kind": self.kind, "round": self.round_no,
+                                     "content": self.content})
+            return
+        if resume_value is None:
+            raise RuntimeError("HitlTinyGraph resume 必须携带 resume_value（回答载荷）")
+        self.resume_values.append(resume_value)
+        state.progress.append({"stage": "n2", "msg": "m"})
+        yield RunStep(index=0, node="n2", state=state, duration_ms=1)
+        state.report = "# hitl drill"
+        state.report_display = state.report
+        yield RunStep(index=1, node=None, state=state, terminal=True,
+                      stop_reason=STOP_COMPLETED)
+
+
+class _FakeInner:
+    """HitlTinyGraph 的 checkpoint 桩：只实现 Worker 需要的 get_state/update_state。"""
+
+    def __init__(self) -> None:
+        self.values: Optional[dict] = None
+
+    def get_state(self, _cfg):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(values=self.values or {})
+
+    def update_state(self, _cfg, values):
+        if self.values is not None:
+            self.values.update(values)
 
 
 class BoomGraph:
@@ -153,6 +214,11 @@ class FakeStore:
             "queued_at": now if status == "QUEUED" else None,
             "started_at": None, "finished_at": None, "moderation_status": None,
             "pinned_at": None, "archived_at": None,
+            # 需求 36：HITL 交互协议列（非等待态恒为 None）
+            "awaiting_since": None, "awaiting_expires_at": None,
+            "interaction_id": None, "interaction_round": None,
+            "interaction_payload": None, "interaction_answer": None,
+            "resumed_at": None,
         }
         self.runs[run_id] = row
         self.events[run_id] = []
@@ -442,7 +508,7 @@ class FakeStore:
         if row is None:
             return None
         now = datetime.now(UTC)
-        if row["status"] in ("CREATED", "QUEUED"):
+        if row["status"] in ("CREATED", "QUEUED", *AWAITING):
             row.update(status="CANCELLED", stop_reason="user_cancelled",
                        cancel_requested_at=now, finished_at=now)
             return "CANCELLED"
@@ -450,6 +516,90 @@ class FakeStore:
             row.update(status="CANCEL_REQUESTED", cancel_requested_at=now)
             return "CANCEL_REQUESTED"
         return row["status"]
+
+    # ---- 需求 36：HITL 交互协议（与 RunStore 同语义的内存版） ----
+
+    def suspend_run(self, run_id, *, owner, kind, interaction_id, round_no,
+                    content=None, ttl_seconds):
+        from web.backend.hitl import REQUEST_EVENT_BY_KIND, STATUS_BY_KIND, build_card
+
+        row = self.runs.get(run_id)
+        if row is None:
+            raise LookupError(f"run not found: {run_id}")
+        if (row.get("worker_id") != owner.worker_id or row.get("attempt") != owner.attempt):
+            raise LeaseLostError(
+                f"lease lost (worker={owner.worker_id}, attempt={owner.attempt})")
+        if row["status"] != "RUNNING":
+            return None
+        now = datetime.now(UTC)
+        expires = now + timedelta(seconds=ttl_seconds)
+        card = build_card(kind, interaction_id=interaction_id, round_no=round_no,
+                          expires_at_iso=expires.isoformat(timespec="seconds"),
+                          content=content)
+        row.update(status=STATUS_BY_KIND[kind], awaiting_since=now,
+                   awaiting_expires_at=expires, interaction_id=interaction_id,
+                   interaction_round=round_no, interaction_payload=card,
+                   interaction_answer=None, worker_id=None, worker_status=None,
+                   lease_expires_at=None)
+        self.append_event(run_id, REQUEST_EVENT_BY_KIND[kind], card)
+        return row
+
+    def answer_interaction(self, run_id, *, interaction_id, answer, event_type,
+                           event_payload):
+        row = self.runs.get(run_id)
+        if row is None:
+            raise LookupError(f"run not found: {run_id}")
+        status = row["status"]
+        if status in AWAITING:
+            if row.get("interaction_id") != interaction_id:
+                return {"outcome": "conflict", "reason": "stale_interaction",
+                        "status": status,
+                        "current_interaction_id": row.get("interaction_id")}
+            row.update(status="QUEUED", interaction_answer=answer,
+                       resumed_at=datetime.now(UTC), queued_at=datetime.now(UTC),
+                       awaiting_expires_at=None)
+            self.append_event(run_id, event_type, event_payload)
+            return {"outcome": "accepted", "status": "QUEUED"}
+        if (status in ("QUEUED", "RUNNING", "CANCEL_REQUESTED")
+                and row.get("interaction_id") == interaction_id
+                and row.get("interaction_answer") is not None):
+            return {"outcome": "already_answered", "status": status}
+        return {"outcome": "conflict", "reason": "not_pending", "status": status}
+
+    def expire_awaiting_runs(self, batch: int = 50):
+        from web.backend.hitl import (
+            EXPIRED_EVENT_BY_KIND,
+            build_auto_continue_payload,
+        )
+
+        now = datetime.now(UTC)
+        results = []
+        for row in list(self.runs.values())[: max(1, int(batch))]:
+            if row["status"] not in AWAITING:
+                continue
+            expires = row.get("awaiting_expires_at")
+            if expires is None or expires >= now:
+                continue
+            payload = {"interaction_id": row.get("interaction_id"),
+                       "round": row.get("interaction_round")}
+            if row["status"] == "AWAITING_CLARIFICATION":
+                row.update(status="QUEUED", interaction_answer=build_auto_continue_payload(),
+                           resumed_at=now, queued_at=now, awaiting_expires_at=None)
+                self.append_event(row["run_id"], EXPIRED_EVENT_BY_KIND["clarification"],
+                                  {**payload, "kind": "clarification"})
+                results.append({"run_id": row["run_id"], "action": "clarified_auto"})
+            else:
+                row.update(status="TIMED_OUT", stop_reason="approval_expired",
+                           finished_at=now, awaiting_expires_at=None)
+                self.append_event(row["run_id"], EXPIRED_EVENT_BY_KIND["plan_approval"],
+                                  {**payload, "kind": "plan_approval"})
+                results.append({"run_id": row["run_id"], "action": "approval_expired"})
+        return results
+
+    def count_awaiting(self, user_id=None):
+        return sum(1 for row in self.runs.values()
+                   if row["status"] in AWAITING
+                   and (user_id is None or row["user_id"] == user_id))
 
     def append_event(self, run_id, event_type, payload=None, *, sequence=None, owner=None):
         if self.fail_events:

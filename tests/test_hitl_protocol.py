@@ -96,6 +96,23 @@ def test_interaction_view_only_for_awaiting():
     assert hitl.interaction_view({**row, "status": "CANCELLED"}) is None
 
 
+def test_sanitize_card_content_limits():
+    """§12.2 长度上限：叶子截断 / 容器限量 / 总量超限降级 preview（护栏在 build_card 单一入口）。"""
+    long_q = "长" * (hitl.CARD_STRING_LIMIT + 50)
+    card = hitl.build_card("clarification", interaction_id="itx-1", round_no=1,
+                           expires_at_iso="2026-10-14T00:00:00+00:00",
+                           content={"questions": [long_q]})
+    assert len(card["content"]["questions"][0]) == hitl.CARD_STRING_LIMIT
+
+    # 叶子截断后总量仍超限（多叶场景）⇒ 降级 preview
+    huge = {"questions": ["x" * hitl.CARD_STRING_LIMIT] * 20,
+            "plan": {"items": ["y" * hitl.CARD_STRING_LIMIT] * 20}}
+    card = hitl.build_card("clarification", interaction_id="itx-2", round_no=1,
+                           expires_at_iso="2026-10-14T00:00:00+00:00", content=huge)
+    assert card["content"]["truncated"] is True
+    assert len(card["content"]["preview"]) <= hitl.CARD_TEXT_LIMIT
+
+
 def test_redact_interaction_payload_keeps_protocol_fields():
     """flagged 回放：协议字段保留、正文清空、标记 under_review。"""
     from web.backend.main import _redact_interaction_payload

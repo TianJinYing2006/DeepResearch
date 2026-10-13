@@ -9,6 +9,7 @@ Phase 1 边界：只落协议与 schema（迁移 0023 + store 原子协议 + 回
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -59,8 +60,34 @@ ALLOWED_ACTIONS = {
 
 #: 载荷长度上限（§12.2「设长度上限」；超限由 API 拒绝，不静默截断用户输入）
 ANSWER_TEXT_LIMIT = 2000
-#: 卡片文本上限（图给出的问题/计划摘要超长时由写入方截断）
-CARD_TEXT_LIMIT = 4000
+#: 卡片内容总量上限（字符；超限降级为 preview —— 挂起事务的持久化护栏）
+CARD_TEXT_LIMIT = 8000
+#: 卡片内容单个字符串叶子上限（问题/摘要等长文本先按叶截断）
+CARD_STRING_LIMIT = 1000
+
+
+def sanitize_card_content(content: Any, *, limit: int = CARD_TEXT_LIMIT) -> dict:
+    """卡片内容长度上限（§12.2）：字符串叶子截断 + 容器限量；总量仍超限 ⇒ 降级 preview。
+
+    单一入口：`build_card` 调用本函数 —— 挂起事务无论由谁发起，落库卡片都受同一上限约束。
+    """
+    def _walk(value: Any) -> Any:
+        if isinstance(value, str):
+            return value[:CARD_STRING_LIMIT]
+        if isinstance(value, list):
+            return [_walk(item) for item in value[:20]]
+        if isinstance(value, dict):
+            return {str(key)[:100]: _walk(val) for key, val in list(value.items())[:20]}
+        return value
+
+    walked = _walk(content or {})
+    try:
+        raw = json.dumps(walked, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return {"truncated": True}
+    if len(raw) > limit:
+        return {"truncated": True, "preview": raw[:limit]}
+    return walked if isinstance(walked, dict) else {"value": walked}
 
 
 def new_interaction_id() -> str:
@@ -85,7 +112,8 @@ def build_card(
 
     字段（§12.2：稳定 ID / 轮次 / 状态版本 / 过期时间 / 允许动作）：
       interaction_id / kind / round / max_rounds / expires_at / allowed_actions / content
-    `content` 为图在 interrupt 时给出的展示载荷（问题清单 / 计划摘要），不含可执行内容。
+    `content` 为图在 interrupt 时给出的展示载荷（问题清单 / 计划摘要），不含可执行内容；
+    落库前经 `sanitize_card_content` 统一施加长度上限。
     """
     return {
         "interaction_id": interaction_id,
@@ -94,7 +122,7 @@ def build_card(
         "max_rounds": MAX_ROUNDS.get(kind, 1),
         "expires_at": expires_at_iso,
         "allowed_actions": list(ALLOWED_ACTIONS.get(kind, ())),
-        "content": content or {},
+        "content": sanitize_card_content(content),
     }
 
 
