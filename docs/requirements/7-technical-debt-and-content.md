@@ -146,6 +146,12 @@
 
 **🟡 TBD-1d（冻结备查，W8+ 启动，本期不实现）**：澄清触发条件（每次都判？还是仅当 topic 模糊/短？）；**硬约束——eval 批量跑（`eval/run.py`）与 CI 必须可关**（配置 `allow_clarification`，默认开还是默认关？eval 轨强制 false）；澄清轮次上限（不能无限追问，建议 1 轮）；澄清结果落哪个字段（新增 `user_scope`？并入 `user_instructions`？）以及 **critic 是否消费它**（作为 gap 判定的参照标准）；CLI 非交互场景（管道/脚本）如何优雅跳过。
 
+> **✅ 2026-10-13 解冻落地（需求 36 / Issue #210）**：本冻结项随「HITL 交互闭环」交付（PR #211/#212/#213）——
+> 澄清由图内 `clarify→await_clarify` 节点 + `interrupt` 实现，≤2 轮；解答落 `user_scope` 并经 `research_spec` 供
+> planner/critic/writer 消费；开关 `DR_HITL_CLARIFY` **默认关**、eval（`eval/run.py`）与 CI（`tests/conftest.py`）
+> **强制关**（原硬约束保留）；`run()/CLI` 路径对 interrupt 显式失败（HITL 仅队列模式）。
+> 详见 `docs/requirements/36-hitl-interactive-loop.md` §12.6 与 `release-runbook.md` §7.4。
+
 #### ✅ TBD-1b 定案（设计评审 Q2，2026-09-09）——方案 E+：gap ∧ next_queries 绑定判定 + 反思轮次专用封顶 N=6 + prompt 预算感知
 
 **行业依据（源码级，Q2 前置调研）**：判定器一律为**布尔 / 工具调用**（gemini `Reflection.is_sufficient: bool`；open_deep_research `ResearchComplete`），**无一家用字符串判空**；gap 在 gemini 中只是生成 `follow_up_queries` 的**输入、不参与停止决策**；封顶一律为**独立循环计数器 + 小上限**（gemini `max_research_loops=2` / open_deep_research `max_researcher_iterations=6`、`max_react_tool_calls=10` / STORM `max_conv_turn=5`）；open_deep_research 把上限写进 `lead_researcher_prompt` 做**预算感知**。
