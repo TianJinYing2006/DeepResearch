@@ -386,7 +386,11 @@ class McpConfig:
     consume_enabled: bool = field(
         default_factory=lambda: _env_bool("DR_MCP_CONSUME_ENABLED", False))
     server_enabled: bool = field(
-        default_factory=lambda: _env_bool("DR_MCP_SERVER_ENABLED", False))  # M2 使用
+        default_factory=lambda: _env_bool("DR_MCP_SERVER_ENABLED", False))
+    #: 对外 Server 名（工具面标识 + service principal `mcp:<name>`；TBD-10）
+    server_name: str = field(
+        default_factory=lambda: (_env("DR_MCP_SERVER_NAME", "deepresearch").strip()
+                                 or "deepresearch"))
     servers_json: str = field(default_factory=lambda: _env("DR_MCP_SERVERS", ""))
 
 

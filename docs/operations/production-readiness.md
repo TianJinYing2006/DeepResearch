@@ -179,6 +179,9 @@
   - [ ] 确认结论写入本文件「落档记录」
 - [ ] 已备案模型信息公示：在显著位置或产品详情页展示所使用的已备案服务、模型名称与备案号
 - [ ] 数据出境评估：L3-A/B 默认不发送用户内容出境；Tavily / arXiv / Semantic Scholar 默认关闭，OTel trace 默认不导出（配置 `OTEL_EXPORTER_OTLP_ENDPOINT` 才启用，推荐自托管后端），恢复/开启须独立评审（需求 10 §3.1 第 16 项 + 本文件 §4 登记）
+- [ ] MCP 双向（需求 37，默认全关）：
+  - M1 消费：开启 = 研究查询词等数据外发至外部 MCP Server（首发仅运营方自建/可信内部，单 server 灰度）；须 egress 登记 + 运营披露；URL 仅 https、私网放行须显式理由（审计）；
+  - M2 对外：机器令牌仅限**封闭内测**（单一 service principal，不得宣传为通用身份方案）；跨主体开放前须补可撤销凭证 / scope / 轮换 / 主体映射（§12.3 结论）
 - [ ] 商用供应商授权确认（模型 / 搜索 / 可观测）
 
 **合规口径提醒（不得简化）**：
@@ -210,6 +213,8 @@
 | OTel trace 导出（需求 33） | 可观测（trace / 成本估算） | span 属性 + 提示词/输出截断预览（单字段 4000 / 节点 200 字符；`DR_OTEL_MASK_SENSITIVE` 默认 false）；不含密钥 | **取决于后端**：推荐自托管（Jaeger / 自托管 Langfuse OTLP ingest，境内可控） | **默认关闭**（未配置 `OTEL_EXPORTER_OTLP_ENDPOINT` = 零外发）；开启须登记后端地域 |
 | 错误追踪（需求 25） | 前后端异常聚合 | 错误堆栈、页面路径、请求 ID、版本号（**不含**输入内容/Cookie/请求体/邮箱） | 自托管 GlitchTip（境内；compose profile `errors`）；可换 ARMS（境内托管）/Sentry Cloud（须出境评审） | 默认关闭（DSN 空）；启用后按本表登记，PII 清洗见 `web/backend/observability.py` |
 | Qdrant | 向量库（默认 `127.0.0.1:6333`） | 上传文档分块与向量 | 取决于部署 | 自托管可控；L3 改为多租户隔离 |
+| 外部 MCP Server（需求 37 M1，默认关） | 消费侧：researcher 检索源（首发限运营方自建/可信内部） | 检索查询词（经工具参数） | 取决于 server 部署（首发可信内部） | **默认关闭**；启用须显式配置 + egress 登记 + 运营披露；仅 https；私网放行须理由（审计） |
+| MCP Client（需求 37 M2，默认关） | 对外：本项目以 MCP Server 形态提供 quick_search / deep_research / status / report | 调用方提交的查询词/主题/指令；返回检索结果/报告 | 本项目部署地域（run 归属 `mcp:<name>` 主体） | **默认关闭**；Bearer 机器令牌（封闭内测）；调用全审计（不落原始 prompt） |
 | 新增（L3）：PostgreSQL / Redis / 对象存储 | 权威状态 / 队列 / 报告 | 用户资料、任务、事件、报告、上传文件 | 单云单地域（国内，待填） | 部署后登记 |
 
 ## 5. 恢复演练（模板）
