@@ -6,7 +6,7 @@
 > **竞品参照**（调研 §1.1~§1.3）：open_deep_research `clarify_with_user`（Scoping 澄清）；Gemini Deep Research `collaborative_planning`（多轮改计划后批准）；DeerFlow 2.0 自然语言改计划。
 > **前置（均已交付）**：R3 跨进程 checkpoint（`thread_id=run_id`；`fresh/resumed/replayed`，需求 35）＝ `interrupt` 现成载体；R2 evidence manifest ＝ 追问证据池基础。
 > **纪律**：① 不改核心判定口径（W8 基线可比性）；② **eval/CI 必须可关**（沿用需求 7 TBD-1d 硬约束）；③ 所有决策点进 `run_events`（审计即事件）。
-> 飞书镜像：待建（立项拍板后同步 `DeepResearch 需求文档` 文件夹）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/RPTKdmATQoF6q5xlvM6c8U14njd（`RPTKdmATQoF6q5xlvM6c8U14njd`，位于 `DeepResearch 需求文档` 文件夹；2026-10-13 按 P1~P3 交付版重建，立项版已删）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -14,10 +14,10 @@
 | 编号 | 36 |
 | 标题 | 批次 3「HITL 交互闭环」：澄清提问（≤2 轮）+ 计划审批（interrupt）+ 报告后追问（不重搜） |
 | 优先级 | P0 |
-| 状态 | 进行中 |
+| 状态 | 自测 |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #210 |
-| 关联 PR | #211（Phase 1） |
+| 关联 PR | #211（P1）/ #212（P2，堆叠）/ #213（P3，堆叠） |
 | 创建 / 更新 | 2026-10-13 |
 | 前置评审 | TBD-0~7 按 §5 推荐 + §12 评审修订执行；开工登记见 §12.6 |
 
@@ -98,16 +98,18 @@
 
 ## 7. 验收标准（DoD）
 
-- [ ] TBD-0~7 拍板（记录进 §5）
-- [ ] H1：澄清节点 + `interrupt` + ≤2 轮；解答并入 `research_spec`（planner/critic/writer 同口径）；LLM 判定失败的跳过路径有单测
-- [ ] H2：计划审批 `interrupt`（批准/自然语言修改 ≤2 轮）；修订经同一 planner 口径；决策事件落 `run_events`
-- [ ] H3：`follow-up` 接口（前置校验齐全）+ 证据池 grounding + ID 白名单校验 + `usage_ledger` 记账 + 审计事件
-- [ ] 状态机：迁移 `0023`（只增）；状态机/`ACTIVE_STATUSES`/sweep/取消/配额/等待时钟六处同步，单测锁定（含「等待态不被 sweep 误杀」「等待态取消」「TTL 自动推进留痕」）
-- [ ] 开关：三开关 + eval/CI 强制关 + `config_snapshot` 记录；**关闭态节点序列/事件序列与现状一致（确定性测试）**
-- [ ] 唤醒链：用户回答 → `QUEUED` → worker 认领 → 带回答 resume（真 PG 契约测试：挂起→回答→续跑，账本对账同 R3 口径）
-- [ ] 前端：澄清卡/计划卡/追问框 + 断线重连可重建 + testid 契约 + e2e（桌面/窄屏）
-- [ ] 全量套件 0 失败；`SCORER_VERSION` 不变（w9.1），评测口径零漂移
-- [ ] 文档：协议入 `release-runbook.md`；需求 7 TBD-1d 状态更新（解冻落地）；roadmap 回填
+> 交付状态（2026-10-13）：**P1~P3 全部交付**（PR #211 / #212 / #213，堆叠待合）。
+
+- [x] TBD-0~7 拍板（记录进 §5）—— ✅（§12.6 开工登记，含 §12.4 五项决策处置）
+- [x] H1：澄清节点 + `interrupt` + ≤2 轮；解答并入 `research_spec`（planner/critic/writer 同口径）；LLM 判定失败的跳过路径有单测 —— ✅（P2，#212；`test_hitl_graph.py`）
+- [x] H2：计划审批 `interrupt`（批准/自然语言修改 ≤2 轮）；修订经同一 planner 口径；决策事件落 `run_events` —— ✅（P2，#212；修订失败保留原计划并留痕）
+- [x] H3：`follow-up` 接口（前置校验齐全）+ 证据池 grounding + ID 白名单校验 + `usage_ledger` 记账 + 审计事件 —— ✅（P3，#213；`test_hitl_followup.py`）
+- [x] 状态机：迁移 `0023`（只增）；状态机/`ACTIVE_STATUSES`/sweep/取消/配额/等待时钟六处同步，单测锁定（含「等待态不被 sweep 误杀」「等待态取消」「TTL 自动推进留痕」）—— ✅（P1，#211；`test_hitl_interaction_pg.py` 14 条）
+- [x] 开关：三开关 + eval/CI 强制关 + `config_snapshot` 记录；**关闭态节点序列/事件序列与现状一致（确定性测试）** —— ✅（P2，#212；`test_hitl_graph.py` 拓扑硬断言 + `provenance.hitl_switches`）
+- [x] 唤醒链：用户回答 → `QUEUED` → worker 认领 → 带回答 resume（真 PG 契约测试：挂起→回答→续跑，账本对账同 R3 口径）—— ✅（P1 回答事务 + P2 `Command(resume=)` + `test_hitl_resume_drill_pg.py` 真 PG 演练）
+- [x] 前端：澄清卡/计划卡/追问框 + 断线重连可重建 + testid 契约 + e2e（桌面/窄屏）—— ✅（P3，#213；vitest 9 条 + 既有 e2e 80/80 不回归；**全链路 HITL e2e 待 staging 队列模式**，demo 模式按设计强制关闭）
+- [x] 全量套件 0 失败；`SCORER_VERSION` 不变（w9.1），评测口径零漂移 —— ✅（P1~P3 各自本机全量绿；e2e 80/80）
+- [x] 文档：协议入 `release-runbook.md`；需求 7 TBD-1d 状态更新（解冻落地）；roadmap 回填 —— ✅（§7.4 含追问；需求 7 TBD-1d 已加解冻登记；roadmap §3b P1~P3 已回填）
 
 ## 8. 影响范围与风险
 
@@ -147,6 +149,9 @@
 | 2026-10-13 | 开工 | 主理人确认按需求 36 开工 | 状态草稿→进行中；Issue #210；开分支 `feat/36-hitl-interaction-protocol`；TBD-0~7 按 §5 推荐 + §12 修订执行（登记见 §12.6）；Phase 1（协议/状态机先行，不改图）开工 | #210 |
 | 2026-10-13 | 实现 | Phase 1 协议/状态机交付（PR #211） | 迁移 `0023`（等待态两态 + 交互协议列 + 结构断言）+ `web/backend/hitl.py` 协议单点 + store PG 原子协议（`suspend_run`/`answer_interaction`/`expire_awaiting_runs`/`count_awaiting` + 取消扩展）+ `POST …/interaction` 回答 API + HITL 事件/回放脱敏/SSE 卡片后关流（TBD-6）+ 快照 `interaction`；离线 8/8 + 真 PG 契约 14/14 + 回归子集 70/70 + ruff 全过；**不改图** | #211 |
 | 2026-10-13 | 实现 | Phase 2 图 interrupt + 挂起/恢复交付（PR #212，堆叠 #211） | 拓扑：clarify/await_clarify + await_plan/revise_plan（**关闭态零漂移**硬断言）；`Command(resume=)` 注入 + `STOP_SUSPENDED` 挂起出口（不算完成节点）；`Clarifier`（失败即跳过）+ `Planner.revise_plan`（失败留痕）+ `user_scope` 并入 `research_spec`；Worker 挂起事务（释放租约）/恢复携带回答值/清扫周期到期收口；`CHECKPOINT_SCHEMA_VERSION→2`；eval/CI 强制关 + `config_snapshot` 记录；真 PG「挂起-退出-回答-恢复」演练 + runbook §7.4；离线 23/23 + 真 PG 19/19 + 全量套件绿 | #212 |
+| 2026-10-13 | 实现 | Phase 3 追问 + 前端交付（PR #213，堆叠 #212） | `web/backend/followup.py`（上下文上限/白名单校验/失败不改原 run）+ `POST …/follow-up`（开关/限流/门禁/记账/审计事件）+ `FOLLOWUP_*` 事件与回放脱敏 + options 下发开关；前端 `lib/hitl.ts`（事件流重建卡片/快照恢复）+ `useResearchStream`（interaction/answerInteraction/askFollowup/等待态关流）+ `HitlPanels`（澄清卡/计划卡/追问框）；离线 5/5 + 全量套件绿 + vitest 41/41 + e2e 80/80 + 守卫全过；**全链路 HITL e2e 待 staging**（demo 模式强制关） | #213 |
+| 2026-10-13 | 实现 | CLI 端口径收口（并入 PR #213） | `cli.py` 入口强制关闭图上 HITL（clarify/plan_approval）并显式告警——与 API 非队列模式同口径（CLI 无「挂起-回答-恢复」通道；追问不受影响；`graph.run()` 的 interrupt 防御保留为兜底）；单测 3 条 + runbook §7.4 前置边界同步 | #213 |
+| 2026-10-13 | 文档 | 飞书镜像重建 | 按 P1~P3 交付版重建至 `DeepResearch 需求文档` 文件夹（`RPTKdmATQoF6q5xlvM6c8U14njd`；标题补齐 + 自引用回填；立项版已删） | — |
 
 ## 12. 评审结论与补充设计
 

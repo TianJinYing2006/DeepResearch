@@ -21,6 +21,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # 需求 33 三重隔离①：强制（覆盖式，非 setdefault —— .env 里已有值也必须压掉）
 os.environ["DR_OTEL_ENABLED"] = "false"
 
+# 需求 36：HITL 开关在单测进程内**强制关闭**（关闭态零漂移的前提；
+# 专项测试在用例内直接改 config.hitl.<field> 显式开启）。
+os.environ["DR_HITL_CLARIFY"] = "false"
+os.environ["DR_HITL_PLAN_APPROVAL"] = "false"
+os.environ["DR_HITL_FOLLOWUP"] = "false"
+
 # P0-3（2026-10-07）：本地 .env 的依赖串指向未启动的本地服务时，不依赖它们的单测
 # 也会在导入期被耦合 —— config.load_dotenv() 注入 .env 后，web.backend.main 在
 # **模块导入期**按 DR_DATABASE_URL 构造 store，测试内 monkeypatch.delenv 无法回滚
@@ -37,3 +43,5 @@ os.environ.setdefault("DR_LOGIN_RATE_PER_MINUTE", "0")
 # P1-2：登录账号维度限流同理关闭（定向撞库用例单独 monkeypatch 覆盖）
 os.environ.setdefault("DR_LOGIN_ACCOUNT_RATE_PER_MINUTE", "0")
 os.environ.setdefault("DR_SUBMIT_RATE_PER_MINUTE", "0")
+# 需求 36 H3：追问限流同理关闭（限流本身由定向用例覆盖）
+os.environ.setdefault("DR_FOLLOWUP_RATE_PER_MINUTE", "0")

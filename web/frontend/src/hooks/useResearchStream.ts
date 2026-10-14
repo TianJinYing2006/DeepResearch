@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { csrfHeaders, httpError, toStructuredError } from '../lib/api'
+import {
+  applyInteractionEvent,
+  cardFromEvent,
+  interactionFromSnapshot,
+  isInteractionEvent,
+} from '../lib/hitl'
 import { applyEvent, computeProgress, emptySummary, type ProgressSummary } from '../lib/progress'
 import { applyReportEvent } from '../lib/reportPreview'
 import {
   AGUI_EVENT_TYPES,
   isAguiEvent,
   type AguiEvent,
+  type FollowupAnswer,
+  type FollowupEntry,
+  type InteractionCard,
+  type InteractionView,
   type ResearchResult,
   type RunFinishedEvent,
   type StructuredError,
@@ -62,11 +72,22 @@ export function useResearchStream() {
   const [result, setResult] = useState<ResearchResult | null>(null)
   /** 需求 35 R4：正文流式预览（最近一次 REPORT_RESET 之后的增量拼接；终局整段替换）。 */
   const [reportPreview, setReportPreview] = useState('')
+  // 需求 36：当前待答交互卡片（非等待态为 null；刷新后经快照 interaction 字段恢复）
+  const [interaction, setInteraction] = useState<InteractionCard | null>(null)
+  const [interactionBusy, setInteractionBusy] = useState(false)
+  const [interactionError, setInteractionError] = useState<StructuredError | null>(null)
+  // 需求 36 H3：追问（不落库，仅本页展示；新 run 清空）
+  const [followups, setFollowups] = useState<FollowupEntry[]>([])
+  const [followupBusy, setFollowupBusy] = useState(false)
+  const [followupError, setFollowupError] = useState<StructuredError | null>(null)
   // R5（审计 U50）：进度增量累加（每事件 O(1)），不再每次全量重扫事件流
   const [summary, setSummary] = useState<ProgressSummary>(emptySummary)
   const sourceRef = useRef<EventSource | null>(null)
   const summaryRef = useRef<ProgressSummary>(emptySummary())
   const terminalRef = useRef(false)
+  // 需求 36：等待态标记 —— 服务端按 TBD-6 在卡片回放后主动关流，不是断线
+  const awaitingRef = useRef(false)
+  const interactionRef = useRef<InteractionCard | null>(null)
   const seenEventIdsRef = useRef(new Set<string>())
   // 本页是否手动发起过研究：防止「恢复上一场运行」的异步请求抢在手动发起之后回填
   const manualStartRef = useRef(false)
@@ -101,6 +122,28 @@ export function useResearchStream() {
         // 需求 35 R4：正文增量/重置只进预览缓冲，不进 events（时间线/计数保持活动语义）
         if (parsed.type === 'REPORT_DELTA' || parsed.type === 'REPORT_RESET') {
           setReportPreview((previous) => applyReportEvent(previous, parsed))
+          return
+        }
+
+        // 需求 36：交互卡片/回答/过期/追问不进时间线 —— 卡片本身就是 UI；
+        // 卡片状态经回放逐事件重建（断线重连/刷新恢复同一路径）。
+        if (isInteractionEvent(parsed)) {
+          if (parsed.type === 'CLARIFY_REQUESTED' || parsed.type === 'PLAN_PROPOSED') {
+            const card = cardFromEvent(parsed)
+            interactionRef.current = card
+            setInteraction(card)
+            awaitingRef.current = Boolean(card)
+          } else if (
+            parsed.type === 'CLARIFY_ANSWERED' ||
+            parsed.type === 'PLAN_DECISION' ||
+            parsed.type === 'CLARIFY_EXPIRED' ||
+            parsed.type === 'PLAN_EXPIRED'
+          ) {
+            const next = applyInteractionEvent(interactionRef.current, parsed)
+            interactionRef.current = next
+            setInteraction(next)
+            if (!next) awaitingRef.current = false
+          }
           return
         }
 
@@ -142,7 +185,9 @@ export function useResearchStream() {
     }
     source.onopen = () => setConnectionStatus('live')
     source.onerror = () => {
-      if (!terminalRef.current) setConnectionStatus('reconnecting')
+      if (terminalRef.current) return
+      // 需求 36：等待态（卡片回放后服务端关流）不是断线，不显示「重连中」
+      setConnectionStatus(awaitingRef.current ? 'closed' : 'reconnecting')
     }
   }, [closeSource])
 
@@ -176,6 +221,12 @@ export function useResearchStream() {
 
       closeSource()
       terminalRef.current = false
+      awaitingRef.current = false
+      interactionRef.current = null
+      setInteraction(null)
+      setInteractionError(null)
+      setFollowups([])
+      setFollowupError(null)
       seenEventIdsRef.current.clear()
       setEvents([])
       setResult(null)
@@ -207,13 +258,21 @@ export function useResearchStream() {
         clearStoredRun()
         return null
       }
-      const snapshot = (await response.json()) as { elapsed_seconds?: number }
+      const snapshot = (await response.json()) as {
+        elapsed_seconds?: number
+        interaction?: InteractionView | null
+      }
       if (manualStartRef.current) return null
       terminalRef.current = false
       seenEventIdsRef.current.clear()
       setEvents([])
       setResult(null)
       setError(null)
+      // 需求 36：恢复等待态卡片（刷新页面后仍能看到并回答）
+      const restoredCard = interactionFromSnapshot(snapshot.interaction)
+      interactionRef.current = restoredCard
+      setInteraction(restoredCard)
+      awaitingRef.current = Boolean(restoredCard)
       setRunId(stored)
       setStatus('running')
       setConnectionStatus('connecting')
@@ -242,6 +301,68 @@ export function useResearchStream() {
     }
   }, [runId])
 
+  /** 需求 36：提交当前交互卡片的回答（clarification: reply；plan_approval: approve|revise）。
+
+  成功后**重新挂流**（从 0 回放重建摘要/预览，seen 去重保证不重复计数），
+  worker 认领后以 `Command(resume=)` 续跑，后续事件经新流送达。 */
+  const answerInteraction = useCallback(async (action: string, text: string) => {
+    const card = interactionRef.current
+    if (!runId || !card) return
+    setInteractionBusy(true)
+    setInteractionError(null)
+    try {
+      const response = await fetch(`/api/research/${runId}/interaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: JSON.stringify({ interaction_id: card.interaction_id, action, text }),
+      })
+      if (!response.ok) throw await httpError(response, 'interaction_failed', '提交回答失败')
+      awaitingRef.current = false
+      terminalRef.current = false
+      interactionRef.current = null
+      setInteraction(null)
+      seenEventIdsRef.current.clear()
+      setEvents([])
+      attachStream(runId)
+    } catch (submitError) {
+      setInteractionError(
+        toStructuredError(submitError, 'interaction_failed', '提交失败，请重试'),
+      )
+    } finally {
+      setInteractionBusy(false)
+    }
+  }, [attachStream, runId])
+
+  /** 需求 36 H3：报告后追问（不重搜；证据池 grounding 由服务端校验）。 */
+  const askFollowup = useCallback(async (question: string) => {
+    if (!runId || !question.trim()) return
+    setFollowupBusy(true)
+    setFollowupError(null)
+    try {
+      const response = await fetch(`/api/research/${runId}/follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: JSON.stringify({ question: question.trim() }),
+      })
+      if (!response.ok) throw await httpError(response, 'followup_failed', '追问失败')
+      const payload = (await response.json()) as FollowupAnswer
+      setFollowups((previous) => [
+        ...previous,
+        {
+          question: question.trim(),
+          answer: payload.answer,
+          citations: payload.citations ?? [],
+          unverified_ids: payload.unverified_ids ?? [],
+          grounded: Boolean(payload.grounded),
+        },
+      ])
+    } catch (followupFailure) {
+      setFollowupError(toStructuredError(followupFailure, 'followup_failed', '追问失败，请重试'))
+    } finally {
+      setFollowupBusy(false)
+    }
+  }, [runId])
+
   const progress = useMemo(() => computeProgress(summary), [summary])
 
   return {
@@ -253,6 +374,14 @@ export function useResearchStream() {
     result,
     reportPreview,
     progress,
+    interaction,
+    interactionBusy,
+    interactionError,
+    answerInteraction,
+    followups,
+    followupBusy,
+    followupError,
+    askFollowup,
     start,
     resume,
     cancel,

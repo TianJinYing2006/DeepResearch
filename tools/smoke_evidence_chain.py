@@ -73,6 +73,14 @@ def main() -> int:
         # fast 档不在档位覆盖集内（runtime_profile._PROFILE_MODEL_ROLES），显式同步
         config.llm.fast_model = args.model
 
+    # 需求 36：冒烟工具是单次运行、无「挂起-回答-恢复」通道 —— 与 CLI 同口径
+    # 强制关闭图上 HITL（告警不静默；run() 的 interrupt 防御仍保留为兜底）
+    for hitl_field in ("clarify_enabled", "plan_approval_enabled"):
+        if getattr(config.hitl, hitl_field):
+            setattr(config.hitl, hitl_field, False)
+            print(f"[smoke] ⚠️ {hitl_field} 需要队列模式：冒烟工具已强制关闭"
+                  f"（本次运行不等待人类输入）", file=sys.stderr)
+
     run_store = RunStore(dsn)
     snap_store = PgSnapshotStore(run_store)
     run_id = f"smoke-{datetime.now():%Y%m%d%H%M%S}-{uuid.uuid4().hex[:6]}"

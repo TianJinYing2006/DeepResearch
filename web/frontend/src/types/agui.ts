@@ -6,6 +6,15 @@ export const AGUI_EVENT_TYPES = [
   'DEGRADATION',
   'REPORT_DELTA',
   'REPORT_RESET',
+  // 需求 36（TBD-6）：HITL 交互事件（卡片/回答/过期/追问）
+  'CLARIFY_REQUESTED',
+  'CLARIFY_ANSWERED',
+  'CLARIFY_EXPIRED',
+  'PLAN_PROPOSED',
+  'PLAN_DECISION',
+  'PLAN_EXPIRED',
+  'FOLLOWUP_ASKED',
+  'FOLLOWUP_ANSWERED',
   'RUN_FINISHED',
   'RUN_ERROR',
 ] as const
@@ -87,6 +96,8 @@ export interface RunOptions {
   release?: string | null
   /** 需求 26：报告只读分享开关（隐藏分享入口） */
   share_enabled?: boolean
+  /** 需求 36 H3：报告后追问开关（隐藏追问入口） */
+  followup_enabled?: boolean
 }
 
 export interface StepFinishedEvent extends AguiEvent {
@@ -131,6 +142,64 @@ export interface ReportDeltaEvent extends AguiEvent {
  * 终局正文经 `RUN_FINISHED.result.report` **整段替换**，绝不追加到预览之后。 */
 export interface ReportResetEvent extends AguiEvent {
   type: 'REPORT_RESET'
+}
+
+// ---- 需求 36：HITL 交互协议（与后端 `web/backend/hitl.py` 卡片 schema 对齐） ----
+
+export type InteractionKind = 'clarification' | 'plan_approval'
+
+export interface PlanSubquestion {
+  id: string
+  question: string
+  rationale?: string
+}
+
+/** 交互卡片（`CLARIFY_REQUESTED` / `PLAN_PROPOSED` 事件载荷 = 卡片原件；
+ *  快照 `interaction.card` 同形）。`allowed_actions` 为服务端允许的动作集合。 */
+export interface InteractionCard {
+  interaction_id: string
+  kind: InteractionKind
+  round: number
+  max_rounds?: number
+  expires_at?: string
+  allowed_actions?: string[]
+  content: {
+    questions?: string[]
+    topic?: string
+    subquestions?: PlanSubquestion[]
+    plan_version?: number
+    revision_failed?: boolean
+  }
+}
+
+/** `GET /api/research/{run_id}` 快照里的 `interaction` 字段（非等待态为 null）。 */
+export interface InteractionView {
+  interaction_id: string
+  kind: InteractionKind
+  round: number | null
+  awaiting_since?: string | null
+  expires_at?: string | null
+  card?: InteractionCard
+}
+
+export interface ClarifyRequestedEvent extends AguiEvent, InteractionCard {
+  type: 'CLARIFY_REQUESTED'
+}
+
+export interface PlanProposedEvent extends AguiEvent, InteractionCard {
+  type: 'PLAN_PROPOSED'
+}
+
+/** 需求 36 H3：追问回答（`POST …/follow-up` 响应；不落库，仅前端展示）。 */
+export interface FollowupAnswer {
+  answer: string
+  citations: string[]
+  unverified_ids: string[]
+  grounded: boolean
+}
+
+export interface FollowupEntry extends FollowupAnswer {
+  question: string
 }
 
 export interface CitationResult {
