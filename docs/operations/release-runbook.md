@@ -340,6 +340,40 @@ Worker 认领后以 `resumed` 执行：`Command(resume=answer)` 注入挂起节�
 本 run 成本增量（月度预算同源）；`FOLLOWUP_ASKED/ANSWERED` 进 `run_events`（flagged 回放脱敏）；
 失败只影响本次追问（`followup_unavailable`），不改原 run 终态与报告。
 
+### 7.5 MCP 工具面协议（需求 37：M1 消费 / M2 对外）
+
+**M1 消费（外部 MCP → researcher）**：`DR_MCP_CONSUME_ENABLED=true` 时按 `DR_MCP_SERVERS`
+（JSON）配置只读检索源；每跳并入 `mcp` 工具位（关闭态零漂移）。失败映射既有五值（零新增）；
+成功/失败均记账（`kind='tool'`，per_call）；终点进 egress 快照；URL 仅 https、私网需
+`allow_private`+理由（显式放行，审计）；结果清洗/截断（`max_result_bytes`/`max_findings`）。
+配置非法 ⇒ 启动时 fail-fast；SDK 不可用 ⇒ `not_configured`（不 crash）。
+
+**M2 对外（本项目 → MCP Client）**：`DR_MCP_SERVER_ENABLED=true` 时 API 进程挂载 `/mcp`
+（Streamable HTTP；`json_response + stateless`；TLS 由反代终止，见 §7.1）。
+鉴权：`Authorization: Bearer <DR_MCP_TOKEN>`（常量时间比较；**只认头**，query-string 一律拒绝；
+未配置令牌 ⇒ fail-closed 全部 401）。单一 service principal `mcp:<DR_MCP_SERVER_NAME>`（默认
+`mcp:deepresearch`）：MCP 创建的 run 归属该主体，status/report 仅本主体可见（不存在与无权同口径）。
+调用限流：`DR_MCP_RATE_PER_MINUTE`（默认 60/分/主体；多实例经 `DR_REDIS_URL` 共享）。
+**工具面（v1，schema 版本 `mcp-tools/v1`）**：
+
+| 工具 | 语义 | 关键限制 |
+|---|---|---|
+| `quick_search(query, max_results)` | 同步检索（provider 直调，不建 run）；记账 `kind='search'` | query ≤500 字符；max_results ≤10；返回限 title/url/snippet（≤500） |
+| `deep_research(topic, instructions, profile, idempotency_key)` | 创建 run（**与 Web 同一准入/配额/审核/注入/幂等口径**），立即返回 `{run_id, status_url}` | topic ≤500 / instructions ≤2000；幂等键缺省按主体+内容派生 |
+| `research_status(run_id)` | 状态快照（status / run_status / topic / has_report / stop_reason） | 仅本主体 |
+| `research_report(run_id, format)` | 报告取回（**输出 gate 与 Web 导出同口径**：flagged/under-review 阻断） | md ≤200k 截断+标记；json >500k 报 `report_too_large` |
+
+**运维要点**：调用全审计（`mcp_tool_called`：主体/工具/run_id/请求哈希/决策；**不落原始 prompt**）；
+令牌轮换 = 更新 `DR_MCP_TOKEN` 并重启 API（无状态会话，无需清理）；关闭开关 = 卸载入口，零残留
+（`config_snapshot` 记录双开关 + server 指纹）。请求体上限由反代保障（未显式配置时按平台默认），
+工具入参另有硬上限（上表）。**开启后冒烟**：
+
+```bash
+curl -fsS -X POST https://<host>/mcp/ -H "Authorization: Bearer $DR_MCP_TOKEN" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

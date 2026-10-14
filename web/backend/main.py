@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import AsyncIterator, Optional
@@ -972,10 +973,13 @@ def _ignored_overrides(req: StartRequest) -> dict:
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _request_fingerprint(req: StartRequest, profile_name: str) -> str:
-    """P1-1：幂等请求指纹 —— 规范化（topic + instructions + profile）的 SHA-256。"""
+def _request_fingerprint(topic: str, instructions: str, profile_name: str) -> str:
+    """P1-1：幂等请求指纹 —— 规范化（topic + instructions + profile）的 SHA-256。
+
+    需求 37 M2：入参改原语（服务函数 `start_research` 与重试端点共用；MCP 同口径）。
+    """
     canonical = json.dumps(
-        {"topic": req.topic, "instructions": req.instructions, "profile": profile_name},
+        {"topic": topic, "instructions": instructions, "profile": profile_name},
         ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -1037,7 +1041,8 @@ def _admission_limits(reserve_cny: Optional[float] = None) -> dict:
     }
 
 
-def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: dict,
+def _start_queued(*, topic: str, instructions: str, idempotency_key: Optional[str],
+                  user_id: Optional[str], profile, ignored: dict,
                   fingerprint: str, retry_of: Optional[str] = None) -> str:
     """队列模式（P3）：创建 `QUEUED` 任务并投递唤醒信号；重复幂等键返回既有 run_id。
 
@@ -1045,25 +1050,26 @@ def _start_queued(req: StartRequest, user_id: Optional[str], profile, ignored: d
     P0：run.request 写**档位快照**（而非客户端参数）；超时 / 预算取自档位。
     P1-1：同键不同指纹 ⇒ 409（由 `_idempotent_existing` 判定）。
     需求 22：`retry_of` 记录重试血缘（原 run_id）。
+    需求 37 M2：入参改原语（服务函数 `start_research` 与重试端点共用）。
     """
     if store is None:
         raise ApiError("persistence_unavailable", "队列模式需要任务库（DR_DATABASE_URL）")
-    existing = _idempotent_existing(user_id, req.idempotency_key, fingerprint)
+    existing = _idempotent_existing(user_id, idempotency_key, fingerprint)
     if existing is not None:
         return existing["run_id"]
     run_id = uuid.uuid4().hex[:12]
     try:
         row, created = store.create_run_admitted(
-            run_id, req.topic,
+            run_id, topic,
             {
-                "instructions": req.instructions,
+                "instructions": instructions,
                 "profile": profile.snapshot(),
                 "ignored_overrides": ignored or None,
                 # P1-9：数据流向快照（谁收到了什么；不含密钥）
                 "egress": build_egress_snapshot(profile),
             },
             user_id=user_id,
-            idempotency_key=req.idempotency_key,
+            idempotency_key=idempotency_key,
             request_hash=fingerprint,
             retry_of=retry_of,
             status="QUEUED",
@@ -1400,32 +1406,35 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     return {"ok": True, "deletion_request_id": request_id, "rag_cleanup": "pending"}
 
 
-@app.post("/api/research", response_model=StartResponse)
-def start(req: StartRequest, request: Request) -> StartResponse:
-    user_id = _require_user(request)
-    _check_csrf(request)
-    if not SUBMIT_LIMITER.allow(f"submit:{user_id or _client_key(request)}"):
-        raise http_error("rate_limited", "提交过于频繁，稍后再试")
-    # P0 profile 固化：档位由服务端解析；请求体底层参数（旧字段）一律忽略并留痕。
-    profile = resolve_profile(req.profile)
+def start_research(*, topic: str, instructions: str = "", profile_name: str,
+                   user_id: Optional[str], idempotency_key: Optional[str] = None,
+                   ignored: Optional[dict] = None,
+                   request: Optional[Request] = None) -> str:
+    """研究任务创建**服务函数**（需求 37 M2 / TBD-6）：准入 / 配额 / 审核 / 注入 / 幂等 单一口径。
+
+    **唯一创建链路**：HTTP `POST /api/research` 与 MCP `deep_research` 工具都经本函数；
+    MCP 不得自建第二条创建链路（配额/审核/幂等一处不落）。
+    `request` 仅用于审计元数据（MCP 路径为 None）；失败一律抛 `ApiError`
+    （HTTP 层 `to_http()` 转换；MCP 层转工具错误）。
+    """
+    profile = resolve_profile(profile_name)
     if profile is None:
-        raise http_error(
+        raise ApiError(
             "invalid_request",
-            f"未知运行档位：{req.profile}",
+            f"未知运行档位：{profile_name}",
             detail=f"known={sorted(PROFILES)}",
         )
-    ignored = _ignored_overrides(req)
-    fingerprint = _request_fingerprint(req, profile.name)
+    fingerprint = _request_fingerprint(topic, instructions, profile.name)
     # 幂等命中先于配额闸：重复提交是同一个逻辑请求，不应被日限额/预算拒绝。
-    existing = _idempotent_existing(user_id, req.idempotency_key, fingerprint)
+    existing = _idempotent_existing(user_id, idempotency_key, fingerprint)
     if existing is not None:
-        return StartResponse(run_id=existing["run_id"])
+        return existing["run_id"]
     _enforce_quotas(user_id)
-    if not req.topic.strip():
-        raise http_error("empty_topic", "topic 不能为空")
+    if not topic.strip():
+        raise ApiError("empty_topic", "topic 不能为空")
     # P7-A / P2-5a / P0-3：输入侧预检（provider 化；命中即拒绝并留审核记录，
     # provider 不可用时按降级策略 fail-closed，不再静默放行）
-    input_decision = evaluate_input(f"{req.topic}\n{req.instructions}")
+    input_decision = evaluate_input(f"{topic}\n{instructions}")
     blocked_terms = list(input_decision.matches)
     if blocked_terms:
         if store is not None:
@@ -1435,7 +1444,7 @@ def start(req: StartRequest, request: Request) -> StartResponse:
                                 "decision_id": input_decision.decision_id})
         _audit("input_blocked", request=request, actor_user_id=user_id,
                detail={"matches": blocked_terms[:5], "provider": input_decision.provider})
-        raise http_error(
+        raise ApiError(
             "content_blocked", "输入包含不允许的内容",
             detail=f"matches={blocked_terms[:5]}",
         )
@@ -1449,36 +1458,51 @@ def start(req: StartRequest, request: Request) -> StartResponse:
         _audit("moderation_unavailable", request=request, actor_user_id=user_id,
                detail={"policy": input_decision.policy,
                        "failure_reason": input_decision.failure_reason})
-        raise http_error(
+        raise ApiError(
             "moderation_unavailable",
             "内容安全服务暂不可用，请稍后再试",
             detail=f"policy={input_decision.policy}",
         )
     # P2-1a：注入模式预检（窄口径：显式指令覆盖 / 系统提示索取；命中即拒绝并留痕）
-    injection_hits = scan_injection(f"{req.topic}\n{req.instructions}")
+    injection_hits = scan_injection(f"{topic}\n{instructions}")
     if injection_hits:
         if store is not None:
             _store_call(store.record_moderation, "input_blocked", user_id=user_id,
                         detail={"injection": injection_hits})
         _audit("input_injection_blocked", request=request, actor_user_id=user_id,
                detail={"patterns": injection_hits})
-        raise http_error(
+        raise ApiError(
             "content_blocked", "输入包含疑似指令注入内容",
             detail=f"patterns={injection_hits}",
         )
-    # 搜索引擎由服务端配置固定（需求 10 §3.1 第 13 项）；客户端字段已在上面忽略。
+    # 搜索引擎由服务端配置固定（需求 10 §3.1 第 13 项）；客户端字段在 HTTP 层忽略。
+    if EXECUTION_MODE == "queue":
+        return _start_queued(
+            topic=topic, instructions=instructions, idempotency_key=idempotency_key,
+            user_id=user_id, profile=profile, ignored=ignored or {}, fingerprint=fingerprint)
+    return manager.start(
+        topic, instructions, profile,
+        idempotency_key, user_id=user_id,
+        budget_limit_cny=_effective_run_budget(profile),
+        ignored_overrides=ignored or {},
+        admission=_admission_limits(_effective_run_budget(profile)),
+        request_hash=fingerprint)
+
+
+@app.post("/api/research", response_model=StartResponse)
+def start(req: StartRequest, request: Request) -> StartResponse:
+    """提交研究（HTTP 薄层）：鉴权 / CSRF / 提交限流 → 服务函数（与 MCP 同口径）。"""
+    user_id = _require_user(request)
+    _check_csrf(request)
+    if not SUBMIT_LIMITER.allow(f"submit:{user_id or _client_key(request)}"):
+        raise http_error("rate_limited", "提交过于频繁，稍后再试")
+    # P0 profile 固化：档位由服务端解析；请求体底层参数（旧字段）一律忽略并留痕。
     try:
-        if EXECUTION_MODE == "queue":
-            run_id = _start_queued(req, user_id, profile, ignored, fingerprint)
-        else:
-            run_id = manager.start(
-                req.topic, req.instructions, profile,
-                req.idempotency_key, user_id=user_id,
-                budget_limit_cny=_effective_run_budget(profile),
-                ignored_overrides=ignored,
-                admission=_admission_limits(_effective_run_budget(profile)),
-                request_hash=fingerprint)
-    except ApiError as exc:  # 并发上限 / 持久化不可用等运行器侧拒绝
+        run_id = start_research(
+            topic=req.topic, instructions=req.instructions, profile_name=req.profile,
+            user_id=user_id, idempotency_key=req.idempotency_key,
+            ignored=_ignored_overrides(req), request=request)
+    except ApiError as exc:  # 并发上限 / 持久化不可用 / 配额 / 审核阻断等
         raise exc.to_http() from exc
     return StartResponse(run_id=run_id)
 
@@ -1627,22 +1651,21 @@ def retry_run(run_id: str, request: Request) -> StartResponse:
     payload = row.get("request") or {}
     profile_name = (payload.get("profile") or {}).get("name") or DEFAULT_PROFILE
     profile = resolve_profile(profile_name) or resolve_profile(DEFAULT_PROFILE)
-    cloned = StartRequest(
-        topic=row["topic"],
-        instructions=payload.get("instructions") or "",
-        profile=profile.name,
-        idempotency_key=f"retry-{run_id}",
-    )
+    topic = row["topic"]
+    instructions = payload.get("instructions") or ""
+    idempotency_key = f"retry-{run_id}"
     ignored = payload.get("ignored_overrides") or {}
-    fingerprint = _request_fingerprint(cloned, profile.name)
+    fingerprint = _request_fingerprint(topic, instructions, profile.name)
     try:
         if EXECUTION_MODE == "queue":
-            new_run_id = _start_queued(cloned, owner, profile, ignored, fingerprint,
-                                       retry_of=run_id)
+            new_run_id = _start_queued(
+                topic=topic, instructions=instructions, idempotency_key=idempotency_key,
+                user_id=owner, profile=profile, ignored=ignored, fingerprint=fingerprint,
+                retry_of=run_id)
         else:
             new_run_id = manager.start(
-                cloned.topic, cloned.instructions, profile,
-                cloned.idempotency_key, user_id=owner,
+                topic, instructions, profile,
+                idempotency_key, user_id=owner,
                 budget_limit_cny=_effective_run_budget(profile),
                 ignored_overrides=ignored,
                 admission=_admission_limits(_effective_run_budget(profile)),
@@ -2804,6 +2827,23 @@ def share_page_shell(token: str) -> Response:
     if not index.is_file():
         raise http_error("share_not_found", "链接无效或已过期")
     return FileResponse(index)
+
+
+# 需求 37 M2：对外 MCP Server（默认关；开启时挂载 /mcp 并把会话管理器接入 lifespan）
+if config.mcp.server_enabled:
+    from .mcp_server import build_mcp_asgi  # 延迟导入：关闭态零 footprint
+
+    _mcp_asgi, _mcp_fastmcp = build_mcp_asgi()
+    app.mount("/mcp", _mcp_asgi)
+    _prev_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _lifespan_with_mcp(application):  # type: ignore[no-untyped-def]
+        async with _mcp_fastmcp.session_manager.run():
+            async with _prev_lifespan(application):
+                yield
+
+    app.router.lifespan_context = _lifespan_with_mcp
 
 
 if FRONTEND_DIST.is_dir():
