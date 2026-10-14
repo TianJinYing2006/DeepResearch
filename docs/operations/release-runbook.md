@@ -96,6 +96,11 @@ bash tools/deploy.sh --rollback rollback-<sha>                       # 应用回
 #   → 滚动 worker→api（--wait）→ 冒烟（本机+公网 readiness / checkpoint 探测 / worker 异常扫描）
 # 记录：$APP_DIR/deployments.log（时间 / 提交 / 结果）；回滚命令随失败信息打印。
 #
+# 失败重试（2026-10-14 起）：workflow 部署步骤内置「延迟自动重跑」——失败后 600s 重试，
+#   最多 3 次尝试（覆盖大陆服务器→GitHub 偶发断流等瞬时故障；每次失败均安全中止、
+#   旧版本保持在线，脚本幂等可重复执行）；连续 3 次失败才需人工介入（上方手动补部署 / 回滚）。
+#   注：deploy.sh 始终部署 origin/dev 最新，延迟重跑天然补上落后版本。
+#
 # 安全口径：CD 密钥在 GitHub Secret `DEPLOY_SSH_KEY`，服务器侧以 forced command
 #   限定为只能执行本脚本（见 .github/workflows/deploy-staging.yml 头注释）；
 #   ⚠️ 能合入 dev 即具备 staging 部署能力 —— 勿在 dev 上合并未审代码。

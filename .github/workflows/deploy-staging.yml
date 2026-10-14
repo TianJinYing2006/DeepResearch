@@ -4,7 +4,9 @@ name: Deploy staging
 #
 # 触发链路：
 #   - **CI（dev）绿后自动部署**：workflow_run 链式触发，保证只部署 CI 通过的提交；
-#   - **手动 workflow_dispatch**：补部署 / 验证链路（同一条服务器侧脚本）。
+#   - **手动 workflow_dispatch**：补部署 / 验证链路（同一条服务器侧脚本）；
+#   - **失败延迟自动重跑**（2026-10-14 起）：部署步骤失败后 600s 重试，最多 3 次尝试；
+#     覆盖大陆服务器→GitHub 偶发断流等瞬时故障；连续 3 次失败才需人工介入（runbook §3.0）。
 #
 # 安全口径（登记在 release-runbook.md §3）：
 #   - 部署私钥仅存仓库 Secret `DEPLOY_SSH_KEY`；服务器侧 authorized_keys 以
@@ -33,7 +35,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'dev')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     environment: staging
     steps:
       - name: 准备 SSH（部署密钥 + 固定 host key）
@@ -46,5 +48,17 @@ jobs:
           EOF
           chmod 600 ~/.ssh/known_hosts
 
-      - name: 触发服务器部署（forced command：仅允许执行 tools/deploy.sh）
-        run: ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 ubuntu@82.156.88.246 deploy
+      - name: 触发服务器部署（forced command：仅允许执行 tools/deploy.sh；失败延迟自动重跑）
+        run: |
+          for i in 1 2 3; do
+            if ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 ubuntu@82.156.88.246 deploy; then
+              echo "部署成功（第 $i 次尝试）"
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then
+              echo "第 $i 次部署失败；600s 后自动重跑（常见原因：大陆服务器→GitHub 偶发断流；deploy.sh 已安全中止、旧版本仍在线）"
+              sleep 600
+            fi
+          done
+          echo "连续 3 次部署失败：请按 release-runbook §3.0 手动补部署或回滚"
+          exit 1
