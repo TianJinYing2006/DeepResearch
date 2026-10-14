@@ -69,7 +69,7 @@
 ## 3c. 批次 4：MCP 双向（≈1 周；**已立项：`docs/requirements/37-mcp-bidirectional.md` / Issue #218**）
 
 > 来源：`docs/extension-directions-survey.md` §3 方向 B（P1）/ §4 批次 4。纪律：双侧默认关闭 + 关闭态零漂移；失败五值零新增；准入单一口径；eval/CI 强制关、CI 零网络（fake server）；SDK lock 外科式。
-> **状态：M1（消费）+ M2（对外）已交付（2026-10-14；全量 1225 绿 + 真 PG 契约 + 本地全链路冒烟通过）**；收口剩余：staging 开启双开关后的冒烟（运营配置，灰度前置）。
+> **状态：批次 4 完成（2026-10-14）** —— M1（消费）+ M2（对外）已合入 dev（#220 / #221 / #222 / #223），本地 + **staging 公网全链路冒烟均通过**；入口默认关闭，运营开启步骤见 runbook §7.5。
 
 | 阶段 | 内容 | 依赖 | 粗估 | 状态 |
 |---|---|---|---|---|
@@ -77,7 +77,7 @@
 | 0' | SDK 入 lock（外科式）+ 适配层骨架 | TBD-1 | 0.5 天 | ✅（2026-10-14；mcp 1.9.4 外科式） |
 | M1 | 消费外部 MCP（工具位 + 五值映射 + `kind='tool'` 记账 + 安全边界 + egress） | 拍板 | 2~3 天 | ✅ 已交付（2026-10-14） |
 | M2 | 对外 Server（机器令牌 + 四工具 + `start_research` 服务函数抽取 + 审计） | 拍板 | 2~3 天 | ✅ 已交付（2026-10-14） |
-| 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | 0.5~1 天 | ◐ 本地全链路冒烟 ✅；staging 冒烟待运营开启双开关 |
+| 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | 0.5~1 天 | ✅（2026-10-14；本地 + staging 冒烟通过） |
 
 ## 4. 并行轨：上线路径（非代码为主，不占关键路径）
 
@@ -118,6 +118,7 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
+| 2026-10-14 | 批次 4 完成（合入 + staging 冒烟） | 需求 37 状态 → **已合**（关联 PR #219~#223）；staging 开启对外 MCP（compose 透传 + .env 开关/令牌）并**公网全链路冒烟通过**：tools/list → quick_search（真实检索）→ deep_research（run `6681be7d7ee8`）→ worker 实跑 → status → report（真实报告）；staging 库验证归属/主体开户/记账。本地冒烟此前通过（含 `/mcp` 405 与主体开户两处修复）。**入口默认关闭，运营开启见 runbook §7.5** |
 | 2026-10-14 | 批次 4 收口（本地） | 真实应用全链路冒烟通过（真 PG/Redis + 官方 mcp SDK 客户端 ASGI）：401/4 工具/quick_search/deep_research（run 归属主体）/status/report gate；**修复①** `/mcp` 无尾斜杠 405（Starlette 1.6 Mount 路径语义）⇒ 307 兼容路由；**修复②** service principal 缺 `users` 行（FK）⇒ 惰性开户（不可登录）；测试 +2；全量 1225 绿。**staging 冒烟待运营开启双开关** |
 | 2026-10-14 | 批次 4 M2 交付 ⇒ 双单元完成 | MCP 对外 Server（Issue #218）：`start_research` 服务函数抽取（HTTP/MCP 同一准入口径）；`/mcp` Streamable HTTP + Bearer 鉴权（fail-closed）+ 单 principal `mcp:<name>` + 调用限流 + 四工具（固定 schema `mcp-tools/v1`）+ 全审计（不落原始 prompt）+ 输出 gate 同口径；测试 +12；全量 1223 绿；runbook §7.5 + production-readiness 回填。**收口：待 staging 开启双开关后全链路冒烟** |
 | 2026-10-14 | 批次 4 M1 交付 | MCP 消费端全链路（Issue #218）：SDK 外科式加锁（mcp 1.9.4 + 3 传递依赖，零版本漂移）；适配层（配置 fail-fast + URL 安全矩阵 + 五值映射 + 归一化/上限）；researcher `mcp` 工具位 + 三处注册（关闭态零漂移硬断言）；`kind='tool'` 记账（迁移 0024 + 真 PG 契约）；egress 终点登记；provenance 双开关 + server 指纹；eval 强制关；测试 +33（离线）+ PG 1；全量 1211 绿。**M2（对外 Server）待开工** |

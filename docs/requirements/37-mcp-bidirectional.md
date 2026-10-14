@@ -6,7 +6,7 @@
 > **竞品参照**（调研 §1.1~§1.3）：GPT Researcher 对外提供 MCP Server；DeerFlow 接 MCP（私有域/知识图谱）；open_deep_research `MCPConfig` 运行时注入 researcher；Gemini 远程 MCP——四家全上，MCP 是 2026 的通用扩展口。
 > **叙事（调研 §3 方向 B）**：与 WeChatBot（自研 MCP Server，Java/FastMCP）形成**跨生态呼应**——一边写 Server、一边消费 Server。
 > **纪律**：① 默认关闭 + 评测/CI 零漂移；② **不破 `failure_reason` 单产者契约**（工具层五值封闭）；③ 依赖走 lock 外科式（先例：需求 10）；④ 外部终点登记进 egress 快照。
-> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/IdoQd7RAloxz7mxwFA5cRTfknDh（`IdoQd7RAloxz7mxwFA5cRTfknDh`，位于 `DeepResearch 需求文档` 文件夹；2026-10-14 按开工版重建，立项版已删）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/Niiyd8OoAoVK99x1u4gcCYdHnEf（`Niiyd8OoAoVK99x1u4gcCYdHnEf`，位于 `DeepResearch 需求文档` 文件夹；2026-10-14 按交付版重建，开工版已删）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -14,10 +14,10 @@
 | 编号 | 37 |
 | 标题 | 批次 4「MCP 双向」：消费外部 MCP 工具（注入 researcher）+ 对外 MCP Server（quick_search / deep_research / research_status / research_report） |
 | 优先级 | P1 |
-| 状态 | 进行中 |
+| 状态 | **已合** |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #218 |
-| 关联 PR | 待定 |
+| 关联 PR | #219（立项+开工）/ #220（M1）/ #221（M2）/ #222（收口修复）/ #223（staging 环境透传） |
 | 创建 / 更新 | 2026-10-13 / 2026-10-14 |
 | 前置评审 | **TBD-0~13 已拍板**（2026-10-14 按推荐；记录见 §5 / §12.6） |
 
@@ -137,7 +137,7 @@
 | 0' | SDK 入 lock（外科式）+ 适配层骨架 | TBD-1 | ✅（2026-10-14；mcp 1.9.4 外科式） |
 | M1 | 消费外部 MCP（工具位 + 映射 + 记账 + 安全 + egress） | 拍板 | ✅ 已交付（2026-10-14） |
 | M2 | 对外 Server（鉴权 + 四工具 + 服务函数抽取 + 审计） | 拍板 | ✅ 已交付（2026-10-14） |
-| 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | ◐ 本地全链路冒烟 ✅（2026-10-14）；staging 冒烟待开启双开关（运营配置） |
+| 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | ✅（2026-10-14；本地 + staging 全链路冒烟均通过） |
 
 合计 ≈ **5~7 天**（与调研 4~6 天同量级；上沿差异在服务函数抽取与准入同口径测试）。
 
@@ -152,7 +152,9 @@
 | 2026-10-14 | M1 交付 | M1（消费）实施 | **SDK 外科式加锁**（mcp 1.9.4 + httpx-sse/sse-starlette/pydantic-settings；零版本漂移）；**适配层** `research_engine/mcp/consumer.py`（配置 fail-fast + URL 安全矩阵[仅 https/禁凭据/私网显式放行+理由/环回一律拒] + 五值映射 + 归一化[清洗/字节与条数上限]）；**researcher `mcp` 工具位 + 三处注册**（targets/池轮转/展示；关闭态零漂移硬断言）；**`kind='tool'` 记账**（迁移 0024 + 真 PG 契约）；**egress 终点登记**（仅启用时出现）；**provenance** 双开关 + server 指纹；**eval 强制关**；测试 +33（离线）+ PG 1；全量 1211 绿、ruff/`pip check` 全过 | #218 |
 | 2026-10-14 | M2 交付 | M2（对外）实施 | **`start_research` 服务函数抽取**（HTTP `POST /api/research` 与 MCP `deep_research` 共用；准入/配额/审核/注入/幂等单一口径，重试端点同步收敛）；**`web/backend/mcp_server.py`**：Streamable HTTP（`/mcp`，stateless + json_response）+ Bearer 鉴权（常量时间；未配置 fail-closed；**只认头**，query-string 拒绝）+ 单一 service principal `mcp:<name>`（status/report 仅本主体，不存在与无权同口径）+ 调用限流（`DR_MCP_RATE_PER_MINUTE`，Redis 可选）+ 四工具（quick_search / deep_research / research_status / research_report；参数/响应上限固定 schema `mcp-tools/v1`）+ 全审计（不落原始 prompt）；输出 gate 与导出同口径；main.py 条件挂载 + lifespan 接线；测试 +12（离线，含 ASGI 协议级）；全量 **1223 绿**；runbook §7.5 + production-readiness §3.10/§4 回填 | #218 |
 | 2026-10-14 | 收口（本地） | 全链路冒烟 + 两处缺陷修复 | **真实 FastAPI 应用 + 真 PG/Redis + 官方 `mcp` SDK 客户端（ASGI）全链路冒烟通过**：无令牌 401 / 4 工具 / quick_search（结构化）/ deep_research（run 落库，归属 `mcp:deepresearch`，幂等键 `mcp-…`）/ research_status（真快照链）/ research_report（`report_not_ready` gate 正确）。**修复①**：`/mcp` 无尾斜杠 405（Starlette 1.6 的 Mount 仅匹配带斜杠路径，落静态挂载）⇒ 显式 **307 兼容路由**（保留方法/请求体，SDK 客户端自动跟随）；**修复②**：service principal 缺 `users` 行（`runs.user_id` 外键）⇒ **惰性开户**（随机口令 Argon2id + `.invalid` 邮箱 + 开户审计）。测试 +2（开户单测 + PG 契约）；全量 **1225 绿** | #218 |
+| 2026-10-14 | 收口（staging）+ 合入 | staging 开启对外 MCP + 公网全链路冒烟；批次 4 合入 dev | **staging 开启**：compose api 环境透传（PR #223）+ 服务器 `.env` 设开关/令牌（失败延迟自动部署生效）；**公网全链路冒烟通过**（`https://82.156.88.246/mcp/`，curl 客户端）：tools/list（4 工具 schema 正确）→ quick_search（bocha 真实检索）→ deep_research（run `6681be7d7ee8`）→ worker 实跑 → research_status（finished/success/has_report）→ research_report（取回真实报告，含来源引用）；staging 库验证：run 归属 `mcp:deepresearch` + 主体行自动开户（`deepresearch@mcp.invalid`）+ usage_ledger 记账（llm/embedding/search）。**状态 → 已合**（关联 PR #219~#223） | #218 |
 | 2026-10-14 | 文档 | 飞书镜像重建 | 按开工版重建至 `DeepResearch 需求文档` 文件夹（`IdoQd7RAloxz7mxwFA5cRTfknDh`；自引用回填；立项版已删） | — |
+| 2026-10-14 | 文档 | 飞书镜像重建（交付版） | 按交付版重建至 `DeepResearch 需求文档` 文件夹（`Niiyd8OoAoVK99x1u4gcCYdHnEf`；自引用回填；开工版已删） | — |
 
 ## 12. 评审结论与补充设计
 
