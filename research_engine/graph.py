@@ -25,8 +25,10 @@ from typing import Any, Callable, Dict, Iterator, List
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
+from langgraph.types import Command, interrupt  # 需求 36：HITL interrupt / resume
 
 from config import config
+from research_engine.agents.clarifier import Clarifier  # 需求 36 H1
 from research_engine.agents.planner import Planner, build_research_spec
 from research_engine.agents.researcher import Researcher, format_tool_detail
 from research_engine.agents.validator import Validator
@@ -52,6 +54,7 @@ from research_engine.streaming import (  # W9（需求 9 §7.1）：流式运行
     STOP_COMPLETED,
     STOP_ERROR,
     STOP_RUNNING,
+    STOP_SUSPENDED,
     RunStep,
 )
 
@@ -75,6 +78,41 @@ def route_repair(state: ResearchState) -> str:
     if int(stats.get("uncited_fact_sentence_count") or 0) > 0:
         return "repair"
     return "render"
+
+
+# ---- 需求 36（HITL）纯函数路由（仅在对应开关打开时挂进拓扑） ----
+
+
+def route_clarify(state: ResearchState) -> str:
+    """需求 36 H1：澄清判定后 → 等待提问（await）或直接规划（plan）。"""
+    return "await" if state.clarify_needed else "plan"
+
+
+def route_clarify_again(state: ResearchState) -> str:
+    """需求 36 H1：回答后是否再来一轮澄清。
+
+    - 已达轮次上限（`config.hitl.max_clarify_rounds`）→ plan；
+    - 到期自动继续（最近一轮答案为 auto：显式产品策略）→ plan（不再追问）；
+    - 否则回 clarify 由 LLM 判定「是否还有剩余歧义」。
+    """
+    if state.clarify_round >= config.hitl.max_clarify_rounds:
+        return "plan"
+    answers = list((state.clarification or {}).get("answers") or [])
+    if answers and (answers[-1] or {}).get("auto"):
+        return "plan"
+    return "clarify"
+
+
+def route_plan_decision(state: ResearchState) -> str:
+    """需求 36 H2：审批决定 → 修订计划（revise）或开始执行（research）。
+
+    修订轮次封顶后**强制继续**（不再接受修改，防无限往返）。
+    """
+    decision = state.plan_decision or {}
+    if (decision.get("action") == "revise"
+            and state.approval_round < config.hitl.max_approval_rounds):
+        return "revise"
+    return "research"
 
 
 def effective_per_subq_hop_cap(state: ResearchState, rc: Any = None) -> int:
@@ -114,6 +152,7 @@ class DeepResearchGraph:
         # CLI/测试默认 None ⇒ MemorySaver（进程内，行为与历史一致）。
         self._checkpointer = checkpointer
         self.planner = Planner()
+        self.clarifier = Clarifier()  # 需求 36 H1：澄清判定（仅开关打开时进入图）
         self.researcher = Researcher()
         self.writer = Writer()
         self.validator = Validator()
@@ -143,8 +182,31 @@ class DeepResearchGraph:
         g.add_node("repair", self._repair)  # F11（3b）：有界返工（失败论断确定性移除/降格）
         g.add_node("render", self._render)  # W2（Q1=A）：validate 后渲染，可审计展示不回流 report
 
-        g.set_entry_point("plan")
-        g.add_edge("plan", "research")
+        # 需求 36（TBD-0 门槛）：**关闭态零漂移**——HITL 节点只在开关打开时加入图，
+        # 关闭时节点集合 / 边 / entry 与历史逐项一致（tests/test_hitl_graph.py 硬断言）。
+        hitl = config.hitl
+        if hitl.clarify_enabled:
+            g.add_node("clarify", self._clarify)
+            g.add_node("await_clarify", self._await_clarify)
+            g.set_entry_point("clarify")
+            g.add_conditional_edges("clarify", route_clarify,
+                                    {"await": "await_clarify", "plan": "plan"})
+            g.add_conditional_edges("await_clarify", route_clarify_again,
+                                    {"clarify": "clarify", "plan": "plan"})
+        else:
+            g.set_entry_point("plan")
+
+        if hitl.plan_approval_enabled:
+            # H2：plan → 停等批准/修改（revise_plan 按反馈修订后再次停等，轮次封顶强制继续）
+            g.add_node("await_plan", self._await_plan)
+            g.add_node("revise_plan", self._revise_plan)
+            g.add_edge("plan", "await_plan")
+            g.add_conditional_edges("await_plan", route_plan_decision,
+                                    {"research": "research", "revise": "revise_plan"})
+            g.add_edge("revise_plan", "await_plan")
+        else:
+            g.add_edge("plan", "research")
+
         g.add_edge("research", "critic")  # 每跳检索后必过 critic 裁决
         # critic 经纯函数路由四态（P1：新增 augment = gap 查询回填 frontier）
         g.add_conditional_edges(
@@ -183,7 +245,8 @@ class DeepResearchGraph:
                 "per_subq_hop": per_subq_hop,
                 # F14（审计）：规划时固化研究规格（用户附加要求 + 验收条件），
                 # writer/critic/replan 消费同一份；plan_version 标识计划身份
-                "research_spec": build_research_spec(state.user_instructions),
+                # 需求 36 H1：用户澄清确认的范围（user_scope）一并固化（非空时）
+                "research_spec": build_research_spec(state.user_instructions, state.user_scope),
                 "plan_version": 1,
                 # Planner 策略事件与故障分流：事件只进 planner_events，不推导 degraded。
                 "planner_events": self.planner.drain_planner_events(),
@@ -195,6 +258,130 @@ class DeepResearchGraph:
                     {"stage": "plan", "msg": f"已分解为 {len(subs)} 个子问题，种子查询入队"}
                 ],
             }
+
+    # ---- 需求 36（HITL）节点：仅在对应开关打开时加入图 ----
+    # 🚨 纪律：interrupt() 所在节点在 resume 时**从头重跑**（§12.5/官方语义），
+    # 因此 interrupt 之前不得有非幂等副作用；本组节点在 interrupt 前只读 state。
+    # 另外：interrupt 节点**不包 span_node** —— GraphInterrupt 会从 with 块抛出，
+    # 若包着会把「正常挂起」记成 span 错误（污染观测口径）。
+
+    def _clarify(self, state: ResearchState) -> Dict[str, Any]:
+        """H1：澄清判定。不清晰 ⇒ 置 clarify_needed 进 await_clarify；失败即跳过（零阻塞）。"""
+        with span_node("澄清判定", node="clarify", input={"topic": state.topic[:200]}):
+            outcome = self.clarifier.decide(
+                state.topic, state.user_instructions, state.clarification, state=state)
+        if outcome.get("failed"):
+            # TBD-1：判定失败按「跳过澄清」继续；治理事件（非故障，不推 degraded）
+            return {
+                "clarify_needed": False,
+                "planner_events": [{"event": "clarify_skipped", "phase": "clarify",
+                                    "reason": str(outcome.get("reason") or "llm_error")[:200]}],
+                "progress": [{"stage": "clarify", "msg": "澄清判定失败，跳过（零阻塞）"}],
+            }
+        if outcome.get("needed") and state.clarify_round < config.hitl.max_clarify_rounds:
+            round_no = state.clarify_round + 1
+            return {
+                "clarify_needed": True,
+                "clarify_round": round_no,
+                "clarification": {**state.clarification, "questions": outcome["questions"]},
+                "planner_events": [{"event": "clarify_questioned", "phase": "clarify",
+                                    "round": round_no,
+                                    "count": len(outcome["questions"])}],
+                "progress": [{"stage": "clarify",
+                              "msg": f"范围待澄清（第 {round_no} 轮，"
+                                     f"{len(outcome['questions'])} 个问题）"}],
+            }
+        return {
+            "clarify_needed": False,
+            "planner_events": [{"event": "clarify_cleared", "phase": "clarify",
+                                "round": state.clarify_round,
+                                "reason": str(outcome.get("reason") or "")[:200]}],
+            "progress": [{"stage": "clarify", "msg": "范围清晰，无需澄清"}],
+        }
+
+    def _await_clarify(self, state: ResearchState) -> Dict[str, Any]:
+        """H1：interrupt 等待用户回答（resume 值 = API 存的 resume payload）。"""
+        questions = list((state.clarification or {}).get("questions") or [])
+        answer = interrupt({
+            "kind": "clarification",
+            "round": state.clarify_round,
+            "content": {"questions": questions, "topic": state.topic[:200]},
+        })
+        text = ""
+        auto = False
+        if isinstance(answer, dict):
+            text = str(answer.get("text") or "").strip()[:2000]
+            auto = bool(answer.get("auto"))
+        clarification = dict(state.clarification or {})
+        clarification["answers"] = [
+            *(clarification.get("answers") or []),
+            {"round": state.clarify_round, "text": text, "auto": auto},
+        ]
+        scope_parts = [state.user_scope.strip()] if state.user_scope.strip() else []
+        if text:
+            scope_parts.append(text)
+        return {
+            "clarification": clarification,
+            "user_scope": "；".join(scope_parts),
+            "progress": [{"stage": "await_clarify",
+                          "msg": ("等待澄清逾时，按空回答继续" if auto
+                                  else f"已收到澄清回答（第 {state.clarify_round} 轮）")}],
+        }
+
+    def _await_plan(self, state: ResearchState) -> Dict[str, Any]:
+        """H2：interrupt 停等计划批准/修改意见（批准是人的语义：到期由执行器收 TIMED_OUT）。"""
+        round_no = state.approval_round + 1
+        prior = state.plan_decision or {}
+        decision = interrupt({
+            "kind": "plan_approval",
+            "round": round_no,
+            "content": {
+                "subquestions": [
+                    {"id": s.id, "question": s.question, "rationale": s.rationale}
+                    for s in state.subquestions
+                ],
+                "plan_version": state.plan_version,
+                "research_spec": state.research_spec,
+                # 上一轮修改失败（LLM 失败沿用原计划）：在卡上显式提示，不静默
+                "revision_failed": bool(prior.get("revise_failed")),
+            },
+        })
+        action, text = "approve", ""
+        if isinstance(decision, dict):
+            action = str(decision.get("action") or "approve")
+            text = str(decision.get("text") or "").strip()[:2000]
+        if action not in ("approve", "revise"):
+            action = "approve"  # 防御：未知动作按放行（不制造死等）
+        capped = action == "revise" and round_no >= config.hitl.max_approval_rounds
+        return {
+            "approval_round": round_no,
+            "plan_decision": {"action": action, "text": text, "round": round_no},
+            "progress": [{"stage": "await_plan",
+                          "msg": ("计划已批准" if action == "approve"
+                                  else "修改轮次已用尽，按当前计划继续" if capped
+                                  else f"收到计划修改意见（第 {round_no} 轮）")}],
+        }
+
+    def _revise_plan(self, state: ResearchState) -> Dict[str, Any]:
+        """H2：按用户反馈修订计划（失败保留原计划，并在下一张卡标注 revision_failed）。"""
+        feedback = str((state.plan_decision or {}).get("text") or "")
+        with span_node("计划修订", node="revise_plan", input={"feedback": feedback[:200]}):
+            new_subs = self.planner.revise_plan(
+                state.topic, state.subquestions, feedback, state=state)
+        failed = self.planner.last_revise_fallback
+        frontier = [{"sq_id": s.id, "query": s.question} for s in new_subs]
+        return {
+            "subquestions": new_subs,
+            "frontier": frontier,
+            "per_subq_hop": {s.id: 0 for s in new_subs},
+            # 修订失败 = 沿用原计划：版本号不递增（与 replan 降级同口径）
+            "plan_version": state.plan_version + (0 if failed else 1),
+            "plan_decision": {**(state.plan_decision or {}), "revise_failed": failed},
+            "planner_events": self.planner.drain_planner_events(),
+            "degradation_log": self.planner.drain_degradations(),
+            "progress": [{"stage": "revise_plan",
+                          "msg": ("计划修订失败，保留原计划" if failed else "计划已按反馈修订")}],
+        }
 
     def _research(self, state: ResearchState) -> Dict[str, Any]:
         rc = effective_research_config()
@@ -542,6 +729,11 @@ class DeepResearchGraph:
                 with start_trace(self.trace_id, topic, thread_id=thread_id,
                                  user_instructions=user_instructions):
                     result = self.graph.invoke(initial, cfg)
+            if isinstance(result, dict) and "__interrupt__" in result:
+                # 需求 36：run()/CLI 无 resume 通道——HITL 只支持队列模式（Worker）。
+                # 出现挂起按显式错误收口（绝不把挂起当终局结果）。
+                raise RuntimeError(
+                    "HITL interrupt 需要队列模式（Worker + 回答通道）；run()/CLI 路径不支持")
         except Exception as exc:  # noqa: BLE001 —— §5.1.4：把异常转成结构化状态，不吞
             # ⚠️ 这是 run_status="failed" 的**唯一落点**（Q4 B1 取证：图结构下无其他可达路径）。
             # 处置五件套，缺一不可：① run_status=failed ② degradation_log 条目
@@ -613,6 +805,7 @@ class DeepResearchGraph:
         should_cancel: Callable[[], bool] | None = None,
         *,
         resume: bool = False,
+        resume_value: Any = None,
     ) -> Iterator[RunStep]:
         """流式运行：每完成一个 graph 节点 yield 一次完整 state 快照。
 
@@ -630,13 +823,22 @@ class DeepResearchGraph:
         Args:
             should_cancel: 取消谓词，在**每个节点 yield 之后**调用
                 （契约 C3：当前节点允许自然结束）。返回 True 则不再启动下一节点（C2/C5）。
+            resume_value: 需求 36（§12.2）——HITL 回答值；非 None 时以
+                ``Command(resume=...)`` 注入挂起节点并续跑（与 ``resume=True`` 的
+                R3 崩溃恢复共用 skip_leading 语义）；None ⇒ 维持 R3 的 ``stream(None)``。
         """
         if thread_id is None:
             thread_id = f"dr-{uuid.uuid4().hex[:12]}"
         initial = ResearchState(topic=topic, user_instructions=user_instructions)
-        # 需求 35 R3（TBD-4）：resume=True ⇒ stream(None) 从最新 checkpoint 续跑
-        # （不重放已完成节点）；`initial` 仅作异常兜底（fallback），不进流。
-        stream_input = None if resume else initial
+        # 需求 35 R3（TBD-4）：resume=True ⇒ 从最新 checkpoint 续跑（不重放已完成节点）；
+        # 需求 36：带 resume_value ⇒ Command(resume=...) 注入 HITL 回答；
+        # `initial` 仅作异常兜底（fallback），不进流。
+        if resume_value is not None:
+            stream_input = Command(resume=resume_value)
+        elif resume:
+            stream_input = None
+        else:
+            stream_input = initial
         cfg = {"configurable": {"thread_id": thread_id},
                "recursion_limit": effective_research_config().max_total_hops * 2 + 20}
         self.trace_id = create_trace_id(thread_id)  # 未启用 → None（走无观测路径）
@@ -666,10 +868,20 @@ class DeepResearchGraph:
         index = 0
         last_state = fallback_state
         stop = STOP_COMPLETED
+        last_interrupt: Dict[str, Any] | None = None
         clock = time.perf_counter()
         first_chunk = True
         try:
             for chunk in self.graph.stream(stream_input, cfg, stream_mode="values"):
+                if isinstance(chunk, dict) and "__interrupt__" in chunk:
+                    # 需求 36：图在 interrupt 处挂起。该帧同时携带最新 state，但它
+                    # **不代表完成了新节点**（不得按普通快照计入 RunStep，否则同节点
+                    # 会重复计数）；挂起载荷见 `__interrupt__` 元组里的 Interrupt.value。
+                    interrupts = chunk.get("__interrupt__") or ()
+                    value = getattr(interrupts[0], "value", None) if interrupts else None
+                    last_interrupt = value if isinstance(value, dict) else {"content": value}
+                    stop = STOP_SUSPENDED
+                    break
                 if skip_leading and first_chunk:
                     # 恢复路径：首帧为恢复点 checkpoint 状态（非新完成节点）——跳过防重复计数
                     first_chunk = False
@@ -702,11 +914,11 @@ class DeepResearchGraph:
             last_state = self._recover_from_exception(exc, cfg, fallback_state)
             stop = STOP_ERROR
 
-        # 终局 step：正常结束 / 取消 / 异常 **三种都会产出且仅产出一个**
+        # 终局 step：正常结束 / 取消 / 异常 / 挂起 **四种都会产出且仅产出一个**
         self.last_stop_reason = stop
         yield RunStep(index=index, node=None, state=last_state,
                       new_degradations=(), duration_ms=0,
-                      terminal=True, stop_reason=stop)
+                      terminal=True, stop_reason=stop, interrupt=last_interrupt)
         # Q3=D'：与 run() 同一对账口径（异常路径同样走到这里，兜底 state 保证 token_used 有默认值）
         self.tokens_diff = (LLMClient.tokens_total - token_base) - last_state.token_used
 

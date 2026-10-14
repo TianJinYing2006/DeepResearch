@@ -272,6 +272,58 @@ flagged / blocked 的**回放对 `REPORT_DELTA` 同样脱敏**（正文只在产
 `tests/test_output_gate.py::test_stored_stream_redacts_flagged_report_delta`（回放脱敏）、
 前端 `src/lib/reportPreview.test.ts`。
 
+### 7.4 HITL 交互协议（需求 36：澄清 / 计划审批的挂起与恢复）
+
+**前置边界**：HITL 仅队列模式支持（`DR_EXECUTION_MODE=queue` + Worker）；API 进程在
+非队列模式启动时**强制关闭**开关并打印告警（进程内执行器没有挂起/恢复通道）。
+默认全关（`DR_HITL_CLARIFY / DR_HITL_PLAN_APPROVAL / DR_HITL_FOLLOWUP = false`，灰度按单开关启用）。
+
+**状态与集合口径**（单点定义见 `web/backend/persistence.py`）
+
+| 集合 | 成员 | 语义 |
+|---|---|---|
+| `ACTIVE_STATUSES` | CREATED / QUEUED / RUNNING / CANCEL_REQUESTED | 占执行并发槽（配额计数、租约清扫、SSE 尾随） |
+| `AWAITING_STATUSES` | AWAITING_CLARIFICATION / AWAITING_PLAN_APPROVAL | 等待人类输入：**不持租约、不占并发槽**、不被清扫/启动兜底误杀 |
+| `OPEN_STATUSES` | 两者之和 | 非终局的统一口径（快照 running / 归档守卫 / 终局 allowed_from） |
+
+**挂起事务（Worker → 库，同事务）**：图在 interrupt 处产出挂起 step ⇒ Worker 调
+`store.suspend_run`：`RUNNING → AWAITING_*` + 交互卡事件 + `interaction_id/round/payload`
+落库 + **清空 worker/租约字段**。凭据失效 ⇒ `LeaseLostError`（放弃写入）；终局/取消
+⇒ 返回 None 不写（`CANCEL_REQUESTED` 绝不挂起，执行侧照常取消收口）。
+
+**恢复事务（API → 库，同事务）**：`POST /api/research/{run_id}/interaction`
+（`{interaction_id, action, text}`；澄清 `reply`，审批 `approve|revise`）。
+`interaction_id` 即幂等键：重复提交 ⇒ `already_answered`（不重复写事件）；旧卡片/已换代
+⇒ 409 `interaction_conflict`；非等待态 ⇒ 409 `interaction_not_pending`。成功 ⇒
+`AWAITING_* → QUEUED` + 回答事件 + resume payload；API 投递 Redis 唤醒（可丢，PG 轮询兜底）。
+Worker 认领后以 `resumed` 执行：`Command(resume=answer)` 注入挂起节点（R3 的
+`skip_leading` 语义复用，已完成节点不重放；账本对账同 R3 口径）。
+
+**事件（`run_events`，SSE 断线重连按 sequence 重建卡片）**
+
+| 事件 | 语义 |
+|---|---|
+| `CLARIFY_REQUESTED` / `PLAN_PROPOSED` | 交互卡（载荷 = 卡片：interaction_id/kind/round/expires_at/allowed_actions/content） |
+| `CLARIFY_ANSWERED` / `PLAN_DECISION` | 用户回答（含 action/text；flagged 回放脱敏） |
+| `CLARIFY_EXPIRED` / `PLAN_EXPIRED` | 等待到期留痕 |
+
+**SSE 行为（TBD-6）**：发送交互卡后本次 SSE 连接**正常关闭**（等待态不在 `ACTIVE_STATUSES`），
+不发终态帧；客户端经状态查询/重连（快照 `interaction` 字段）获知等待态。
+
+**到期规则（TBD-3；Worker 清扫周期驱动 `expire_awaiting_runs`）**
+- 澄清到期 ⇒ **空回答自动继续**（转 QUEUED + `CLARIFY_EXPIRED` 留痕；显式产品策略）；
+- 计划审批到期 ⇒ **不自动批准** ⇒ `TIMED_OUT` + `stop_reason=approval_expired` +
+  `PLAN_EXPIRED`（同事务结算预算预留）；等待的「过期」不伪装成 worker 执行超时。
+
+**运维纪律**：① 不要在有待答任务时增删 HITL 开关（图拓扑随开关变化）；
+② 等待时长不计入 `timeout_at`（权威时间戳 `awaiting_since/resumed_at`，不反复顺延）；
+③ 开关值进 `config_snapshot`（`hitl_switches`，eval/CI 强制关闭以保评测可比性）。
+
+**测试**：`tests/test_hitl_protocol.py`（协议/脱敏/上限）、`tests/test_hitl_graph.py`
+（关闭态零漂移 / 澄清与审批回路 / run() 防御）、`tests/test_hitl_worker.py`
+（挂起释放租约 / 恢复携带回答值）、`tests/test_hitl_interaction_pg.py`（真 PG 原子协议）、
+`tests/test_hitl_resume_drill_pg.py`（真 PG「挂起-退出-回答-恢复」演练）。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

@@ -52,6 +52,7 @@ from research_engine.snapshots import (
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
+    STOP_SUSPENDED,
     STOP_TIMEOUT,
     RunStep,
 )
@@ -69,6 +70,13 @@ from .alerts import collect_alerts, default_thresholds, process_deliveries_once,
 from .checkpoint import get_pg_checkpointer  # 需求 35 R3：PG checkpoint（跨进程恢复）
 from .deletion import process_deletions_once
 from .errors import error_payload
+from .hitl import (
+    KIND_CLARIFICATION,
+    new_interaction_id,
+)
+from .hitl import (
+    KINDS as HITL_KINDS,
+)
 from .ingestion import process_ingestions_once, purge_expired_documents
 from .moderation import apply_output_gate, evaluate_output
 from .otel import run_span, setup_otel
@@ -295,6 +303,13 @@ class Worker:
                     except Exception as exc:  # noqa: BLE001 —— 清扫失败不拖垮消费循环
                         _log(f"sweep failed: {type(exc).__name__}: {exc}")
                     try:
+                        # 需求 36（TBD-3）：等待态到期收口（澄清→空回答继续；审批→TIMED_OUT）
+                        expired = self.expire_awaiting()
+                        if expired:
+                            _log(f"expire awaiting: {expired}")
+                    except Exception as exc:  # noqa: BLE001 —— 到期收口失败不拖垮消费循环
+                        _log(f"expire awaiting failed: {type(exc).__name__}: {exc}")
+                    try:
                         # P0-7：注销 outbox（Qdrant 清理 + 验证）随清扫周期推进
                         deletions = process_deletions_once(self._store)
                         if deletions["claimed"]:
@@ -414,6 +429,22 @@ class Worker:
                     self._queue.enqueue(item["run_id"])
                 except Exception as exc:  # noqa: BLE001 —— 信号失败由 PG 轮询兜底
                     _log(f"requeue {item['run_id']} signal failed: {type(exc).__name__}: {exc}")
+        return results
+
+    def expire_awaiting(self) -> list[dict[str, Any]]:
+        """需求 36（TBD-3）：等待态到期收口，并唤醒「澄清到期自动继续」的任务。
+
+        澄清到期 ⇒ 库里已转 `QUEUED`（空回答留痕），这里补发 Redis 唤醒（可丢，PG 轮询兜底）；
+        审批到期 ⇒ 库里已收为 `TIMED_OUT`（`approval_expired`），无需唤醒。
+        """
+        results = self._store.expire_awaiting_runs()
+        for item in results:
+            if item.get("action") == "clarified_auto" and self._queue is not None:
+                try:
+                    self._queue.enqueue(item["run_id"])
+                except Exception as exc:  # noqa: BLE001 —— 信号失败由 PG 轮询兜底
+                    _log(f"expire requeue {item['run_id']} signal failed: "
+                         f"{type(exc).__name__}: {exc}")
         return results
 
     def run_once(self, run_id: str) -> bool:
@@ -584,14 +615,33 @@ class Worker:
         budget_limit = row.get("budget_limit_cny")
         last_state = None
         budget_exceeded = False
+        # 需求 36（§12.2 恢复事务）：HITL 回答载荷随 resumed 注入（Command(resume=...)）；
+        # 崩溃恢复（R3）无回答载荷 ⇒ resume_value=None 走 stream(None) 纯续跑。
+        resume_value = None
+        if execution_mode == "resumed":
+            fresh = self._store.get_run(run_id)
+            answer = (fresh or {}).get("interaction_answer")
+            if isinstance(answer, dict):
+                resume_value = answer
+        run_kwargs: dict[str, Any] = {"resume": execution_mode == "resumed"}
+        if resume_value is not None:
+            # 仅 HITL 恢复携带回答值；R3 崩溃恢复 / 兼容替身不传该 kwarg
+            run_kwargs["resume_value"] = resume_value
         for step in graph.iter_run(
-            topic, request.get("instructions", ""), thread_id=run_id, should_cancel=should_stop,
-            resume=(execution_mode == "resumed"),
+            topic, request.get("instructions", ""), thread_id=run_id,
+            should_cancel=should_stop, **run_kwargs,
         ):
             if step.terminal:
                 if lease_lost.is_set():
                     # 租约已被接管：不写终局（新执行者负责收口），直接放弃
                     _log(f"run {run_id}: 租约已失效，跳过终局写入（等待新执行者）")
+                    return
+                if step.stop_reason == STOP_SUSPENDED:
+                    # 需求 36（§12.2 挂起事务）：持久化等待态 + 交互卡（同事务）并释放租约；
+                    # 本次 attempt 到此结束（不写终局）；回答后由新 attempt 以 resumed 续跑。
+                    if report_buffer is not None:
+                        report_buffer.flush()
+                    self._suspend(run_id, row, step, ownership)
                     return
                 if report_buffer is not None:
                     report_buffer.flush()  # 终局前冲刷尾部增量（RUN_FINISHED 之前）
@@ -655,6 +705,47 @@ class Worker:
             # 与取消/超时同口径：预算停止不写 research_status；stop_reason=budget_exceeded。
             self._persist_result(run_id, row, last_state, "budget_exceeded",
                                  cancelled=False, ownership=ownership)
+
+    def _suspend(self, run_id: str, row: dict[str, Any], step: RunStep,
+                 ownership: RunOwnership) -> None:
+        """需求 36（§12.2 挂起事务）：把 interrupt 挂起持久化为等待态 + 卡片，并释放租约。
+
+        - 非法 kind ⇒ 按崩溃收口（错误可归因，不静默）；
+        - `suspend_run` 抛 `LeaseLostError` ⇒ 向上传播（本执行者放弃全部写入）；
+        - 返回 None（状态已非 RUNNING）⇒ 按当前状态收口：`CANCEL_REQUESTED` 走取消终局，
+          其余（已被强制收口/终局）放弃执行。
+        """
+        payload = step.interrupt or {}
+        kind = str(payload.get("kind") or "")
+        if kind not in HITL_KINDS:
+            self._mark_crashed(run_id,
+                               RuntimeError(f"invalid HITL interrupt kind: {kind!r}"),
+                               ownership)
+            return
+        ttl = (config.hitl.clarify_ttl_seconds if kind == KIND_CLARIFICATION
+               else config.hitl.approval_ttl_seconds)
+        content = payload.get("content")
+        updated = self._store.suspend_run(
+            run_id,
+            owner=ownership,
+            kind=kind,
+            interaction_id=new_interaction_id(),
+            round_no=int(payload.get("round") or 1),
+            content=content if isinstance(content, dict) else {},
+            ttl_seconds=ttl,
+        )
+        if updated is None:
+            fresh = self._store.get_run(run_id)
+            status = (fresh or {}).get("status")
+            if status == "CANCEL_REQUESTED":
+                # 挂起与取消在同一边界竞争：尊重用户，按取消收口（绝不挂起）
+                self._persist_result(run_id, row, step.state, "cancelled",
+                                     cancelled=True, ownership=ownership)
+            else:
+                _log(f"run {run_id}: 挂起被拒（status={status}），放弃本次执行")
+            return
+        _log(f"run {run_id}: 已挂起（{kind} round={updated.get('interaction_round')}，"
+             f"到期 {updated.get('awaiting_expires_at')}）")
 
     def _finish(self, run_id: str, row: dict[str, Any], step: RunStep, timed_out: bool,
                 ownership: RunOwnership) -> None:

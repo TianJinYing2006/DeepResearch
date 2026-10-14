@@ -140,6 +140,13 @@ def config_snapshot() -> Dict[str, Any]:
         "per_subq_hop_cap": config.research.per_subq_hop_cap,
         "max_replan": config.research.max_replan,
         "search_provider": config.search.provider,
+        # 需求 36（TBD-5）：HITL 三开关的**运行期生效值**（eval 强制关闭 ⇒ 恒 False，
+        # 记录在案以证明「这批数产生于关闭态」，与历史口径可比）
+        "hitl_switches": {
+            "clarify": config.hitl.clarify_enabled,
+            "plan_approval": config.hitl.plan_approval_enabled,
+            "followup": config.hitl.followup_enabled,
+        },
         "experiment": experiment_snapshot(),
     }
 

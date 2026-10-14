@@ -362,6 +362,16 @@ if _EXECUTION_MODE not in {"inprocess", "queue"}:
     raise RuntimeError(f"DR_EXECUTION_MODE 仅支持 inprocess|queue，收到：{_EXECUTION_MODE!r}")
 EXECUTION_MODE = "inprocess" if DEMO_MODE else _EXECUTION_MODE
 
+# 需求 36：HITL（澄清/审批/追问）需要「挂起-回答-恢复」通道 ⇒ 仅队列模式（Worker）支持。
+# 非队列模式下强制关闭（显式告警，不静默）：否则图会 interrupt，而在进程内执行器里
+# 没有等待态持久化与 resume 通道，任务会卡死。worker 进程侧无此约束（它就绪即 queue）。
+if EXECUTION_MODE != "queue":
+    for _hitl_field in ("clarify_enabled", "plan_approval_enabled", "followup_enabled"):
+        if getattr(config.hitl, _hitl_field):
+            setattr(config.hitl, _hitl_field, False)
+            print(f"[api] DR_HITL_* 需要队列模式（DR_EXECUTION_MODE=queue）："
+                  f"已强制关闭 {_hitl_field}", file=sys.stderr, flush=True)
+
 
 def _startup_store_maintenance(run_store: RunStore, execution_mode: str) -> None:
     """启动时的任务库维护（P2-C / P3-B）。

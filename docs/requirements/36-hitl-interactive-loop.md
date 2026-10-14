@@ -146,6 +146,7 @@
 | 2026-10-13 | 评审补充 | 运行协议与安全边界评审 | 明确挂起/恢复事务、租约释放、幂等回答、审批超时不自动批准、SSE 连接策略及 follow-up 的 claim-level grounding；建议分阶段演练 | 本文档 §12 |
 | 2026-10-13 | 开工 | 主理人确认按需求 36 开工 | 状态草稿→进行中；Issue #210；开分支 `feat/36-hitl-interaction-protocol`；TBD-0~7 按 §5 推荐 + §12 修订执行（登记见 §12.6）；Phase 1（协议/状态机先行，不改图）开工 | #210 |
 | 2026-10-13 | 实现 | Phase 1 协议/状态机交付（PR #211） | 迁移 `0023`（等待态两态 + 交互协议列 + 结构断言）+ `web/backend/hitl.py` 协议单点 + store PG 原子协议（`suspend_run`/`answer_interaction`/`expire_awaiting_runs`/`count_awaiting` + 取消扩展）+ `POST …/interaction` 回答 API + HITL 事件/回放脱敏/SSE 卡片后关流（TBD-6）+ 快照 `interaction`；离线 8/8 + 真 PG 契约 14/14 + 回归子集 70/70 + ruff 全过；**不改图** | #211 |
+| 2026-10-13 | 实现 | Phase 2 图 interrupt + 挂起/恢复交付（PR #212，堆叠 #211） | 拓扑：clarify/await_clarify + await_plan/revise_plan（**关闭态零漂移**硬断言）；`Command(resume=)` 注入 + `STOP_SUSPENDED` 挂起出口（不算完成节点）；`Clarifier`（失败即跳过）+ `Planner.revise_plan`（失败留痕）+ `user_scope` 并入 `research_spec`；Worker 挂起事务（释放租约）/恢复携带回答值/清扫周期到期收口；`CHECKPOINT_SCHEMA_VERSION→2`；eval/CI 强制关 + `config_snapshot` 记录；真 PG「挂起-退出-回答-恢复」演练 + runbook §7.4；离线 23/23 + 真 PG 19/19 + 全量套件绿 | #212 |
 
 ## 12. 评审结论与补充设计
 

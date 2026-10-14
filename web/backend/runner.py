@@ -48,6 +48,7 @@ from research_engine.snapshots import (
 from research_engine.streaming import (
     STOP_CANCELLED,
     STOP_ERROR,
+    STOP_SUSPENDED,
     STOP_TIMEOUT,
     RunStep,
 )
@@ -656,6 +657,21 @@ class RunManager:
             for step in graph.iter_run(topic, instructions, thread_id=run_id,
                                        should_cancel=should_stop):
                 if step.terminal:
+                    # 需求 36 防御：进程内执行器没有等待态/恢复通道（API 启动时已强制
+                    # 关闭 HITL）；万一图仍挂了起，按显式错误收口，绝不把挂起当终局。
+                    if step.stop_reason == STOP_SUSPENDED:
+                        payload = error_payload(
+                            "runner_crash",
+                            "HITL 挂起需要队列模式（DR_EXECUTION_MODE=queue）；"
+                            "进程内执行器没有恢复通道",
+                            component="runner")
+                        seq = self._emit_terminal_frame(
+                            run_id, RUN_ERROR, payload,
+                            status_fields={"stop_reason": STOP_ERROR, "cancelled": False,
+                                           "has_report": False})
+                        if seq is not None:
+                            self._persist_terminal(run_id, seq, RUN_ERROR, payload)
+                        break
                     # 停止原因是 STOP_CANCELLED 但用户**没**点取消 ⇒ 是超时闸触发的。
                     # （graph 只有一个「边界停止」出口，重标只能在这一层做。）
                     if (step.stop_reason == STOP_CANCELLED and not cancel_event.is_set()
