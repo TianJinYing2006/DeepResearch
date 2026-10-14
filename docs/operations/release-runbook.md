@@ -276,8 +276,8 @@ flagged / blocked 的**回放对 `REPORT_DELTA` 同样脱敏**（正文只在产
 
 **前置边界**：HITL 仅队列模式支持（`DR_EXECUTION_MODE=queue` + Worker）；API 进程在
 非队列模式启动时**强制关闭**开关并打印告警（进程内执行器没有挂起/恢复通道）；
-**CLI 入口（`cli.py`）同口径**强制关闭图上 HITL（clarify/plan_approval）并告警
-（追问不受影响；`graph.run()` 的 interrupt 防御保留为兜底）。
+**CLI 入口（`cli.py`）与证据链冒烟工具（`tools/smoke_evidence_chain.py`）同口径**强制关闭
+图上 HITL（clarify/plan_approval）并告警（追问不受影响；`graph.run()` 的 interrupt 防御保留为兜底）。
 默认全关（`DR_HITL_CLARIFY / DR_HITL_PLAN_APPROVAL / DR_HITL_FOLLOWUP = false`，灰度按单开关启用）。
 
 **状态与集合口径**（单点定义见 `web/backend/persistence.py`）
