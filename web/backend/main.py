@@ -27,7 +27,13 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, File, Header, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -2834,6 +2840,16 @@ if config.mcp.server_enabled:
     from .mcp_server import build_mcp_asgi  # 延迟导入：关闭态零 footprint
 
     _mcp_asgi, _mcp_fastmcp = build_mcp_asgi()
+
+    @app.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False)
+    async def _mcp_slash_redirect() -> RedirectResponse:
+        """MCP 端点兼容：无尾斜杠 → 307 到 `/mcp/`（保留方法与请求体；SDK 客户端自动跟随）。
+
+        Starlette 1.6 的 Mount 仅匹配带尾斜杠路径，`/mcp` 会落到静态目录挂载并 405；
+        显式 307 让「配置 https://host/mcp」的客户端可用。
+        """
+        return RedirectResponse(url="/mcp/", status_code=307)
+
     app.mount("/mcp", _mcp_asgi)
     _prev_lifespan = app.router.lifespan_context
 

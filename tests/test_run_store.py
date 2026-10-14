@@ -865,6 +865,28 @@ def test_usage_ledger_tool_kind_contract(store: RunStore):
         cur.execute("DELETE FROM usage_ledger WHERE run_id = 'test-mcp-tool-run'")
 
 
+def test_ensure_service_principal_contract(store: RunStore):
+    """需求 37 M2：机器主体开户（幂等；可承载 runs 外键；不可登录的哨兵哈希）。"""
+    uid = "mcp:test-principal"
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE user_id = %s", (uid,))
+        cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
+    assert store.ensure_service_principal(
+        uid, email="test-principal@mcp.invalid",
+        password_hash="!machine-principal-sentinel!") is True
+    assert store.ensure_service_principal(
+        uid, email="other@mcp.invalid", password_hash="!x!") is False  # 幂等：不覆盖
+    row = store.get_user(uid)
+    assert row["email"] == "test-principal@mcp.invalid"
+
+    run_id, _, _ = _create(store, user_id=uid, status="QUEUED")  # 外键可承载
+    assert store.get_run(run_id)["user_id"] == uid
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM runs WHERE run_id = %s", (run_id,))
+        cur.execute("DELETE FROM users WHERE user_id = %s", (uid,))
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")
