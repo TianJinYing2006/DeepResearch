@@ -137,7 +137,7 @@
 | 0' | SDK 入 lock（外科式）+ 适配层骨架 | TBD-1 | ✅（2026-10-14；mcp 1.9.4 外科式） |
 | M1 | 消费外部 MCP（工具位 + 映射 + 记账 + 安全 + egress） | 拍板 | ✅ 已交付（2026-10-14） |
 | M2 | 对外 Server（鉴权 + 四工具 + 服务函数抽取 + 审计） | 拍板 | ✅ 已交付（2026-10-14） |
-| 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | ⏳ 待 staging 开启双开关后全链路冒烟 |
+| 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | ◐ 本地全链路冒烟 ✅（2026-10-14）；staging 冒烟待开启双开关（运营配置） |
 
 合计 ≈ **5~7 天**（与调研 4~6 天同量级；上沿差异在服务函数抽取与准入同口径测试）。
 
@@ -151,6 +151,7 @@
 | 2026-10-14 | 开工 | 主理人确认按需求 37 开工 | 状态草稿→进行中；Issue #218；TBD-0~7 按 §5 推荐 + §12.4 六项处置建议拍板（TBD-8~13 补入 §5；登记见 §12.6）；M1（消费）先行开工 | #218 |
 | 2026-10-14 | M1 交付 | M1（消费）实施 | **SDK 外科式加锁**（mcp 1.9.4 + httpx-sse/sse-starlette/pydantic-settings；零版本漂移）；**适配层** `research_engine/mcp/consumer.py`（配置 fail-fast + URL 安全矩阵[仅 https/禁凭据/私网显式放行+理由/环回一律拒] + 五值映射 + 归一化[清洗/字节与条数上限]）；**researcher `mcp` 工具位 + 三处注册**（targets/池轮转/展示；关闭态零漂移硬断言）；**`kind='tool'` 记账**（迁移 0024 + 真 PG 契约）；**egress 终点登记**（仅启用时出现）；**provenance** 双开关 + server 指纹；**eval 强制关**；测试 +33（离线）+ PG 1；全量 1211 绿、ruff/`pip check` 全过 | #218 |
 | 2026-10-14 | M2 交付 | M2（对外）实施 | **`start_research` 服务函数抽取**（HTTP `POST /api/research` 与 MCP `deep_research` 共用；准入/配额/审核/注入/幂等单一口径，重试端点同步收敛）；**`web/backend/mcp_server.py`**：Streamable HTTP（`/mcp`，stateless + json_response）+ Bearer 鉴权（常量时间；未配置 fail-closed；**只认头**，query-string 拒绝）+ 单一 service principal `mcp:<name>`（status/report 仅本主体，不存在与无权同口径）+ 调用限流（`DR_MCP_RATE_PER_MINUTE`，Redis 可选）+ 四工具（quick_search / deep_research / research_status / research_report；参数/响应上限固定 schema `mcp-tools/v1`）+ 全审计（不落原始 prompt）；输出 gate 与导出同口径；main.py 条件挂载 + lifespan 接线；测试 +12（离线，含 ASGI 协议级）；全量 **1223 绿**；runbook §7.5 + production-readiness §3.10/§4 回填 | #218 |
+| 2026-10-14 | 收口（本地） | 全链路冒烟 + 两处缺陷修复 | **真实 FastAPI 应用 + 真 PG/Redis + 官方 `mcp` SDK 客户端（ASGI）全链路冒烟通过**：无令牌 401 / 4 工具 / quick_search（结构化）/ deep_research（run 落库，归属 `mcp:deepresearch`，幂等键 `mcp-…`）/ research_status（真快照链）/ research_report（`report_not_ready` gate 正确）。**修复①**：`/mcp` 无尾斜杠 405（Starlette 1.6 的 Mount 仅匹配带斜杠路径，落静态挂载）⇒ 显式 **307 兼容路由**（保留方法/请求体，SDK 客户端自动跟随）；**修复②**：service principal 缺 `users` 行（`runs.user_id` 外键）⇒ **惰性开户**（随机口令 Argon2id + `.invalid` 邮箱 + 开户审计）。测试 +2（开户单测 + PG 契约）；全量 **1225 绿** | #218 |
 | 2026-10-14 | 文档 | 飞书镜像重建 | 按开工版重建至 `DeepResearch 需求文档` 文件夹（`IdoQd7RAloxz7mxwFA5cRTfknDh`；自引用回填；立项版已删） | — |
 
 ## 12. 评审结论与补充设计

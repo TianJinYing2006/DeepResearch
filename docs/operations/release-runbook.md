@@ -365,8 +365,11 @@ Worker 认领后以 `resumed` 执行：`Command(resume=answer)` 注入挂起节�
 
 **运维要点**：调用全审计（`mcp_tool_called`：主体/工具/run_id/请求哈希/决策；**不落原始 prompt**）；
 令牌轮换 = 更新 `DR_MCP_TOKEN` 并重启 API（无状态会话，无需清理）；关闭开关 = 卸载入口，零残留
-（`config_snapshot` 记录双开关 + server 指纹）。请求体上限由反代保障（未显式配置时按平台默认），
-工具入参另有硬上限（上表）。**开启后冒烟**：
+（`config_snapshot` 记录双开关 + server 指纹）。端点兼容：`/mcp` 无尾斜杠 → 307 到 `/mcp/`
+（SDK 客户端自动跟随；Starlette 1.6 的 Mount 仅匹配带尾斜杠路径）。service principal 在首次
+`deep_research` 时**惰性开户**（`users` 行：邮箱 `<name>@mcp.invalid`、随机口令 Argon2id ⇒
+不可登录；开户事件进审计；`runs.user_id` 外键完整性所需）。请求体上限由反代保障（未显式配置时
+按平台默认），工具入参另有硬上限（上表）。**开启后冒烟**：
 
 ```bash
 curl -fsS -X POST https://<host>/mcp/ -H "Authorization: Bearer $DR_MCP_TOKEN" \

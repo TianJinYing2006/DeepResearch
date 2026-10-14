@@ -112,6 +112,31 @@ def _enforce_rate_limit(tool: str) -> None:
         raise _tool_error("rate_limited", "MCP 调用过于频繁，稍后再试")
 
 
+#: 主体开户缓存（进程内一次；主体行创建后长期有效）
+_principal_ready = False
+
+
+def _ensure_principal(backend: Any) -> None:
+    """确保 service principal 在 `users` 表存在（`runs.user_id` 外键完整性）。
+
+    首次 `deep_research` 时惰性开户：一次性随机口令的 Argon2id（原文不留 ⇒ 不可登录）、
+    邮箱用保留域 `.invalid`；幂等（已存在不覆盖）；开户事件进审计。
+    """
+    global _principal_ready
+    if _principal_ready or backend.store is None:
+        return
+    import secrets
+
+    from web.backend.auth import hash_password
+
+    name = config.mcp.server_name
+    inserted = backend.store.ensure_service_principal(
+        principal(), email=f"{name}@mcp.invalid",
+        password_hash=hash_password(secrets.token_hex(32)))
+    _audit_tool("principal_provisioned", decision="created" if inserted else "exists")
+    _principal_ready = True
+
+
 def _api_error_to_tool(exc: Exception) -> Exception:
     code = getattr(exc, "code", "internal")
     message = getattr(exc, "message", str(exc))
@@ -191,6 +216,7 @@ def deep_research(topic: str, instructions: str = "", profile: str = "standard",
     from web.backend import main as backend
 
     _enforce_rate_limit("deep_research")
+    _ensure_principal(backend)  # 主体开户（FK 完整性；幂等；store 缺失时跳过）
     t = (topic or "").strip()
     if not t:
         raise _tool_error("empty_topic", "topic 不能为空")

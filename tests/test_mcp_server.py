@@ -206,6 +206,28 @@ def test_deep_research_maps_api_error_and_validates(monkeypatch):
         mcp_server.deep_research("t", "i" * (mcp_server.MAX_INSTRUCTIONS_CHARS + 1))
 
 
+def test_deep_research_provisions_principal_once(monkeypatch):
+    """需求 37 M2：主体惰性开户（runs.user_id 外键完整性）；进程内只开户一次。"""
+    calls = []
+
+    class _FakeStore:
+        def ensure_service_principal(self, user_id, *, email, password_hash):
+            calls.append((user_id, email, password_hash))
+            return True
+
+    monkeypatch.setattr(api, "store", _FakeStore())
+    monkeypatch.setattr(mcp_server, "_principal_ready", False)
+    monkeypatch.setattr(api, "start_research", lambda **kw: "run-p")
+    monkeypatch.setattr(api, "_audit", lambda action, **kw: None)
+
+    mcp_server.deep_research("主题甲")
+    mcp_server.deep_research("主题乙")
+    assert len(calls) == 1  # 进程内只开户一次
+    assert calls[0][0] == "mcp:deepresearch"
+    assert calls[0][1] == "deepresearch@mcp.invalid"  # 保留域（不可路由）
+    assert calls[0][2]  # 一次性随机口令的 Argon2id 哈希（不可登录）
+
+
 # ---- research_status：所有权 + 投影 ----
 
 

@@ -1390,6 +1390,22 @@ class RunStore:
             cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
             return cur.fetchone()
 
+    def ensure_service_principal(self, user_id: str, *, email: str,
+                                 password_hash: str) -> bool:
+        """需求 37 M2：确保机器主体（service principal）在 `users` 表存在（FK 完整性）。
+
+        `runs.user_id` 有外键 ⇒ MCP 创建的 run 需要主体行。密码哈希为**一次性随机口令**
+        的 Argon2id（原文未留存 ⇒ 无法登录）；邮箱用保留域 `.invalid`（不可路由）。
+        幂等：已存在返回 False（不覆盖）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (user_id, email, password_hash) VALUES (%s, %s, %s) "
+                "ON CONFLICT (user_id) DO NOTHING RETURNING user_id",
+                (user_id, email, password_hash),
+            )
+            return cur.fetchone() is not None
+
     def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM users WHERE lower(email) = lower(%s)", (email,))
