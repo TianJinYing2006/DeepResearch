@@ -101,14 +101,17 @@
 ## 7. 验收标准（DoD）
 
 - [x] TBD-0~13 拍板（记录进 §5 / §12.6）—— ✅（2026-10-14，按推荐）
-- [ ] M1：`mcp` 工具位（查询型）+ 三处注册（池/统计/展示同步）+ 结果归一化 finding（含 server 身份）
-- [ ] M1：失败映射五值（契约测试不破）+ `component='mcp'` + `kind='tool'` 记账（迁移 + 真 PG 断言）
-- [ ] M1：URL 安全校验（禁本机/内网默认）+ egress 终点登记 + 超时/结果上限
+- [x] M1：`mcp` 工具位（查询型）+ 三处注册（池/统计/展示同步）+ 结果归一化 finding（含 server 身份）—— ✅（2026-10-14）
+- [x] M1：失败映射五值（契约测试不破）+ `component='mcp'` + `kind='tool'` 记账（迁移 + 真 PG 断言）—— ✅（2026-10-14）
+- [x] M1：URL 安全校验（禁本机/内网默认）+ egress 终点登记 + 超时/结果上限 —— ✅（2026-10-14）
 - [ ] M2：四工具（quick_search / deep_research / research_status / research_report）+ 机器令牌鉴权 + 审计
 - [ ] M2：`start_research` 服务函数抽取；API 与 MCP **同一准入口径**（配额/审核/幂等测试证明无旁路）
 - [ ] 开关：两开关默认关；`config_snapshot` 记录；eval 强制关；CI 零网络（fake server）
+  - M1 部分（2026-10-14）：双开关默认关 + `config_snapshot`（`mcp_switches` + server 指纹）+ eval 强制关 + CI fake caller 零网络已交付；server 侧行为随 M2。
 - [ ] 关闭态零漂移（主链路与评测路径行为逐项一致，确定性测试）
+  - M1 部分（2026-10-14）：`targets`/stats/egress 快照逐项硬断言（tests/test_mcp_consume.py）；评测路径 eval 强制关。
 - [ ] 全量套件 0 失败；`SCORER_VERSION` 不变；lock 变更单列且 `pip check` 通过
+  - M1 部分（2026-10-14）：全量 1211 绿（含真 PG 0024 契约）；`pip check` 通过；lock 外科式单列。
 - [ ] 文档：MCP 工具面协议进 `release-runbook.md`；egress/合规口径回填（production-readiness）
 
 ## 8. 影响范围与风险
@@ -134,8 +137,8 @@
 | 步骤 | 内容 | 依赖 | 粗估 |
 |---|---|---|---|
 | 0 | TBD-0~13 拍板 | — | ✅（2026-10-14） |
-| 0' | SDK 入 lock（外科式）+ 适配层骨架 | TBD-1 | 0.5 天 |
-| M1 | 消费外部 MCP（工具位 + 映射 + 记账 + 安全 + egress） | 拍板 | 2~3 天 |
+| 0' | SDK 入 lock（外科式）+ 适配层骨架 | TBD-1 | ✅（2026-10-14；mcp 1.9.4 外科式） |
+| M1 | 消费外部 MCP（工具位 + 映射 + 记账 + 安全 + egress） | 拍板 | ✅ 已交付（2026-10-14） |
 | M2 | 对外 Server（鉴权 + 四工具 + 服务函数抽取 + 审计） | 拍板 | 2~3 天 |
 | 收口 | 全链路测试 + 文档 + 关闭态零漂移复核 | 全部 | 0.5~1 天 |
 
@@ -149,6 +152,7 @@
 | 2026-10-13 | 评审补充 | 安全与发布边界评审 | 补充 MCP 消费出网/提示注入治理、服务端主体归属与准入幂等；建议 M1/M2 分阶段发布，单 token 限于封闭内测 | 本文档 §12 |
 | 2026-10-13 | 文档 | 飞书镜像建立 | 镜像至 `DeepResearch 需求文档` 文件夹（`S4UodQCmRophHmx5KCMcIwCznYb`；自引用已回填） | — |
 | 2026-10-14 | 开工 | 主理人确认按需求 37 开工 | 状态草稿→进行中；Issue #218；TBD-0~7 按 §5 推荐 + §12.4 六项处置建议拍板（TBD-8~13 补入 §5；登记见 §12.6）；M1（消费）先行开工 | #218 |
+| 2026-10-14 | M1 交付 | M1（消费）实施 | **SDK 外科式加锁**（mcp 1.9.4 + httpx-sse/sse-starlette/pydantic-settings；零版本漂移）；**适配层** `research_engine/mcp/consumer.py`（配置 fail-fast + URL 安全矩阵[仅 https/禁凭据/私网显式放行+理由/环回一律拒] + 五值映射 + 归一化[清洗/字节与条数上限]）；**researcher `mcp` 工具位 + 三处注册**（targets/池轮转/展示；关闭态零漂移硬断言）；**`kind='tool'` 记账**（迁移 0024 + 真 PG 契约）；**egress 终点登记**（仅启用时出现）；**provenance** 双开关 + server 指纹；**eval 强制关**；测试 +33（离线）+ PG 1；全量 1211 绿、ruff/`pip check` 全过 | #218 |
 | 2026-10-14 | 文档 | 飞书镜像重建 | 按开工版重建至 `DeepResearch 需求文档` 文件夹（`IdoQd7RAloxz7mxwFA5cRTfknDh`；自引用回填；立项版已删） | — |
 
 ## 12. 评审结论与补充设计

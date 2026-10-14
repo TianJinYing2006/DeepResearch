@@ -12,6 +12,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from config import config
+from research_engine.mcp.consumer import server_hosts
 from research_engine.runtime_profile import RuntimeProfile
 
 from .moderation_providers import active_provider
@@ -29,7 +30,7 @@ def build_egress_snapshot(profile: Optional[RuntimeProfile]) -> dict:
     model = profile.model if profile is not None else config.llm.smart_model
     otel_configured = bool((config.otel.endpoint or "").strip()) and (
         (config.otel.enabled or "").lower() != "false")
-    return {
+    snapshot = {
         "policy_version": profile.version if profile is not None else "legacy",
         "profile": profile.name if profile is not None else None,
         "llm": {
@@ -55,3 +56,11 @@ def build_egress_snapshot(profile: Optional[RuntimeProfile]) -> dict:
         },
         "policy_note": "L3-A/B 默认不发送用户内容至境外服务；恢复须独立评审（需求 10 §3.1 第 16 项）",
     }
+    # 需求 37 M1：MCP 消费终点登记（仅启用时出现 ⇒ 关闭态快照逐字段零漂移；
+    # 只记 host，不记完整 URL 与凭据；TBD-2）
+    if config.mcp.consume_enabled:
+        snapshot["mcp"] = {
+            "consume_enabled": True,
+            "endpoint_hosts": server_hosts(),
+        }
+    return snapshot

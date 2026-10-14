@@ -66,6 +66,11 @@ _config.hitl.clarify_enabled = False
 _config.hitl.plan_approval_enabled = False
 _config.hitl.followup_enabled = False
 
+# 需求 37（TBD-7）：eval 批量跑**强制关闭** MCP 两侧 —— 消费侧引入外部数据源、
+# 暴露侧是机器入口，均不属于评测口径；关闭态 = 既有评测口径（零漂移）。
+_config.mcp.consume_enabled = False
+_config.mcp.server_enabled = False
+
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 

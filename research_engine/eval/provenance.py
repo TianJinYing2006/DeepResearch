@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional
 from config import config
 from research_engine.eval.aggregate import SCORER_VERSION
 from research_engine.eval.prompt_hash import prompt_hash, prompt_slots
+from research_engine.mcp.consumer import server_fingerprint
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -147,6 +148,13 @@ def config_snapshot() -> Dict[str, Any]:
             "plan_approval": config.hitl.plan_approval_enabled,
             "followup": config.hitl.followup_enabled,
         },
+        # 需求 37（TBD-7）：MCP 双开关运行期生效值 + server 列表指纹（name@host，
+        # 不含密钥；eval 强制关闭 ⇒ consume 恒 False，证明数据产生于关闭态）
+        "mcp_switches": {
+            "consume": config.mcp.consume_enabled,
+            "server": config.mcp.server_enabled,
+        },
+        "mcp_servers": server_fingerprint(),
         "experiment": experiment_snapshot(),
     }
 

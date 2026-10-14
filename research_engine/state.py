@@ -39,7 +39,7 @@ class DegradationEntry:
     """
 
     node: str  # "planner" / "researcher" / "writer" / "validator"
-    component: str  # "llm" / "web_search" / "rag_search" / "arxiv_search" / "code_exec"
+    component: str  # "llm" / "web_search" / "rag_search" / "arxiv_search" / "code_exec" / "mcp:<server>"
     reason: str  # 失败原因枚举，见 failure_reasons.FailureReason
     detail: str = ""  # 自由文本补充（原始异常摘要等），可为空
     fallback_action: str = ""  # "topic_only" / "empty_list" / "fallback_report" / "existence_only"
