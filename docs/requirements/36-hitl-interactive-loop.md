@@ -150,6 +150,7 @@
 | 2026-10-13 | 实现 | Phase 1 协议/状态机交付（PR #211） | 迁移 `0023`（等待态两态 + 交互协议列 + 结构断言）+ `web/backend/hitl.py` 协议单点 + store PG 原子协议（`suspend_run`/`answer_interaction`/`expire_awaiting_runs`/`count_awaiting` + 取消扩展）+ `POST …/interaction` 回答 API + HITL 事件/回放脱敏/SSE 卡片后关流（TBD-6）+ 快照 `interaction`；离线 8/8 + 真 PG 契约 14/14 + 回归子集 70/70 + ruff 全过；**不改图** | #211 |
 | 2026-10-13 | 实现 | Phase 2 图 interrupt + 挂起/恢复交付（PR #212，堆叠 #211） | 拓扑：clarify/await_clarify + await_plan/revise_plan（**关闭态零漂移**硬断言）；`Command(resume=)` 注入 + `STOP_SUSPENDED` 挂起出口（不算完成节点）；`Clarifier`（失败即跳过）+ `Planner.revise_plan`（失败留痕）+ `user_scope` 并入 `research_spec`；Worker 挂起事务（释放租约）/恢复携带回答值/清扫周期到期收口；`CHECKPOINT_SCHEMA_VERSION→2`；eval/CI 强制关 + `config_snapshot` 记录；真 PG「挂起-退出-回答-恢复」演练 + runbook §7.4；离线 23/23 + 真 PG 19/19 + 全量套件绿 | #212 |
 | 2026-10-13 | 实现 | Phase 3 追问 + 前端交付（PR #213，堆叠 #212） | `web/backend/followup.py`（上下文上限/白名单校验/失败不改原 run）+ `POST …/follow-up`（开关/限流/门禁/记账/审计事件）+ `FOLLOWUP_*` 事件与回放脱敏 + options 下发开关；前端 `lib/hitl.ts`（事件流重建卡片/快照恢复）+ `useResearchStream`（interaction/answerInteraction/askFollowup/等待态关流）+ `HitlPanels`（澄清卡/计划卡/追问框）；离线 5/5 + 全量套件绿 + vitest 41/41 + e2e 80/80 + 守卫全过；**全链路 HITL e2e 待 staging**（demo 模式强制关） | #213 |
+| 2026-10-13 | 实现 | CLI 端口径收口（并入 PR #213） | `cli.py` 入口强制关闭图上 HITL（clarify/plan_approval）并显式告警——与 API 非队列模式同口径（CLI 无「挂起-回答-恢复」通道；追问不受影响；`graph.run()` 的 interrupt 防御保留为兜底）；单测 3 条 + runbook §7.4 前置边界同步 | #213 |
 
 ## 12. 评审结论与补充设计
 

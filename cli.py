@@ -21,12 +21,30 @@ from research_engine.snapshots import FetchContext, use_fetch_context
 from research_engine.state import RUN_STATUS_FAILED  # W8 Arm 1（§5.1.4 五件套之④）
 
 
+def _disable_unavailable_hitl() -> list:
+    """需求 36：CLI 无「挂起-回答-恢复」通道 ⇒ 强制关闭图上 HITL 开关。
+
+    与 API 非队列模式启动口径一致（不静默：返回被关闭项，由 main 打告警）。
+    `graph.run()` 内的 interrupt 防御仍保留为兜底（绝不把挂起当终局）。
+    """
+    disabled = [field for field in ("clarify_enabled", "plan_approval_enabled")
+                if getattr(config.hitl, field)]
+    for field in disabled:
+        setattr(config.hitl, field, False)
+    return disabled
+
+
 def main():
     parser = argparse.ArgumentParser(description="DeepResearch 深度研究 Agent")
     parser.add_argument("topic", help="研究主题")
     parser.add_argument("--instructions", default="", help="用户附加要求")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出完整状态")
     args = parser.parse_args()
+
+    # 需求 36：CLI 单次运行没有回答通道 —— 显式关闭图上 HITL（告警不静默）
+    for field in _disable_unavailable_hitl():
+        print(f"⚠️ DR_HITL 开关 {field} 需要队列模式（Web Worker + 回答通道）："
+              f"CLI 已强制关闭（本次运行不等待人类输入）", file=sys.stderr)
 
     # W3（Q4）：启动知情打印（数据去向 + 脱敏策略）
     print(status_line())
