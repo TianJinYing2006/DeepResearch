@@ -1,12 +1,12 @@
 # 需求-37-mcp-bidirectional
 
 > 状态流转：草稿 → 进行中 → 自测 → 待合 → 已合
-> **性质**：立项**草稿**（拟列批次 4）；**TBD-0~7 待主理人拍板**后方可进入实现，拍板记录进 §5。
+> **性质**：**已立项（批次 4）**；开工登记见 §12.6（主理人 2026-10-14 确认按本需求开工；TBD-0~7 按 §5 推荐口径 + §12.4 六项按处置建议执行）。
 > **来源**：`docs/extension-directions-survey.md` §3 方向 B / §4 批次 4（调研建议 P1）。
 > **竞品参照**（调研 §1.1~§1.3）：GPT Researcher 对外提供 MCP Server；DeerFlow 接 MCP（私有域/知识图谱）；open_deep_research `MCPConfig` 运行时注入 researcher；Gemini 远程 MCP——四家全上，MCP 是 2026 的通用扩展口。
 > **叙事（调研 §3 方向 B）**：与 WeChatBot（自研 MCP Server，Java/FastMCP）形成**跨生态呼应**——一边写 Server、一边消费 Server。
 > **纪律**：① 默认关闭 + 评测/CI 零漂移；② **不破 `failure_reason` 单产者契约**（工具层五值封闭）；③ 依赖走 lock 外科式（先例：需求 10）；④ 外部终点登记进 egress 快照。
-> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/S4UodQCmRophHmx5KCMcIwCznYb（`S4UodQCmRophHmx5KCMcIwCznYb`，位于 `DeepResearch 需求文档` 文件夹；2026-10-13 建）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/IdoQd7RAloxz7mxwFA5cRTfknDh（`IdoQd7RAloxz7mxwFA5cRTfknDh`，位于 `DeepResearch 需求文档` 文件夹；2026-10-14 按开工版重建，立项版已删）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -14,12 +14,12 @@
 | 编号 | 37 |
 | 标题 | 批次 4「MCP 双向」：消费外部 MCP 工具（注入 researcher）+ 对外 MCP Server（quick_search / deep_research / research_status / research_report） |
 | 优先级 | P1 |
-| 状态 | 草稿 |
+| 状态 | 进行中 |
 | 负责人 | TianJinYing2006 |
-| 关联 Issue | 待建 |
+| 关联 Issue | #218 |
 | 关联 PR | 待定 |
-| 创建 / 更新 | 2026-10-13 |
-| 前置评审 | **TBD-0~7 待拍板**（推荐见 §5） |
+| 创建 / 更新 | 2026-10-13 / 2026-10-14 |
+| 前置评审 | **TBD-0~13 已拍板**（2026-10-14 按推荐；记录见 §5 / §12.6） |
 
 ## 2. 问题背景
 
@@ -58,7 +58,7 @@
 | 评测 | `provenance.py:118-144`、`ci.yml:3-4` | 开关进 config_snapshot；CI 零网络 | **M1/M2**：开关入 provenance；fake server 测试 |
 | SSRF/出网 | `net/safe_fetch.py:72-134` | 声明为 URL 抓取唯一入口；DNS 全解析校验 | **M1**：MCP URL 校验同源复用 |
 
-## 5. 优化方案（TBD 推荐 + 待拍板）
+## 5. 优化方案（TBD 推荐 + 拍板记录）
 
 - **TBD-0（前置，P0）before 基线 —— 推荐：不采，以「默认关闭 + 关闭态零漂移」护栏替代**。
   理由：MCP 两侧默认关闭 ⇒ 主链路（含评测路径）零行为变化；开关进 `config_snapshot`，历史可比性不受影响。
@@ -76,6 +76,19 @@
   `quick_search`（同步；provider 直调；记账 `kind='search'`）；`deep_research`（**从 `POST /api/research` 抽 `start_research(...)` 服务函数**，API 与 MCP 共用：准入/配额/内容审核/注入扫描/幂等一处不落）→ 返回 `run_id`；`research_status`；`research_report`（复用导出，输出 gate/flagged 阻断同一口径）。异步语义明确：`deep_research` 立即返回 run_id，配套 status/report 轮询。
 - **TBD-7（评测 / CI / 开关）—— 推荐：默认关 + 全链路可关**。
   `DR_MCP_CONSUME_ENABLED` / `DR_MCP_SERVER_ENABLED`（均默认 false）；`config_snapshot` 记录开关与 server 列表指纹（不含密钥）；eval 强制关；CI 用 fake MCP server（零网络）覆盖消费映射与对外准入。
+- **TBD-8（M1/M2 拆分发布；§12.4 补入）—— 拍板：拆分，M1（消费）先行、M2（对外）独立发布窗口**。
+  §12.1 结论：两侧安全边界/部署形态/验收目标不同，不被一个开关或一个发布窗口绑死。
+- **TBD-9（首发 server 与可信运营方；§12.4 补入）—— 拍板：仅运营方自建/可信内部 server（如既有 WeChatBot 自研 Server），单 server 灰度**。
+  不接第三方公共 server；具体 server 由运营方指定并登记 egress。
+- **TBD-10（service principal 主体归属；§12.4 补入）—— 拍板：单一独立主体 `mcp:<name>`，固定数据归属**。
+  所有 run 归属该主体、仅该主体可查（`run_id` 不构成越权通道）；跨主体开放前补可撤销凭证/scope/轮换。
+- **TBD-11（私网例外审批方式；§12.4 补入）—— 拍板：按 server 显式配置 + 理由 + 审计**。
+  不接受普通 URL 字符串自行覆盖；生产环境另以出口策略限制 worker 可达网段。
+- **TBD-12（响应正文保存/删除周期；§12.4 补入）—— 拍板：不额外落盘**。
+  审计/账单仅记元数据（server/tool/耗时/字节数/条目数/失败类别，不记完整正文）；findings 随 run 既有生命周期与截断/内容 gate；排障采样走既有日志口径。
+- **TBD-13（工具调用预算结算；§12.4 补入）—— 拍板：按调用次数 `per_call` 计次**。
+  金额仅当服务端提供可信价格才写；不按供应商成本结算（避免把 `per_call/0 元` 误读为免费）。
+- **拍板记录（2026-10-14）**：TBD-0~13 全部按上述推荐口径拍板（主理人确认；开工登记见 §12.6）。
 
 ## 6. 设计策略
 
@@ -87,7 +100,7 @@
 
 ## 7. 验收标准（DoD）
 
-- [ ] TBD-0~7 拍板（记录进 §5）
+- [x] TBD-0~13 拍板（记录进 §5 / §12.6）—— ✅（2026-10-14，按推荐）
 - [ ] M1：`mcp` 工具位（查询型）+ 三处注册（池/统计/展示同步）+ 结果归一化 finding（含 server 身份）
 - [ ] M1：失败映射五值（契约测试不破）+ `component='mcp'` + `kind='tool'` 记账（迁移 + 真 PG 断言）
 - [ ] M1：URL 安全校验（禁本机/内网默认）+ egress 终点登记 + 超时/结果上限
@@ -120,7 +133,7 @@
 
 | 步骤 | 内容 | 依赖 | 粗估 |
 |---|---|---|---|
-| 0 | TBD-0~7 拍板 | — | 0.5 天 |
+| 0 | TBD-0~13 拍板 | — | ✅（2026-10-14） |
 | 0' | SDK 入 lock（外科式）+ 适配层骨架 | TBD-1 | 0.5 天 |
 | M1 | 消费外部 MCP（工具位 + 映射 + 记账 + 安全 + egress） | 拍板 | 2~3 天 |
 | M2 | 对外 Server（鉴权 + 四工具 + 服务函数抽取 + 审计） | 拍板 | 2~3 天 |
@@ -135,6 +148,8 @@
 | 2026-10-13 | 文档 | 批次 4 立项草稿（调研 §4） | 建稿：M1 消费 / M2 对外两单元拆解（含代码现状盘点 + 行号）；TBD-0~7（推荐 + 待拍板）；DoD/风险/测试/排期 | 本文档 |
 | 2026-10-13 | 评审补充 | 安全与发布边界评审 | 补充 MCP 消费出网/提示注入治理、服务端主体归属与准入幂等；建议 M1/M2 分阶段发布，单 token 限于封闭内测 | 本文档 §12 |
 | 2026-10-13 | 文档 | 飞书镜像建立 | 镜像至 `DeepResearch 需求文档` 文件夹（`S4UodQCmRophHmx5KCMcIwCznYb`；自引用已回填） | — |
+| 2026-10-14 | 开工 | 主理人确认按需求 37 开工 | 状态草稿→进行中；Issue #218；TBD-0~7 按 §5 推荐 + §12.4 六项处置建议拍板（TBD-8~13 补入 §5；登记见 §12.6）；M1（消费）先行开工 | #218 |
+| 2026-10-14 | 文档 | 飞书镜像重建 | 按开工版重建至 `DeepResearch 需求文档` 文件夹（`IdoQd7RAloxz7mxwFA5cRTfknDh`；自引用回填；立项版已删） | — |
 
 ## 12. 评审结论与补充设计
 
@@ -170,3 +185,10 @@
 - [MCP Authorization Specification, 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)：HTTP transport 的授权可选；实现授权时，规范建议遵循基于 OAuth 2.1 的发现与授权流程，并要求受保护资源元数据发现、token audience 校验等。结论不是 v1 必须自建完整 OAuth，而是共享 bearer token 仅适合明确封闭的内测，不能宣传为通用 MCP 身份方案。
 - [MCP Server Tools Specification, 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)：工具调用结果可以是结构化或非结构化内容，执行错误通过工具结果返回。建议服务端对外保持稳定、有限的工具 schema，并将应用级配额/授权/所有权校验作为真正的安全边界，而非依赖客户端 UI 或工具描述。
 - [GPT Researcher MCP Server](https://github.com/assafelovic/gptr-mcp)：README 将 `deep_research`、`quick_search`、`write_report`、`get_research_sources` 和 `get_research_context` 分开。可借鉴的是“研究/报告/来源”职责分离；本项目宜补一个分页、受权限约束的 `research_sources`，而不直接暴露可能很大的完整 `research_context`。该项目支持多种 transport；本项目限定 Streamable HTTP 是部署与安全边界选择，不是 MCP 的唯一做法。
+
+### 12.6 开工登记（2026-10-14）
+
+- **主理人口令**：按需求 37 开工（2026-10-14）；Issue **#218**；分支 `feat/37-mcp-consume`（M1 先行）。
+- **TBD-0~13 执行口径**：TBD-0~7 按 §5 推荐口径；§12.4 六项按处置建议补入 §5（TBD-8~13）：① M1/M2 拆分发布（M1 消费先行、M2 独立窗口）；② 首发 server 限运营方自建/可信内部（单 server 灰度，不接第三方公共）；③ service principal 单一主体 `mcp:<name>`，固定数据归属、仅查自己 run；④ 私网例外按 server 显式配置 + 理由 + 审计，不接受 URL 自覆盖；⑤ 响应正文不额外落盘（审计/账单仅元数据），findings 随 run 既有生命周期；⑥ 预算按调用次数 `per_call` 计次，金额仅服务端有可信价格时写。
+- **§12.4「立项前应补入」六项决策处置**：① M1/M2 拆分 —— ✅（TBD-8）；② 首发 server/运营方 —— ✅（TBD-9）；③ principal 归属 —— ✅（TBD-10）；④ 私网例外审批 —— ✅（TBD-11）；⑤ 响应正文留存 —— ✅（TBD-12）；⑥ 预算结算 —— ✅（TBD-13）。
+- **实施顺序**：M1（SDK lock 外科式 + 适配层骨架 → `mcp` 工具位/三处注册 + 五值映射 + `kind='tool'` 记账 + URL 安全边界 + egress）→ M2（机器令牌 + 四工具 + `start_research` 服务函数抽取 + 审计）→ 收口（全链路 + 文档 + 关闭态零漂移复核）。排期 ≈5~7 天（受控内测口径；不含多租户凭证/出口策略改造/外部互操作排障）。
