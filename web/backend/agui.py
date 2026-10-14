@@ -32,6 +32,26 @@ DEGRADATION = "DEGRADATION"
 REPORT_DELTA = "REPORT_DELTA"
 REPORT_RESET = "REPORT_RESET"
 
+# 需求 36（TBD-6 拍板）：HITL 交互事件（自定义扩展）。
+# 为什么单独成组：挂起/回答/过期必须可从 `run_events` 重建卡片（SSE 断线重连后
+# 按 sequence 回放即得最新交互状态），因此需要**稳定且可枚举**的事件名；
+# 事件载荷与状态/轮次/到期的映射在 `web/backend/hitl.py` 单点定义。
+# - CLARIFY_REQUESTED / PLAN_PROPOSED：交互卡片（挂起时写入；含 interaction_id/round/expires_at）；
+# - CLARIFY_ANSWERED / PLAN_DECISION：用户回答（含 action 与文本；flagged 回放脱敏）；
+# - CLARIFY_EXPIRED / PLAN_EXPIRED：等待到期的显式留痕（不伪装成 worker 执行超时）。
+CLARIFY_REQUESTED = "CLARIFY_REQUESTED"
+CLARIFY_ANSWERED = "CLARIFY_ANSWERED"
+CLARIFY_EXPIRED = "CLARIFY_EXPIRED"
+PLAN_PROPOSED = "PLAN_PROPOSED"
+PLAN_DECISION = "PLAN_DECISION"
+PLAN_EXPIRED = "PLAN_EXPIRED"
+
+#: 需求 36：交互类事件全集（回放脱敏 / 契约测试共用；新增交互事件必须登记于此）。
+INTERACTION_EVENT_TYPES = (
+    CLARIFY_REQUESTED, CLARIFY_ANSWERED, CLARIFY_EXPIRED,
+    PLAN_PROPOSED, PLAN_DECISION, PLAN_EXPIRED,
+)
+
 # 心跳间隔（秒）。依据：nginx 默认 proxy_read_timeout=60 ⇒ 15s 留 4 倍余量。
 # （GPT Researcher 用 30s 心跳作参照，本项目取更保守的 15s。）
 HEARTBEAT_SECONDS = 15

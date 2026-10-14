@@ -33,7 +33,13 @@ from pydantic import BaseModel, Field
 from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 
-from .agui import HEARTBEAT_FRAME, HEARTBEAT_SECONDS, REPORT_DELTA, sse_frame
+from .agui import (
+    HEARTBEAT_FRAME,
+    HEARTBEAT_SECONDS,
+    INTERACTION_EVENT_TYPES,
+    REPORT_DELTA,
+    sse_frame,
+)
 from .alerts import alert_webhook_url, collect_alerts
 from .appeals import submit_appeal
 from .auth import (
@@ -57,6 +63,14 @@ from .auth import (
 from .download_names import build_export_filename, content_disposition
 from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload, http_error
+from .hitl import (
+    ANSWER_EVENT_BY_KIND,
+    KIND_BY_STATUS,
+    build_answer_event_payload,
+    build_resume_payload,
+    interaction_view,
+    validate_answer,
+)
 from .injection_guard import scan_injection
 from .mailer import get_mailer, password_reset_email
 from .metrics import METRICS
@@ -77,6 +91,7 @@ from .otel import (
     prometheus_asgi_app,
     setup_otel,
 )
+from .persistence import OPEN_STATUSES
 from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profile
 from .queue import RunQueue
 from .ratelimit import make_limiter
@@ -635,7 +650,8 @@ def _snapshot_from_store(run_id: str) -> Optional[dict]:
     row = _store_call(store.get_run, run_id)
     if row is None:
         return None
-    active = row["status"] in ACTIVE_STATUSES
+    # 需求 36：等待态（AWAITING_*）尚未结束 ⇒ 快照仍为 running，并附当前交互卡片
+    active = row["status"] in OPEN_STATUSES
     started = row.get("started_at") or row["created_at"]
     ended = row.get("finished_at") or datetime.now(UTC)
     elapsed = max(0.0, (ended - started).total_seconds()) if started else 0.0
@@ -664,6 +680,8 @@ def _snapshot_from_store(run_id: str) -> Optional[dict]:
         "remaining_seconds": round(max(0.0, timeout_seconds - elapsed), 1),
         "worker_status": row.get("worker_status"),
         "moderation_status": row.get("moderation_status"),
+        # 需求 36：当前待答交互（非等待态为 None；卡片字段见 hitl.interaction_view）
+        "interaction": interaction_view(row),
         # P1-9：数据流向快照（创建时固化；历史任务可解释「当时发给了谁」）
         "egress": (row.get("request") or {}).get("egress"),
     }
@@ -796,6 +814,23 @@ def _redact_report_payload(payload: dict) -> dict:
     if isinstance(payload, dict) and sanitized == payload:
         return payload
     return {**sanitized, "output_under_review": True}
+
+
+def _redact_interaction_payload(payload: dict) -> dict:
+    """需求 36：flagged 回放对 HITL 事件脱敏（回答文本 / 卡片摘要都可能含敏感原文）。
+
+    保留协议字段（interaction_id / kind / round / action）——UI 仍可展示
+    「有一张待答卡片 / 已作答（内容待审）」，但正文一律置空并标记 under_review。
+    """
+    if not isinstance(payload, dict):
+        return {"output_under_review": True}
+    scrubbed = dict(payload)
+    for key in ("text", "questions", "plan", "summary", "content"):
+        if key not in scrubbed:
+            continue
+        scrubbed[key] = {} if isinstance(scrubbed[key], dict) else ""
+    scrubbed["output_under_review"] = True
+    return scrubbed
 
 
 def _public_user(user: dict) -> dict:
@@ -1525,9 +1560,12 @@ def unpin_run(run_id: str, request: Request) -> dict:
 
 @app.post("/api/runs/{run_id}/archive")
 def archive_run(run_id: str, request: Request) -> dict:
-    """需求 22：软归档（仅影响默认列表可见性；进行中任务 409）。"""
+    """需求 22：软归档（仅影响默认列表可见性；进行中任务 409）。
+
+    需求 36：等待人类输入（AWAITING_*）也算「进行中」，不得归档。
+    """
     owner, row = _owned_run_row(request, run_id)
-    if row["status"] in ACTIVE_STATUSES:
+    if row["status"] in OPEN_STATUSES:
         raise http_error("run_active", "进行中的任务不能归档", detail=f"status={row['status']}")
     _store_call(store.set_archived, run_id, True, user_id=owner)
     _audit("run_archived", request=request, actor_user_id=owner, target_type="run", target_id=run_id)
@@ -2170,6 +2208,7 @@ def cancel(run_id: str, request: Request) -> dict:
 
     内存中没有该 run 时回落任务库（P2-C）：只落取消请求，执行者已不在 ⇒ 无实际执行可停。
     P4-A：鉴权开启时只允许取消自己的 run。
+    需求 36：等待态任务同样可在库里直接终局（无执行者，不进入节点边界路径）。
     """
     _authorize_run(request, run_id)
     _check_csrf(request)
@@ -2178,6 +2217,74 @@ def cancel(run_id: str, request: Request) -> dict:
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
         _store_call(store.request_cancel, run_id)
     return {"ok": True}
+
+
+class InteractionAnswerRequest(BaseModel):
+    """需求 36：回答等待中的 HITL 交互（澄清 reply / 审批 approve|revise）。"""
+
+    interaction_id: str = Field(..., min_length=1, max_length=64,
+                                description="来自交互卡片（或快照 interaction）的稳定 ID")
+    action: str = Field(..., min_length=1, max_length=16,
+                        description="clarification: reply；plan_approval: approve | revise")
+    text: str = Field(default="", max_length=2001,
+                      description="澄清回答 / 修改计划的反馈（上限由 hitl.validate_answer 校验）")
+
+
+@app.post("/api/research/{run_id}/interaction")
+def answer_interaction(run_id: str, req: InteractionAnswerRequest, request: Request) -> dict:
+    """回答等待中的 HITL 交互（需求 36 §12.2 恢复事务）。
+
+    - 校验：所有权 + CSRF + 当前状态为等待态 + action/text 合法（`hitl.validate_answer`）；
+    - 幂等：`interaction_id` 即幂等键——重复提交返回既有结果（`already_answered`），不重复写事件；
+    - 冲突：旧卡片 / 已换代 ⇒ 409 `interaction_conflict`；非等待态 ⇒ 409 `interaction_not_pending`；
+    - 成功后 run 回到 `QUEUED` 并投递 Redis 唤醒（可丢，PG 轮询兜底；§12.2）。
+    """
+    _authorize_run(request, run_id)
+    _check_csrf(request)
+    if store is None:
+        raise http_error("persistence_unavailable", "回答交互需要任务库（DR_DATABASE_URL）")
+    row = _store_call(store.get_run, run_id)
+    if row is None:
+        raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
+    kind = KIND_BY_STATUS.get(row["status"])
+    if kind is None:
+        raise http_error(
+            "interaction_not_pending", "该任务当前不在等待回答状态",
+            detail=f"status={row['status']}")
+    invalid = validate_answer(kind, req.action, req.text)
+    if invalid:
+        raise http_error("invalid_request", invalid)
+    result = _store_call(
+        store.answer_interaction,
+        run_id,
+        interaction_id=req.interaction_id,
+        answer=build_resume_payload(kind, action=req.action, text=req.text),
+        event_type=ANSWER_EVENT_BY_KIND[kind],
+        event_payload=build_answer_event_payload(
+            kind, interaction_id=req.interaction_id,
+            round_no=int(row.get("interaction_round") or 1),
+            action=req.action, text=req.text),
+    )
+    outcome = result.get("outcome")
+    if outcome == "conflict":
+        if result.get("reason") == "stale_interaction":
+            raise http_error(
+                "interaction_conflict",
+                "交互卡片已过期或已被新的一轮替代：刷新后按最新卡片重新回答",
+                detail=f"current={result.get('current_interaction_id')}")
+        raise http_error(
+            "interaction_not_pending", "该任务当前不在等待回答状态",
+            detail=f"status={result.get('status')}")
+    if outcome == "accepted" and queue is not None:
+        try:
+            queue.enqueue(run_id)  # 唤醒信号：丢失由 PG 轮询兜底（P0-2）
+        except Exception:  # noqa: BLE001 —— 信号失败不影响任务正确性
+            pass
+    _audit("interaction_answered", request=request,
+           actor_user_id=(_session_user(request) or {}).get("user_id"),
+           target_type="run", target_id=run_id,
+           detail={"kind": kind, "action": req.action, "outcome": outcome})
+    return {"ok": True, "outcome": outcome, "status": result.get("status"), "kind": kind}
 
 
 def _markdown_export_response(body: str, topic: Optional[str], run_id: str) -> Response:
@@ -2487,11 +2594,16 @@ async def _stored_event_gen(run_id: str, last_event_id: Optional[int]) -> AsyncI
                     # 需求 35 R4：正文增量在 flagged 回放中同样脱敏（正文只在产物/管理通道）
                     payload = {"text": "", "offset": payload.get("offset", 0),
                                "output_under_review": True}
+                elif flagged and event["event_type"] in INTERACTION_EVENT_TYPES:
+                    # 需求 36：HITL 卡片/回答同样脱敏（回答可能含敏感原文）
+                    payload = _redact_interaction_payload(payload)
                 yield sse_frame(
                     event_id=cursor,
                     event_type=event["event_type"],
                     payload=payload,
                 )
+            # 需求 36（TBD-6）：等待态不在活跃集 ⇒ 卡片回放完即关闭本连接，
+            # 不发送终态帧；客户端经状态查询/重连获知等待态（避免长连接陪等 TTL）。
             if row["status"] not in ACTIVE_STATUSES:
                 return
             if events:

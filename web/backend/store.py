@@ -22,7 +22,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable, Optional
 
 import psycopg
@@ -30,7 +30,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
-from .persistence import ACTIVE_STATUSES
+from .persistence import ACTIVE_STATUSES, AWAITING_STATUSES
 
 _log = logging.getLogger("deepresearch.pg")
 
@@ -115,6 +115,9 @@ _UPDATABLE_FIELDS = frozenset({
     "budget_used_cny", "attempt", "retry_of", "worker_id", "worker_status",
     "lease_expires_at", "queued_at", "started_at", "finished_at", "cancel_requested_at",
     "timeout_at", "hard_deadline_at", "moderation_status",
+    # 需求 36：HITL 交互协议列（挂起/回答/过期路径经专用原子方法写入，此处同步放行）
+    "awaiting_since", "awaiting_expires_at", "interaction_id", "interaction_round",
+    "interaction_payload", "interaction_answer", "resumed_at",
 })
 
 
@@ -572,6 +575,8 @@ class RunStore:
         """幂等取消请求，返回 run 的当前状态；run 不存在返回 `None`。
 
         - `CREATED` / `QUEUED` → `CANCELLED`（还没跑，直接终局）
+        - `AWAITING_CLARIFICATION` / `AWAITING_PLAN_APPROVAL` → `CANCELLED`（需求 36：
+          等待态无执行者可收口，直接终局，不进入 worker 节点边界路径）
         - `RUNNING` → `CANCEL_REQUESTED`（执行者负责在节点边界收口，不在库里直接杀）
         - 其余状态原样返回（含重复取消）
         """
@@ -582,7 +587,7 @@ class RunStore:
                 return None
             status = row["status"]
             now = _now()
-            if status in ("CREATED", "QUEUED"):
+            if status in ("CREATED", "QUEUED", *AWAITING_STATUSES):
                 cur.execute(
                     "UPDATE runs SET status = 'CANCELLED', stop_reason = 'user_cancelled', "
                     "cancel_requested_at = %s, finished_at = %s WHERE run_id = %s",
@@ -597,6 +602,148 @@ class RunStore:
                 )
                 return "CANCEL_REQUESTED"
             return status
+
+    # ---- 需求 36：HITL 交互协议（挂起 / 回答 / 到期；§12.2 运行协议） ----
+
+    def suspend_run(
+        self,
+        run_id: str,
+        *,
+        owner: RunOwnership,
+        kind: str,
+        interaction_id: str,
+        round_no: int,
+        content: Optional[dict[str, Any]] = None,
+        ttl_seconds: int,
+    ) -> Optional[dict[str, Any]]:
+        """挂起事务（§12.2）：执行中 → 等待态 + 交互卡（事件与载荷同一事务）+ 释放租约。
+
+        - 凭据失效（``worker_id + attempt`` 不符，含被清扫接管）⇒ :class:`LeaseLostError`
+          （调用方按 F04 放弃写入，由接管者收口）；
+        - 凭据匹配但状态已不是 `RUNNING`（终局 / 已取消 / `CANCEL_REQUESTED`）⇒ 返回 ``None``，
+          **不写任何东西**——尤其 `CANCEL_REQUESTED` 绝不挂起（用户要停，执行侧照常收口取消）；
+        - 等待态清空租约字段：worker 线程与租约都不陪用户等 TTL（§12.2）。
+        卡片与到期时间由本方法按 `hitl.build_card` 单点构造；返回更新后的等待态行。
+        """
+        from .hitl import REQUEST_EVENT_BY_KIND, STATUS_BY_KIND, build_card
+
+        awaiting_status = STATUS_BY_KIND[kind]
+        event_type = REQUEST_EVENT_BY_KIND[kind]
+        now = _now()
+        expires = now + timedelta(seconds=ttl_seconds)
+        card = build_card(kind, interaction_id=interaction_id, round_no=round_no,
+                          expires_at_iso=expires.isoformat(timespec="seconds"),
+                          content=content)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, worker_id, attempt FROM runs WHERE run_id = %s FOR UPDATE",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise LookupError(f"run not found: {run_id}")
+            if (row["worker_id"] != owner.worker_id
+                    or row["attempt"] != owner.attempt):
+                raise LeaseLostError(
+                    f"suspend rejected for run {run_id}: lease lost "
+                    f"(worker={owner.worker_id}, attempt={owner.attempt}, status={row['status']})")
+            if row["status"] != "RUNNING":
+                # 终局 / 已取消 / CANCEL_REQUESTED：不挂起、不写任何东西（调用方按状态收口）
+                return None
+            cur.execute(
+                """
+                UPDATE runs
+                   SET status = %s,
+                       awaiting_since = %s,
+                       awaiting_expires_at = %s,
+                       interaction_id = %s,
+                       interaction_round = %s,
+                       interaction_payload = %s,
+                       interaction_answer = NULL,
+                       worker_id = NULL,
+                       worker_status = NULL,
+                       lease_expires_at = NULL
+                 WHERE run_id = %s
+                RETURNING *
+                """,
+                (awaiting_status, now, expires, interaction_id, int(round_no),
+                 Jsonb(card), run_id),
+            )
+            updated = cur.fetchone()
+            cur.execute(
+                """
+                INSERT INTO run_events (run_id, sequence, event_type, payload)
+                SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                FROM run_events WHERE run_id = %s
+                """,
+                (run_id, event_type, Jsonb(card), run_id),
+            )
+            notify_events(cur, run_id)  # SSE：卡片即时可见，客户端按 TBD-6 回放后关闭连接
+        return updated
+
+    def answer_interaction(
+        self,
+        run_id: str,
+        *,
+        interaction_id: str,
+        answer: dict[str, Any],
+        event_type: str,
+        event_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """恢复事务（§12.2）：单事务校验 + 回答事件 + 等待态 → QUEUED + 保存 resume payload。
+
+        ``interaction_id`` 即幂等键：
+
+        - 当前一轮的重复提交（同 id）⇒ ``already_answered``（返回当前状态，不重复写事件）；
+        - 与库里 `interaction_id` 不一致（旧卡片 / 已换代）⇒ ``conflict``（stale_interaction）；
+        - 不在等待态且非上述重复 ⇒ ``conflict``（not_pending）。
+        """
+        from .hitl import AWAITING_STATUSES as _AWAITING
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, interaction_id, interaction_answer, interaction_round "
+                "FROM runs WHERE run_id = %s FOR UPDATE",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise LookupError(f"run not found: {run_id}")
+            status = row["status"]
+            current_id = row.get("interaction_id")
+            if status in _AWAITING:
+                if current_id != interaction_id:
+                    return {"outcome": "conflict", "reason": "stale_interaction",
+                            "status": status, "current_interaction_id": current_id}
+                now = _now()
+                cur.execute(
+                    """
+                    UPDATE runs
+                       SET status = 'QUEUED',
+                           interaction_answer = %s,
+                           resumed_at = %s,
+                           queued_at = now(),
+                           awaiting_expires_at = NULL
+                     WHERE run_id = %s
+                    RETURNING status
+                    """,
+                    (Jsonb(answer), now, run_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO run_events (run_id, sequence, event_type, payload)
+                    SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                    FROM run_events WHERE run_id = %s
+                    """,
+                    (run_id, event_type, Jsonb(event_payload), run_id),
+                )
+                notify_events(cur, run_id)  # API 侧另行 Redis 唤醒；此处只管事件可见性
+                return {"outcome": "accepted", "status": "QUEUED"}
+            if (status in ("QUEUED", "RUNNING", "CANCEL_REQUESTED")
+                    and current_id == interaction_id
+                    and row.get("interaction_answer") is not None):
+                return {"outcome": "already_answered", "status": status}
+            return {"outcome": "conflict", "reason": "not_pending", "status": status}
 
     # ---- run_events ----
 
@@ -825,9 +972,24 @@ class RunStore:
             return cur.fetchone() is not None
 
     def count_active(self, user_id: Optional[str] = None) -> int:
-        """活跃任务数（并发闸与配额用）。"""
+        """活跃任务数（并发闸与配额用）。
+
+        需求 36：**只计执行/队列活跃态**（`ACTIVE_STATUSES`）——等待人类输入的
+        `AWAITING_*` 不占并发槽（§12.2）。
+        """
         sql = "SELECT count(*) AS n FROM runs WHERE status = ANY(%s)"
         params: list[Any] = [list(ACTIVE_STATUSES)]
+        if user_id is not None:
+            sql += " AND user_id = %s"
+            params.append(user_id)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()["n"]
+
+    def count_awaiting(self, user_id: Optional[str] = None) -> int:
+        """等待态任务数（需求 36：等待上限策略与灰度观测；不占并发闸）。"""
+        sql = "SELECT count(*) AS n FROM runs WHERE status = ANY(%s)"
+        params: list[Any] = [list(AWAITING_STATUSES)]
         if user_id is not None:
             sql += " AND user_id = %s"
             params.append(user_id)
@@ -940,8 +1102,100 @@ class RunStore:
                     results.append({"run_id": run_id, "action": "lost"})
         return results
 
+    def expire_awaiting_runs(self, batch: int = 50) -> list[dict[str, Any]]:
+        """需求 36 等待态到期收口（TBD-3）——由 Worker 清扫周期驱动（调用方负责 Redis 唤醒）。
+
+        - **澄清到期** ⇒ 空回答自动继续：`AWAITING_CLARIFICATION` → `QUEUED` +
+          `CLARIFY_EXPIRED` 事件 + `interaction_answer` 记 auto 载荷（显式产品策略，留痕）；
+        - **审批到期** ⇒ **不自动批准**：`TIMED_OUT` + `stop_reason=approval_expired` +
+          `PLAN_EXPIRED` 事件；终局口径与 `finalize_run` 对齐（同事务结算预算预留）。
+
+        与 `sweep_stale_runs` 的分工：租约清扫**只看执行态**，等待态由本方法按
+        `awaiting_expires_at` 收口（等待时钟不混入租约时钟）。
+        返回处理明细（`action ∈ clarified_auto / approval_expired`）。
+        """
+        from .hitl import (
+            EXPIRED_EVENT_BY_KIND,
+            KIND_CLARIFICATION,
+            KIND_PLAN_APPROVAL,
+            build_auto_continue_payload,
+        )
+
+        results: list[dict[str, Any]] = []
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT run_id, status, interaction_id, interaction_round
+                  FROM runs
+                 WHERE status = ANY(%s)
+                   AND awaiting_expires_at IS NOT NULL
+                   AND awaiting_expires_at < now()
+                 ORDER BY awaiting_expires_at
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT %s
+                """,
+                (list(AWAITING_STATUSES), max(1, int(batch))),
+            )
+            for row in cur.fetchall():
+                run_id = row["run_id"]
+                now = _now()
+                event_payload = {
+                    "interaction_id": row.get("interaction_id"),
+                    "round": row.get("interaction_round"),
+                    "expired_at": now.isoformat(timespec="seconds"),
+                }
+                if row["status"] == "AWAITING_CLARIFICATION":
+                    cur.execute(
+                        "UPDATE runs SET status = 'QUEUED', interaction_answer = %s, "
+                        "resumed_at = %s, queued_at = now(), awaiting_expires_at = NULL "
+                        "WHERE run_id = %s",
+                        (Jsonb(build_auto_continue_payload()), now, run_id),
+                    )
+                    event_type = EXPIRED_EVENT_BY_KIND[KIND_CLARIFICATION]
+                    results.append({"run_id": run_id, "action": "clarified_auto"})
+                else:
+                    cur.execute(
+                        "UPDATE runs SET status = 'TIMED_OUT', "
+                        "stop_reason = 'approval_expired', finished_at = %s, "
+                        "awaiting_expires_at = NULL WHERE run_id = %s",
+                        (now, run_id),
+                    )
+                    # 终局口径与 finalize_run 一致：同事务结算预算预留（不留下悬空 hold）
+                    cur.execute(
+                        """
+                        UPDATE quota_reservations qr
+                           SET actual_cny = COALESCE(r.cost_estimate_cny, 0),
+                               released_cny = GREATEST(qr.reserved_cny
+                                                       - COALESCE(r.cost_estimate_cny, 0), 0),
+                               status = 'settled', updated_at = now()
+                          FROM runs r
+                         WHERE qr.run_id = r.run_id AND qr.run_id = %s
+                           AND qr.status = 'reserved'
+                        """,
+                        (run_id,),
+                    )
+                    event_type = EXPIRED_EVENT_BY_KIND[KIND_PLAN_APPROVAL]
+                    results.append({"run_id": run_id, "action": "approval_expired"})
+                cur.execute(
+                    """
+                    INSERT INTO run_events (run_id, sequence, event_type, payload)
+                    SELECT %s, COALESCE(MAX(sequence), -1) + 1, %s, %s
+                    FROM run_events WHERE run_id = %s
+                    """,
+                    (run_id, event_type,
+                     Jsonb({**event_payload,
+                            "kind": ("clarification" if row["status"] == "AWAITING_CLARIFICATION"
+                                     else "plan_approval")}),
+                     run_id),
+                )
+                notify_events(cur, run_id)
+        return results
+
     def mark_stale_as_lost(self, reason: str = "lost") -> int:
         """把非终局任务标记为 `LOST`（单实例内存态执行的既有事实：进程重启即失联）。
+
+        需求 36：**只扫执行/队列活跃态**——`AWAITING_*` 是等待人类的正常状态，
+        不是失联任务；其到期由 `expire_awaiting_runs` 按 `awaiting_expires_at` 收口。
 
         返回被标记的行数；供 API 启动时调用（P3 引入租约后由 Worker 接管）。
         """
