@@ -6,7 +6,7 @@
 > **竞品参照**（调研 §1.1~§1.3）：open_deep_research `clarify_with_user`（Scoping 澄清）；Gemini Deep Research `collaborative_planning`（多轮改计划后批准）；DeerFlow 2.0 自然语言改计划。
 > **前置（均已交付）**：R3 跨进程 checkpoint（`thread_id=run_id`；`fresh/resumed/replayed`，需求 35）＝ `interrupt` 现成载体；R2 evidence manifest ＝ 追问证据池基础。
 > **纪律**：① 不改核心判定口径（W8 基线可比性）；② **eval/CI 必须可关**（沿用需求 7 TBD-1d 硬约束）；③ 所有决策点进 `run_events`（审计即事件）。
-> 飞书镜像：待建（立项拍板后同步 `DeepResearch 需求文档` 文件夹）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/RPTKdmATQoF6q5xlvM6c8U14njd（`RPTKdmATQoF6q5xlvM6c8U14njd`，位于 `DeepResearch 需求文档` 文件夹；2026-10-13 按 P1~P3 交付版重建，立项版已删）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -151,6 +151,7 @@
 | 2026-10-13 | 实现 | Phase 2 图 interrupt + 挂起/恢复交付（PR #212，堆叠 #211） | 拓扑：clarify/await_clarify + await_plan/revise_plan（**关闭态零漂移**硬断言）；`Command(resume=)` 注入 + `STOP_SUSPENDED` 挂起出口（不算完成节点）；`Clarifier`（失败即跳过）+ `Planner.revise_plan`（失败留痕）+ `user_scope` 并入 `research_spec`；Worker 挂起事务（释放租约）/恢复携带回答值/清扫周期到期收口；`CHECKPOINT_SCHEMA_VERSION→2`；eval/CI 强制关 + `config_snapshot` 记录；真 PG「挂起-退出-回答-恢复」演练 + runbook §7.4；离线 23/23 + 真 PG 19/19 + 全量套件绿 | #212 |
 | 2026-10-13 | 实现 | Phase 3 追问 + 前端交付（PR #213，堆叠 #212） | `web/backend/followup.py`（上下文上限/白名单校验/失败不改原 run）+ `POST …/follow-up`（开关/限流/门禁/记账/审计事件）+ `FOLLOWUP_*` 事件与回放脱敏 + options 下发开关；前端 `lib/hitl.ts`（事件流重建卡片/快照恢复）+ `useResearchStream`（interaction/answerInteraction/askFollowup/等待态关流）+ `HitlPanels`（澄清卡/计划卡/追问框）；离线 5/5 + 全量套件绿 + vitest 41/41 + e2e 80/80 + 守卫全过；**全链路 HITL e2e 待 staging**（demo 模式强制关） | #213 |
 | 2026-10-13 | 实现 | CLI 端口径收口（并入 PR #213） | `cli.py` 入口强制关闭图上 HITL（clarify/plan_approval）并显式告警——与 API 非队列模式同口径（CLI 无「挂起-回答-恢复」通道；追问不受影响；`graph.run()` 的 interrupt 防御保留为兜底）；单测 3 条 + runbook §7.4 前置边界同步 | #213 |
+| 2026-10-13 | 文档 | 飞书镜像重建 | 按 P1~P3 交付版重建至 `DeepResearch 需求文档` 文件夹（`RPTKdmATQoF6q5xlvM6c8U14njd`；标题补齐 + 自引用回填；立项版已删） | — |
 
 ## 12. 评审结论与补充设计
 

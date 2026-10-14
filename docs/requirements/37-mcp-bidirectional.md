@@ -6,7 +6,7 @@
 > **竞品参照**（调研 §1.1~§1.3）：GPT Researcher 对外提供 MCP Server；DeerFlow 接 MCP（私有域/知识图谱）；open_deep_research `MCPConfig` 运行时注入 researcher；Gemini 远程 MCP——四家全上，MCP 是 2026 的通用扩展口。
 > **叙事（调研 §3 方向 B）**：与 WeChatBot（自研 MCP Server，Java/FastMCP）形成**跨生态呼应**——一边写 Server、一边消费 Server。
 > **纪律**：① 默认关闭 + 评测/CI 零漂移；② **不破 `failure_reason` 单产者契约**（工具层五值封闭）；③ 依赖走 lock 外科式（先例：需求 10）；④ 外部终点登记进 egress 快照。
-> 飞书镜像：待建（立项拍板后同步 `DeepResearch 需求文档` 文件夹）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/S4UodQCmRophHmx5KCMcIwCznYb（`S4UodQCmRophHmx5KCMcIwCznYb`，位于 `DeepResearch 需求文档` 文件夹；2026-10-13 建）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -134,6 +134,7 @@
 |---|---|---|---|---|
 | 2026-10-13 | 文档 | 批次 4 立项草稿（调研 §4） | 建稿：M1 消费 / M2 对外两单元拆解（含代码现状盘点 + 行号）；TBD-0~7（推荐 + 待拍板）；DoD/风险/测试/排期 | 本文档 |
 | 2026-10-13 | 评审补充 | 安全与发布边界评审 | 补充 MCP 消费出网/提示注入治理、服务端主体归属与准入幂等；建议 M1/M2 分阶段发布，单 token 限于封闭内测 | 本文档 §12 |
+| 2026-10-13 | 文档 | 飞书镜像建立 | 镜像至 `DeepResearch 需求文档` 文件夹（`S4UodQCmRophHmx5KCMcIwCznYb`；自引用已回填） | — |
 
 ## 12. 评审结论与补充设计
 

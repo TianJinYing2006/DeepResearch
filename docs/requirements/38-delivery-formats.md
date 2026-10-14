@@ -6,7 +6,7 @@
 > **竞品参照**（调研 §1.2~§1.3）：GPT Researcher 导出 MD/PDF/DOCX/JSON；ChatGPT Deep Research 导出 Markdown/Word/PDF；DeerFlow PPT（marp-cli）；Gemini 原生图表与信息图。
 > **前置（已交付）**：`web/backend/export.py`（md/json 导出契约）；R4 流式协议；分享（需求 26）与输出 gate（flagged 阻断）口径。
 > **纪律**：① 导出是**展示层**，`report` 本体（writer 产物）逐字节不动；② 新格式全部复用输出 gate/flagged 阻断；③ 默认延续 D-19「不落盘」精神（按需生成、内存返回）；④ 分享页维持只读无导出（需求 26 边界，不因本批扩大）。
-> 飞书镜像：待建（立项拍板后同步 `DeepResearch 需求文档` 文件夹）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/WPKod8BjcoGBH0xUyhkcXJhgnDd（`WPKod8BjcoGBH0xUyhkcXJhgnDd`，位于 `DeepResearch 需求文档` 文件夹；2026-10-13 建）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -143,6 +143,7 @@
 |---|---|---|---|---|
 | 2026-10-13 | 文档 | 批次 5 立项草稿（调研 §4） | 建稿：F1 收口 / F2 PDF / F3 DOCX / F4 PPT（可裁）/ F5 图表五单元拆解（含代码现状盘点 + 行号）；TBD-0~7（推荐 + 待拍板）；DoD/风险/测试/排期 | 本文档 |
 | 2026-10-13 | 评审补充 | 导出契约与部署评审 | 补充统一导出模型、HTML/URL 安全、图表终局数据契约及容器实测策略；推荐首批 PDF/DOCX，PPT 与在线图表另行确认 | 本文档 §12 |
+| 2026-10-13 | 文档 | 飞书镜像建立 | 镜像至 `DeepResearch 需求文档` 文件夹（`WPKod8BjcoGBH0xUyhkcXJhgnDd`；自引用已回填） | — |
 
 ## 12. 评审结论与补充设计
 
