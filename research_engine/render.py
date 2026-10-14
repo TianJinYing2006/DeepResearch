@@ -75,6 +75,9 @@ class ReportRenderer:
                     label = "🔬arxiv"  # W4 Q6：新来源类型图标
                 elif f.source_type == "code_exec":
                     label = "💻code"   # W4 Q6
+                elif f.source_type == "mcp":
+                    # 需求 37 M1：MCP 来源标签（server 身份进 metadata；manifest 诚实标 retrieval）
+                    label = f"🧩mcp:{((f.metadata or {}).get('server_id') or '')}"
                 else:
                     label = f.source_type
                 marks = []

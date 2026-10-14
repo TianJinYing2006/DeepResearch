@@ -365,6 +365,32 @@ class HitlConfig:
 
 
 @dataclass
+class McpConfig:
+    """需求 37 M1：消费外部 MCP（TBD-1/TBD-2/TBD-7，2026-10-14 拍板）。
+
+    **默认关闭**（关闭态主链路与评测路径零漂移）；开启是一次显式运营决策
+    （含数据外发披露，见 run 级 egress 快照）。两开关进 `config_snapshot`，
+    eval 强制关闭（`research_engine/eval/run.py`）。
+
+    `DR_MCP_SERVERS`（JSON 数组）元素 schema（TBD-2）：
+      - `name`：server 唯一名（记账/审计/来源标签用）；
+      - `url`：Streamable HTTP 终点（默认仅 HTTPS；私网需显式放行）；
+      - `tools`：允许调用的**查询型**工具名列表（v1 不做 LLM function-calling）；
+      - `timeout`：单次调用超时秒数（默认 15，v1 上限 15，越界 fail-fast）；
+      - `max_result_bytes` / `max_findings`：响应字节上限 / 单 server 入池条数上限；
+      - `allow_private` + `private_reason`：私网段显式放行（必须带理由，进审计）。
+    解析与 URL 安全校验在 `research_engine.mcp.consumer`（启用时构建 fail-fast）；
+    本类仅持有开关与原始串，避免 config 模块引入校验/网络依赖。
+    """
+
+    consume_enabled: bool = field(
+        default_factory=lambda: _env_bool("DR_MCP_CONSUME_ENABLED", False))
+    server_enabled: bool = field(
+        default_factory=lambda: _env_bool("DR_MCP_SERVER_ENABLED", False))  # M2 使用
+    servers_json: str = field(default_factory=lambda: _env("DR_MCP_SERVERS", ""))
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -378,6 +404,7 @@ class Config:
     web_snapshot: WebSnapshotConfig = field(default_factory=WebSnapshotConfig)
     report_stream: ReportStreamConfig = field(default_factory=ReportStreamConfig)
     hitl: HitlConfig = field(default_factory=HitlConfig)
+    mcp: McpConfig = field(default_factory=McpConfig)
 
 
 config = Config()

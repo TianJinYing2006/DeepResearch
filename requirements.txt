@@ -56,3 +56,7 @@ boto3>=1.35,<2
 # 需求 23：知识库格式扩展（pptx / xlsx 结构解析；html 走已有 beautifulsoup4）
 python-pptx>=1.0,<2
 openpyxl>=3.1,<4
+
+# 需求 37（M1）：MCP 双向 —— 官方 Python SDK（v1 仅 Streamable HTTP 客户端）
+# 锁外科式（先例：需求 10）：只加 mcp 与其新增传递依赖，不动既有 pin
+mcp>=1.9,<1.10

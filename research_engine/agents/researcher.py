@@ -16,6 +16,7 @@ W4 重构（grill Q1/Q5/Q6/Q8）：
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
@@ -27,6 +28,7 @@ from research_engine.failure_reasons import (  # W8 Arm 1 / Arm 4
     classify_exception,
     is_fault_reason,
 )
+from research_engine.mcp.consumer import build_mcp_consumer  # 需求 37 M1
 from research_engine.net.web_fetch import STATUS_DISABLED, STATUS_NOT_ATTEMPTED
 from research_engine.net.webtext import EXTRACTOR_VERSION
 from research_engine.rag.identity import extract_entities, hit_matches_entities
@@ -106,6 +108,8 @@ class Researcher:
         self._fetch_ctx = current_fetch_context()
         # W8 Arm 1：降级记录缓冲区（共享实现，见 state.DegradationSink）
         self.degradations = DegradationSink()
+        # 需求 37 M1：外部 MCP 消费（默认关闭；None = 完全回现状，启用时构建 fail-fast）
+        self._mcp = build_mcp_consumer()
 
     def _record_degradation(
         self,
@@ -308,6 +312,43 @@ class Researcher:
             )
         return findings
 
+    def _search_mcp(self, query: str) -> List[ResearchFinding]:
+        """外部 MCP 检索（需求 37 M1；默认关闭 —— 关闭时 targets 不含本工具）。
+
+        失败映射既有五值（单产者契约，零新增枚举）；成功/失败均记账
+        （`kind='tool'` per_call 计次，严格模式上抛，F06 语义）；结果清洗/截断/
+        条数上限在适配层完成（`research_engine/mcp/consumer.py`），本方法只做
+        finding 组装（含 server/tool/call_id/retrieval_time 身份；TBD-12：正文不额外落盘）。
+        """
+        consumer = getattr(self, "_mcp", None)
+        if consumer is None:
+            return []
+        findings: List[ResearchFinding] = []
+        for outcome in consumer.search(query):
+            emit_usage(UsageRecord(kind="tool", provider=outcome.server, role=outcome.tool))
+            if is_fault_reason(outcome.failure_reason):
+                # 单向派生：reason 直接取适配层映射值（禁止在此手写第二个字面量）
+                self._record_degradation(
+                    f"mcp:{outcome.server}", outcome.failure_reason, detail=outcome.detail)
+            for item in outcome.items:
+                digest = hashlib.sha256(item.encode("utf-8")).hexdigest()[:12]
+                findings.append(
+                    ResearchFinding(
+                        content=item,
+                        source=f"mcp:{outcome.server}:{outcome.tool}:{digest}",
+                        source_type="mcp",
+                        confidence=0.6,
+                        is_meta=_is_meta_content(item),
+                        metadata={
+                            "server_id": outcome.server,
+                            "tool_name": outcome.tool,
+                            "call_id": outcome.call_id,
+                            "retrieval_time": outcome.retrieval_time,
+                        },
+                    )
+                )
+        return findings
+
     def _search_code(self, query: str) -> List[ResearchFinding]:
         """代码执行（Q1 P2 触发 + Q6 源协议 code:{hash}；失败 note 进 finding 不吞）。
 
@@ -371,6 +412,9 @@ class Researcher:
             targets["arxiv"] = self._search_arxiv
         if code_enabled:
             targets["code"] = self._search_code
+        # 需求 37 M1：外部 MCP（仅启用且配置了 server 时并入；关闭态零漂移）
+        if getattr(self, "_mcp", None) is not None:
+            targets["mcp"] = self._search_mcp
 
         all_findings: Dict[str, List[ResearchFinding]] = {k: [] for k in targets}
         with ThreadPoolExecutor(max_workers=len(targets)) as ex:
@@ -444,8 +488,10 @@ def _default_code_script() -> str:
 
 # ---- Q5/F09 结果池择优（纯函数，可单测）----
 
-#: source_type → 工具键（stats["adopted"] 统计用；code_exec 的 finding 属于 "code" 池）
-_TOOL_KEY_BY_SOURCE_TYPE = {"web": "web", "rag": "rag", "arxiv": "arxiv", "code_exec": "code"}
+#: source_type → 工具键（stats["adopted"] 统计用；code_exec 的 finding 属于 "code" 池；
+#: 需求 37 M1：mcp 的 finding 属于 "mcp" 池）
+_TOOL_KEY_BY_SOURCE_TYPE = {"web": "web", "rag": "rag", "arxiv": "arxiv",
+                            "code_exec": "code", "mcp": "mcp"}
 
 
 def pool_and_trim(all_findings: Dict[str, List[ResearchFinding]]) -> Tuple[List[ResearchFinding], Dict[str, Any]]:
@@ -467,7 +513,8 @@ def pool_and_trim(all_findings: Dict[str, List[ResearchFinding]]) -> Tuple[List[
     """
     stats: Dict[str, Any] = {k: len(v) for k, v in all_findings.items()}
     code_findings = list(all_findings.get("code", []))
-    text_tools = ("web", "rag", "arxiv")
+    # 需求 37 M1：mcp 并入文本类轮转（未启用时 all_findings 无 mcp 键 ⇒ 行为与现状逐项一致）
+    text_tools = ("web", "rag", "arxiv", "mcp")
     per_tool = {k: list(all_findings.get(k, []))[:POOL_TEXT_TOP_K] for k in text_tools}
 
     pooled: List[ResearchFinding] = list(code_findings)
@@ -499,7 +546,7 @@ def format_tool_detail(tool_stats: Dict[str, Any]) -> str:
     """
     adopted = tool_stats.get("adopted") or {}
     parts: List[str] = []
-    for k in ("web", "rag", "arxiv", "code"):
+    for k in ("web", "rag", "arxiv", "mcp", "code"):
         if k not in tool_stats:
             continue
         raw = tool_stats.get(k, 0)

@@ -847,6 +847,24 @@ def test_usage_ledger_contract(store: RunStore):
         cur.execute("DELETE FROM usage_ledger WHERE run_id = 'test-usage-run'")
 
 
+def test_usage_ledger_tool_kind_contract(store: RunStore):
+    """需求 37 M1：kind='tool'（MCP 工具计次）写入 / 汇总契约（per_call/0 元）。"""
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM usage_ledger WHERE run_id = 'test-mcp-tool-run'")
+    store.record_usage(run_id="test-mcp-tool-run", attempt=1, kind="tool",
+                       provider="wechatbot", role="search", cost_source="per_call")
+
+    summary = store.usage_summary(run_id="test-mcp-tool-run")
+    assert summary["calls"] == 1 and summary["tokens"] == 0
+    rows = store.list_usage(run_id="test-mcp-tool-run")
+    assert rows[0]["kind"] == "tool"
+    assert rows[0]["cost_source"] == "per_call"
+    assert rows[0]["cost_estimate_cny"] == 0
+
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM usage_ledger WHERE run_id = 'test-mcp-tool-run'")
+
+
 def test_finalize_run_atomic_contract(store: RunStore):
     """P0-6：状态迁移 + 终局事件 + 产物同一事务；迁移失败不得写半成品。"""
     run_id, _, _ = _create(store, user_id=TEST_USER, status="RUNNING")
