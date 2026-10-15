@@ -162,7 +162,10 @@ def test_export_reads_from_object_store(monkeypatch):
 
     response = TestClient(api.app).get("/api/research/objrun03/report?format=md")
     assert response.status_code == 200
-    assert response.text == "# 来自 S3"
+    # 需求 38 F1：store 路径与内存路径同装配同渲染（S3 读取链保持 + 头部/清单修复）
+    assert "# 来自 S3" in response.text
+    assert "DeepResearch 报告导出" in response.text
+    assert "（不可用：历史产物未保留引用数据）" in response.text  # 历史降级显式标注
 
 
 def test_readiness_probes_object_storage(monkeypatch):

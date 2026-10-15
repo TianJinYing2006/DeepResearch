@@ -65,7 +65,7 @@ from .agui import (
 )
 from .egress import build_egress_snapshot
 from .errors import ApiError, error_payload
-from .export import build_export_payload, render_markdown
+from .export import build_export_payload, document_from_payload, render_markdown
 from .moderation import ModerationDecision, apply_output_gate, evaluate_output
 from .persistence import persist_forced, persist_terminal
 from .report_events import ReportEventBuffer  # 需求 35 R4：报告流式事件缓冲
@@ -444,7 +444,7 @@ class RunManager:
 
     def export_markdown(self, run_id: str) -> Optional[str]:
         payload = self.export_payload(run_id)
-        return None if payload is None else render_markdown(payload)
+        return None if payload is None else render_markdown(document_from_payload(payload))
 
     # ------------------------------------------------------------------ 工作线程
 
