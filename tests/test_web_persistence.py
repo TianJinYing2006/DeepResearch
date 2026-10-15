@@ -200,7 +200,9 @@ def test_report_falls_back_to_store(monkeypatch):
 
     md = client.get(f"/api/research/{SEEDED_RUN}/report", params={"format": "md"})
     assert md.status_code == 200
-    assert md.text == "# 历史报告"
+    # 需求 38 F1：store 路径与内存路径同装配同渲染（历史「缺头/缺清单」→ 修复）
+    assert "# 历史报告" in md.text
+    assert "DeepResearch 报告导出" in md.text
 
     payload = client.get(f"/api/research/{SEEDED_RUN}/report", params={"format": "json"}).json()
     assert payload["run_id"] == SEEDED_RUN

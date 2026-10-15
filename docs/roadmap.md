@@ -82,12 +82,12 @@
 ## 3d. 批次 5：交付形态（v1 ≈4~6 天；**已立项：`docs/requirements/38-delivery-formats.md` / Issue #225**）
 
 > 来源：`docs/extension-directions-survey.md` §3 方向 C / §4 批次 5。纪律：导出不改研究图产出的 writer 原文（历史产物不还原原文）；新格式全量复用输出 gate；按需生成/不落盘；**生成前**输入/耗时/输出硬上限；分享仅只读 Markdown（披露边界明确）。
-> **状态：TBD-0~7 已拍板（2026-10-14 主理人评审修订版；开工登记 §12.7）**；v1 = F1 + PDF + DOCX；PPT/F5 后置。
+> **状态：F1 已交付（2026-10-15；全量 1238 绿）**；下一步 PDF 容量 spike → PDF → DOCX；PPT/F5 后置。
 
 | 阶段 | 内容 | 依赖 | 粗估 | 状态 |
 |---|---|---|---|---|
-| 0 | TBD-0~7 拍板（评审修订版） | — | 0.5 天 | ✅（2026-10-14；开工登记 §12.7） |
-| F1 | 统一导出装配 + 双路径收口 + 分享边界 + store 契约测试 | 拍板 | 0.75~1 天 | ⏳ |
+| 0 | TBD-0~7 拍板（评审修订版） | — | 0.5 天 | ✅（2026-10-15；开工登记 §12.7） |
+| F1 | 统一导出装配 + 双路径收口 + 分享边界 + store 契约测试 | 拍板 | 0.75~1 天 | ✅ 已交付（2026-10-15） |
 | spike | PDF 容量实测（目标镜像峰值 RSS/耗时/字体回退） | F1 | — | ⏳（通过才锁依赖） |
 | F2 | PDF（WeasyPrint + CJK + 镜像包 + lock 外科式） | F1/spike | 1~1.5 天 | ⏳ |
 | F3 | DOCX（python-docx 写作侧） | F1 | 0.5~1 天 | ⏳ |
@@ -132,7 +132,8 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
-| 2026-10-14 | 批次 5 立项 + 开工（v1 收窄） | 需求 38「交付形态」立项（Issue **#225**）；主理人评审修订版拍板（v1 = F1+PDF+DOCX；PPT/F5 后置；writer 原文口径/分享披露边界/生成前资源保护统一；开工登记 §12.7）；**PDF 容量 spike 作为锁依赖前置**；飞书镜像重建（开工版） |
+| 2026-10-15 | 批次 5 F1 交付 | 统一导出装配（Issue #225）：`ExportDocument` 模型（schema v1）+ 双路径统一渲染（store 历史导出头部/清单修复=读取时渲染、不改写产物；JSON 契约不变；历史降级显式「不可用」不伪造）+ 分享链路统一为仅正文（不扩大披露）+ 测试 +13 + 3 处旧断言更新；全量 1238 绿。**下一步：PDF 容量 spike** |
+| 2026-10-15 | 批次 5 立项 + 开工（v1 收窄） | 需求 38「交付形态」立项（Issue **#225**）；主理人评审修订版拍板（v1 = F1+PDF+DOCX；PPT/F5 后置；writer 原文口径/分享披露边界/生成前资源保护统一；开工登记 §12.7）；**PDF 容量 spike 作为锁依赖前置**；飞书镜像重建（开工版） |
 | 2026-10-14 | 批次 4 完成（合入 + staging 冒烟） | 需求 37 状态 → **已合**（关联 PR #219~#223）；staging 开启对外 MCP（compose 透传 + .env 开关/令牌）并**公网全链路冒烟通过**：tools/list → quick_search（真实检索）→ deep_research（run `6681be7d7ee8`）→ worker 实跑 → status → report（真实报告）；staging 库验证归属/主体开户/记账。本地冒烟此前通过（含 `/mcp` 405 与主体开户两处修复）。**入口默认关闭，运营开启见 runbook §7.5** |
 | 2026-10-14 | 批次 4 收口（本地） | 真实应用全链路冒烟通过（真 PG/Redis + 官方 mcp SDK 客户端 ASGI）：401/4 工具/quick_search/deep_research（run 归属主体）/status/report gate；**修复①** `/mcp` 无尾斜杠 405（Starlette 1.6 Mount 路径语义）⇒ 307 兼容路由；**修复②** service principal 缺 `users` 行（FK）⇒ 惰性开户（不可登录）；测试 +2；全量 1225 绿。**staging 冒烟待运营开启双开关** |
 | 2026-10-14 | 批次 4 M2 交付 ⇒ 双单元完成 | MCP 对外 Server（Issue #218）：`start_research` 服务函数抽取（HTTP/MCP 同一准入口径）；`/mcp` Streamable HTTP + Bearer 鉴权（fail-closed）+ 单 principal `mcp:<name>` + 调用限流 + 四工具（固定 schema `mcp-tools/v1`）+ 全审计（不落原始 prompt）+ 输出 gate 同口径；测试 +12；全量 1223 绿；runbook §7.5 + production-readiness 回填。**收口：待 staging 开启双开关后全链路冒烟** |

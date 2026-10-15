@@ -41,6 +41,7 @@ from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 from research_engine.usage import pop_usage_sink, push_usage_sink
 
+from . import export as export_mod
 from . import followup as followup_mod
 from .agui import (
     FOLLOWUP_ANSWERED,
@@ -2446,35 +2447,30 @@ def _artifact_text(run_id: str, kind: str) -> Optional[str]:
 
 
 def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:
-    """任务库导出回落（P2-C）：进程重启后仍可下载历史报告。
+    """任务库导出回落（P2-C / 需求 38 F1）：与内存路径**同一装配与渲染口径**。
 
-    P1-6：产物可能存对象存储（`storage='s3'`）—— 读取前已过鉴权与 flagged 闸，
-    不暴露对象直链；S3 读取失败如实报 `report_unavailable`。
+    历史报告导出的头部/引用清单从「缺」变「有」——读取时渲染修复，不改写历史产物
+    （§12.5 已登记）；`export_json` 产物缺失的历史 run ⇒ 引用/来源显式标注不可用
+    （不伪造数据）。P1-6：产物可能存对象存储，读取前已过鉴权与 flagged 闸。
     """
     if not row.get("finished_at"):
         raise http_error("report_not_ready", "研究尚未结束，暂无报告可导出")
-    kind = "export_json" if fmt == "json" else "report_md"
-    artifact = _store_call(store.get_artifact_row, run_id, kind)
-    if not artifact:
-        raise http_error("report_unavailable", "本次运行没有产出报告")
-    if artifact.get("storage") == "s3" and artifact.get("object_key"):
-        object_store = get_object_store()
-        if object_store is None:
-            raise http_error("report_unavailable", "报告在对象存储中，但对象存储未配置")
-        try:
-            body = object_store.get_text(artifact["object_key"])
-        except Exception as exc:  # noqa: BLE001
-            raise http_error(
-                "report_unavailable",
-                f"对象存储读取失败：{type(exc).__name__}: {exc}"[:200],
-            ) from exc
-    else:
-        body = artifact.get("body") or ""
-    if not body:
-        raise http_error("report_unavailable", "本次运行没有产出报告")
     if fmt == "json":
-        return JSONResponse(json.loads(body))
-    return _markdown_export_response(body, row.get("topic"), run_id)
+        body = _artifact_text(run_id, "export_json")
+        if not body:
+            raise http_error("report_unavailable", "本次运行没有产出报告")
+        try:
+            return JSONResponse(json.loads(body))
+        except (TypeError, ValueError) as exc:
+            raise http_error("report_unavailable", "导出载荷损坏，无法解析") from exc
+    doc = export_mod.document_from_store(
+        row,
+        export_json=_artifact_text(run_id, "export_json"),
+        report_md=_artifact_text(run_id, "report_md"),
+    )
+    if not doc.report.strip():
+        raise http_error("report_unavailable", "本次运行没有产出报告")
+    return _markdown_export_response(export_mod.render_markdown(doc), row.get("topic"), run_id)
 
 
 @app.get("/api/research/{run_id}/report")
@@ -2525,25 +2521,23 @@ def _share_enabled_or_404() -> None:
 
 
 def _share_markdown(run_id: str) -> Optional[str]:
-    """分享读取链：内存产物 → 任务库产物（含 S3）；无报告返回 None。"""
+    """分享读取链（需求 26 / 38 F1）：**只读报告正文**；内存/store 正文来源一致。
+
+    披露边界（需求 38 TBD-5）：分享**不含**审计元数据头与引用清单——是否包含属单独
+    审批项；修正历史路径分叉时不做任何披露扩大（内存路径由此前的「导出 Markdown
+    含头/清单」收窄为正文，与生产 store 路径对齐，行为变更已登记）。
+    """
     if manager.exists(run_id):
         if not manager.has_result(run_id):
             return None
-        return manager.export_markdown(run_id) or None
+        payload = manager.export_payload(run_id)
+        if payload is None:
+            return None
+        body = str((payload.get("result") or {}).get("report") or "").strip()
+        return body or None
     if store is None:
         return None
-    artifact = _store_call(store.get_artifact_row, run_id, "report_md")
-    if not artifact:
-        return None
-    if artifact.get("storage") == "s3" and artifact.get("object_key"):
-        object_store = get_object_store()
-        if object_store is None:
-            return None
-        try:
-            return object_store.get_text(artifact["object_key"]) or None
-        except Exception:  # noqa: BLE001
-            return None
-    return (artifact.get("body") or "") or None
+    return _artifact_text(run_id, "report_md") or None
 
 
 def _share_state(row: dict) -> dict:
