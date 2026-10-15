@@ -153,6 +153,7 @@ v1（F1 + 异步 PDF + DOCX）原 **4~6 天仅为同步渲染假设下的工程�
 | 2026-10-16 | 评审修订 | PDF 容量实测 | 首次渲染 RSS +260MB、热渲染 +50~60MB；否决 API 同步渲染；选专用 700MB export 服务 B（空闲约 150MB、渲染峰值约 500MB、延迟约 6~10s）；A 复用研究 worker 因长任务排队不采用；补 PG 权威作业状态和 Redis/AOF/LRU 风险约束 | 本文档 §12.4 / §12.7 |
 | 2026-10-16 | 评审拍板 | PDF 临时结果通道 | 选择专用 Redis 临时结果服务：禁 AOF/RDB、独立内存上限、`noeviction` + TTL；PG 仍为作业权威状态，现有共享 Redis 只作唤醒 | 本文档 §5 / §12.4 |
 | 2026-10-16 | F2 交付（后端） | PDF 异步导出服务（§12.4 方案 B）实施 | **PG `export_jobs`**（迁移 0025 + 结构断言：部分唯一索引防重、`SKIP LOCKED` 认领、60s 租约/过期回收重排、结果元数据与 TTL）+ store 作业方法；**受限渲染器 `pdf_render.py`**（Markdown→HTML 全量转义、URL fetcher 拒绝一切外部资源、Noto CJK、页数/输出字节上限、常驻渲染子进程协议）；**`export_worker.py`** 单并发 supervisor（超时硬杀重建；容器内存 ≥600MB 或每 25 作业回收子进程）；**API**：202 创建（幂等复用 + 输入字节早拒）→ 状态查询 → 授权下载（每次复核所有权/输出 gate/结果有效期；`no-store`）；**专用结果 Redis**（禁 AOF/RDB、`noeviction`、写满 ⇒ `export_cache_full` 显式失败不驱逐不退回同步渲染）；compose 新增 700MB `export` 服务 + `export-redis`；Dockerfile.api 增 pango/Noto CJK；lock 外科式（weasyprint 70.0 + 9 依赖）；测试 +25（渲染 7 例在 Linux CI 真跑）；全量套件 0 失败；运维口径入 runbook §7.6 | #225 |
+| 2026-10-16 | F2 冒烟 + 部署修复 | staging 全链路冒烟与部署链路纳入 export | staging 真 run（s3 产物读取路径）作业 QUEUED→RUNNING→SUCCEEDED 约 14s / 325KB / attempt=1；结果通道 TTL 899s；PDF 2 页、CJK 文本层可提取、元数据头与「访问过的来源」附录完整（citations 空按 F1 语义省略）；**修复**：compose/deploy.sh 此前未纳入 export（仅被 api `depends_on` 拉起 export-redis）⇒ export 与 api 共用镜像 tag + deploy.sh 滚动 worker→api→export、回滚与冒烟同步覆盖（已在 staging 预验证重建 healthy）；冒烟作业与结果键已清理 | #225 |
 
 ## 12. 评审结论与补充设计
 
