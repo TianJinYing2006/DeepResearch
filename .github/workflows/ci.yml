@@ -62,6 +62,13 @@ jobs:
       - name: 前端边界守卫（不得 import research_engine）
         run: python tools/check_frontend_boundary.py
 
+      # 需求 38 F2：weasyprint 运行依赖（PDF 渲染测试真跑；字体含 CJK，保证中文可提取）
+      - name: Install PDF render system deps (weasyprint)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk
+
       - name: Test (pytest)
         run: pytest tests/ -q
 
@@ -123,7 +130,7 @@ jobs:
           DR_TEST_DATABASE_URL: postgresql://deepresearch:deepresearch-local@127.0.0.1:5432/deepresearch
           DR_TEST_REDIS_URL: redis://127.0.0.1:6379/0
           OTEL_SDK_DISABLED: "true"
-        run: pytest tests/test_run_store.py tests/test_worker_integration.py tests/test_retention.py tests/test_pg_pool.py tests/test_notify.py tests/test_alert_delivery.py tests/test_appeals.py tests/test_snapshot_store_pg.py tests/test_checkpoint_pg.py tests/test_resume_drill_pg.py tests/test_hitl_interaction_pg.py tests/test_hitl_resume_drill_pg.py -q
+        run: pytest tests/test_run_store.py tests/test_worker_integration.py tests/test_retention.py tests/test_pg_pool.py tests/test_notify.py tests/test_alert_delivery.py tests/test_appeals.py tests/test_snapshot_store_pg.py tests/test_checkpoint_pg.py tests/test_resume_drill_pg.py tests/test_hitl_interaction_pg.py tests/test_hitl_resume_drill_pg.py tests/test_export_jobs_pg.py -q
 
       # P8-A 恢复演练：真实脚本「备份（校验可读）→ 清库 → 恢复」；用种子数据与结构断言双向验证。
       # 没有恢复演练就不算有备份（上线清单 §3.8）。

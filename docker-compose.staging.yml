@@ -134,6 +134,55 @@ services:
         limits:
           memory: 256M
 
+  # 需求 38 F2：PDF 临时结果通道 —— 专用、非持久化（禁 AOF/RDB）、noeviction、有界。
+  # 结果 bytes 不进持久化介质；写满 ⇒ 应用层明确报错（不驱逐未过期结果，不退回同步渲染）。
+  export-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+  # 需求 38 F2：PDF 导出服务（supervisor；单并发；常驻渲染子进程；PG 认领 + 租约）。
+  # 700MB：实测约空闲 150MB、渲染峰值约 500MB（需求 38 §12.7）；入口只加载渲染所需模块。
+  export:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    command: ["python", "-m", "web.backend.export_worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      export-redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-environment
+      # 结果 bytes 专用通道（与主 Redis 分离；见 export-redis 服务）
+      DR_EXPORT_REDIS_URL: "redis://export-redis:6379/0"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "from web.backend.store import RunStore; import os; RunStore(os.environ['DR_DATABASE_URL']).get_export_job('__health__')"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+
   # RAG 向量库（P5 多租户隔离：检索按 user_id / tenant_id / visibility 过滤）。
   # 2026-09-30 纳入本文件 —— 此前默认指向宿主机，云上无实例时 RAG 上传功能不可用。
   # ⚠️ 镜像用 latest 与既有 minio 服务一致；上生产前应固定具体 tag 并记入变更记录。
@@ -258,6 +307,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # 需求 38 F2：PDF 结果下载走专用结果通道（只影响导出下载；其余功能不耦合）
+      export-redis:
+        condition: service_healthy
       # 不依赖 minio：它已移入 profiles: local-s3（用云上 COS/OSS 时不存在该服务）
       qdrant:
         condition: service_healthy
@@ -265,6 +317,8 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *app-environment
+      # 需求 38 F2：结果 bytes 专用通道（与 export 服务同址；见 export-redis 服务）
+      DR_EXPORT_REDIS_URL: "redis://export-redis:6379/0"
       # P3：staging 默认「队列模式」（API 只创建 QUEUED 任务，Worker 执行）
       DR_EXECUTION_MODE: "${DR_EXECUTION_MODE:-queue}"
       DR_CORS_ORIGINS: "${DR_CORS_ORIGINS:-}"

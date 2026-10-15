@@ -21,6 +21,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 COPY requirements-lock.txt ./
+# 需求 38 F2：PDF 渲染系统依赖（WeasyPrint → pango 运行库）+ CJK 字体（Noto，OFL）
+# 只装运行库与字体（--no-install-recommends），不引入构建工具；镜像体积变化登记在
+# docs/operations/production-readiness.md（收口实测回填）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements-lock.txt
 COPY config.py cli.py ./
 COPY research_engine/ ./research_engine/

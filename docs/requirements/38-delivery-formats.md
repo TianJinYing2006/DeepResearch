@@ -5,7 +5,7 @@
 > **来源**：`docs/extension-directions-survey.md` §3 方向 C / §4 批次 5（调研建议 P2——最直观解决「功能单一」体感）。
 > **竞品参照**（调研 §1.2~§1.3）：GPT Researcher 导出 MD/PDF/DOCX/JSON；ChatGPT Deep Research 导出 Markdown/Word/PDF；DeerFlow PPT（marp-cli）；Gemini 原生图表与信息图。
 > **前置（已交付）**：`web/backend/export.py`（md/json 导出契约）；R4 流式协议；分享（需求 26）与输出 gate（flagged 阻断）口径。
-> **纪律**：① 导出是**展示层**，不改研究图产出的 writer 原文；现有持久化报告可能是 `report_display`，不得声称能从历史产物还原 writer 原文；② 新格式全部复用输出 gate/flagged 阻断；③ 默认延续 D-19「不落盘」精神（按需生成、内存返回）；④ 分享页维持只读无格式下载（需求 26 边界，不因本批扩大）。
+> **纪律**：① 导出是**展示层**，不改研究图产出的 writer 原文；现有持久化报告可能是 `report_display`，不得声称能从历史产物还原 writer 原文；② 新格式全部复用输出 gate/flagged 阻断；③ 按需生成，不写入长期 `run_artifacts`；PDF 可经隔离服务和短 TTL 临时缓存交付，不视为永久归档；④ 分享页维持只读无格式下载（需求 26 边界，不因本批扩大）。
 > 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/CfGVdplPGoaUEzxxTYocYEJgnwc（`CfGVdplPGoaUEzxxTYocYEJgnwc`，位于 `DeepResearch 需求文档` 文件夹；2026-10-14 按开工版重建，立项版已删）。
 
 ## 1. 元信息
@@ -39,7 +39,7 @@
 目标（一句话）：**在不改变研究图和评测逻辑的前提下，统一 Markdown/JSON 与 PDF/DOCX 的导出数据装配，并复用既有审计元数据、引用清单和输出 gate；PPT 与图表按后续价值单独评估。**
 
 - **F1 导出管线收口（前置）**：统一内存/store 双路径（私有 Markdown 导出产出 = `render_markdown` 语义：元数据头 + 正文 + 引用清单 + 访问来源），补 store 路径契约测试；md/json/pdf/docx（及若纳入的 pptx）共享同一「报告数据装配」入口。分享 endpoint 只统一其 Markdown 内容来源，不增加下载格式。
-- **F2 PDF 导出**：服务端生成、中文正确（CJK 字体）、含元数据头/引用清单/附录；下载名沿用需求 17 口径；大小/页数上限。
+- **F2 PDF 导出**：由专用 export 服务异步生成、中文正确（CJK 字体）、含元数据头/引用清单/附录；下载名沿用需求 17 口径；输入/耗时/输出大小上限；API 以作业 ID 查询并授权下载短期结果。
 - **F3 DOCX 导出**：结构等价（标题层级/段落/引用清单/附录）；用已装 `python-docx`（写入侧新用）。
 - **F4 PPT 导出（范围待拍板，可裁）**：`python-pptx` 简版（标题页 + 章节要点 + 引用清单页），不追求版式引擎；若拍板裁剪则移出本批。
 - **F5 图表（零模型，建议后置）**：先定义终局统计 spec 与分母/缺失语义；v1 如纳入，仅在导出文件生成统计图，不修改 `report_display` 或持久化报告正文。在线报告内展示另立阶段；**不做 LLM 生成图表**。
@@ -69,8 +69,8 @@
   - PPT：`python-pptx`（已装）；**不用 marp**（运行时容器无 node，引入 node 运行层成本更高）；
   - 图表：`matplotlib`（Agg 后台，Noto CJK，输出 PNG）。
   全栈无网络、无外部服务（延续确定性纪律）。
-- **TBD-2（生成时机与存储）—— 推荐：按需导出、内存返回、不落盘**。
-  请求时生成 → 内存响应（D-19 延续）；不预生成 `run_artifacts`（文本列 + 全文本对象存储不支持二进制；且每次 run 三格式预生成浪费）；可选进程内 LRU 缓存（同 run 重复导出加速）；**超限与并发策略**：单次导出大小/页数上限 + 并发上限（防大报告叠加打爆 450M 容器）。
+- **TBD-2（生成时机与存储）—— 已修订：按需异步生成，不落长期产物**。
+  DOCX 保持轻量同步生成；PDF 通过专用 export 服务作业生成。作业事实源放 PostgreSQL（状态、owner、run_id、请求指纹、截止时间、结果键/大小/hash），Redis 只作可丢失唤醒信号。**PDF bytes 选择专用临时 Redis 服务/实例**：禁用 AOF/RDB 持久化、配置独立硬内存上限与 `noeviction`，每个结果设置 TTL；不复用现有共享 Redis，也不认为同实例不同 DB 能隔离 AOF/LRU。PDF 不写长期 `run_artifacts`；到期清除结果与作业敏感字段。缓存写入因容量失败、结果丢失/过期时返回结构化错误并允许重新申请，不能回退到 API 同步渲染。容量按 `TTL 窗口内完成作业数 × 最大 PDF 字节数 + Redis 开销` 估算，并以压测定值；禁止无上限进程内 LRU。
 - **TBD-3（本批范围）—— 推荐：F1 + PDF + DOCX；PPT 与 F5 后置**。
   首批验收先覆盖既有 md/json 和新 PDF/DOCX；PPT 需另证用户需求，F5 先做统计 spec 决策，图像导出再单独估时。排期不把后置项计入 v1。
 - **TBD-4（图表数据源与呈现）—— 推荐：零模型统计 spec，离线生成图像**。
@@ -78,7 +78,7 @@
 - **TBD-5（双路径收口范围）—— 推荐：本批前置完成，行为变更显式登记**。
   私有 store 路径统一为 `render_markdown` 语义（历史报告导出的头部/引用清单从「缺」变「有」——属读取时渲染修复，不改写历史产物）；分享端仍只提供只读 Markdown，但其内存/store 内容来源保持一致，并明确分享文档是否包含审计元数据及引用清单，避免意外扩大敏感信息披露。
 - **TBD-6（限额与并发）—— 推荐：显式上限 + 拒绝式保护**。
-  对输入字节、渲染耗时、输出字节设硬上限；页数上限可作为成品约束，但不能替代生成前资源保护。超限 ⇒ 结构化错误（提示改用 md/json），不做静默截断；进程内信号量只保护单进程，生产多副本须按实测容量使用跨进程准入/专用导出 worker 或明确限制副本数。
+  对输入字节、渲染耗时、输出字节设硬上限；页数上限可作为成品约束，但不能替代生成前资源保护。专用 export 服务用单并发或经实测确定的低并发；通过 PostgreSQL 作业认领/全局准入限制总渲染数，不依赖 API 进程内信号量。超限返回结构化错误，不静默截断；作业超时后终止渲染子进程/容器任务并收口状态。
 - **TBD-7（合规与安全）—— 推荐：全量复用 + 字体许可确认**。
   输出 gate / flagged / under-review 阻断全量复用（与 md/json 同口径）；图表只含统计数字（无 PII）；Noto（OFL）许可入法务清单；导出文件名沿用需求 17（`download_names.py:24-47`）。
 - **拍板记录（2026-10-15）**：TBD-0~7 按本 §5 **主理人评审修订版**口径拍板——v1 锁定 **F1 + PDF + DOCX**（PPT/F5 后置，不计入 v1 排期）；TBD-0 护栏改「图内 writer 产物边界断言」（不用历史 `report_md`/`result.report` 反推原文）；TBD-5 增分享披露边界（分享仅 Markdown，统一内容来源但不自动扩大审计头/引用清单）；TBD-6 增**生成前**输入字节/耗时/输出字节硬上限与跨副本准入要求；§12.4 六项处置与实施顺序见 §12.7。
@@ -95,7 +95,7 @@
 
 - [x] TBD-0~7 拍板（记录进 §5 / §12.7）—— ✅（2026-10-15，主理人评审修订版）
 - [x] F1：私有导出内存/store 两路径一致；分享仍只读 Markdown，但内存/store 内容来源一致且披露字段明确；store 路径契约测试补齐 —— ✅（2026-10-15；`ExportDocument` 装配模型 + 双路径统一渲染 + 分享仅正文）
-- [ ] F2：PDF 导出——中文正确（**文本层可提取中文断言**）、元数据头/引用清单/附录完整、页数/大小上限、下载名正确
+- [ ] F2：PDF 导出——POST 创建异步作业（202 + export_id），状态可查询，完成后经 run 所有权/output gate 校验下载；中文正确（**文本层可提取中文断言**）、元数据头/引用清单/附录完整、输入/输出字节和耗时上限、下载名正确、过期结果可重新生成 —— 🔶 **后端已交付（2026-10-16）**：作业 API + PG `export_jobs` + 专用 export 服务 + 专用非持久化结果 Redis；前端状态轮询/e2e 待 F2b
 - [ ] F3：DOCX 导出——结构等价（标题层级/引用清单/附录）
 - [ ] F4（若纳入）：PPT 简版——标题页/章节要点/引用页；超限保护
 - [ ] F5（后置/若纳入）：终局统计 spec 的字段、分母、缺失语义和 schema version 固定；图表仅进入导出附录，不改 `report_display`；测试 spec 稳定性及同构建环境渲染结果，不断言跨版本字节相同
@@ -107,12 +107,12 @@
 
 ## 8. 影响范围与风险
 
-- **动**：`web/backend/export.py`（装配入口 + 新格式）、`main.py`（端点格式枚举 + 校验）、`runner.py`（导出访问器）、`download_names.py`（扩展名映射）；前端 `ReportPanels.tsx`/`ReportView.tsx`；`Dockerfile.api` + compose（字体/系统库）；`requirements*`（WeasyPrint 等，lock 外科式）。F5 后置时不动研究图和 `research_engine/render.py`。
-- 风险①：**镜像变重与容器内存**（apt + CJK 字体 ≈100MB+；PDF 渲染峰值内存 vs 450M 上限）⇒ 本地实测 + 必要时调限或导出队列化（记为决策点）；
+- **动**：`web/backend/export.py`（装配入口 + 新格式）、`main.py`（端点格式枚举 + 校验 + job/status/download API）、`runner.py`（轻量 DOCX 访问器）、新增 PG `export_jobs` 迁移/store 操作和 `web/backend/export_worker.py`（专用入口）；前端 `ReportPanels.tsx`/`ReportView.tsx`（PDF 作业状态/重试）；`Dockerfile.api` + compose 新增 700MB export 服务；`requirements*`（WeasyPrint 等，lock 外科式）。F5 后置时不动研究图和 `research_engine/render.py`。
+- 风险①：**镜像变重与容器内存**（apt + CJK 字体 ≈100MB+；已测首次渲染约 +260MB、热渲染 +50~60MB）⇒ API 同步路径已否决；使用独立 700MB export 服务并在最终镜像复测；
 - 风险②：**CJK 渲染正确性**（字体缺失 => 方块）⇒ 镜像装 `fonts-noto-cjk` + 确定性测试（PDF 文本层提取中文断言）；
 - 风险③：**双路径收口影响历史/分享行为**（导出内容由「缺头」变「带头」）⇒ 显式登记 + 测试锁定，属修复；
 - 风险④：**版式长尾**（DOCX/PPT 版式在不同阅读器差异）⇒ 范围收敛为「结构正确 > 版式精美」；
-- 风险⑤：**大报告资源**（长报告 + 图表 + 多格式并发）⇒ 上限 + 并发信号量 + 拒绝式保护；
+- 风险⑤：**大报告资源**（长报告 + 多格式并发）⇒ 输入/耗时/输出硬上限 + PG 全局作业准入 + export 服务单并发起步；
 - 兜底：任一格式失败 ⇒ 结构化错误提示，md/json 永远可用（既有路径不受影响）；F5 可独立关闭（如 `DR_REPORT_CHARTS_ENABLED`）。
 
 ## 9. 测试策略
@@ -130,13 +130,14 @@
 |---|---|---|---|
 | 0 | TBD-0~7 拍板（主理人评审修订版） | — | ✅（2026-10-15） |
 | F1 | 双路径收口 + 装配入口 + store 测试 | 拍板 | ✅ 已交付（2026-10-15） |
-| F2 | PDF（WeasyPrint + CJK + 镜像包） | F1 | 1~1.5 天 |
+| F2 | PDF（专用 export 服务 + PG 作业 + 专用结果 Redis + CJK） | F1/spike | 后端已交付（2026-10-16）；前端/e2e 待 F2b |
 | F3 | DOCX（python-docx 写作侧） | F1 | 0.5~1 天 |
 | F4 | PPT（后置，另估） | 独立决策 | 不计入 v1 |
 | F5 | 图表（先定统计 spec；导出图片后置） | 独立决策 | 不计入 v1 |
-| 收口 | 前端/e2e/文档/镜像与峰值资源实测 | F1~F3 | 至少 1 天，按实测调整 |
+| PDF 服务 | PG job 表/认领 + 专用入口 + 700MB compose 服务 + 有界结果通道 | F1 / 容量 spike | 另估，包含故障恢复与安全审查 |
+| 收口 | 前端异步状态/e2e/文档/镜像与峰值资源实测 | F1~F3 + PDF 服务 | 按实测调整 |
 
-v1（F1 + PDF + DOCX）粗估 **约 4~6 天的工程下界**，不含多副本全局限流改造、PDF 复杂长文档调优或线上观察；PPT/图表不纳入该估算。
+v1（F1 + 异步 PDF + DOCX）原 **4~6 天仅为同步渲染假设下的工程下界，已失效**。加入 export 服务、PG 作业协议、Redis/结果保留治理和异步 UI 后，需按上述独立工作项重新估时；PPT/图表不纳入。
 
 ## 11. 变更记录
 
@@ -149,6 +150,9 @@ v1（F1 + PDF + DOCX）粗估 **约 4~6 天的工程下界**，不含多副本�
 | 2026-10-15 | 开工 | 主理人确认按修订版开工 | 状态草稿→进行中；Issue #225；TBD-0~7 按 §5 修订口径拍板（登记见 §12.7）；实施顺序 F1 → PDF spike → PDF → DOCX | #225 |
 | 2026-10-15 | 文档 | 飞书镜像重建（开工版） | 按开工版重建至 `DeepResearch 需求文档` 文件夹（`CfGVdplPGoaUEzxxTYocYEJgnwc`；自引用回填；立项版已删） | — |
 | 2026-10-15 | F1 交付 | 统一导出装配（§12.2）实施 | **`ExportDocument` 版本化装配模型**（schema v1：内存载荷 / store `export_json` 优先 / 历史降级显式不可用「不伪造」）+ `render_markdown(doc)` 单一口径；**store 导出路径统一**（历史报告导出头部/引用清单从「缺」→「有」= 读取时渲染修复、不改写历史产物；JSON 载荷契约不变）；**分享链路统一为仅正文**（内存/store 来源一致；内存路径由此前「含头/清单」收窄=不扩大披露；头/清单是否入分享=挂账单独审批）；测试 +13（装配/降级/渲染/store 端点/分享边界）+ 3 处旧断言更新至新契约；全量 **1238 绿** | #225 |
+| 2026-10-16 | 评审修订 | PDF 容量实测 | 首次渲染 RSS +260MB、热渲染 +50~60MB；否决 API 同步渲染；选专用 700MB export 服务 B（空闲约 150MB、渲染峰值约 500MB、延迟约 6~10s）；A 复用研究 worker 因长任务排队不采用；补 PG 权威作业状态和 Redis/AOF/LRU 风险约束 | 本文档 §12.4 / §12.7 |
+| 2026-10-16 | 评审拍板 | PDF 临时结果通道 | 选择专用 Redis 临时结果服务：禁 AOF/RDB、独立内存上限、`noeviction` + TTL；PG 仍为作业权威状态，现有共享 Redis 只作唤醒 | 本文档 §5 / §12.4 |
+| 2026-10-16 | F2 交付（后端） | PDF 异步导出服务（§12.4 方案 B）实施 | **PG `export_jobs`**（迁移 0025 + 结构断言：部分唯一索引防重、`SKIP LOCKED` 认领、60s 租约/过期回收重排、结果元数据与 TTL）+ store 作业方法；**受限渲染器 `pdf_render.py`**（Markdown→HTML 全量转义、URL fetcher 拒绝一切外部资源、Noto CJK、页数/输出字节上限、常驻渲染子进程协议）；**`export_worker.py`** 单并发 supervisor（超时硬杀重建；容器内存 ≥600MB 或每 25 作业回收子进程）；**API**：202 创建（幂等复用 + 输入字节早拒）→ 状态查询 → 授权下载（每次复核所有权/输出 gate/结果有效期；`no-store`）；**专用结果 Redis**（禁 AOF/RDB、`noeviction`、写满 ⇒ `export_cache_full` 显式失败不驱逐不退回同步渲染）；compose 新增 700MB `export` 服务 + `export-redis`；Dockerfile.api 增 pango/Noto CJK；lock 外科式（weasyprint 70.0 + 9 依赖）；测试 +25（渲染 7 例在 Linux CI 真跑）；全量套件 0 失败；运维口径入 runbook §7.6 | #225 |
 
 ## 12. 评审结论与补充设计
 
@@ -173,11 +177,13 @@ PDF、DOCX 和统一导出契约有明确用户价值；PPT 与图表则分别�
 ### 12.4 部署与发布策略
 
 1. F1 先统一装配模型与内存/store 契约，确保 md/json 输出 gate、下载名和历史兼容性通过；这是新格式的唯一前置。
-2. 用实际最长报告在目标 Docker 镜像上测 PDF 的峰值 RSS、生成耗时、字体回退和并发；决定 WeasyPrint 与 CJK 字体方案后再锁依赖。镜像/内存验证不通过时，先限并发/报告尺寸或拆独立导出 worker，不应仅调高容器上限。
-3. DOCX 与 PDF 各自独立灰度；PPT 和图表通过用户任务数据确认使用价值后再纳入。对下载设置 `Cache-Control: private, no-store`，错误响应不泄漏报告内容。
+2. PDF 容量 spike 已确认 API 同步渲染不满足 450MB 限额；不再把同步 API 渲染作为候选。复核字体/排版库和报告上限后，在单独 700MB export 服务镜像入口实测峰值 RSS、生成耗时、字体回退和冷启动。
+3. 推荐方案 B：增加专用 export 服务（同基础镜像、独立轻量入口，只加载 PDF 所需模块），内存限额 700MB，单任务渲染；报告结果经有界短 TTL 通道返回。API/worker 仍可用 450MB/700MB 原限额，研究 worker 正忙不会阻塞 PDF 作业。
+4. PostgreSQL `export_jobs` 是可靠作业状态/派发事实源，使用 `FOR UPDATE SKIP LOCKED` 认领、租约心跳、幂等键和过期回收；现有 Redis 仅用于唤醒。新增专用临时结果 Redis，禁用 AOF/RDB，设独立 `maxmemory` + `noeviction` 和 key TTL；容量写满时显式失败，不淘汰尚未下载结果。结果 key 绑定 job/owner，下载每次重新验证 run 所有权与输出 gate。
+5. DOCX 与 PDF 各自独立灰度；对异步端点设置 `Cache-Control: private, no-store`，结果 key TTL 与 job 清理策略一致，报告正文不进入普通日志/指标。PPT 和图表通过用户任务数据确认价值后再纳入。
 4. 发布核对 FAQ、可访问性（PDF 文本可选择、图表有文字替代）、字体许可和历史 run 导出行为；保持分享页无导出。
 
-**立项前应补入 TBD 的决策**：首发格式范围；图表是否进入在线报告或仅下载导出；终局统计快照的 schema/持久化位置；PDF HTML 安全 renderer 与 URL fetcher 策略；导出最大输入/输出、页数、并发和超限错误契约。排期应拆为 F1、PDF、DOCX 的独立验收，不把字体/容器验证与浏览器端 E2E 当作轻量收尾项。
+**已由实测收敛的架构决策**：同步 PDF 渲染退出方案；采用专用 export 服务 B，研究 worker 方案 A 仅作不推荐备选；结果通道选择专用非持久化 Redis。实施前仍需确定作业表字段/状态机、单 PDF/累计结果字节限额、TTL、Redis maxmemory、超时与失败重试策略。排期应拆为 F1、PDF 服务基础设施、PDF、DOCX 的独立验收，不把镜像容量和队列可靠性当轻量收尾。
 
 ### 12.5 当前稿问题清单与评审结论
 
@@ -185,12 +191,14 @@ PDF、DOCX 和统一导出契约有明确用户价值；PPT 与图表则分别�
 |---|---|---|---|
 | P1 | writer 原文“不变”目前无法由 store 路径证明 | `worker._persist_result()` 先取 `state.report_display or state.report`，并把该值写入终局 result 和 `report_md`；历史导出可能只剩展示版，无法恢复 writer 原文 | 把“不变”限定为导出功能不改研究图/评测 writer 输出；若要求持久化可审计原文，需另增原文 artifact/schema，并单独评估存储和保留成本 |
 | P1 | 图表的产品位置与验收口径冲突 | F5 曾要求进入 `report_display`、同输入同字节；TBD-4/§12 建议仅导出图表、稳定 spec，不保证跨版本二进制一致 | 本轮已统一为后置项：v1 不改 `report_display`；图表进入范围前先拍板 schema 与统计定义 |
-| P1 | 导出并发上限只用进程内信号量不足以覆盖多副本 | 每个 API 进程独立计数，副本数增加会同比增加同时渲染数；PDF 属 CPU/内存密集工作 | 小流量内测可同步渲染并固定副本数；生产推广前选 DB/Redis 全局准入或专用导出 worker，并做峰值 RSS/超时测试 |
-| P1 | 首批范围和工期过宽 | F1 双路径修正、CJK PDF、DOCX、前端、镜像改造、历史 run 契约一次上线；原 4~6 天还包含 PPT/图表估算 | v1 锁定 F1+PDF+DOCX；先完成 PDF 容量 spike，再承诺交期；PPT/F5 另立项或后续批次 |
+| P1 | API 同步渲染已被实测否决 | 首次渲染一次性增加约 260MB，之后每次增加约 50-60MB；API 限额 450MB，单份 PDF 即贴近/突破预算 | 不在 API 进程渲染；优先采用 700MB 专用 export 服务。用户测量数据需随实现补齐镜像版本、冷/热状态、报告大小和 RSS 测量方法 |
+| P1 | 共享研究 worker 会让导出排队 | 研究任务持续时间可达数分钟；方案 A 与研究共享 700MB worker，导出 p95 被研究负载拖长 | 不把 PDF 纳入研究 worker 队列；新增专用轻入口 export 服务，隔离 CPU/内存和调度 |
+| P1 | Redis 不能同时不加区分地作为权威队列和结果缓存 | 当前 Redis 有 AOF、200MB `maxmemory`、`allkeys-lru`，原设计只把它当可丢失唤醒信号；作业/结果可能被逐出，报告 bytes 也会进入持久化介质 | PG 作业表为权威，Redis 只唤醒；结果缓存需有界 TTL 并单独评估 AOF/备份/内存，优先专用禁 AOF Redis；缓存丢失可重试或重生成 |
+| P1 | 首批工作量与原估时不再匹配 | F1 已交付；新增异步 PG job、专用容器、结果保留、安全下载、UI 轮询和故障演练，原 4~6 天估算建立在同步渲染假设上 | 按 PDF 服务基础设施、PDF、DOCX 分项重估；不以旧估时承诺交付 |
 | P2 | 页数上限不能防止渲染阶段资源耗尽 | 只有 PDF 生成后才能可靠知道页数，内存和 CPU 峰值可能已经发生 | 生成前限制 Markdown/HTML 字节、表格/图像数、渲染时限；在可终止子进程或隔离 worker 内渲染；生成后页数上限仅作交付约束 |
 | P2 | 分享链路既被列入 F1，又被写作“不扩分享” | 当前内存分享返回导出 Markdown，store 分享返回 `report_md` 原产物，确有路径差异；但修正时可能额外暴露元数据或引用 | 明确分享继续只返回 Markdown；只统一其内存/store 正文来源，并单独审批是否包含审计头/引用清单，不复用私有下载权限 |
 
-**结论**：核心方向合理，推荐约束为「统一私有导出装配 + PDF/DOCX 按需生成」。当前不建议将 PPT、图表在线展示和跨副本渲染治理塞进同一首发批次。PDF 方案只有在目标镜像实测通过后才算设计闭环；若实测显示同步渲染无法满足 450MB 容器预算，应改为隔离 worker/作业队列，而不是继续增加格式后再处理容量。
+**结论**：核心方向合理；结合实测，PDF 必须异步隔离。推荐「统一私有导出装配 + 专用 700MB export 服务 + DOCX 轻量同步」；方案 A 会受研究队列长任务影响，不采用。按给定测量，专用服务空闲约 150MB、渲染峰值约 500MB、延迟约 6-10 秒，700MB 预算有约 200MB 余量；将这些值作为当前容量基线，仍需在最终镜像和最大输入限制下复测。PPT/图表继续后置。
 
 ### 12.6 同类实现与来源
 
@@ -200,7 +208,9 @@ PDF、DOCX 和统一导出契约有明确用户价值；PPT 与图表则分别�
 ### 12.7 开工登记（2026-10-15）
 
 - **主理人口令**：按评审修订版（v1 收窄）开工（2026-10-15）；Issue **#225**；分支 `feat/38-export-pipeline`（F1 先行）。
-- **TBD-0~7 执行口径（按 §5 修订版）**：TBD-0 护栏 = **图内 writer 产物边界断言**（不用历史 `report_md`/`result.report` 反推原文）；TBD-1 全离线确定性栈（PDF=WeasyPrint + Noto CJK；DOCX=python-docx；F5 后置）；TBD-2 按需生成/内存返回/不落盘（可选 LRU）；TBD-3 **v1 = F1+PDF+DOCX**（PPT/F5 后置）；TBD-4 图表后置（先定终局 `export_json` 可复算统计 spec）；TBD-5 私有 store 路径统一 `render_markdown` 语义 + 分享仅 Markdown（内容来源统一、披露边界明确）；TBD-6 **生成前**输入字节/耗时/输出字节硬上限（页数仅交付约束；跨副本准入推广前定）；TBD-7 gate 全量复用 + Noto 许可。
-- **§12.4 六项决策处置**：① 首发范围 —— ✅ F1+PDF+DOCX（TBD-3）；② 图表在线 —— ✅ 后置（F5 不进 v1）；③ 统计快照 —— ✅ 后置项的前置定义（终局 `export_json` 可复算 + schema version，见 TBD-4）；④ PDF 安全 renderer —— ✅ §12.2（受限 renderer + `url_fetcher` 仅内嵌资源）；⑤ 限额契约 —— ✅ TBD-6 修订版；⑥ 验收拆分 —— ✅ F1/PDF/DOCX 独立验收（§10）。
-- **实施顺序**：F1（装配入口 + 双路径收口 + 分享边界 + store 契约测试）→ **PDF 容量 spike**（目标镜像实测峰值 RSS/耗时/字体回退；通过才锁依赖）→ PDF（镜像 apt/字体 + lock 外科式）→ DOCX → 前端/e2e/文档回填。v1 ≈4~6 天（工程下界；不含多副本全局限流改造与线上观察）。
-- **挂账（明确不在 v1）**：可审计 writer 原文 artifact（若为硬需求另行设计 + 保留成本评估）；PPT（另证用户价值）；图表在线展示（先定统计字段/分母/缺失语义）；跨进程导出准入 / 专用导出 worker（推广前决策）。
+- **TBD-0~7 执行口径（按 §5 修订版及 2026-10-16 容量实测修订）**：TBD-0 护栏 = **图内 writer 产物边界断言**；TBD-1 全离线确定性栈（PDF=WeasyPrint + Noto CJK；DOCX=python-docx；F5 后置）；TBD-2 按需异步 PDF + 专用 export 服务，DOCX 轻量同步，不写长期产物；TBD-3 **v1 = F1+PDF+DOCX**（PPT/F5 后置）；TBD-4 图表后置；TBD-5 私有 store 路径统一 + 分享仅 Markdown；TBD-6 PDF 生成前输入/耗时/输出字节硬上限，PG 作业认领与全局并发闸；TBD-7 gate 全量复用 + Noto 许可。
+- **§12.4 六项决策处置**：① 首发范围 —— ✅ F1+PDF+DOCX；② 图表在线 —— ✅ 后置；③ 统计快照 —— ✅ 后置定义；④ PDF 安全 renderer —— ✅ §12.2；⑤ 限额契约 —— ✅ TBD-6；⑥ 容量与架构 —— ✅ API 同步渲染否决，采用专用 700MB export 服务 B；PG 作业表为权威；结果通道选专用非持久化 Redis，现有 Redis 只作唤醒。单文件/累计字节上限、TTL、Redis maxmemory 由目标负载压测定值。
+- **实施顺序**：F1 已交付 → PDF 异步作业协议与 PG job schema → 专用 700MB export 服务最小入口 → 同镜像冷启动/热渲染资源复测和 Redis 结果策略决策 → PDF 接口/UI 状态轮询与授权下载 → DOCX 同步生成 → e2e/故障演练/容量文档回填。
+- **方案比较**：A 复用 700MB 研究 worker，避免新增容器，但长研究任务会造成 PDF 排队数分钟；B 新增专用 export 服务，用户测量约空闲 150MB、峰值 500MB 内、稳定 6-10 秒，资源余量和隔离性更好，推荐 B。服务入口只加载必要依赖，避免 import 全量应用；依赖可以同基础镜像，但启动路径/健康检查/配置最小化。
+- **挂账（明确不在 v1）**：可审计 writer 原文 artifact；PPT；图表在线展示；通用跨租户导出平台。PDF job schema、有限重试、过期回收、结果缓存清理属于 v1 必做，不再算推广前挂账。
+- **F2 实施登记（2026-10-16，后端交付）**：接口契约 = `POST /api/research/{run_id}/export-jobs`（202；body `{"kind":"pdf"}`；同 run 进行中作业或未过期结果直接复用 `reused=true`；`report_not_ready`/`report_unavailable`/`export_too_large` 前置拒绝）→ `GET …/export-jobs/{export_id}`（状态/`error_code`/`result_bytes`/`result_expires_at`）→ `GET …/export-jobs/{export_id}/download`（SUCCEEDED 且未过期才发；`application/pdf` + RFC 6266 下载名 + `Cache-Control: private, no-store`；过期/丢失 ⇒ `export_result_expired`，可重新申请）。数据口径：PG `export_jobs` 权威（迁移 `0025_export_jobs.sql`；`checks/0025_schema_assert.sql` 结构断言）；结果 bytes 仅在专用 `export-redis`（`DR_EXPORT_REDIS_URL`；TTL 900s 从完成起算、下载不续期）；主 Redis 仅 `LPUSH` 唤醒（丢失由 2s 轮询兜底）。限额默认（环境变量可调，见 runbook §7.6）：输入 2MiB / 页数 100 / 输出 20MiB / 渲染硬超时 30s / 结果预算 192MiB / 回收阈值 600MB 或每 25 作业。失败分类：确定性（超限/无报告/缓存满）⇒ FAILED；瞬时（超时/渲染异常/管道断）⇒ 重排（attempt ≤ max_attempts=2）。

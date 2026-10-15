@@ -60,3 +60,7 @@ openpyxl>=3.1,<4
 # 需求 37（M1）：MCP 双向 —— 官方 Python SDK（v1 仅 Streamable HTTP 客户端）
 # 锁外科式（先例：需求 10）：只加 mcp 与其新增传递依赖，不动既有 pin
 mcp>=1.9,<1.10
+
+# 需求 38 F2：PDF 导出（WeasyPrint；镜像需 apt pango 运行库 + Noto CJK 字体）
+# 锁外科式（先例：需求 10/37）：只加 weasyprint 与其新增传递依赖
+weasyprint>=70,<71
