@@ -3,7 +3,7 @@
 #
 # 把 origin/dev（或指定 ref）安全地部署到本机 staging：
 #   前置检查 → 新鲜备份(+COS) → 回滚镜像标记 → 源码快照 → git 同步（重试）
-#   → 构建（tag=latest + SHA） → 迁移（幂等 ×2） → 滚动 worker→api → 冒烟
+#   → 构建（tag=latest + SHA） → 迁移（幂等 ×2） → 滚动 worker→api→export → 冒烟
 #
 # 用法（服务器上，ubuntu 用户；免密 sudo 必需）：
 #   bash tools/deploy.sh                    # 部署 origin/dev 最新（CI 触发路径）
@@ -57,6 +57,8 @@ if [ "${1:-}" = "--rollback" ]; then
     docker image tag "deepresearch-staging-worker:$TAG" deepresearch-staging-worker:latest
     docker compose -f "$COMPOSE_FILE" up -d --wait worker
     docker compose -f "$COMPOSE_FILE" up -d --wait api
+    # 需求 38 F2：export 与 api 共用镜像 tag ⇒ 同滚同回
+    docker compose -f "$COMPOSE_FILE" up -d --wait export
     curl -fsS http://127.0.0.1:8000/api/health/ready | grep -q '"ok":true' || die "回滚后 readiness 失败"
     record "rollback:$TAG" "ok"
     log "回滚完成。前滚：bash tools/deploy.sh"
@@ -124,18 +126,23 @@ docker compose -f "$COMPOSE_FILE" up -d --wait postgres redis >/dev/null
 docker compose -f "$COMPOSE_FILE" run --rm migrate || die "迁移失败（应用未切换，旧版本仍在运行）"
 docker compose -f "$COMPOSE_FILE" run --rm migrate | tail -1
 
-log "== 7) 滚动：worker → api =="
-docker compose -f "$COMPOSE_FILE" up -d --wait worker || die "worker 启动失败（旧 api 仍在运行）"
-docker compose -f "$COMPOSE_FILE" up -d --wait api || die "api 启动失败"
+    log "== 7) 滚动：worker → api → export =="
+    docker compose -f "$COMPOSE_FILE" up -d --wait worker || die "worker 启动失败（旧 api 仍在运行）"
+    docker compose -f "$COMPOSE_FILE" up -d --wait api || die "api 启动失败"
+    # 需求 38 F2：export 与 api 共用镜像 tag；api 的 depends_on 会先拉起 export-redis
+    docker compose -f "$COMPOSE_FILE" up -d --wait export || die "export 启动失败"
 
-log "== 8) 冒烟 =="
-sleep 2
-curl -fsS http://127.0.0.1:8000/api/health/ready | grep -q '"ok":true' || die "本机 readiness 失败"
-curl -sk --ssl-revoke-best-effort -fsS "$PUBLIC_URL/api/health/ready" | grep -q '"ok":true' || die "公网 readiness 失败"
-docker exec deepresearch-staging-worker-1 python -c \
-    "import os; from web.backend.checkpoint import get_pg_checkpointer as g; assert g(os.getenv('DR_DATABASE_URL')), 'checkpoint 不可用'" \
-    || die "checkpoint 运行时探测失败"
-docker logs deepresearch-staging-worker-1 --since 2m 2>&1 | grep -Ei "traceback|exception" && die "worker 近期有异常日志" || true
+    log "== 8) 冒烟 =="
+    sleep 2
+    curl -fsS http://127.0.0.1:8000/api/health/ready | grep -q '"ok":true' || die "本机 readiness 失败"
+    curl -sk --ssl-revoke-best-effort -fsS "$PUBLIC_URL/api/health/ready" | grep -q '"ok":true' || die "公网 readiness 失败"
+    docker exec deepresearch-staging-worker-1 python -c \
+        "import os; from web.backend.checkpoint import get_pg_checkpointer as g; assert g(os.getenv('DR_DATABASE_URL')), 'checkpoint 不可用'" \
+        || die "checkpoint 运行时探测失败"
+    docker logs deepresearch-staging-worker-1 --since 2m 2>&1 | grep -Ei "traceback|exception" && die "worker 近期有异常日志" || true
+    docker inspect --format '{{.State.Health.Status}}' deepresearch-staging-export-1 | grep -q healthy \
+        || die "export 容器未就绪（需求 38 F2）"
+    docker logs deepresearch-staging-export-1 --since 2m 2>&1 | grep -Ei "traceback|exception" && die "export 近期有异常日志" || true
 
 record "$NEW_SHA" "ok"
 log "== 部署完成：$PREV_SHA → $NEW_SHA =="

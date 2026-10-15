@@ -153,10 +153,12 @@ services:
 
   # 需求 38 F2：PDF 导出服务（supervisor；单并发；常驻渲染子进程；PG 认领 + 租约）。
   # 700MB：实测约空闲 150MB、渲染峰值约 500MB（需求 38 §12.7）；入口只加载渲染所需模块。
+  # 与 api 共用同一镜像 tag（构建产物单一；deploy.sh 回滚 tag 天然覆盖 export）。
   export:
     build:
       context: .
       dockerfile: Dockerfile.api
+    image: deepresearch-staging-api:latest
     restart: unless-stopped
     command: ["python", "-m", "web.backend.export_worker"]
     depends_on:

@@ -132,6 +132,7 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
+| 2026-10-16 | 批次 5 F2 staging 冒烟 + 部署链路修复 | staging 全链路（真 run / s3 产物路径）：作业 QUEUED→RUNNING→SUCCEEDED 约 14s（325KB PDF）、结果 TTL 899s、PDF 2 页 CJK 可提取 + 元数据头 + 来源附录完整；**修复部署缺口**：deploy.sh/compose 此前未拉起 export（仅 api 依赖拉起 export-redis）⇒ export 与 api 共用镜像 tag，滚动 worker→api→export、回滚与冒烟同步覆盖；冒烟痕迹已清理 |
 | 2026-10-16 | 批次 5 F2 后端交付 | PDF 异步导出服务（Issue #225）：PG `export_jobs`（迁移 0025：SKIP LOCKED 认领/租约/过期回收/幂等复用/结果 TTL）+ 受限渲染器（全量转义/拒外部资源/Noto CJK/页数·字节上限）+ 单并发 supervisor（超时硬杀重建、内存/计数回收）+ 作业 API（202 创建/状态/授权下载）+ 专用非持久化结果 Redis（禁 AOF/RDB、noeviction、写满显式失败）+ compose 700MB export 服务；测试 +25（渲染 7 例 Linux CI 真跑）；全量套件 0 失败。**下一步：F2b 前端轮询/e2e → F3 DOCX → 收口** |
 | 2026-10-15 | 批次 5 F1 交付 | 统一导出装配（Issue #225）：`ExportDocument` 模型（schema v1）+ 双路径统一渲染（store 历史导出头部/清单修复=读取时渲染、不改写产物；JSON 契约不变；历史降级显式「不可用」不伪造）+ 分享链路统一为仅正文（不扩大披露）+ 测试 +13 + 3 处旧断言更新；全量 1238 绿。**下一步：PDF 容量 spike** |
 | 2026-10-15 | 批次 5 立项 + 开工（v1 收窄） | 需求 38「交付形态」立项（Issue **#225**）；主理人评审修订版拍板（v1 = F1+PDF+DOCX；PPT/F5 后置；writer 原文口径/分享披露边界/生成前资源保护统一；开工登记 §12.7）；**PDF 容量 spike 作为锁依赖前置**；飞书镜像重建（开工版） |
