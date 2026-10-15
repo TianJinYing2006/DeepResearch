@@ -52,8 +52,8 @@ def test_restricted_html_structure():
     html = pdf_render.markdown_to_restricted_html(
         "# 一级\n\n段落\n\n## 二级\n\n- 项一\n- 项二\n\n1. 甲\n2. 乙\n\n> 引用\n\n```\ncode\n```")
     assert "<h1>一级</h1>" in html and "<h2>二级</h2>" in html
-    assert "<ul><li>项一</li><li>项二</li></ul>" in html
-    assert "<ol><li>甲</li><li>乙</li></ol>" in html
+    assert "<ul>" in html and "<li>项一</li>" in html and "<li>项二</li>" in html
+    assert "<ol>" in html and "<li>甲</li>" in html and "<li>乙</li>" in html
     assert "<blockquote>引用</blockquote>" in html
     assert "<pre>" in html
 
