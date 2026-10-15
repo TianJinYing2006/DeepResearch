@@ -28,6 +28,8 @@ botocore==1.43.103
     # via
     #   boto3
     #   s3transfer
+brotli==1.2.0
+    # via fonttools
 certifi==2026.7.22
     # via
     #   httpcore
@@ -35,9 +37,13 @@ certifi==2026.7.22
     #   requests
     #   sentry-sdk
 cffi==2.1.1
-    # via argon2-cffi-bindings
+    # via
+    #   argon2-cffi-bindings
+    #   weasyprint
 charset-normalizer==3.5.1
     # via requests
+cssselect2==0.10.1
+    # via weasyprint
 click==8.5.0
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
@@ -48,6 +54,8 @@ distro==1.9.0
     #   openai
 et-xmlfile==2.0.0
     # via openpyxl
+fonttools==4.67.0
+    # via weasyprint
 fastapi==0.141.1
     # via
     #   -r requirements.txt
@@ -205,7 +213,9 @@ packaging==26.3
     #   langsmith
     #   opentelemetry-instrumentation
 pillow==12.3.0
-    # via python-pptx
+    # via
+    #   python-pptx
+    #   weasyprint
 portalocker==3.2.0
     # via qdrant-client
 prometheus-client==0.26.0
@@ -241,8 +251,12 @@ pydantic-core==2.46.5
     # via pydantic
 pydantic-settings==2.15.0
     # via mcp
+pydyf==0.13.0
+    # via weasyprint
 pypdf==6.18.1
     # via -r requirements.txt
+pyphen==0.18.1
+    # via weasyprint
 python-dateutil==2.9.0.post0
     # via botocore
 python-docx==1.2.0
@@ -295,6 +309,12 @@ starlette==1.6.0
     #   mcp
 tenacity==9.1.4
     # via langchain-core
+tinycss2==1.5.1
+    # via
+    #   cssselect2
+    #   weasyprint
+tinyhtml5==2.1.0
+    # via weasyprint
 tqdm==4.70.1
     # via openai
 truststore==0.10.4 ; sys_platform != 'emscripten'
@@ -345,6 +365,13 @@ uvicorn==0.52.4
     # via
     #   -r requirements.txt
     #   mcp
+weasyprint==70.0
+    # via -r requirements.txt
+webencodings==0.6.1
+    # via
+    #   cssselect2
+    #   tinycss2
+    #   tinyhtml5
 websockets==16.1.1
     # via
     #   langgraph-sdk
@@ -359,5 +386,7 @@ xxhash==4.0.1
     # via
     #   langgraph
     #   langsmith
+zopfli==0.4.3
+    # via fonttools
 zstandard==0.25.0
     # via langsmith

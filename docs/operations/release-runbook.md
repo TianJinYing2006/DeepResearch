@@ -377,6 +377,41 @@ curl -fsS -X POST https://<host>/mcp/ -H "Authorization: Bearer $DR_MCP_TOKEN" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+### 7.6 PDF 导出作业（需求 38 F2：异步作业 + 专用结果通道）
+
+**服务拓扑**：`export`（700MB；单并发 supervisor，`python -m web.backend.export_worker`）+
+`export-redis`（结果通道；**非持久化**：禁 AOF/RDB、`maxmemory 256mb`、`noeviction`）。
+作业事实源在 PostgreSQL `export_jobs`（迁移 `0025`）；主 Redis 仅唤醒信号（丢失无害，2s 轮询兜底）。
+API 侧端点：`POST /api/research/{run_id}/export-jobs`（202 + `export_id`；幂等复用）→
+`GET …/export-jobs/{export_id}`（状态）→ `GET …/export-jobs/{export_id}/download`
+（每次复核 run 所有权 + 输出 gate + 结果有效期；`application/pdf` + `no-store`）。
+
+**配置（环境变量，缺省即默认值）**：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DR_EXPORT_REDIS_URL` | 空（fail-fast） | 结果通道（compose 固定为 `redis://export-redis:6379/0`）；API 与 export 两侧都必须配置 |
+| `DR_EXPORT_PDF_MAX_INPUT_BYTES` | 2MiB | 装配后输入上限（API 前置早拒 + export 复检） |
+| `DR_EXPORT_PDF_MAX_PAGES` / `MAX_OUTPUT_BYTES` | 100 / 20MiB | 成品约束（超限 ⇒ 作业 FAILED） |
+| `DR_EXPORT_PDF_TIMEOUT_SECONDS` | 30 | 单次渲染硬超时（超时硬杀渲染子进程重建，作业重排） |
+| `DR_EXPORT_RESULT_TTL_SECONDS` | 900 | 结果 TTL（从完成起算，**下载不续期**） |
+| `DR_EXPORT_RESULT_BUDGET_BYTES` | 192MiB | 结果累计预算（写满 ⇒ `export_cache_full`，**不驱逐**未过期结果） |
+| `DR_EXPORT_RECYCLE_EVERY_JOBS` / `_MEMORY_MB` | 25 / 600 | 渲染子进程回收：每 N 作业或容器 `memory.current` 超阈值 |
+
+**排障速查**：
+
+- 作业长期 `QUEUED`：export 服务未起 / 健康检查失败 → `docker compose ps export`；
+  看 `docker compose logs export`（认领/租约/回收均有日志）。
+- 作业 `RUNNING` 卡住：租约 60s 过期后自动回收重排（`attempt ≤ 2` 后 `FAILED
+  export_lease_expired`）；确认 export 容器存活即可自愈。
+- `export_cache_full`（终态 FAILED）：结果 Redis 达预算 ⇒ 等 TTL 过期后让用户重新申请；
+  勿改 `noeviction`（驱逐会丢未下载结果）。
+- `export_result_expired`（下载 410）：TTL 已过/结果丢失 ⇒ 用户重新申请即再生成（幂等复用仅限未过期结果）。
+- 内存增长：export 容器 `memory.current` ≥600MB 或每 25 作业自动回收渲染子进程；
+  若持续接近 700MB 限额，先降 `DR_EXPORT_PDF_MAX_PAGES` 再评估限额（勿直接抬到研究 worker 量级）。
+- 重建/回滚：`export` 与 `export-redis` 均为无状态可重建；`export-redis` 重启会清空未下载结果
+  （**预期行为**：用户侧结构化过期错误 + 重新申请；作业状态不丢，因权威在 PG）。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

@@ -64,6 +64,27 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         404, False,
         "本次运行没有产出报告（被取消 / 超时 / 失败）。可调整参数后重新运行。",
         component="web"),
+    # --- 需求 38 F2：PDF 异步导出作业 --------------------------------------
+    "export_job_not_found": ErrorSpec(
+        404, False,
+        "导出作业不存在或不属于该运行：确认 export_id 后重试（作业随运行删除而清理）。",
+        component="web"),
+    "export_not_ready": ErrorSpec(
+        409, True,
+        "导出尚未完成（排队 / 渲染中）：稍后重新查询状态或下载。",
+        component="web"),
+    "export_result_expired": ErrorSpec(
+        410, True,
+        "导出结果已过期（默认保留 15 分钟，下载不续期）：重新申请导出即可再生成。",
+        component="web"),
+    "export_unavailable": ErrorSpec(
+        503, True,
+        "导出结果通道暂不可用：稍后重试；持续失败请检查 export 服务与结果 Redis 状态。",
+        component="web"),
+    "export_too_large": ErrorSpec(
+        413, False,
+        "报告超出 PDF 导出上限（输入 2MiB）：改用 md / json 导出。",
+        component="web"),
     # --- 任务列表管理（需求 22） ------------------------------------------
     "run_not_retryable": ErrorSpec(
         409, False,

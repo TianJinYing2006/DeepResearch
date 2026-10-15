@@ -1406,6 +1406,126 @@ class RunStore:
             )
             return cur.fetchone() is not None
 
+    # ---- 需求 38 F2：PDF 导出作业（PG 权威状态；Redis 仅唤醒 + 专用结果通道）----
+
+    def create_export_job(self, job_id: str, *, run_id: str, user_id: Optional[str],
+                          request_hash: str, max_attempts: int = 2) -> dict[str, Any]:
+        """创建 QUEUED 作业（唯一冲突由调用方先查复用；冲突会抛 UniqueViolation）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO export_jobs (job_id, run_id, user_id, request_hash, max_attempts) "
+                "VALUES (%s, %s, %s, %s, %s) RETURNING *",
+                (job_id, run_id, user_id, request_hash, max_attempts),
+            )
+            return cur.fetchone()
+
+    def get_export_job(self, job_id: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM export_jobs WHERE job_id = %s", (job_id,))
+            return cur.fetchone()
+
+    def find_reusable_export_job(self, request_hash: str) -> Optional[dict[str, Any]]:
+        """幂等复用：进行中（QUEUED/RUNNING）或结果未过期的 SUCCEEDED（按创建时间倒序取一）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM export_jobs WHERE request_hash = %s AND ("
+                "  status IN ('QUEUED', 'RUNNING')"
+                "  OR (status = 'SUCCEEDED' AND result_expires_at > now())"
+                ") ORDER BY created_at DESC LIMIT 1",
+                (request_hash,),
+            )
+            return cur.fetchone()
+
+    def claim_export_job(self, owner: str, *, lease_seconds: int = 60) -> Optional[dict[str, Any]]:
+        """认领一个 QUEUED 作业（FOR UPDATE SKIP LOCKED）；无作业返回 None。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET status = 'RUNNING', lease_owner = %s,"
+                "  lease_expires_at = now() + make_interval(secs => %s),"
+                "  attempt = attempt + 1, started_at = COALESCE(started_at, now())"
+                " WHERE job_id = ("
+                "   SELECT job_id FROM export_jobs WHERE status = 'QUEUED'"
+                "   ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
+                " ) RETURNING *",
+                (owner, lease_seconds),
+            )
+            return cur.fetchone()
+
+    def renew_export_job_lease(self, job_id: str, owner: str, *, lease_seconds: int = 60) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET lease_expires_at = now() + make_interval(secs => %s)"
+                " WHERE job_id = %s AND status = 'RUNNING' AND lease_owner = %s RETURNING job_id",
+                (lease_seconds, job_id, owner),
+            )
+            return cur.fetchone() is not None
+
+    def finish_export_job_success(self, job_id: str, owner: str, *, result_key: str,
+                                  result_bytes: int, result_hash: str,
+                                  result_expires_at: Any) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET status = 'SUCCEEDED', result_key = %s,"
+                "  result_bytes = %s, result_hash = %s, result_expires_at = %s,"
+                "  finished_at = now(), lease_owner = NULL, lease_expires_at = NULL,"
+                "  error_code = NULL, error_detail = NULL"
+                " WHERE job_id = %s AND status = 'RUNNING' AND lease_owner = %s RETURNING job_id",
+                (result_key, result_bytes, result_hash, result_expires_at, job_id, owner),
+            )
+            return cur.fetchone() is not None
+
+    def finish_export_job_failure(self, job_id: str, owner: str, *, error_code: str,
+                                  error_detail: str = "") -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET status = 'FAILED', error_code = %s, error_detail = %s,"
+                "  finished_at = now(), lease_owner = NULL, lease_expires_at = NULL"
+                " WHERE job_id = %s AND status = 'RUNNING' AND lease_owner = %s RETURNING job_id",
+                (error_code, (error_detail or "")[:300], job_id, owner),
+            )
+            return cur.fetchone() is not None
+
+    def requeue_export_job(self, job_id: str, owner: str, *, error_code: str,
+                           error_detail: str = "") -> Optional[str]:
+        """失败重试：attempt < max_attempts ⇒ 回 QUEUED（记错误）；否则 ⇒ FAILED。返回新状态。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET"
+                "  status = CASE WHEN attempt < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,"
+                "  error_code = %s, error_detail = %s,"
+                "  finished_at = CASE WHEN attempt < max_attempts THEN NULL ELSE now() END,"
+                "  lease_owner = NULL, lease_expires_at = NULL"
+                " WHERE job_id = %s AND status = 'RUNNING' AND lease_owner = %s"
+                " RETURNING status",
+                (error_code, (error_detail or "")[:300], job_id, owner),
+            )
+            row = cur.fetchone()
+            return row["status"] if row else None
+
+    def reclaim_expired_export_leases(self) -> int:
+        """租约过期回收：RUNNING 且租约过期 ⇒ 重排（attempt 余量内）或置 FAILED。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET"
+                "  status = CASE WHEN attempt < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,"
+                "  error_code = COALESCE(error_code, 'export_lease_expired'),"
+                "  finished_at = CASE WHEN attempt < max_attempts THEN NULL ELSE now() END,"
+                "  lease_owner = NULL, lease_expires_at = NULL"
+                " WHERE status = 'RUNNING' AND lease_expires_at IS NOT NULL"
+                "   AND lease_expires_at < now()"
+            )
+            return cur.rowcount
+
+    def expire_export_jobs(self) -> int:
+        """结果 TTL 到期：SUCCEEDED 且结果过期 ⇒ EXPIRED（bytes 由专用 Redis 侧 TTL 清除）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE export_jobs SET status = 'EXPIRED'"
+                " WHERE status = 'SUCCEEDED' AND result_expires_at IS NOT NULL"
+                "   AND result_expires_at < now()"
+            )
+            return cur.rowcount
+
     def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM users WHERE lower(email) = lower(%s)", (email,))
