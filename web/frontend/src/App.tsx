@@ -107,6 +107,8 @@ export default function App() {
   const [exportState, setExportState] = useState<'idle' | 'exported' | 'failed'>('idle')
   // 需求 38 F2：PDF 异步作业状态（创建→轮询→下载；expired = 结果过期需重新申请）
   const [pdfState, setPdfState] = useState<'idle' | 'working' | 'exported' | 'failed' | 'expired'>('idle')
+  // 需求 38 F3：DOCX 同步导出状态（API 进程内生成，无作业态）
+  const [docxState, setDocxState] = useState<'idle' | 'exported' | 'failed'>('idle')
   // R1（审计 U3）：读屏播报 —— 状态迁移 / 复制 / 导出结果写进隐藏 live region
   const [announcement, setAnnouncement] = useState('')
   // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
@@ -275,6 +277,11 @@ export default function App() {
     else if (pdfState === 'expired') setAnnouncement('PDF 结果已过期，请重新导出')
   }, [pdfState])
 
+  useEffect(() => {
+    if (docxState === 'exported') setAnnouncement('DOCX 已开始下载')
+    else if (docxState === 'failed') setAnnouncement('DOCX 导出失败，请重试')
+  }, [docxState])
+
   // R3（审计 U43）：草稿防抖落 sessionStorage + 离页强制 flush（刷新/关标签不丢）
   const draftRef = useRef({ topic, instructions })
   useEffect(() => {
@@ -312,6 +319,7 @@ export default function App() {
     setLastRequest(params)
     setExportState('idle')
     setPdfState('idle')
+    setDocxState('idle')
     storeLaunchParams(params)
     void start(params.topic, params.instructions, params.profile)
   }
@@ -341,6 +349,7 @@ export default function App() {
     setInstructions('')
     setExportState('idle')
     setPdfState('idle')
+    setDocxState('idle')
     setLaunchOpen(true)
     setAnnouncement('已清空输入，可开始新研究')
     window.setTimeout(() => document.getElementById('topic')?.focus(), 0)
@@ -355,12 +364,14 @@ export default function App() {
 
   // P1-6：改走后端导出 —— 前端 Blob 那份只有正文，脱离页面后无从自证来源；
   // 后端版本带 run_id / run_status / 降级条数等审计元数据与引用清单。
-  const exportReport = async () => {
+  // 需求 38 F3：md/docx 共用同一同步下载路径（`format` 区分；docx 在 API 进程内生成）。
+  const downloadReport = async (format: 'md' | 'docx') => {
     if (!runId || !hasReport || outputUnderReview) return
+    const setState = format === 'md' ? setExportState : setDocxState
     try {
-      const response = await fetch(`/api/research/${runId}/report?format=md`)
+      const response = await fetch(`/api/research/${runId}/report?format=${format}`)
       if (!response.ok) {
-        setExportState('failed')
+        setState('failed')
         return
       }
       const blob = await response.blob()
@@ -370,15 +381,18 @@ export default function App() {
       // 需求 17：优先用后端下发的文件名（话题名），取不到再回退 run_id
       anchor.download =
         filenameFromDisposition(response.headers.get('content-disposition')) ??
-        `deepresearch-${runId}.md`
+        `deepresearch-${runId}.${format}`
       anchor.click()
       URL.revokeObjectURL(url)
-      setExportState('exported')
-      window.setTimeout(() => setExportState('idle'), 1600)
+      setState('exported')
+      window.setTimeout(() => setState('idle'), 1600)
     } catch {
-      setExportState('failed')
+      setState('failed')
     }
   }
+
+  const exportReport = () => downloadReport('md')
+  const exportDocx = () => downloadReport('docx')
 
   // 需求 38 F2：PDF 走后端**异步作业**（专用 export 服务渲染；API 不阻塞）——
   // 创建（幂等复用）→ 轮询状态 → 授权下载；结果过期（410/TTL）提示重新导出。
@@ -561,9 +575,11 @@ export default function App() {
                   copyState={copyState}
                   exportState={exportState}
                   pdfState={pdfState}
+                  docxState={docxState}
                   onCopy={() => void copyReport()}
                   onExport={() => void exportReport()}
                   onExportPdf={() => void exportPdf()}
+                  onExportDocx={() => void exportDocx()}
                   shareEnabled={Boolean(options?.share_enabled)}
                   onShare={() => { if (runId && hasReport && !outputUnderReview) setShareRunId(runId) }}
                 />
