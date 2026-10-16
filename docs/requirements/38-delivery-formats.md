@@ -99,7 +99,7 @@
 - [x] F3：DOCX 导出——结构等价（标题层级/引用清单/附录） —— ✅（2026-10-16；`render_docx` 与 `render_markdown` 同信息结构 + 双路径同装配 + 端点/前端/e2e）
 - [ ] F4（若纳入）：PPT 简版——标题页/章节要点/引用页；超限保护
 - [ ] F5（后置/若纳入）：终局统计 spec 的字段、分母、缺失语义和 schema version 固定；图表仅进入导出附录，不改 `report_display`；测试 spec 稳定性及同构建环境渲染结果，不断言跨版本字节相同
-- [x] 前端：导出按钮支持新格式 + disabled 逻辑（under-review）+ 下载名 + e2e（桌面/窄屏）；分享页仍无导出 —— ✅（2026-10-16；PDF 作业 创建→轮询→下载/过期重发 + DOCX 同步导出 + e2e 3 例 + disabled/窄屏断言扩展）
+- [x] 前端：导出按钮支持新格式 + disabled 逻辑（under-review）+ 下载名 + e2e（桌面/窄屏）；分享页仍无导出 —— ✅（2026-10-16；PDF 作业 创建→轮询→下载/过期重发 + DOCX 同步导出 + e2e 3 例 + disabled/窄屏断言扩展；**历史面板同格式对齐**——预览卡 md/PDF/DOCX 三按钮 + 共享动作抽取）
 - [x] 输出 gate：flagged/under-review 对新格式同样阻断（测试）；分享链路仍无格式下载；下载设置 `Cache-Control: private, no-store`，错误响应不泄漏报告内容 —— ✅（2026-10-16；flagged 阻断 PDF 作业测试 + `no-store` 断言）
 - [x] 镜像：Dockerfile 增包 + 字体；**本地实测导出内存/时间并回填文档**（容量与部署口径） —— ✅（2026-10-16；镜像 **927MB**（+255MB：pango/字体/WeasyPrint）；容量口径回填 `production-readiness.md` §3.11；**长报告最终镜像复测已完成**：133.8KB/33 页 ⇒ 10.8s / 峰值 347MB / 余量 ~353MB，无需调整限额）
 - [x] 全量套件 0 失败；`SCORER_VERSION` 不变；FAQ/落地页文案更新（当前仅承诺 MD/JSON） —— ✅（2026-10-16；`SCORER_VERSION=w9.1` 未动；FAQ 与落地页文案更新为 Markdown / JSON / PDF / DOCX）
@@ -158,6 +158,7 @@ v1（F1 + 异步 PDF + DOCX）原 **4~6 天仅为同步渲染假设下的工程�
 | 2026-10-16 | F3 交付（DOCX） | 结构等价 DOCX 导出（同步轻量） | **`web/backend/docx_render.py`**（python-docx 写作侧：Title/Heading 层级/List Bullet/List Number/Quote/代码块 Consolas；东亚字体钉 `w:eastAsia`=宋体；与 `render_markdown` 同信息结构：元数据头 + 正文 + 引用清单 + 访问来源；None ⇒ 显式不可用、空列表 ⇒ 省略）；**端点** `GET /api/research/{run_id}/report?format=docx`（枚举扩展；内存/store 双路径同一装配；`application/vnd.openxmlformats-officedocument.wordprocessingml.document` + RFC 6266 `.docx` 文件名；输出 gate 同口径）；**前端** `导出 DOCX`（与 md 共用同步下载路径 `downloadReport(fmt)`）；**e2e** +1（同步下载/文件名/zip 魔数）+ disabled/窄屏断言扩展；测试 +7（渲染器 4 / 端点 3）；断言**结构**不承诺字节一致（§9 口径） | #225 |
 | 2026-10-16 | 收口（批次 5 完成） | 文档回填 + 文案 + 交付镜像重建 | **DoD 收尾**：镜像 927MB（+255MB）与容量口径回填 `production-readiness.md` **§3.11**（含结果通道数据流向登记）；FAQ（`docs/help/faq.md`）与落地页文案更新为 **Markdown / JSON / PDF / DOCX**；runbook 增 **§7.7**（同步导出协议 md/json/docx）；`SCORER_VERSION=w9.1` 未动（research_engine 零 diff）；全量套件 0 失败、e2e 26 例、`pip check` 通过；staging 部署 5ded4c5 并镜像内冒烟（DOCX 渲染 36.9KB zip 校验 + 前端产物含新按钮）；**飞书镜像按交付版重建**；批次 5（F1+F2+F3+收口）全部完成 | #225 |
 | 2026-10-16 | 容量复测 | 长报告最终镜像峰值复测（挂账项收尾） | staging（`154d307`）真链路复测：133.8KB 输入（装配后 142.8KB）⇒ **33 页 / 输出 370KB / 10.8s / 峰值 347MB**（0.2s 采样 max；作业后热态 ~295MB）；限额余量 ~353MB ⇒ **无需调整限额**；`production-readiness.md` §3.11 挂账项关闭；冒烟数据已清理 | #225 |
+| 2026-10-16 | 前后端对齐（历史面板） | 历史报告导出格式补齐 | **共享动作抽取** `web/frontend/src/lib/reportExport.ts`（同步 md/docx 下载 + PDF 异步作业创建/轮询/授权下载；主视图与历史面板**同源**，消除两套实现漂移）；**历史面板预览卡**新增 导出 .md / 导出 PDF / 导出 DOCX（忙碌态禁用、PDF 过期/失败提示；输出 gate 同口径——后端本就支持历史 run 三格式，此前仅 UI 未暴露）；e2e +1（三格式下载 + 忙碌态复位，mock 端点）；本地全量 e2e **84 例全过** | #225 |
 
 ## 12. 评审结论与补充设计
 

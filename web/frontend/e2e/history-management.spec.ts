@@ -91,4 +91,62 @@ test.describe('需求 22 历史任务管理（桌面端）', () => {
     await expect(page.getByTestId('history-empty')).toBeVisible()
     expect(archived).toBe(true)
   })
+
+  test('历史报告导出：md / PDF（异步作业）/ DOCX 三格式与主视图对齐', async ({ page }) => {
+    const runId = 'run-hist-export'
+    const disposition = (name: string) =>
+      `attachment; filename="hist.${name.split('.').pop()}"; filename*=UTF-8''${encodeURIComponent(name)}`
+    const rows = [row({ run_id: runId, topic: '历史导出验证', status: 'SUCCEEDED', has_report: true })]
+    await page.route('**/api/runs**', (route) => route.fulfill({ json: { runs: rows, limit: 10, offset: 0 } }))
+    await page.route(`**/api/research/${runId}/report?format=md`, (route) => route.fulfill({
+      contentType: 'text/markdown; charset=utf-8',
+      headers: { 'content-disposition': disposition('历史导出验证.md') },
+      body: '# 历史报告\n\n正文段落。',
+    }))
+    await page.route(`**/api/research/${runId}/report?format=docx`, (route) => route.fulfill({
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      headers: { 'content-disposition': disposition('历史导出验证.docx') },
+      body: 'PK-docx-bytes',
+    }))
+    // PDF 异步作业三端点（创建 202 → 状态 SUCCEEDED → 授权下载）
+    await page.route(`**/api/research/${runId}/export-jobs`, (route) => route.fulfill({
+      status: 202, json: { export_id: 'job-hist-1', status: 'QUEUED', reused: false },
+    }))
+    await page.route(`**/api/research/${runId}/export-jobs/job-hist-1`, (route) => route.fulfill({
+      json: { export_id: 'job-hist-1', status: 'SUCCEEDED', error_code: null,
+              result_bytes: 12, result_expires_at: null },
+    }))
+    await page.route(`**/api/research/${runId}/export-jobs/job-hist-1/download`, (route) => route.fulfill({
+      contentType: 'application/pdf',
+      headers: { 'content-disposition': disposition('历史导出验证.pdf') },
+      body: '%PDF-1.4 mock',
+    }))
+
+    await page.getByTestId('history-toggle').click()
+    await page.getByRole('button', { name: '查看报告' }).click()
+    await expect(page.getByTestId('history-preview')).toBeVisible()
+    await expect(page.getByTestId('history-preview')).toContainText('历史报告')
+
+    const [md] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('history-export').click(),
+    ])
+    expect(md.suggestedFilename()).toBe('历史导出验证.md')
+
+    const [pdf] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30_000 }),
+      page.getByTestId('history-export-pdf').click(),
+    ])
+    expect(pdf.suggestedFilename()).toBe('历史导出验证.pdf')
+
+    const [docx] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('history-export-docx').click(),
+    ])
+    expect(docx.suggestedFilename()).toBe('历史导出验证.docx')
+
+    // 三格式导出完成后按钮回到可用态（无残留忙碌态）
+    await expect(page.getByTestId('history-export')).toBeEnabled()
+    await expect(page.getByTestId('history-export-pdf')).toBeEnabled()
+  })
 })
