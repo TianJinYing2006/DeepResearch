@@ -412,6 +412,20 @@ API 侧端点：`POST /api/research/{run_id}/export-jobs`（202 + `export_id`；
 - 重建/回滚：`export` 与 `export-redis` 均为无状态可重建；`export-redis` 重启会清空未下载结果
   （**预期行为**：用户侧结构化过期错误 + 重新申请；作业状态不丢，因权威在 PG）。
 
+### 7.7 报告导出端点（需求 38：md / json / docx 同步；PDF 作业见 §7.6）
+
+`GET /api/research/{run_id}/report?format=md|json|docx`（P4-A：仅本人 run；P0-4：输出 gate
+`flagged` / `under_review` / `blocked` 一律 403，与页面查看同口径）：
+
+- `md`：Markdown（审计元数据头 + 正文 + 引用清单 + 访问来源；RFC 6266 话题名文件名）；
+- `json`：结构化载荷（程序处理；既有契约不变）；
+- `docx`（需求 38 F3）：python-docx **同步生成**（结构等价：标题层级/引用清单/附录；
+  东亚字体钉 `w:eastAsia`=宋体），轻量离线、无作业态；失败 ⇒ 结构化错误（md/json 永远可用）。
+
+排障：三个同步格式共用同一装配（内存未命中回落任务库产物；历史 run 缺 `export_json`
+⇒ 引用/来源显式「不可用」）；`report_not_ready`（未终局）/ `report_unavailable`（无产物）
+均为结构化错误，非 5xx。PDF 的异步链路与配置见 §7.6。
+
 ## 8. 记录模板（发布后 10 分钟内）
 
 ```text

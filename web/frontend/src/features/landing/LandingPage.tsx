@@ -18,7 +18,7 @@ const MARQUEE_TOKENS = [
   '可审计报告',
   '知识库检索',
   '运行档位与预算',
-  'Markdown / JSON 导出',
+  'Markdown / JSON / PDF / DOCX 导出',
   '来源可核验',
   '论断可追溯',
   '过程可复盘',
@@ -55,7 +55,7 @@ const FEATURES = [
   },
   {
     title: '随时导出',
-    copy: 'Markdown / JSON 一键导出，含审计元数据，文件名即话题名。',
+    copy: 'Markdown / JSON / PDF / DOCX 一键导出，含审计元数据，文件名即话题名。',
   },
 ]
 

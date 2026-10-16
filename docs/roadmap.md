@@ -82,7 +82,7 @@
 ## 3d. 批次 5：交付形态（v1 ≈4~6 天；**已立项：`docs/requirements/38-delivery-formats.md` / Issue #225**）
 
 > 来源：`docs/extension-directions-survey.md` §3 方向 C / §4 批次 5。纪律：导出不改研究图产出的 writer 原文（历史产物不还原原文）；新格式全量复用输出 gate；按需生成/不落盘；**生成前**输入/耗时/输出硬上限；分享仅只读 Markdown（披露边界明确）。
-> **状态：F1 已交付（2026-10-15）→ PDF 容量 spike 完成（2026-10-16）→ F2 全量交付（2026-10-16）→ F3 DOCX 交付（2026-10-16）**；下一步收口（文档/镜像与峰值资源实测回填）；PPT/F5 后置。
+> **状态：F1（10-15）→ spike（10-16）→ F2 全量（10-16）→ F3（10-16）→ 收口完成（10-16）——批次 5 交付形态全部完成**；PPT/F5 后置（独立决策）。
 
 | 阶段 | 内容 | 依赖 | 粗估 | 状态 |
 |---|---|---|---|---|
@@ -91,7 +91,7 @@
 | spike | PDF 容量实测（目标镜像峰值 RSS/耗时/字体回退） | F1 | — | ✅（2026-10-16；同步渲染否决 ⇒ 专用 export 服务 B；决策登记 §12.4/§12.7） |
 | F2 | PDF（专用 export 服务 + PG 作业 + 专用结果 Redis + CJK + 前端异步状态 + lock 外科式） | F1/spike | 另估 | ✅ 已交付（2026-10-16；后端 staging 冒烟 + 前端/e2e） |
 | F3 | DOCX（python-docx 写作侧；同步轻量；结构等价） | F1 | 0.5~1 天 | ✅ 已交付（2026-10-16；双路径同装配 + e2e） |
-| 收口 | 文档/镜像与峰值资源实测回填 | F1~F3 + PDF 服务 | ≥1 天 | ⏳ |
+| 收口 | 文档/镜像与峰值资源实测回填 | F1~F3 + PDF 服务 | ≥1 天 | ✅（2026-10-16；production-readiness §3.11 + FAQ/落地页文案 + runbook §7.7 + 交付镜像） |
 
 ## 4. 并行轨：上线路径（非代码为主，不占关键路径）
 
@@ -132,6 +132,7 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
+| 2026-10-16 | 批次 5 完成（收口） | 交付形态全量收口（Issue #225）：镜像 927MB（+255MB）与容量口径回填 production-readiness §3.11 + 结果通道数据流向登记；FAQ/落地页文案更新为 Markdown/JSON/PDF/DOCX；runbook §7.7（同步导出协议）；SCORER_VERSION 未动（research_engine 零 diff）；全量套件 0 失败、e2e 26 例；staging 部署 5ded4c5 + 镜像内冒烟（DOCX 渲染/前端按钮）；飞书镜像重建（交付版）。**F1+F2+F3+收口 全部完成；PPT/F5 后置** |
 | 2026-10-16 | 批次 5 F3 交付（DOCX） | 结构等价 DOCX 导出（Issue #225）：`docx_render.py`（python-docx 写作侧：Title/Heading/List Bullet/List Number/Quote/代码块；东亚字体钉宋体；与 `render_markdown` 同信息结构；None ⇒ 不可用、空列表 ⇒ 省略）+ `format=docx` 端点（双路径同装配 + RFC 6266 文件名 + 输出 gate）+ 前端 `导出 DOCX`（与 md 共用同步下载路径）+ e2e 1 例（文件名/zip 魔数）+ disabled/窄屏断言扩展；测试 +7（渲染器 4 / 端点 3，断言结构不承诺字节）；本地 e2e 26 例全过。**下一步：收口** |
 | 2026-10-16 | 批次 5 F2 全量交付（前端 + e2e） | PDF 异步导出前端状态机与端到端用例（Issue #225）：`导出 PDF` 按钮（working/exported/failed/expired；生成中禁用、过期重试）+ 创建（CSRF/幂等复用）→ 1s 轮询（≤60s）→ 授权下载（RFC 6266 文件名）；DR_DEMO 内存替身（零 PG/零渲染）支撑 e2e 2 例（全流程 + 幂等复用）+ disabled/窄屏断言扩展 + flagged 阻断测试；本地 e2e 24 例全过、vitest 41 / tsc / 守卫 / build 全绿。**F2 全量完成；下一步 F3 DOCX → 收口** |
 | 2026-10-16 | 批次 5 F2 staging 冒烟 + 部署链路修复 | staging 全链路（真 run / s3 产物路径）：作业 QUEUED→RUNNING→SUCCEEDED 约 14s（325KB PDF）、结果 TTL 899s、PDF 2 页 CJK 可提取 + 元数据头 + 来源附录完整；**修复部署缺口**：deploy.sh/compose 此前未拉起 export（仅 api 依赖拉起 export-redis）⇒ export 与 api 共用镜像 tag，滚动 worker→api→export、回滚与冒烟同步覆盖；冒烟痕迹已清理 |
