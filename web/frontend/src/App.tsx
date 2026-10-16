@@ -17,6 +17,7 @@ import {
   type StreamStatus,
   useResearchStream,
 } from './hooks/useResearchStream'
+import { csrfHeaders } from './lib/api'
 import { filenameFromDisposition } from './lib/download'
 import { initErrorTracking } from './lib/errorTracking'
 import { formatCost } from './lib/format'
@@ -104,6 +105,8 @@ export default function App() {
   // 用户可能在运行期间改了滑块，重试必须重跑原来那次，否则「重试」名不副实。
   const [lastRequest, setLastRequest] = useState<LaunchParams | null>(null)
   const [exportState, setExportState] = useState<'idle' | 'exported' | 'failed'>('idle')
+  // 需求 38 F2：PDF 异步作业状态（创建→轮询→下载；expired = 结果过期需重新申请）
+  const [pdfState, setPdfState] = useState<'idle' | 'working' | 'exported' | 'failed' | 'expired'>('idle')
   // R1（审计 U3）：读屏播报 —— 状态迁移 / 复制 / 导出结果写进隐藏 live region
   const [announcement, setAnnouncement] = useState('')
   // 实时运行时长：从「发起研究」那一刻起用定时器走秒。
@@ -265,6 +268,13 @@ export default function App() {
     else if (exportState === 'failed') setAnnouncement('导出失败，请重试')
   }, [exportState])
 
+  useEffect(() => {
+    if (pdfState === 'working') setAnnouncement('PDF 生成中，完成后会自动开始下载')
+    else if (pdfState === 'exported') setAnnouncement('PDF 已开始下载')
+    else if (pdfState === 'failed') setAnnouncement('PDF 导出失败，请重试')
+    else if (pdfState === 'expired') setAnnouncement('PDF 结果已过期，请重新导出')
+  }, [pdfState])
+
   // R3（审计 U43）：草稿防抖落 sessionStorage + 离页强制 flush（刷新/关标签不丢）
   const draftRef = useRef({ topic, instructions })
   useEffect(() => {
@@ -301,6 +311,7 @@ export default function App() {
     stoppedAtRef.current = null
     setLastRequest(params)
     setExportState('idle')
+    setPdfState('idle')
     storeLaunchParams(params)
     void start(params.topic, params.instructions, params.profile)
   }
@@ -329,6 +340,7 @@ export default function App() {
     setTopic('')
     setInstructions('')
     setExportState('idle')
+    setPdfState('idle')
     setLaunchOpen(true)
     setAnnouncement('已清空输入，可开始新研究')
     window.setTimeout(() => document.getElementById('topic')?.focus(), 0)
@@ -365,6 +377,66 @@ export default function App() {
       window.setTimeout(() => setExportState('idle'), 1600)
     } catch {
       setExportState('failed')
+    }
+  }
+
+  // 需求 38 F2：PDF 走后端**异步作业**（专用 export 服务渲染；API 不阻塞）——
+  // 创建（幂等复用）→ 轮询状态 → 授权下载；结果过期（410/TTL）提示重新导出。
+  const exportPdf = async () => {
+    if (!runId || !hasReport || outputUnderReview || pdfState === 'working') return
+    setPdfState('working')
+    const settle = (state: 'exported' | 'failed' | 'expired') => {
+      setPdfState(state)
+      if (state === 'exported') window.setTimeout(() => setPdfState('idle'), 2000)
+    }
+    try {
+      const created = await fetch(`/api/research/${runId}/export-jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: JSON.stringify({ kind: 'pdf' }),
+      })
+      if (!created.ok) {
+        settle('failed')
+        return
+      }
+      const { export_id: exportId } = (await created.json()) as { export_id: string }
+      // 渲染硬超时 30s + 排队余量 ⇒ 最多轮询 60s（1s 间隔）
+      let status = ''
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const probe = await fetch(`/api/research/${runId}/export-jobs/${exportId}`)
+        if (!probe.ok) {
+          settle('failed')
+          return
+        }
+        status = ((await probe.json()) as { status: string }).status
+        if (status === 'SUCCEEDED' || status === 'FAILED' || status === 'EXPIRED') break
+        await new Promise((resolve) => window.setTimeout(resolve, 1000))
+      }
+      if (status === 'EXPIRED') {
+        settle('expired')
+        return
+      }
+      if (status !== 'SUCCEEDED') {
+        settle('failed')
+        return
+      }
+      const response = await fetch(`/api/research/${runId}/export-jobs/${exportId}/download`)
+      if (!response.ok) {
+        settle(response.status === 410 ? 'expired' : 'failed')
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download =
+        filenameFromDisposition(response.headers.get('content-disposition')) ??
+        `deepresearch-${runId}.pdf`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      settle('exported')
+    } catch {
+      settle('failed')
     }
   }
 
@@ -488,8 +560,10 @@ export default function App() {
                   hasReport={hasReport}
                   copyState={copyState}
                   exportState={exportState}
+                  pdfState={pdfState}
                   onCopy={() => void copyReport()}
                   onExport={() => void exportReport()}
+                  onExportPdf={() => void exportPdf()}
                   shareEnabled={Boolean(options?.share_enabled)}
                   onShare={() => { if (runId && hasReport && !outputUnderReview) setShareRunId(runId) }}
                 />

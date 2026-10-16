@@ -11,8 +11,11 @@ type ReportCardProps = {
   hasReport: boolean
   copyState: 'idle' | 'copied'
   exportState: 'idle' | 'exported' | 'failed'
+  /** 需求 38 F2：PDF 异步作业状态（创建→轮询→下载；`working` 期间按钮禁用）。 */
+  pdfState: 'idle' | 'working' | 'exported' | 'failed' | 'expired'
   onCopy: () => void
   onExport: () => void
+  onExportPdf: () => void
   /** 需求 26：分享开关与入口（关闭时不渲染按钮）。 */
   shareEnabled?: boolean
   onShare?: () => void
@@ -42,7 +45,7 @@ export function ReportPreviewCard({ preview, stopping }: { preview: string; stop
   )
 }
 
-export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, onCopy, onExport, shareEnabled, onShare }: ReportCardProps) {
+export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, pdfState, onCopy, onExport, onExportPdf, shareEnabled, onShare }: ReportCardProps) {
   return (
     <section id="stage-report" className="surface-card overflow-hidden">
       <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -70,6 +73,24 @@ export function ReportCard({ result, runId, outputUnderReview, hasReport, copySt
             data-testid="export-button"
           >
             {exportState === 'exported' ? '已导出' : exportState === 'failed' ? '导出失败' : '导出 .md'}
+          </button>
+          {/* 需求 38 F2：PDF 走后端异步作业（专用 export 服务渲染；生成中禁用防重复提交） */}
+          <button
+            className="secondary-button !px-3 !py-2"
+            type="button"
+            onClick={onExportPdf}
+            disabled={!runId || !hasReport || outputUnderReview || pdfState === 'working'}
+            data-testid="export-pdf-button"
+          >
+            {pdfState === 'working'
+              ? 'PDF 生成中…'
+              : pdfState === 'exported'
+                ? '已导出 PDF'
+                : pdfState === 'expired'
+                  ? 'PDF 已过期，重试'
+                  : pdfState === 'failed'
+                    ? 'PDF 导出失败'
+                    : '导出 PDF'}
           </button>
           {shareEnabled && onShare && (
             <button

@@ -411,6 +411,19 @@ def _startup_store_maintenance(run_store: RunStore, execution_mode: str) -> None
 # P2-C：任务库（PostgreSQL）。演示模式不接库，保证 E2E / 本地 UI 演示零依赖。
 store = None if DEMO_MODE else _make_store()
 
+# 需求 38 F2：导出作业的 store（真实模式 = 任务库；DR_DEMO = 内存替身，零 PG 依赖）。
+# 端点只依赖其四个方法（get_run / find_reusable / create / get），演示替身见 demo_export.py。
+_demo_export_store = None
+if store is None and DEMO_MODE:
+    from .demo_export import DemoExportStore
+
+    _demo_export_store = DemoExportStore()
+
+
+def _export_store():
+    """导出端点使用的 store：真实=任务库；DR_DEMO=内存替身；两者皆无 ⇒ None（结构化不可用）。"""
+    return store if store is not None else _demo_export_store
+
 # 需求 25：错误追踪（Sentry 协议；DSN 空 = 关闭；观测旁路不阻断启动）
 init_error_tracking()
 
@@ -2551,9 +2564,10 @@ class ExportJobRequest(BaseModel):
 
 
 def _export_job_or_404(run_id: str, export_id: str) -> dict:
-    if store is None:
+    es = _export_store()
+    if es is None:
         raise http_error("persistence_unavailable", "导出作业需要任务库（DR_DATABASE_URL）")
-    job = _store_call(store.get_export_job, export_id)
+    job = _store_call(es.get_export_job, export_id)
     if job is None or job.get("run_id") != run_id:
         raise http_error("export_job_not_found", f"导出作业不存在：{export_id}")
     return job
@@ -2571,32 +2585,37 @@ def create_export_job(run_id: str, req: ExportJobRequest, request: Request) -> d
     owner = _authorize_run(request, run_id) or ""
     _check_csrf(request)
     _enforce_output_policy(run_id)
-    if store is None:
+    es = _export_store()
+    if es is None:
         raise http_error("persistence_unavailable", "导出作业需要任务库（DR_DATABASE_URL）")
-    row = _store_call(store.get_run, run_id)
+    row = _store_call(es.get_run, run_id)
     if row is None:
         raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
     if not row.get("finished_at"):
         raise http_error("report_not_ready", "研究尚未结束，暂无报告可导出")
-    report_text = _artifact_text(run_id, "report_md") or ""
-    if not report_text.strip():
-        raise http_error("report_unavailable", "本次运行没有产出报告")
-    if len(report_text.encode()) > EXPORT_PDF_MAX_INPUT_BYTES:
-        raise http_error(
-            "export_too_large",
-            f"报告超过 PDF 导出上限（{EXPORT_PDF_MAX_INPUT_BYTES} 字节），请改用 md/json",
-            detail=f"report_bytes={len(report_text.encode())}")
+    if store is None:  # 内存 / DR_DEMO：报告在 manager，无持久化产物可预检
+        if not manager.has_result(run_id):
+            raise http_error("report_unavailable", "本次运行没有产出报告")
+    else:
+        report_text = _artifact_text(run_id, "report_md") or ""
+        if not report_text.strip():
+            raise http_error("report_unavailable", "本次运行没有产出报告")
+        if len(report_text.encode()) > EXPORT_PDF_MAX_INPUT_BYTES:
+            raise http_error(
+                "export_too_large",
+                f"报告超过 PDF 导出上限（{EXPORT_PDF_MAX_INPUT_BYTES} 字节），请改用 md/json",
+                detail=f"report_bytes={len(report_text.encode())}")
     request_hash = hashlib.sha256(f"{run_id}|pdf|{owner}".encode()).hexdigest()
-    existing = _store_call(store.find_reusable_export_job, request_hash)
+    existing = _store_call(es.find_reusable_export_job, request_hash)
     if existing is not None:
         return {"export_id": existing["job_id"], "status": existing["status"], "reused": True}
     job_id = uuid.uuid4().hex[:12]
     try:
-        job = _store_call(store.create_export_job, job_id, run_id=run_id,
+        job = _store_call(es.create_export_job, job_id, run_id=run_id,
                           user_id=owner, request_hash=request_hash)
     except Exception as exc:  # noqa: BLE001 —— 并发同指纹冲突（唯一索引）⇒ 复用既有作业
         if getattr(exc, "sqlstate", None) == "23505":
-            existing = _store_call(store.find_reusable_export_job, request_hash)
+            existing = _store_call(es.find_reusable_export_job, request_hash)
             if existing is not None:
                 return {"export_id": existing["job_id"], "status": existing["status"],
                         "reused": True}
@@ -2643,17 +2662,30 @@ def download_export_job(run_id: str, export_id: str, request: Request) -> Respon
     if expires is None or expires <= datetime.now(UTC):
         raise http_error("export_result_expired", "导出结果已过期，请重新申请")
     client = _export_result_store()
-    if client is None:
-        raise http_error("export_unavailable", "结果通道未配置（DR_EXPORT_REDIS_URL）")
-    try:
-        pdf = client.get(_EXPORT_RESULT_KEY_PREFIX + export_id)
-    except Exception as exc:  # noqa: BLE001
-        raise http_error(
-            "export_unavailable", f"结果通道读取失败：{type(exc).__name__}") from exc
+    if client is not None:
+        try:
+            pdf = client.get(_EXPORT_RESULT_KEY_PREFIX + export_id)
+        except Exception as exc:  # noqa: BLE001
+            raise http_error(
+                "export_unavailable", f"结果通道读取失败：{type(exc).__name__}") from exc
+    else:
+        # DR_DEMO / 内存替身：结果随作业对象保存；真实模式未配通道 ⇒ 结构化不可用
+        get_result = getattr(_export_store(), "get_result", None)
+        if get_result is None:
+            raise http_error("export_unavailable", "结果通道未配置（DR_EXPORT_REDIS_URL）")
+        pdf = get_result(export_id)
     if not pdf:
         raise http_error("export_result_expired", "导出结果已过期或丢失，请重新申请")
-    row = _store_call(store.get_run, run_id) or {}
-    display, ascii_fallback = build_export_filename(row.get("topic"), run_id, ".pdf")
+    topic = None
+    if store is not None:
+        row = _store_call(store.get_run, run_id) or {}
+        topic = row.get("topic")
+    if not topic:
+        try:  # 内存 / DR_DEMO：话题名从 manager 载荷取；取不到回退 run_id 文件名
+            topic = (manager.export_payload(run_id) or {}).get("topic")
+        except Exception:  # noqa: BLE001 —— 文件名回退不影响下载本体
+            topic = None
+    display, ascii_fallback = build_export_filename(topic, run_id, ".pdf")
     return Response(
         content=pdf,
         media_type="application/pdf",

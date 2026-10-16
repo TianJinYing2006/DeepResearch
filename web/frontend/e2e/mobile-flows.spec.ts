@@ -132,6 +132,7 @@ test.describe('窄屏流程回归', () => {
     // 导出 / 复制按钮会换行 —— 换行到视野外是「布局不溢出」查不出的典型窄屏故障。
     // 刻意不断言「分享」：它受后端 `options.share_enabled` 开关控制，DR_DEMO 下未开启。
     await expectWithinViewport(page, page.getByTestId('export-button'), '导出按钮')
+    await expectWithinViewport(page, page.getByTestId('export-pdf-button'), 'PDF 导出按钮')
     await expectWithinViewport(page, page.getByRole('button', { name: '复制正文' }), '复制按钮')
 
     await noHorizontalOverflow(page, '长报告页')

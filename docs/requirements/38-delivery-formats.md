@@ -95,12 +95,12 @@
 
 - [x] TBD-0~7 拍板（记录进 §5 / §12.7）—— ✅（2026-10-15，主理人评审修订版）
 - [x] F1：私有导出内存/store 两路径一致；分享仍只读 Markdown，但内存/store 内容来源一致且披露字段明确；store 路径契约测试补齐 —— ✅（2026-10-15；`ExportDocument` 装配模型 + 双路径统一渲染 + 分享仅正文）
-- [ ] F2：PDF 导出——POST 创建异步作业（202 + export_id），状态可查询，完成后经 run 所有权/output gate 校验下载；中文正确（**文本层可提取中文断言**）、元数据头/引用清单/附录完整、输入/输出字节和耗时上限、下载名正确、过期结果可重新生成 —— 🔶 **后端已交付（2026-10-16）**：作业 API + PG `export_jobs` + 专用 export 服务 + 专用非持久化结果 Redis；前端状态轮询/e2e 待 F2b
+- [x] F2：PDF 导出——POST 创建异步作业（202 + export_id），状态可查询，完成后经 run 所有权/output gate 校验下载；中文正确（**文本层可提取中文断言**）、元数据头/引用清单/附录完整、输入/输出字节和耗时上限、下载名正确、过期结果可重新生成 —— ✅（2026-10-16；后端 staging 真 run 冒烟 + 前端异步状态机/e2e）
 - [ ] F3：DOCX 导出——结构等价（标题层级/引用清单/附录）
 - [ ] F4（若纳入）：PPT 简版——标题页/章节要点/引用页；超限保护
 - [ ] F5（后置/若纳入）：终局统计 spec 的字段、分母、缺失语义和 schema version 固定；图表仅进入导出附录，不改 `report_display`；测试 spec 稳定性及同构建环境渲染结果，不断言跨版本字节相同
-- [ ] 前端：导出按钮支持新格式 + disabled 逻辑（under-review）+ 下载名 + e2e（桌面/窄屏）；分享页仍无导出
-- [ ] 输出 gate：flagged/under-review 对新格式同样阻断（测试）；分享链路仍无格式下载；下载设置 `Cache-Control: private, no-store`，错误响应不泄漏报告内容
+- [x] 前端：导出按钮支持新格式 + disabled 逻辑（under-review）+ 下载名 + e2e（桌面/窄屏）；分享页仍无导出 —— ✅（2026-10-16；PDF 作业 创建→轮询→下载/过期重发 + e2e 2 例 + disabled/窄屏断言扩展）
+- [x] 输出 gate：flagged/under-review 对新格式同样阻断（测试）；分享链路仍无格式下载；下载设置 `Cache-Control: private, no-store`，错误响应不泄漏报告内容 —— ✅（2026-10-16；flagged 阻断 PDF 作业测试 + `no-store` 断言）
 - [ ] 镜像：Dockerfile 增包 + 字体；**本地实测导出内存/时间并回填文档**（容量与部署口径）
 - [ ] 全量套件 0 失败；`SCORER_VERSION` 不变；FAQ/落地页文案更新（当前仅承诺 MD/JSON）
 - [ ] 文档：导出协议入 `release-runbook.md`；依赖 lock 变更单列；`pip check` 通过
@@ -154,6 +154,7 @@ v1（F1 + 异步 PDF + DOCX）原 **4~6 天仅为同步渲染假设下的工程�
 | 2026-10-16 | 评审拍板 | PDF 临时结果通道 | 选择专用 Redis 临时结果服务：禁 AOF/RDB、独立内存上限、`noeviction` + TTL；PG 仍为作业权威状态，现有共享 Redis 只作唤醒 | 本文档 §5 / §12.4 |
 | 2026-10-16 | F2 交付（后端） | PDF 异步导出服务（§12.4 方案 B）实施 | **PG `export_jobs`**（迁移 0025 + 结构断言：部分唯一索引防重、`SKIP LOCKED` 认领、60s 租约/过期回收重排、结果元数据与 TTL）+ store 作业方法；**受限渲染器 `pdf_render.py`**（Markdown→HTML 全量转义、URL fetcher 拒绝一切外部资源、Noto CJK、页数/输出字节上限、常驻渲染子进程协议）；**`export_worker.py`** 单并发 supervisor（超时硬杀重建；容器内存 ≥600MB 或每 25 作业回收子进程）；**API**：202 创建（幂等复用 + 输入字节早拒）→ 状态查询 → 授权下载（每次复核所有权/输出 gate/结果有效期；`no-store`）；**专用结果 Redis**（禁 AOF/RDB、`noeviction`、写满 ⇒ `export_cache_full` 显式失败不驱逐不退回同步渲染）；compose 新增 700MB `export` 服务 + `export-redis`；Dockerfile.api 增 pango/Noto CJK；lock 外科式（weasyprint 70.0 + 9 依赖）；测试 +25（渲染 7 例在 Linux CI 真跑）；全量套件 0 失败；运维口径入 runbook §7.6 | #225 |
 | 2026-10-16 | F2 冒烟 + 部署修复 | staging 全链路冒烟与部署链路纳入 export | staging 真 run（s3 产物读取路径）作业 QUEUED→RUNNING→SUCCEEDED 约 14s / 325KB / attempt=1；结果通道 TTL 899s；PDF 2 页、CJK 文本层可提取、元数据头与「访问过的来源」附录完整（citations 空按 F1 语义省略）；**修复**：compose/deploy.sh 此前未纳入 export（仅被 api `depends_on` 拉起 export-redis）⇒ export 与 api 共用镜像 tag + deploy.sh 滚动 worker→api→export、回滚与冒烟同步覆盖（已在 staging 预验证重建 healthy）；冒烟作业与结果键已清理 | #225 |
+| 2026-10-16 | F2b 交付（前端 + e2e） | PDF 异步导出前端状态机与端到端用例 | **前端**：`导出 PDF` 按钮（`pdfState`：working/exported/failed/expired；生成中禁用防重复；过期提示重试）+ 创建（CSRF/幂等复用）→ 1s 轮询（≤60s）→ 授权下载（RFC 6266 文件名，回退 `deepresearch-<run>.pdf`）+ 读屏播报；**DR_DEMO 内存替身**（`demo_export.py`：零 PG/零渲染，端点经 `_export_store()` 派生切换）；**e2e** +2（创建→轮询→下载、幂等复用 `reused`）+ disabled（under-review）与窄屏可达断言扩展；**输出 gate**：flagged 阻断 PDF 作业测试；测试 +6（demo 3 / API gate 1 / e2e 2）；本地 e2e 24 例（含新 spec）全过、vitest 41 / tsc / 守卫 / build 全绿 | #225 |
 
 ## 12. 评审结论与补充设计
 
@@ -215,3 +216,4 @@ PDF、DOCX 和统一导出契约有明确用户价值；PPT 与图表则分别�
 - **方案比较**：A 复用 700MB 研究 worker，避免新增容器，但长研究任务会造成 PDF 排队数分钟；B 新增专用 export 服务，用户测量约空闲 150MB、峰值 500MB 内、稳定 6-10 秒，资源余量和隔离性更好，推荐 B。服务入口只加载必要依赖，避免 import 全量应用；依赖可以同基础镜像，但启动路径/健康检查/配置最小化。
 - **挂账（明确不在 v1）**：可审计 writer 原文 artifact；PPT；图表在线展示；通用跨租户导出平台。PDF job schema、有限重试、过期回收、结果缓存清理属于 v1 必做，不再算推广前挂账。
 - **F2 实施登记（2026-10-16，后端交付）**：接口契约 = `POST /api/research/{run_id}/export-jobs`（202；body `{"kind":"pdf"}`；同 run 进行中作业或未过期结果直接复用 `reused=true`；`report_not_ready`/`report_unavailable`/`export_too_large` 前置拒绝）→ `GET …/export-jobs/{export_id}`（状态/`error_code`/`result_bytes`/`result_expires_at`）→ `GET …/export-jobs/{export_id}/download`（SUCCEEDED 且未过期才发；`application/pdf` + RFC 6266 下载名 + `Cache-Control: private, no-store`；过期/丢失 ⇒ `export_result_expired`，可重新申请）。数据口径：PG `export_jobs` 权威（迁移 `0025_export_jobs.sql`；`checks/0025_schema_assert.sql` 结构断言）；结果 bytes 仅在专用 `export-redis`（`DR_EXPORT_REDIS_URL`；TTL 900s 从完成起算、下载不续期）；主 Redis 仅 `LPUSH` 唤醒（丢失由 2s 轮询兜底）。限额默认（环境变量可调，见 runbook §7.6）：输入 2MiB / 页数 100 / 输出 20MiB / 渲染硬超时 30s / 结果预算 192MiB / 回收阈值 600MB 或每 25 作业。失败分类：确定性（超限/无报告/缓存满）⇒ FAILED；瞬时（超时/渲染异常/管道断）⇒ 重排（attempt ≤ max_attempts=2）。
+- **F2b 实施登记（2026-10-16，前端 + e2e）**：前端 `pdfState` 状态机（`working/exported/failed/expired`；working 禁用、expired 提示重试）+ CSRF + 幂等复用 + 1s 轮询（≤60s，覆盖 30s 渲染硬超时）+ 授权下载（RFC 6266 文件名）。e2e（DR_DEMO）经**内存替身** `web/backend/demo_export.py`（静态最小 PDF；零 PG/零渲染；端点经 `_export_store()` 派生：真实=任务库、DR_DEMO=替身、皆无=结构化不可用）覆盖客户端全流程；真实渲染不在 e2e 断言范围（由 export 服务 staging 冒烟与 CI 渲染测试覆盖）。
