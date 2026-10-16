@@ -6,7 +6,7 @@
 > **竞品参照**（调研 §1.2~§1.3）：GPT Researcher 导出 MD/PDF/DOCX/JSON；ChatGPT Deep Research 导出 Markdown/Word/PDF；DeerFlow PPT（marp-cli）；Gemini 原生图表与信息图。
 > **前置（已交付）**：`web/backend/export.py`（md/json 导出契约）；R4 流式协议；分享（需求 26）与输出 gate（flagged 阻断）口径。
 > **纪律**：① 导出是**展示层**，不改研究图产出的 writer 原文；现有持久化报告可能是 `report_display`，不得声称能从历史产物还原 writer 原文；② 新格式全部复用输出 gate/flagged 阻断；③ 按需生成，不写入长期 `run_artifacts`；PDF 可经隔离服务和短 TTL 临时缓存交付，不视为永久归档；④ 分享页维持只读无格式下载（需求 26 边界，不因本批扩大）。
-> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/CfGVdplPGoaUEzxxTYocYEJgnwc（`CfGVdplPGoaUEzxxTYocYEJgnwc`，位于 `DeepResearch 需求文档` 文件夹；2026-10-14 按开工版重建，立项版已删）。
+> 飞书镜像：https://wcnnpvbxd7li.feishu.cn/docx/FKRIdJoyso5RfFx4WBqc8vchnXf（`FKRIdJoyso5RfFx4WBqc8vchnXf`，位于 `DeepResearch 需求文档` 文件夹；2026-10-16 按交付版重建，开工版已删）。
 
 ## 1. 元信息
 | 项 | 值 |
@@ -14,11 +14,11 @@
 | 编号 | 38 |
 | 标题 | 批次 5「交付形态」：统一导出装配 + PDF/DOCX 导出（PPT / 图表后置） |
 | 优先级 | P2 |
-| 状态 | 进行中 |
+| 状态 | **已合** |
 | 负责人 | TianJinYing2006 |
 | 关联 Issue | #225 |
-| 关联 PR | 待定 |
-| 创建 / 更新 | 2026-10-13 / 2026-10-15 |
+| 关联 PR | #226（立项+开工）/ #227（F1）/ #228（F2 后端）/ #229（部署修复）/ #230（F2b）/ #231（F3） |
+| 创建 / 更新 | 2026-10-13 / 2026-10-16 |
 | 前置评审 | **TBD-0~7 已拍板**（2026-10-15 主理人评审修订版；v1 = F1 + PDF + DOCX；PPT/F5 后置） |
 
 ## 2. 问题背景
@@ -101,9 +101,9 @@
 - [ ] F5（后置/若纳入）：终局统计 spec 的字段、分母、缺失语义和 schema version 固定；图表仅进入导出附录，不改 `report_display`；测试 spec 稳定性及同构建环境渲染结果，不断言跨版本字节相同
 - [x] 前端：导出按钮支持新格式 + disabled 逻辑（under-review）+ 下载名 + e2e（桌面/窄屏）；分享页仍无导出 —— ✅（2026-10-16；PDF 作业 创建→轮询→下载/过期重发 + DOCX 同步导出 + e2e 3 例 + disabled/窄屏断言扩展）
 - [x] 输出 gate：flagged/under-review 对新格式同样阻断（测试）；分享链路仍无格式下载；下载设置 `Cache-Control: private, no-store`，错误响应不泄漏报告内容 —— ✅（2026-10-16；flagged 阻断 PDF 作业测试 + `no-store` 断言）
-- [ ] 镜像：Dockerfile 增包 + 字体；**本地实测导出内存/时间并回填文档**（容量与部署口径）
-- [ ] 全量套件 0 失败；`SCORER_VERSION` 不变；FAQ/落地页文案更新（当前仅承诺 MD/JSON）
-- [ ] 文档：导出协议入 `release-runbook.md`；依赖 lock 变更单列；`pip check` 通过
+- [x] 镜像：Dockerfile 增包 + 字体；**本地实测导出内存/时间并回填文档**（容量与部署口径） —— ✅（2026-10-16；镜像 **927MB**（+255MB：pango/字体/WeasyPrint）；容量口径回填 `production-readiness.md` §3.11；长报告最终镜像复测登记为后续项）
+- [x] 全量套件 0 失败；`SCORER_VERSION` 不变；FAQ/落地页文案更新（当前仅承诺 MD/JSON） —— ✅（2026-10-16；`SCORER_VERSION=w9.1` 未动；FAQ 与落地页文案更新为 Markdown / JSON / PDF / DOCX）
+- [x] 文档：导出协议入 `release-runbook.md`；依赖 lock 变更单列；`pip check` 通过 —— ✅（2026-10-16；runbook §7.6/§7.7；weasyprint 依赖外科式单列于 §11 变更记录与 PR；`pip check` 通过）
 
 ## 8. 影响范围与风险
 
@@ -130,8 +130,8 @@
 |---|---|---|---|
 | 0 | TBD-0~7 拍板（主理人评审修订版） | — | ✅（2026-10-15） |
 | F1 | 双路径收口 + 装配入口 + store 测试 | 拍板 | ✅ 已交付（2026-10-15） |
-| F2 | PDF（专用 export 服务 + PG 作业 + 专用结果 Redis + CJK） | F1/spike | 后端已交付（2026-10-16）；前端/e2e 待 F2b |
-| F3 | DOCX（python-docx 写作侧） | F1 | 0.5~1 天 |
+| F2 | PDF（专用 export 服务 + PG 作业 + 专用结果 Redis + CJK） | F1/spike | ✅ 后端已交付（2026-10-16）；前端/e2e ✅（F2b 2026-10-16） |
+| F3 | DOCX（python-docx 写作侧） | F1 | ✅ 已交付（2026-10-16） |
 | F4 | PPT（后置，另估） | 独立决策 | 不计入 v1 |
 | F5 | 图表（先定统计 spec；导出图片后置） | 独立决策 | 不计入 v1 |
 | PDF 服务 | PG job 表/认领 + 专用入口 + 700MB compose 服务 + 有界结果通道 | F1 / 容量 spike | 另估，包含故障恢复与安全审查 |
@@ -156,6 +156,7 @@ v1（F1 + 异步 PDF + DOCX）原 **4~6 天仅为同步渲染假设下的工程�
 | 2026-10-16 | F2 冒烟 + 部署修复 | staging 全链路冒烟与部署链路纳入 export | staging 真 run（s3 产物读取路径）作业 QUEUED→RUNNING→SUCCEEDED 约 14s / 325KB / attempt=1；结果通道 TTL 899s；PDF 2 页、CJK 文本层可提取、元数据头与「访问过的来源」附录完整（citations 空按 F1 语义省略）；**修复**：compose/deploy.sh 此前未纳入 export（仅被 api `depends_on` 拉起 export-redis）⇒ export 与 api 共用镜像 tag + deploy.sh 滚动 worker→api→export、回滚与冒烟同步覆盖（已在 staging 预验证重建 healthy）；冒烟作业与结果键已清理 | #225 |
 | 2026-10-16 | F2b 交付（前端 + e2e） | PDF 异步导出前端状态机与端到端用例 | **前端**：`导出 PDF` 按钮（`pdfState`：working/exported/failed/expired；生成中禁用防重复；过期提示重试）+ 创建（CSRF/幂等复用）→ 1s 轮询（≤60s）→ 授权下载（RFC 6266 文件名，回退 `deepresearch-<run>.pdf`）+ 读屏播报；**DR_DEMO 内存替身**（`demo_export.py`：零 PG/零渲染，端点经 `_export_store()` 派生切换）；**e2e** +2（创建→轮询→下载、幂等复用 `reused`）+ disabled（under-review）与窄屏可达断言扩展；**输出 gate**：flagged 阻断 PDF 作业测试；测试 +6（demo 3 / API gate 1 / e2e 2）；本地 e2e 24 例（含新 spec）全过、vitest 41 / tsc / 守卫 / build 全绿 | #225 |
 | 2026-10-16 | F3 交付（DOCX） | 结构等价 DOCX 导出（同步轻量） | **`web/backend/docx_render.py`**（python-docx 写作侧：Title/Heading 层级/List Bullet/List Number/Quote/代码块 Consolas；东亚字体钉 `w:eastAsia`=宋体；与 `render_markdown` 同信息结构：元数据头 + 正文 + 引用清单 + 访问来源；None ⇒ 显式不可用、空列表 ⇒ 省略）；**端点** `GET /api/research/{run_id}/report?format=docx`（枚举扩展；内存/store 双路径同一装配；`application/vnd.openxmlformats-officedocument.wordprocessingml.document` + RFC 6266 `.docx` 文件名；输出 gate 同口径）；**前端** `导出 DOCX`（与 md 共用同步下载路径 `downloadReport(fmt)`）；**e2e** +1（同步下载/文件名/zip 魔数）+ disabled/窄屏断言扩展；测试 +7（渲染器 4 / 端点 3）；断言**结构**不承诺字节一致（§9 口径） | #225 |
+| 2026-10-16 | 收口（批次 5 完成） | 文档回填 + 文案 + 交付镜像重建 | **DoD 收尾**：镜像 927MB（+255MB）与容量口径回填 `production-readiness.md` **§3.11**（含结果通道数据流向登记）；FAQ（`docs/help/faq.md`）与落地页文案更新为 **Markdown / JSON / PDF / DOCX**；runbook 增 **§7.7**（同步导出协议 md/json/docx）；`SCORER_VERSION=w9.1` 未动（research_engine 零 diff）；全量套件 0 失败、e2e 26 例、`pip check` 通过；staging 部署 5ded4c5 并镜像内冒烟（DOCX 渲染 36.9KB zip 校验 + 前端产物含新按钮）；**飞书镜像按交付版重建**；批次 5（F1+F2+F3+收口）全部完成 | #225 |
 
 ## 12. 评审结论与补充设计
 
