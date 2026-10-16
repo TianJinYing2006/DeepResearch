@@ -90,3 +90,6 @@ web/frontend/.playwright/
 # UI 反模式检测器（impeccable）的本地作用域配置：--local 写的临时豁免，刻意不入库
 # 共享豁免在 .impeccable/config.json —— 那一份**要**入库（它是团队共识的误报登记表）
 .impeccable/config.local.json
+
+# 容量压测原始产物（tools/loadtest/README.md：不入库）
+reports/
