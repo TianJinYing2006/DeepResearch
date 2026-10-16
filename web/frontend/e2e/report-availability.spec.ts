@@ -35,7 +35,7 @@ for (const scenario of ['cancelled', 'timeout', 'empty-completed', 'normal', 'pa
       if (review) await expect(page.getByText('报告待人工复核', { exact: true })).toBeVisible()
       else await expect(page.locator('#stage-report')).toContainText('Available report')
     }
-    for (const action of [page.getByTestId('export-button'), page.getByTestId('export-pdf-button'), page.getByTestId('share-button'), page.getByRole('button', { name: '复制正文' })]) {
+    for (const action of [page.getByTestId('export-button'), page.getByTestId('export-pdf-button'), page.getByTestId('export-docx-button'), page.getByTestId('share-button'), page.getByRole('button', { name: '复制正文' })]) {
       if (!available || review) await expect(action).toBeDisabled()
       else await expect(action).toBeEnabled()
     }

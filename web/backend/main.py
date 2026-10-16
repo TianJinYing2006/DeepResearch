@@ -41,6 +41,7 @@ from config import config
 from research_engine.search.base import KNOWN_PROVIDERS
 from research_engine.usage import pop_usage_sink, push_usage_sink
 
+from . import docx_render as docx_render_mod
 from . import export as export_mod
 from . import followup as followup_mod
 from .agui import (
@@ -2439,6 +2440,17 @@ def _markdown_export_response(body: str, topic: Optional[str], run_id: str) -> R
     )
 
 
+def _docx_export_response(body: bytes, topic: Optional[str], run_id: str) -> Response:
+    """需求 38 F3：DOCX 同步导出（轻量、离线；生成在 API 进程内完成，不走作业队列）。"""
+    display, ascii_fallback = build_export_filename(topic, run_id, ".docx")
+    return Response(
+        content=body,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"),
+        headers={"Content-Disposition": content_disposition(display, ascii_fallback)},
+    )
+
+
 def _artifact_text(run_id: str, kind: str) -> Optional[str]:
     """读取文本产物（P1-6：对象存储与 PG 双路径；失败/缺失返回 None，不抛）。"""
     try:
@@ -2483,13 +2495,16 @@ def _export_from_store(run_id: str, fmt: str, row: dict) -> Response:
     )
     if not doc.report.strip():
         raise http_error("report_unavailable", "本次运行没有产出报告")
+    if fmt == "docx":
+        return _docx_export_response(docx_render_mod.render_docx(doc), row.get("topic"), run_id)
     return _markdown_export_response(export_mod.render_markdown(doc), row.get("topic"), run_id)
 
 
 @app.get("/api/research/{run_id}/report")
 def export_report(run_id: str, request: Request,
-                  fmt: str = Query("md", alias="format", pattern="^(md|json)$")) -> Response:
-    """报告导出（P1-6）：`format=md` 下载 Markdown，`format=json` 取结构化载荷。
+                  fmt: str = Query("md", alias="format", pattern="^(md|json|docx)$")) -> Response:
+    """报告导出（P1-6）：`format=md` 下载 Markdown，`format=json` 取结构化载荷，
+    `format=docx`（需求 38 F3）同步生成 Word 文档。
 
     为什么走后端而不沿用前端 Blob：前端那份只有 `result.report` 正文，
     导出的文件脱离页面后无从自证来源；后端版本带 run_id / run_status /
@@ -2515,6 +2530,10 @@ def export_report(run_id: str, request: Request,
 
     if fmt == "json":
         return JSONResponse(payload)
+    if fmt == "docx":
+        return _docx_export_response(
+            docx_render_mod.render_docx(export_mod.document_from_payload(payload)),
+            payload.get("topic"), run_id)
     return _markdown_export_response(
         manager.export_markdown(run_id) or "", payload.get("topic"), run_id)
 

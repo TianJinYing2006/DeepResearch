@@ -13,9 +13,12 @@ type ReportCardProps = {
   exportState: 'idle' | 'exported' | 'failed'
   /** 需求 38 F2：PDF 异步作业状态（创建→轮询→下载；`working` 期间按钮禁用）。 */
   pdfState: 'idle' | 'working' | 'exported' | 'failed' | 'expired'
+  /** 需求 38 F3：DOCX 同步导出状态。 */
+  docxState: 'idle' | 'exported' | 'failed'
   onCopy: () => void
   onExport: () => void
   onExportPdf: () => void
+  onExportDocx: () => void
   /** 需求 26：分享开关与入口（关闭时不渲染按钮）。 */
   shareEnabled?: boolean
   onShare?: () => void
@@ -45,7 +48,7 @@ export function ReportPreviewCard({ preview, stopping }: { preview: string; stop
   )
 }
 
-export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, pdfState, onCopy, onExport, onExportPdf, shareEnabled, onShare }: ReportCardProps) {
+export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, pdfState, docxState, onCopy, onExport, onExportPdf, onExportDocx, shareEnabled, onShare }: ReportCardProps) {
   return (
     <section id="stage-report" className="surface-card overflow-hidden">
       <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -91,6 +94,16 @@ export function ReportCard({ result, runId, outputUnderReview, hasReport, copySt
                   : pdfState === 'failed'
                     ? 'PDF 导出失败'
                     : '导出 PDF'}
+          </button>
+          {/* 需求 38 F3：DOCX 同步导出（API 进程内生成；轻量无作业态） */}
+          <button
+            className="secondary-button !px-3 !py-2"
+            type="button"
+            onClick={onExportDocx}
+            disabled={!runId || !hasReport || outputUnderReview}
+            data-testid="export-docx-button"
+          >
+            {docxState === 'exported' ? '已导出 DOCX' : docxState === 'failed' ? 'DOCX 导出失败' : '导出 DOCX'}
           </button>
           {shareEnabled && onShare && (
             <button
