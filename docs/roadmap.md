@@ -132,6 +132,7 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
+| 2026-10-16 | 批次 5 容量复测（挂账收尾） | 长报告最终镜像峰值复测：133.8KB 输入 ⇒ 33 页 / 370KB / 10.8s / 峰值 347MB（余量 ~353MB）⇒ 无需调整限额；production-readiness §3.11 挂账项关闭；冒烟数据已清理 |
 | 2026-10-16 | 批次 5 完成（收口） | 交付形态全量收口（Issue #225）：镜像 927MB（+255MB）与容量口径回填 production-readiness §3.11 + 结果通道数据流向登记；FAQ/落地页文案更新为 Markdown/JSON/PDF/DOCX；runbook §7.7（同步导出协议）；SCORER_VERSION 未动（research_engine 零 diff）；全量套件 0 失败、e2e 26 例；staging 部署 5ded4c5 + 镜像内冒烟（DOCX 渲染/前端按钮）；飞书镜像重建（交付版）。**F1+F2+F3+收口 全部完成；PPT/F5 后置** |
 | 2026-10-16 | 批次 5 F3 交付（DOCX） | 结构等价 DOCX 导出（Issue #225）：`docx_render.py`（python-docx 写作侧：Title/Heading/List Bullet/List Number/Quote/代码块；东亚字体钉宋体；与 `render_markdown` 同信息结构；None ⇒ 不可用、空列表 ⇒ 省略）+ `format=docx` 端点（双路径同装配 + RFC 6266 文件名 + 输出 gate）+ 前端 `导出 DOCX`（与 md 共用同步下载路径）+ e2e 1 例（文件名/zip 魔数）+ disabled/窄屏断言扩展；测试 +7（渲染器 4 / 端点 3，断言结构不承诺字节）；本地 e2e 26 例全过。**下一步：收口** |
 | 2026-10-16 | 批次 5 F2 全量交付（前端 + e2e） | PDF 异步导出前端状态机与端到端用例（Issue #225）：`导出 PDF` 按钮（working/exported/failed/expired；生成中禁用、过期重试）+ 创建（CSRF/幂等复用）→ 1s 轮询（≤60s）→ 授权下载（RFC 6266 文件名）；DR_DEMO 内存替身（零 PG/零渲染）支撑 e2e 2 例（全流程 + 幂等复用）+ disabled/窄屏断言扩展 + flagged 阻断测试；本地 e2e 24 例全过、vitest 41 / tsc / 守卫 / build 全绿。**F2 全量完成；下一步 F3 DOCX → 收口** |

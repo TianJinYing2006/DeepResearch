@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-16（批次 5 容量复测收尾）**：staging（`154d307`）真链路长报告复测——133.8KB 输入（装配后 142.8KB）⇒ **33 页 / 输出 370KB / 10.8s / 峰值内存 347MB**（0.2s 采样 max；作业后热态 ~295MB，未触回收阈值）；限额余量 ~353MB ⇒ **无需调整限额**；`production-readiness.md` §3.11 挂账项关闭；冒烟数据已清理。 |
 | 更新 | **2026-10-16（需求 38 已合 ⇒ 批次 5「交付形态」完成）**：F1（统一导出装配）+ PDF 容量 spike + F2（PDF 异步导出服务全量：后端 staging 冒烟 + 前端状态机/e2e）+ F3（DOCX 结构等价）+ 收口全部交付（#227~#231）。收口：镜像 **927MB（+255MB）** 与容量口径回填 production-readiness **§3.11** + 结果通道数据流向登记；FAQ/落地页文案更新为 **Markdown / JSON / PDF / DOCX**；runbook **§7.7**（同步导出协议）；`SCORER_VERSION=w9.1` 未动（research_engine 零 diff）；staging 部署 `5ded4c5` + 镜像内冒烟（DOCX 渲染 zip 校验 / 前端含三格式按钮）；飞书镜像按交付版重建。**PPT/F5 后置（独立决策）。** |
 | 更新 | **2026-10-16（需求 38 F3 交付 ⇒ DOCX 导出）**：`docx_render.py`（python-docx 写作侧：Title/标题层级/无序·有序列表/引用/代码块 Consolas；东亚字体钉 `w:eastAsia`=宋体）+ `format=docx` 端点（内存/store 双路径同一装配；RFC 6266 `.docx` 文件名；输出 gate 同口径）+ 前端 `导出 DOCX`（与 md 共用同步下载路径）+ e2e 1 例（文件名/zip 魔数）+ under-review 禁用与窄屏可达断言扩展；结构等价断言（样式名/层级/文本），不承诺字节一致；测试 +7；本地 e2e 26 例、vitest 41、tsc/守卫/build、后端全量 0 失败。**F3 完成；下一步收口（文档/镜像与峰值资源实测回填）。** |
 | 更新 | **2026-10-16（需求 38 F2 全量交付 ⇒ PDF 异步导出闭环）**：前端 `导出 PDF`（状态机 working/exported/failed/expired：生成中禁用防重复、过期提示重试）+ 创建（CSRF/幂等复用）→ 1s 轮询（≤60s）→ 授权下载（RFC 6266 话题名文件名）；**DR_DEMO 内存替身**（`demo_export.py`，零 PG/零渲染）支撑 e2e 2 例（创建→轮询→下载、幂等 `reused`）+ under-review 禁用/窄屏可达断言扩展 + flagged 阻断 PDF 作业测试；本地 e2e 24 例、vitest 41、tsc/守卫/build 全绿。**F2 全量完成；下一步 F3 DOCX → 收口。** |
