@@ -5,8 +5,8 @@ import { ReportView } from '../../components/ReportView'
 import ShareModal from '../../components/ShareModal'
 import { SkeletonRows } from '../../components/ui'
 import { csrfHeaders, readErrorMessage } from '../../lib/api'
-import { filenameFromDisposition } from '../../lib/download'
 import { formatDateTime } from '../../lib/format'
+import { downloadPdfReport, downloadSyncReport } from '../../lib/reportExport'
 import type { RunBrief } from '../../types/api'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -43,7 +43,8 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
   const [preview, setPreview] = useState<{ runId: string; markdown: string } | null>(null)
   const [previewError, setPreviewError] = useState('')
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null)
-  const [previewExporting, setPreviewExporting] = useState(false)
+  // 需求 38：历史报告导出格式与主视图对齐（md / DOCX 同步；PDF 异步作业）；忙碌态 = 当前格式
+  const [previewExport, setPreviewExport] = useState<'idle' | 'md' | 'pdf' | 'docx'>('idle')
   // 需求 26：历史报告分享（复用 ShareModal：创建/复制/撤销/永久确认）
   const [shareRunId, setShareRunId] = useState<string | null>(null)
 
@@ -144,33 +145,24 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
     }
   }
 
-  /** 历史报告导出（走后端导出端点：正文 + 审计元数据 + 引用清单）。 */
-  async function exportPreview(runId: string) {
-    if (previewExporting) return
-    setPreviewExporting(true)
+  /** 历史报告导出（需求 38：与主视图同源共享动作——md/DOCX 同步，PDF 异步作业）。 */
+  async function exportPreviewSync(format: 'md' | 'docx') {
+    if (!preview || previewExport !== 'idle') return
+    setPreviewExport(format)
     setPreviewError('')
-    try {
-      const response = await fetch(`/api/research/${runId}/report?format=md`)
-      if (!response.ok) {
-        setPreviewError(await readErrorMessage(response))
-        return
-      }
-      const blob = await response.blob()
-      const filename = filenameFromDisposition(response.headers.get('content-disposition'))
-        ?? `deepresearch-${runId}.md`
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = filename
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      URL.revokeObjectURL(url)
-    } catch {
-      setPreviewError('网络错误，请重试')
-    } finally {
-      setPreviewExporting(false)
-    }
+    const message = await downloadSyncReport(preview.runId, format)
+    if (message) setPreviewError(message)
+    setPreviewExport('idle')
+  }
+
+  async function exportPreviewPdf() {
+    if (!preview || previewExport !== 'idle') return
+    setPreviewExport('pdf')
+    setPreviewError('')
+    const state = await downloadPdfReport(preview.runId)
+    if (state === 'expired') setPreviewError('PDF 结果已过期，请重新导出')
+    else if (state === 'failed') setPreviewError('PDF 导出失败，请重试')
+    setPreviewExport('idle')
   }
 
   if (!open) return null
@@ -360,11 +352,23 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
                 </button>
               )}
               {preview && (
-                <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
-                        data-testid="history-export" disabled={previewExporting}
-                        onClick={() => void exportPreview(preview.runId)}>
-                  {previewExporting ? '导出中…' : '导出 .md'}
-                </button>
+                <>
+                  <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+                          data-testid="history-export" disabled={previewExport !== 'idle'}
+                          onClick={() => void exportPreviewSync('md')}>
+                    {previewExport === 'md' ? '导出中…' : '导出 .md'}
+                  </button>
+                  <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+                          data-testid="history-export-pdf" disabled={previewExport !== 'idle'}
+                          onClick={() => void exportPreviewPdf()}>
+                    {previewExport === 'pdf' ? 'PDF 生成中…' : '导出 PDF'}
+                  </button>
+                  <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+                          data-testid="history-export-docx" disabled={previewExport !== 'idle'}
+                          onClick={() => void exportPreviewSync('docx')}>
+                    {previewExport === 'docx' ? '导出中…' : '导出 DOCX'}
+                  </button>
+                </>
               )}
               <button type="button" className="text-xs text-ink-muted hover:text-ink"
                       onClick={() => { setPreview(null); setPreviewError('') }}>关闭</button>

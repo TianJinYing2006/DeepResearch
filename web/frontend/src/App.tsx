@@ -17,8 +17,6 @@ import {
   type StreamStatus,
   useResearchStream,
 } from './hooks/useResearchStream'
-import { csrfHeaders } from './lib/api'
-import { filenameFromDisposition } from './lib/download'
 import { initErrorTracking } from './lib/errorTracking'
 import { formatCost } from './lib/format'
 import {
@@ -31,6 +29,7 @@ import {
   statusPresentation,
 } from './lib/presentation'
 import { qualityVerdict } from './lib/quality'
+import { downloadPdfReport, downloadSyncReport } from './lib/reportExport'
 import { workflowStages } from './lib/workflow'
 import type { LaunchParams } from './types/api'
 import type {
@@ -368,27 +367,13 @@ export default function App() {
   const downloadReport = async (format: 'md' | 'docx') => {
     if (!runId || !hasReport || outputUnderReview) return
     const setState = format === 'md' ? setExportState : setDocxState
-    try {
-      const response = await fetch(`/api/research/${runId}/report?format=${format}`)
-      if (!response.ok) {
-        setState('failed')
-        return
-      }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      // 需求 17：优先用后端下发的文件名（话题名），取不到再回退 run_id
-      anchor.download =
-        filenameFromDisposition(response.headers.get('content-disposition')) ??
-        `deepresearch-${runId}.${format}`
-      anchor.click()
-      URL.revokeObjectURL(url)
-      setState('exported')
-      window.setTimeout(() => setState('idle'), 1600)
-    } catch {
+    const message = await downloadSyncReport(runId, format)
+    if (message) {
       setState('failed')
+      return
     }
+    setState('exported')
+    window.setTimeout(() => setState('idle'), 1600)
   }
 
   const exportReport = () => downloadReport('md')
@@ -399,59 +384,9 @@ export default function App() {
   const exportPdf = async () => {
     if (!runId || !hasReport || outputUnderReview || pdfState === 'working') return
     setPdfState('working')
-    const settle = (state: 'exported' | 'failed' | 'expired') => {
-      setPdfState(state)
-      if (state === 'exported') window.setTimeout(() => setPdfState('idle'), 2000)
-    }
-    try {
-      const created = await fetch(`/api/research/${runId}/export-jobs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-        body: JSON.stringify({ kind: 'pdf' }),
-      })
-      if (!created.ok) {
-        settle('failed')
-        return
-      }
-      const { export_id: exportId } = (await created.json()) as { export_id: string }
-      // 渲染硬超时 30s + 排队余量 ⇒ 最多轮询 60s（1s 间隔）
-      let status = ''
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        const probe = await fetch(`/api/research/${runId}/export-jobs/${exportId}`)
-        if (!probe.ok) {
-          settle('failed')
-          return
-        }
-        status = ((await probe.json()) as { status: string }).status
-        if (status === 'SUCCEEDED' || status === 'FAILED' || status === 'EXPIRED') break
-        await new Promise((resolve) => window.setTimeout(resolve, 1000))
-      }
-      if (status === 'EXPIRED') {
-        settle('expired')
-        return
-      }
-      if (status !== 'SUCCEEDED') {
-        settle('failed')
-        return
-      }
-      const response = await fetch(`/api/research/${runId}/export-jobs/${exportId}/download`)
-      if (!response.ok) {
-        settle(response.status === 410 ? 'expired' : 'failed')
-        return
-      }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download =
-        filenameFromDisposition(response.headers.get('content-disposition')) ??
-        `deepresearch-${runId}.pdf`
-      anchor.click()
-      URL.revokeObjectURL(url)
-      settle('exported')
-    } catch {
-      settle('failed')
-    }
+    const state = await downloadPdfReport(runId)
+    setPdfState(state)
+    if (state === 'exported') window.setTimeout(() => setPdfState('idle'), 2000)
   }
 
   return (
