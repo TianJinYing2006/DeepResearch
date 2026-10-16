@@ -137,6 +137,14 @@ def test_create_job_guards(monkeypatch):
     assert r3.status_code == 413 and r3.json()["detail"]["code"] == "export_too_large"
 
 
+def test_create_job_blocked_by_output_gate(monkeypatch):
+    """P0-4 输出 gate 与 md/json 导出同口径：flagged / under_review 的 PDF 作业同样阻断。"""
+    client = _client(monkeypatch, _JobStore(_row(moderation_status="flagged")))
+    r = client.post(f"/api/research/{RID}/export-jobs", json={})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "output_under_review"
+    assert client.get(f"/api/research/{RID}/export-jobs/x").status_code == 403
+
+
 def test_status_endpoint(monkeypatch):
     store = _JobStore(_row())
     client = _client(monkeypatch, store)

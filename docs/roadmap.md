@@ -82,16 +82,16 @@
 ## 3d. 批次 5：交付形态（v1 ≈4~6 天；**已立项：`docs/requirements/38-delivery-formats.md` / Issue #225**）
 
 > 来源：`docs/extension-directions-survey.md` §3 方向 C / §4 批次 5。纪律：导出不改研究图产出的 writer 原文（历史产物不还原原文）；新格式全量复用输出 gate；按需生成/不落盘；**生成前**输入/耗时/输出硬上限；分享仅只读 Markdown（披露边界明确）。
-> **状态：F1 已交付（2026-10-15）→ PDF 容量 spike 完成（2026-10-16：API 同步渲染实测否决 ⇒ 专用 700MB export 服务 B + 专用非持久化结果 Redis）→ F2 后端已交付（2026-10-16）**；前端/e2e 待 F2b → F3 DOCX → 收口；PPT/F5 后置。
+> **状态：F1 已交付（2026-10-15）→ PDF 容量 spike 完成（2026-10-16）→ F2 全量交付（2026-10-16：后端 staging 冒烟 + 前端异步状态/e2e）**；下一步 F3 DOCX → 收口；PPT/F5 后置。
 
 | 阶段 | 内容 | 依赖 | 粗估 | 状态 |
 |---|---|---|---|---|
 | 0 | TBD-0~7 拍板（评审修订版） | — | 0.5 天 | ✅（2026-10-15；开工登记 §12.7） |
 | F1 | 统一导出装配 + 双路径收口 + 分享边界 + store 契约测试 | 拍板 | 0.75~1 天 | ✅ 已交付（2026-10-15） |
 | spike | PDF 容量实测（目标镜像峰值 RSS/耗时/字体回退） | F1 | — | ✅（2026-10-16；同步渲染否决 ⇒ 专用 export 服务 B；决策登记 §12.4/§12.7） |
-| F2 | PDF（专用 export 服务 + PG 作业 + 专用结果 Redis + CJK + lock 外科式） | F1/spike | 另估 | 🔶 后端已交付（2026-10-16；前端/e2e 待 F2b） |
+| F2 | PDF（专用 export 服务 + PG 作业 + 专用结果 Redis + CJK + 前端异步状态 + lock 外科式） | F1/spike | 另估 | ✅ 已交付（2026-10-16；后端 staging 冒烟 + 前端/e2e） |
 | F3 | DOCX（python-docx 写作侧） | F1 | 0.5~1 天 | ⏳ |
-| 收口 | 前端/e2e/文档/镜像与峰值资源实测回填 | F1~F3 + PDF 服务 | ≥1 天 | ⏳ |
+| 收口 | 文档/镜像与峰值资源实测回填 | F1~F3 + PDF 服务 | ≥1 天 | ⏳ |
 
 ## 4. 并行轨：上线路径（非代码为主，不占关键路径）
 
@@ -132,6 +132,7 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
+| 2026-10-16 | 批次 5 F2 全量交付（前端 + e2e） | PDF 异步导出前端状态机与端到端用例（Issue #225）：`导出 PDF` 按钮（working/exported/failed/expired；生成中禁用、过期重试）+ 创建（CSRF/幂等复用）→ 1s 轮询（≤60s）→ 授权下载（RFC 6266 文件名）；DR_DEMO 内存替身（零 PG/零渲染）支撑 e2e 2 例（全流程 + 幂等复用）+ disabled/窄屏断言扩展 + flagged 阻断测试；本地 e2e 24 例全过、vitest 41 / tsc / 守卫 / build 全绿。**F2 全量完成；下一步 F3 DOCX → 收口** |
 | 2026-10-16 | 批次 5 F2 staging 冒烟 + 部署链路修复 | staging 全链路（真 run / s3 产物路径）：作业 QUEUED→RUNNING→SUCCEEDED 约 14s（325KB PDF）、结果 TTL 899s、PDF 2 页 CJK 可提取 + 元数据头 + 来源附录完整；**修复部署缺口**：deploy.sh/compose 此前未拉起 export（仅 api 依赖拉起 export-redis）⇒ export 与 api 共用镜像 tag，滚动 worker→api→export、回滚与冒烟同步覆盖；冒烟痕迹已清理 |
 | 2026-10-16 | 批次 5 F2 后端交付 | PDF 异步导出服务（Issue #225）：PG `export_jobs`（迁移 0025：SKIP LOCKED 认领/租约/过期回收/幂等复用/结果 TTL）+ 受限渲染器（全量转义/拒外部资源/Noto CJK/页数·字节上限）+ 单并发 supervisor（超时硬杀重建、内存/计数回收）+ 作业 API（202 创建/状态/授权下载）+ 专用非持久化结果 Redis（禁 AOF/RDB、noeviction、写满显式失败）+ compose 700MB export 服务；测试 +25（渲染 7 例 Linux CI 真跑）；全量套件 0 失败。**下一步：F2b 前端轮询/e2e → F3 DOCX → 收口** |
 | 2026-10-15 | 批次 5 F1 交付 | 统一导出装配（Issue #225）：`ExportDocument` 模型（schema v1）+ 双路径统一渲染（store 历史导出头部/清单修复=读取时渲染、不改写产物；JSON 契约不变；历史降级显式「不可用」不伪造）+ 分享链路统一为仅正文（不扩大披露）+ 测试 +13 + 3 处旧断言更新；全量 1238 绿。**下一步：PDF 容量 spike** |
