@@ -132,6 +132,7 @@
 
 | 日期 | 变更 | 说明 |
 |---|---|---|
+| 2026-10-16 | 文档清理（残留检查） | 飞书「DeepResearch 需求文档」文件夹：删除 20 个旧上传流程遗留的**原始 .md 上传件**（23-knowledge-base ×7、doc17 ×2、6/9~20 各 1）+ 3 个**旧周文档副本**（第六周 rev3 / 第七周 rev6 / 第八周 rev7，均未被仓库引用）；**修复** `decisions/0012` 指向已删文档的失效链接（→ 现存「需求设计文档：OTel 观测迁移」）；复核后文件夹 37 项全部为有效镜像/周文档/模板（删除项在回收站可恢复） |
 | 2026-10-16 | 批次 5 容量复测（挂账收尾） | 长报告最终镜像峰值复测：133.8KB 输入 ⇒ 33 页 / 370KB / 10.8s / 峰值 347MB（余量 ~353MB）⇒ 无需调整限额；production-readiness §3.11 挂账项关闭；冒烟数据已清理 |
 | 2026-10-16 | 批次 5 完成（收口） | 交付形态全量收口（Issue #225）：镜像 927MB（+255MB）与容量口径回填 production-readiness §3.11 + 结果通道数据流向登记；FAQ/落地页文案更新为 Markdown/JSON/PDF/DOCX；runbook §7.7（同步导出协议）；SCORER_VERSION 未动（research_engine 零 diff）；全量套件 0 失败、e2e 26 例；staging 部署 5ded4c5 + 镜像内冒烟（DOCX 渲染/前端按钮）；飞书镜像重建（交付版）。**F1+F2+F3+收口 全部完成；PPT/F5 后置** |
 | 2026-10-16 | 批次 5 F3 交付（DOCX） | 结构等价 DOCX 导出（Issue #225）：`docx_render.py`（python-docx 写作侧：Title/Heading/List Bullet/List Number/Quote/代码块；东亚字体钉宋体；与 `render_markdown` 同信息结构；None ⇒ 不可用、空列表 ⇒ 省略）+ `format=docx` 端点（双路径同装配 + RFC 6266 文件名 + 输出 gate）+ 前端 `导出 DOCX`（与 md 共用同步下载路径）+ e2e 1 例（文件名/zip 魔数）+ disabled/窄屏断言扩展；测试 +7（渲染器 4 / 端点 3，断言结构不承诺字节）；本地 e2e 26 例全过。**下一步：收口** |

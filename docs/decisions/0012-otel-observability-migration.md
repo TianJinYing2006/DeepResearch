@@ -1,6 +1,6 @@
 # ADR-0012：可观测层迁移 —— Langfuse → OTel 原生（反转需求 3 的 W3 接入拍板）
 
-> 飞书镜像：需求 33「需求设计文档：OTel 观测迁移」 https://wcnnpvbxd7li.feishu.cn/docx/YHiEdRhNpoqRs4xUMyxcIFBHnXX
+> 飞书镜像：需求 33「需求设计文档：OTel 观测迁移」 https://wcnnpvbxd7li.feishu.cn/docx/MlvZdwL0SoaVYmxHjVrciGkcnad（2026-10-16 修复：原链接指向已删文档）
 
 ## 基本信息
 
