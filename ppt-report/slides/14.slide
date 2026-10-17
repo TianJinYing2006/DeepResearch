@@ -1,0 +1,104 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>04 评测方法与实验结果</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>评测体系：运行与评估解耦的两阶段管道</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>跑一次要 48~51 分钟且烧钱，所以「跑图」和「算指标」必须能分开重放</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：左标题栏 + 右内容（28:72） */}
+    <Box style={{ height: '484px', flexDirection: 'row', gap: 20 }}>
+
+        {/* 左 · 标题栏 */}
+        <Box style={{ width: '340px', background: '#E8EFF8', borderRadius: 8, padding: '26px 24px', gap: 12 }}>
+            <Box style={{ width: '4px', height: '36px', background: '#0E3F8C' }} />
+            <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>为什么要解耦</Text>
+            <Text style={{ fontSize: 17, color: '#1A2230', lineHeight: 1.6 }}>
+                一次完整评测约 48~51 分钟、¥0.79~0.92。如果评估逻辑和跑图绑在一起，换一个裁判模型就要把整批重跑一遍。
+            </Text>
+            <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.6 }}>
+                拆开之后，raw 是「零成本复算」的证据源：调指标、换裁判都只重跑 Phase 2。
+            </Text>
+            <Box style={{ marginTop: 'auto', gap: 8 }}>
+                <Box style={{ padding: '8px 12px', background: '#FFFFFF', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>raw = 取证对象</Text>
+                </Box>
+                <Text style={{ fontSize: 13, color: '#8B97A8' }}>历史产物一律不回填，否则会抹掉「这批数产生于旧口径」的事实</Text>
+            </Box>
+        </Box>
+
+        {/* 右 · 管道图 + 三段说明 */}
+        <Box style={{ width: '840px', gap: 12 }}>
+            <Box style={{ height: '140px', background: '#F7F9FC', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                <svg width={800} height={132} viewBox='0 0 800 132'>
+                    <path d='M260 66 L288 66' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                    <path d='M492 66 L520 66' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+
+                    <rect x='8' y='30' width='252' height='72' rx='8' fill='#0E3F8C' />
+                    <text x='134' y='56' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>Phase 1 · 运行</text>
+                    <text x='134' y='78' fontSize='12' fill='#F0F5FC' textAnchor='middle'>20 题跑图，产出原文</text>
+                    <text x='134' y='94' fontSize='12' fill='#F0F5FC' textAnchor='middle'>results/*/raw/*.raw.json</text>
+
+                    <rect x='290' y='40' width='202' height='52' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                    <text x='391' y='62' fontSize='14' fill='#1A2230' textAnchor='middle' fontWeight='bold'>raw 原文产出</text>
+                    <text x='391' y='82' fontSize='12' fill='#4A5568' textAnchor='middle'>零成本复算的证据源</text>
+
+                    <rect x='522' y='30' width='270' height='72' rx='8' fill='#1E4FA8' />
+                    <text x='657' y='56' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>Phase 2 · 评估</text>
+                    <text x='657' y='78' fontSize='12' fill='#F0F5FC' textAnchor='middle'>读 raw 算七指标，不重跑图</text>
+                    <text x='657' y='94' fontSize='12' fill='#F0F5FC' textAnchor='middle'>eval/*.eval.json + verdict</text>
+
+                    <text x='400' y='122' fontSize='12' fill='#8B97A8' textAnchor='middle'>换裁判 / 调评测器 → 只重跑右侧；改图 → 才需要重跑左侧</text>
+                </svg>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8 }}>
+                <Box style={{ width: '34px', height: '34px', background: '#E8EFF8', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0E3F8C' }}>1</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A2230' }}>七指标聚合 + 质量闸</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>每轮落 verdict / verdict_reasons / ±stderr；阈值外置，只告警不阻断，不会因为指标难看就假装没跑</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8 }}>
+                <Box style={{ width: '34px', height: '34px', background: '#E8EFF8', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0E3F8C' }}>2</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A2230' }}>独立引用裁判</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>temperature=0 + schema 约束，no_verdict 不计通过；裁判与主链路解耦，避免「自己给自己打分」</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#F0F5FC', borderRadius: 8 }}>
+                <Box style={{ width: '34px', height: '34px', background: '#FFFFFF', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#0E3F8C' }}>3</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A2230' }}>可复现元数据</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>配置快照、五个主链路开关生效值、prompt_hash、scorer_version、git 修订随每轮落盘</Text>
+                </Box>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>14 / 23</Text>
+    </Box>
+</Slide>

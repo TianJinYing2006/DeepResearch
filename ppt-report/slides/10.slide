@@ -1,0 +1,48 @@
+<Slide style={{ width: '1280px', height: '720px', padding: 0, background: '#0E3F8C', flexDirection: 'row', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+
+    <Box style={{ width: '280px', height: '720px', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <Text style={{ fontSize: 150, fontWeight: 'bold', color: '#F0F5FC', opacity: 0.3, lineHeight: 1.0 }}>03</Text>
+        <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.6, letterSpacing: 3 }}>CHAPTER 03</Text>
+    </Box>
+
+    <Box style={{ width: '500px', height: '720px', justifyContent: 'center', gap: 18, paddingRight: 40 }}>
+        <Text style={{ fontSize: 40, fontWeight: 'bold', color: '#FFFFFF', lineHeight: 1.2 }}>防幻觉与证据链</Text>
+        <Box style={{ width: '64px', height: '3px', background: '#FFFFFF', opacity: 0.5 }} />
+        <Box style={{ gap: 12 }}>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— Validator 图内双层校验：存在性 + 忠实度</Text>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— 引用溯源四桶：web / rag / arxiv / code</Text>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— 关键论断需 ≥2 独立来源印证</Text>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— 证据链：快照 + 逐字引文 + 字符偏移</Text>
+        </Box>
+        <Box style={{ flexDirection: 'row' }}>
+            <Box style={{ padding: '7px 14px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 14 }}>
+                <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.85 }}>本章回答：凭什么相信报告里的话</Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ width: '1px', height: '440px', background: '#FFFFFF', opacity: 0.18 }} />
+
+    <Box style={{ width: '420px', height: '720px', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <Image
+            src='assets/ui-06-citation.png'
+            style={{ width: 368, height: 230, objectFit: 'cover', borderRadius: 12, border: '2px solid rgba(255,255,255,0.35)' }}
+        />
+        <Text style={{ fontSize: 12, color: '#FFFFFF', opacity: 0.6 }}>界面实拍 · 引用核查：2/2 严格通过（91% / 86%）</Text>
+        <Box style={{ flexDirection: 'row', gap: 8 }}>
+            <Box style={{ padding: '5px 12px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 12 }}>
+                <Text style={{ fontSize: 13, color: '#FFFFFF', opacity: 0.9 }}>双层校验</Text>
+            </Box>
+            <Box style={{ padding: '5px 12px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 12 }}>
+                <Text style={{ fontSize: 13, color: '#FFFFFF', opacity: 0.9 }}>溯源四桶</Text>
+            </Box>
+            <Box style={{ padding: '5px 12px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 12 }}>
+                <Text style={{ fontSize: 13, color: '#FFFFFF', opacity: 0.9 }}>多源印证</Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ position: 'absolute', bottom: 28, right: 56 }}>
+        <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.6 }}>10 / 23</Text>
+    </Box>
+</Slide>

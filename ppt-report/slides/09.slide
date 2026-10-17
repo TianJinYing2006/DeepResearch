@@ -1,0 +1,117 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>02 系统架构与核心设计</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>多跳检索与三路证据融合</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>并行召回 → 融合去重 → 入证据池，每一步的预算都是显式给定的</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：非对称双栏 60:40 */}
+    <Box style={{ height: '484px', flexDirection: 'row', gap: 20 }}>
+
+        {/* 左 · L1 三路召回 + RRF 融合 */}
+        <Box style={{ width: '720px', background: '#F7F9FC', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+            <svg width={700} height={464} viewBox='0 0 700 464'>
+                {/* 查询 → 三路 */}
+                <path d='M350 48 L350 72 L110 72 L110 100' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M350 48 L350 100' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M350 48 L350 72 L590 72 L590 100' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                {/* 三路 → 融合 */}
+                <path d='M110 144 L110 168 L350 168 L350 190' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M350 144 L350 190' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M590 144 L590 168 L350 168 L350 190' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                {/* 融合 → 证据池 */}
+                <path d='M350 238 L350 280' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                {/* 预算旁路 */}
+                <path d='M180 315 L200 315' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' />
+
+                {/* 查询 */}
+                <rect x='250' y='8' width='200' height='40' rx='8' fill='#0E3F8C' />
+                <text x='350' y='33' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>子问题的一条查询</text>
+
+                {/* 三路 */}
+                <rect x='20' y='100' width='180' height='44' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='110' y='127' fontSize='14' fill='#1A2230' textAnchor='middle'>网络搜索（博查 / Tavily）</text>
+
+                <rect x='260' y='100' width='180' height='44' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='350' y='127' fontSize='14' fill='#1A2230' textAnchor='middle'>arXiv 学术检索</text>
+
+                <rect x='500' y='100' width='180' height='44' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='590' y='127' fontSize='14' fill='#1A2230' textAnchor='middle'>私有知识库 RAG</text>
+
+                {/* 融合 */}
+                <rect x='250' y='190' width='200' height='48' rx='8' fill='#1E4FA8' />
+                <text x='350' y='212' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>RRF 融合</text>
+                <text x='350' y='231' fontSize='12' fill='#F0F5FC' textAnchor='middle'>向量 + BM25 双路召回</text>
+
+                {/* 证据池 */}
+                <rect x='200' y='280' width='300' height='70' rx='8' fill='#0E3F8C' />
+                <text x='350' y='306' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>证据池</text>
+                <text x='350' y='326' fontSize='12' fill='#F0F5FC' textAnchor='middle'>内容寻址 evidence_id + origin 链</text>
+                <text x='350' y='342' fontSize='12' fill='#F0F5FC' textAnchor='middle'>跨来源身份去重，同名不同文档不混编</text>
+
+                {/* 预算 */}
+                <rect x='20' y='280' width='160' height='70' rx='8' fill='#FFFFFF' stroke='#D9534F' strokeWidth='2' />
+                <text x='100' y='304' fontSize='13' fill='#D9534F' textAnchor='middle' fontWeight='bold'>跳数预算</text>
+                <text x='100' y='324' fontSize='12' fill='#1A2230' textAnchor='middle'>全局 20 跳</text>
+                <text x='100' y='341' fontSize='12' fill='#1A2230' textAnchor='middle'>每子问题 ⌈20 / n⌉</text>
+
+                <text x='350' y='390' fontSize='13' fill='#4A5568' textAnchor='middle'>一跳 = 取 frontier 队首，做一次并行检索</text>
+                <text x='350' y='414' fontSize='13' fill='#4A5568' textAnchor='middle'>visited_sources 去重 + 证据身份去重，避免重复烧 token</text>
+                <text x='350' y='444' fontSize='12' fill='#8B97A8' textAnchor='middle'>可选云端 rerank 默认关闭：先立评测，再决定是否引入</text>
+            </svg>
+        </Box>
+
+        {/* 右 · 论述 */}
+        <Box style={{ width: '460px', gap: 16 }}>
+            <Box style={{ gap: 6 }}>
+                <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>三路并行，而不是一条路走到底</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    网页、学术论文、私有知识库同时召回。任何一路失败都不阻塞其余路径，失败原因会被结构化记录下来。
+                </Text>
+            </Box>
+
+            <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+            <Box style={{ gap: 6 }}>
+                <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>跳数预算是动态的</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    全局 <span style={{ fontWeight: 'bold' }}>max_total_hops = 20</span>，按实际子问题数切分为 ⌈20 / n⌉；单个子问题的静态上限只在 n 不可得时兜底。
+                </Text>
+            </Box>
+
+            <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+            <Box style={{ gap: 6 }}>
+                <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>证据按身份去重</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    RAG 来源按「作用域 + 文档 + 分块」计算身份，网页来源按内容寻址，避免同一份材料被反复计入预算。
+                </Text>
+            </Box>
+
+            <Box style={{ marginTop: 'auto', background: '#F0F5FC', borderRadius: 8, padding: '14px 18px' }}>
+                <Text style={{ fontSize: 16, color: '#1A2230', lineHeight: 1.5 }}>
+                    预算显式给定的直接好处：<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>单轮成本可预估、行为可复现</span>，跑批时不会突然失控。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>09 / 23</Text>
+    </Box>
+</Slide>

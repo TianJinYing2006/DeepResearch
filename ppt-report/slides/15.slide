@@ -1,0 +1,137 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>04 评测方法与实验结果</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>对照实验：四指标全部不可判定</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>20 题 × 3 轮同题配对，before（09-16）vs after（09-19），冻结代码 f723c2d</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：非对称双栏（左表 62% + 右洞察 38%） */}
+    <Box style={{ height: '484px', gap: 12 }}>
+        <Box style={{ flex: 1, flexDirection: 'row', gap: 20 }}>
+
+            {/* 左 · 对照表 */}
+            <Box style={{ width: '744px', gap: 10 }}>
+                <Box style={{ height: '30px', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Box style={{ padding: '4px 12px', background: '#E8EFF8', borderRadius: 10 }}>
+                        <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#0E3F8C' }}>Q</Text>
+                    </Box>
+                    <Text style={{ fontSize: 17, color: '#1A2230', fontWeight: 'bold' }}>改完之后，平均质量到底变好了还是变差了？</Text>
+                </Box>
+
+                <Box style={{ flex: 1 }}>
+                    <Table
+                        style={{ width: '100%', height: '100%' }}
+                        defaultTextStyle={{ fontSize: 17, textAlign: 'center', color: '#1A2230' }}
+                        defaultCellStyle={{
+                            border: {
+                                left: { width: 1, color: '#D6DCE5' },
+                                right: { width: 1, color: '#D6DCE5' },
+                                top: { width: 1, color: '#D6DCE5' },
+                                bottom: { width: 1, color: '#D6DCE5' },
+                            },
+                        }}
+                        cells={[
+                            [
+                                { text: '指标', textStyle: { bold: true, color: '#FFFFFF', fontSize: 17 }, cellStyle: { background: { color: '#0E3F8C' } } },
+                                { text: 'before', textStyle: { bold: true, color: '#FFFFFF', fontSize: 17 }, cellStyle: { background: { color: '#0E3F8C' } } },
+                                { text: 'after', textStyle: { bold: true, color: '#FFFFFF', fontSize: 17 }, cellStyle: { background: { color: '#0E3F8C' } } },
+                                { text: 'Δ', textStyle: { bold: true, color: '#FFFFFF', fontSize: 17 }, cellStyle: { background: { color: '#0E3F8C' } } },
+                                { text: 'MDE', textStyle: { bold: true, color: '#FFFFFF', fontSize: 17 }, cellStyle: { background: { color: '#0E3F8C' } } },
+                                { text: '判定', textStyle: { bold: true, color: '#FFFFFF', fontSize: 17 }, cellStyle: { background: { color: '#0E3F8C' } } },
+                            ],
+                            [
+                                { text: 'coverage', textStyle: { bold: true }, cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '44.9%', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '39.8%', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '−5.1pp', textStyle: { color: '#D9534F', bold: true }, cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '10.66', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '不可判定', textStyle: { color: '#D9534F', bold: true }, cellStyle: { background: { color: '#F7F9FC' } } },
+                            ],
+                            [
+                                'citation_accuracy',
+                                '75.2%',
+                                '78.3%',
+                                { text: '+3.1pp', textStyle: { color: '#0E3F8C', bold: true } },
+                                '9.21',
+                                { text: '不可判定', textStyle: { color: '#D9534F', bold: true } },
+                            ],
+                            [
+                                { text: 'retrieval_hit_rate', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '55.2%', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '52.7%', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '−2.5pp', textStyle: { color: '#D9534F', bold: true }, cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '3.88', cellStyle: { background: { color: '#F7F9FC' } } },
+                                { text: '不可判定', textStyle: { color: '#D9534F', bold: true }, cellStyle: { background: { color: '#F7F9FC' } } },
+                            ],
+                            [
+                                'steps',
+                                '9.4',
+                                '8.2',
+                                { text: '−1.2', textStyle: { color: '#0E3F8C', bold: true } },
+                                '1.36',
+                                { text: '不可判定', textStyle: { color: '#D9534F', bold: true } },
+                            ],
+                        ]}
+                    />
+                </Box>
+
+                <Text style={{ fontSize: 13, color: '#8B97A8' }}>MDE = 最小可检出效应（3 轮 vs 3 轮）；|Δ| 小于 MDE 即分辨不出差异是否由改动引起</Text>
+            </Box>
+
+            {/* 右 · 洞察 */}
+            <Box style={{ width: '436px', gap: 12 }}>
+                <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>为什么判不动</Text>
+
+                <Box style={{ gap: 5 }}>
+                    <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A2230' }}>噪声比效应大</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>coverage 的 run 内噪声 σ≈24pp，MDE 高达 10.66pp，而预期效应只有 4~10pp——尺子比被测的东西还粗。</Text>
+                </Box>
+
+                <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+                <Box style={{ gap: 5 }}>
+                    <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A2230' }}>before 基线不可重采</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>代码已改，before 侧的 3 轮永远固定；单独加 after 轮次最多把 MDE 再降 14%，跑到 9 轮仍判不动。</Text>
+                </Box>
+
+                <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+                <Box style={{ gap: 5 }}>
+                    <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A2230' }}>steps 的下降要单独归因</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>它来自一次功能性修复（旧模板引号叠加导致必现 SyntaxError），不是质量提升的证据。</Text>
+                </Box>
+
+                <Box style={{ marginTop: 'auto', background: '#F0F5FC', borderRadius: 8, padding: '14px 16px' }}>
+                    <Text style={{ fontSize: 15, color: '#1A2230', lineHeight: 1.5 }}>
+                        结论：以 3 轮结案，<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>不续跑</span>。再花 ¥6~8 与 6~8 小时，大概率还是换来「不可判定」。
+                    </Text>
+                </Box>
+            </Box>
+        </Box>
+
+        {/* 底部结论条 */}
+        <Box style={{ height: '56px', background: '#F0F5FC', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: '0 22px', gap: 14 }}>
+            <Box style={{ width: '4px', height: '32px', background: '#1E4FA8' }} />
+            <Text style={{ fontSize: 18, color: '#1A2230' }}>「不可判定」<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>不等于</span>「系统变差了」——它说的是：这台仪器分辨不出，需要换验收口径。</Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>15 / 23</Text>
+    </Box>
+</Slide>

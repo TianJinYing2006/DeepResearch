@@ -1,0 +1,120 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>02 系统架构与核心设计</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>决策循环在图里，不在提示词里</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>critic 输出的是四态枚举，由状态机走边；硬闸是确定性的，先于模型裁决生效</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：左大图 56% + 右侧文字 */}
+    <Box style={{ height: '484px', gap: 12 }}>
+        <Box style={{ flex: 1, flexDirection: 'row', gap: 20 }}>
+
+            {/* 左 · L1 四态条件边 */}
+            <Box style={{ width: '672px', background: '#F7F9FC', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                <svg width={640} height={404} viewBox='0 0 640 404'>
+                    {/* research → critic */}
+                    <path d='M128 194 L176 194' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                    {/* critic → 四个出口 */}
+                    <path d='M328 194 L362 194 L362 50 L392 50' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                    <path d='M328 194 L362 194 L362 138 L392 138' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                    <path d='M328 194 L362 194 L362 226 L392 226' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                    <path d='M328 194 L362 194 L362 314 L392 314' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                    {/* continue 回环 */}
+                    <path d='M508 24 L508 8 L72 8 L72 172' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' />
+
+                    {/* research */}
+                    <rect x='16' y='172' width='112' height='44' rx='8' fill='#0E3F8C' />
+                    <text x='72' y='200' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>research</text>
+
+                    {/* critic */}
+                    <rect x='176' y='148' width='152' height='92' rx='8' fill='#0E3F8C' />
+                    <text x='252' y='178' fontSize='16' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>critic</text>
+                    <text x='252' y='204' fontSize='13' fill='#F0F5FC' textAnchor='middle'>① 硬闸（确定性）</text>
+                    <text x='252' y='226' fontSize='13' fill='#F0F5FC' textAnchor='middle'>② LLM 结构化裁决</text>
+
+                    {/* 出口 1 */}
+                    <rect x='392' y='24' width='232' height='52' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                    <text x='508' y='46' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>continue</text>
+                    <text x='508' y='66' fontSize='13' fill='#4A5568' textAnchor='middle'>继续下一跳检索</text>
+
+                    {/* 出口 2 */}
+                    <rect x='392' y='112' width='232' height='52' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                    <text x='508' y='134' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>augment</text>
+                    <text x='508' y='154' fontSize='13' fill='#4A5568' textAnchor='middle'>gap 查询回填 frontier</text>
+
+                    {/* 出口 3 */}
+                    <rect x='392' y='200' width='232' height='52' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                    <text x='508' y='222' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>revise</text>
+                    <text x='508' y='242' fontSize='13' fill='#4A5568' textAnchor='middle'>方向跑偏：全量重分解</text>
+
+                    {/* 出口 4 */}
+                    <rect x='392' y='288' width='232' height='52' rx='8' fill='#1E4FA8' />
+                    <text x='508' y='310' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>stop</text>
+                    <text x='508' y='330' fontSize='13' fill='#F0F5FC' textAnchor='middle'>进入 write 写作</text>
+
+                    <text x='252' y='272' fontSize='12' fill='#8B97A8' textAnchor='middle'>硬闸未触发，才走 LLM 裁决</text>
+                    <text x='252' y='380' fontSize='12' fill='#D9534F' textAnchor='middle'>虚线 = continue 回环（受跳数预算封顶）</text>
+                </svg>
+            </Box>
+
+            {/* 右 · 论述 */}
+            <Box style={{ width: '508px', gap: 14 }}>
+                <Box style={{ gap: 6 }}>
+                    <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>路由是纯函数，不是模型心情</Text>
+                    <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                        critic 不允许输出「我觉得差不多了」这类自由文本，只输出四态枚举；走哪条边由状态机决定，与模型的表达风格无关。
+                    </Text>
+                </Box>
+
+                <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+                <Box style={{ gap: 6 }}>
+                    <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>硬闸确定性优先</Text>
+                    <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                        depth 与 token 两维硬闸先判定：模型说「继续」但已经超预算，就停在边界上。<span style={{ fontWeight: 'bold' }}>不把终止权交给模型自觉。</span>
+                    </Text>
+                </Box>
+
+                <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+                <Box style={{ gap: 6 }}>
+                    <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>一个踩过的坑</Text>
+                    <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                        早期把「frontier 空」也设为硬闸，结果单个子问题只能研究一跳就停。后来删掉这条，把收敛交给 critic 的语义判断。
+                    </Text>
+                </Box>
+
+                <Box style={{ marginTop: 'auto', background: '#F0F5FC', borderRadius: 8, padding: '14px 18px', gap: 4 }}>
+                    <Text style={{ fontSize: 16, color: '#1A2230', lineHeight: 1.5 }}>
+                        换句话说：防幻觉不是靠提示词里写「请务必核实」，而是靠<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>图结构上必须有这道闸</span>。
+                    </Text>
+                </Box>
+            </Box>
+        </Box>
+
+        {/* 底部结论条 */}
+        <Box style={{ height: '56px', background: '#F0F5FC', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: '0 22px', gap: 14 }}>
+            <Box style={{ width: '4px', height: '32px', background: '#1E4FA8' }} />
+            <Text style={{ fontSize: 18, color: '#1A2230' }}>把判断放在图里，意味着它是<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>可被测试、可被复现</span>的——这是后面评测能做对照实验的前提。</Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>08 / 23</Text>
+    </Box>
+</Slide>

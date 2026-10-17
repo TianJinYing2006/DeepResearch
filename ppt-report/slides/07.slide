@@ -1,0 +1,105 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>02 系统架构与核心设计</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>核心架构：8 节点状态机与两条回环</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>拓扑是代码里的真实结构，不是示意图——回环、条件边与终止条件都写在图上</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：上大图（58%）+ 下方三卡 */}
+    <Box style={{ height: '484px', gap: 12 }}>
+
+        {/* 上 · L1 拓扑图 */}
+        <Box style={{ height: '280px', background: '#F7F9FC', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+            <svg width={1160} height={264} viewBox='0 0 1160 264'>
+                {/* 主链连线 */}
+                <path d='M146 127 L186 127' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M312 127 L352 127' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M478 127 L518 127' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M644 127 L684 127' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M810 127 L834 127 L834 63 L850 63' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M976 63 L1016 104' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M913 86 L913 168' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+
+                {/* 回环 1：critic → research（继续检索） */}
+                <path d='M415 150 L415 206 L249 206 L249 150' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' />
+                {/* 回环 2：revise → research（回填查询） */}
+                <path d='M581 104 L581 44 L249 44 L249 104' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' />
+                {/* 回环 3：repair → validate（有界返工） */}
+                <path d='M1079 150 L1079 232 L913 232 L913 86' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' />
+
+                {/* 节点 */}
+                <rect x='20' y='104' width='126' height='46' rx='8' fill='#0E3F8C' />
+                <text x='83' y='132' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>plan</text>
+
+                <rect x='186' y='104' width='126' height='46' rx='8' fill='#0E3F8C' />
+                <text x='249' y='132' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>research</text>
+
+                <rect x='352' y='104' width='126' height='46' rx='8' fill='#0E3F8C' />
+                <text x='415' y='132' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>critic</text>
+
+                <rect x='518' y='104' width='126' height='46' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='581' y='132' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>revise</text>
+
+                <rect x='684' y='104' width='126' height='46' rx='8' fill='#1E4FA8' />
+                <text x='747' y='132' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>write</text>
+
+                <rect x='850' y='40' width='126' height='46' rx='8' fill='#1E4FA8' />
+                <text x='913' y='68' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>validate</text>
+
+                <rect x='1016' y='104' width='126' height='46' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='1079' y='132' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>repair</text>
+
+                <rect x='850' y='168' width='126' height='46' rx='8' fill='#0E3F8C' />
+                <text x='913' y='196' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>render</text>
+
+                {/* 标注 */}
+                <text x='249' y='226' fontSize='12' fill='#D9534F' textAnchor='middle'>回环①② 检索未达标</text>
+                <text x='1079' y='252' fontSize='12' fill='#D9534F' textAnchor='middle'>回环③ 有界返工（至多 1 次）</text>
+                <text x='581' y='34' fontSize='12' fill='#8B97A8' textAnchor='middle'>方向跑偏时全量重分解</text>
+            </svg>
+        </Box>
+
+        {/* 下 · 三张支撑卡 */}
+        <Box style={{ flex: 1, flexDirection: 'row', gap: 16 }}>
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '16px 20px', gap: 6 }}>
+                <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#0E3F8C' }}>节点是纯函数</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>
+                    每个节点只做「读 state → 产出局部更新」，不持有隐藏上下文，因此可以脱离整图单独测试与替换。
+                </Text>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '16px 20px', gap: 6 }}>
+                <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#0E3F8C' }}>状态类型化</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>
+                    全局状态为 Pydantic <span style={{ fontWeight: 'bold' }}>ResearchState</span>；findings 刻意不加 reducer，让「谁写了什么」保持可追踪。
+                </Text>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#F0F5FC', borderRadius: 8, padding: '16px 20px', gap: 6 }}>
+                <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#0E3F8C' }}>回环有上限</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>
+                    检索回环由跳数预算封顶，校验回环至多返工 1 次；超限时走确定性硬闸收口，不会无限循环。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>07 / 23</Text>
+    </Box>
+</Slide>
