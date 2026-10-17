@@ -75,7 +75,7 @@ export default function AuthForm({
 
   const title =
     mode === 'login'
-      ? '登录 DeepResearch'
+      ? '登录爱考据 iKaoju'
       : mode === 'register'
         ? '邀请制注册'
         : mode === 'forgot'

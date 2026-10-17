@@ -100,7 +100,7 @@ def test_auth_fail_closed_when_token_unset(monkeypatch):
 def test_initialize_and_tools_list(mcp_token):
     r = _rpc("initialize", _INIT_PARAMS)
     assert r.status_code == 200
-    assert r.json()["result"]["serverInfo"]["name"] == "deepresearch"
+    assert r.json()["result"]["serverInfo"]["name"] == "ikaoju"
     r2 = _rpc("tools/list")
     assert r2.status_code == 200
     names = {t["name"] for t in r2.json()["result"]["tools"]}
@@ -182,9 +182,9 @@ def test_deep_research_delegates_to_service_with_principal(monkeypatch):
     assert out["status_url"] == "/api/research/run-abc123"
 
     kw = calls[0]
-    assert kw["user_id"] == "mcp:deepresearch"  # 单一 service principal（TBD-10）
+    assert kw["user_id"] == "mcp:ikaoju"  # 单一 service principal（TBD-10）
     assert kw["topic"] == "主题A" and kw["profile_name"] == "standard"
-    assert kw["idempotency_key"].startswith("mcp-mcp:deepresearch-")
+    assert kw["idempotency_key"].startswith("mcp-mcp:ikaoju-")
     # 同请求派生同一幂等键（重复调用返回同一 run 的语义）
     mcp_server.deep_research("主题A", "说明B", "standard")
     assert calls[0]["idempotency_key"] == calls[1]["idempotency_key"]
@@ -223,8 +223,8 @@ def test_deep_research_provisions_principal_once(monkeypatch):
     mcp_server.deep_research("主题甲")
     mcp_server.deep_research("主题乙")
     assert len(calls) == 1  # 进程内只开户一次
-    assert calls[0][0] == "mcp:deepresearch"
-    assert calls[0][1] == "deepresearch@mcp.invalid"  # 保留域（不可路由）
+    assert calls[0][0] == "mcp:ikaoju"
+    assert calls[0][1] == "ikaoju@mcp.invalid"  # 保留域（不可路由）
     assert calls[0][2]  # 一次性随机口令的 Argon2id 哈希（不可登录）
 
 
@@ -232,7 +232,7 @@ def test_deep_research_provisions_principal_once(monkeypatch):
 
 
 def test_research_status_ownership_and_projection(monkeypatch):
-    monkeypatch.setattr(api, "_run_owner", lambda rid: (True, "mcp:deepresearch"))
+    monkeypatch.setattr(api, "_run_owner", lambda rid: (True, "mcp:ikaoju"))
     monkeypatch.setattr(api.manager, "snapshot", lambda rid: {
         "status": "finished", "run_status": "success", "topic": "t",
         "started_at": "2026-10-14T00:00:00+00:00", "has_report": True,
@@ -254,7 +254,7 @@ def test_research_status_ownership_and_projection(monkeypatch):
 
 
 def test_research_report_gate_and_paths(monkeypatch):
-    monkeypatch.setattr(api, "_run_owner", lambda rid: (True, "mcp:deepresearch"))
+    monkeypatch.setattr(api, "_run_owner", lambda rid: (True, "mcp:ikaoju"))
 
     def flagged(rid):
         raise ApiError("output_under_review", "报告命中内容安全预检，正在等待人工复核")
@@ -305,5 +305,5 @@ def test_audit_records_hash_not_raw_text(monkeypatch):
     joined = json.dumps(seen, ensure_ascii=False)
     assert "敏感查询文本" not in joined and "敏感主题文本" not in joined
     assert seen[0][1]["detail"]["request_hash"]
-    assert seen[0][1]["actor_user_id"] == "mcp:deepresearch"
+    assert seen[0][1]["actor_user_id"] == "mcp:ikaoju"
     assert seen[1][1]["detail"]["run_id"] == "run-xyz"

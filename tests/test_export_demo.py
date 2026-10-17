@@ -50,7 +50,7 @@ def test_demo_endpoints_full_flow(monkeypatch):
     download = client.get(f"/api/research/{RID}/export-jobs/{jid}/download")
     assert download.status_code == 200 and download.content == _TINY_PDF
     disposition = download.headers["content-disposition"]
-    assert "deepresearch-demo-run-38f2.pdf" in disposition  # ASCII 回退名
+    assert "ikaoju-demo-run-38f2.pdf" in disposition  # ASCII 回退名
     assert "filename*=UTF-8''" in disposition  # 中文展示名（RFC 5987）
 
     # 幂等复用：同 run 再申请 ⇒ 返回同一作业

@@ -137,7 +137,7 @@ def test_document_from_store_report_falls_back_to_artifact():
 
 def test_render_markdown_keeps_legacy_shape():
     md = render_markdown(document_from_payload(_payload()))
-    assert md.startswith("# 导出装配主题：DeepResearch 报告导出")
+    assert md.startswith("# 导出装配主题：爱考据 iKaoju 报告导出")
     assert f"run_id `{RID}`" in md
     assert "run_status **success**" in md and "停止原因 **completed**" in md
     assert "降级条目 1 · 检索深度 2" in md

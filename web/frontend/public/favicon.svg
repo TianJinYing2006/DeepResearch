@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img">
+  <title>ikaoju</title>
+  <desc>三条资料线收束成一个朱色结论块——研究报告的动词。</desc>
+  <rect width="100" height="100" rx="24" fill="#FBFAF7"/>
+  <rect x="24" y="25" width="52" height="6" rx="3" fill="#AEB9C7"/>
+  <rect x="24" y="39" width="52" height="6" rx="3" fill="#AEB9C7"/>
+  <rect x="24" y="53" width="52" height="6" rx="3" fill="#AEB9C7"/>
+  <rect x="24" y="69" width="34" height="14" rx="4" fill="#C2452D"/>
+</svg>

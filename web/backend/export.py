@@ -196,7 +196,7 @@ def render_markdown(doc: ExportDocument) -> str:
     """
     report = doc.report.strip()
     head = [
-        f"# {doc.topic}：DeepResearch 报告导出",
+        f"# {doc.topic}：爱考据 iKaoju 报告导出",
         "",
         f"> run_id `{doc.run_id}` · 导出时间 {doc.generated_at}",
         f"> run_status **{doc.run_status}** · 停止原因 **{doc.stop_reason}**"

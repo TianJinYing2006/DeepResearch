@@ -110,7 +110,7 @@ export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props)
             <div className="flex items-center gap-2.5">
               <span aria-hidden="true" className="text-lg leading-none text-stamp-blue">◈</span>
               <div>
-                <p className="text-sm font-semibold tracking-tight text-ink">DeepResearch</p>
+                <p className="text-sm font-semibold tracking-tight text-ink">爱考据 iKaoju</p>
                 <p className="text-xs text-ink-muted">可审计研究工作台</p>
               </div>
             </div>
@@ -269,7 +269,7 @@ export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props)
 
         <footer className="border-t border-rule/70 bg-paper">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-[11px] text-ink-muted sm:px-8">
-            <span>DeepResearch · 可审计研究工作台 · 内测阶段</span>
+            <span>爱考据 iKaoju · 可审计研究工作台 · 内测阶段</span>
             <span className="flex gap-4">
               <button type="button" className="underline decoration-rule underline-offset-4 hover:text-ink"
                       data-testid="footer-help" onClick={onOpenHelp}>帮助中心</button>

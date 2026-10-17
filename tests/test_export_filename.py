@@ -16,7 +16,7 @@ RID = "abc123def456"
 def test_chinese_topic_display_and_ascii_fallback():
     display, fallback = build_export_filename("天蝎座与狮子座的适配", RID)
     assert display == "天蝎座与狮子座的适配.md"
-    assert fallback == f"deepresearch-{RID}.md"
+    assert fallback == f"ikaoju-{RID}.md"
 
 
 def test_ascii_topic_uses_same_name_for_both():
@@ -41,7 +41,7 @@ def test_illegal_chars_are_replaced():
 def test_empty_or_blank_topic_falls_back_to_run_id():
     for topic in (None, "", "   ", "...", "/"):
         display, fallback = build_export_filename(topic, RID)
-        assert display == f"deepresearch-{RID}.md"
+        assert display == f"ikaoju-{RID}.md"
         assert fallback == display
 
 
@@ -51,7 +51,7 @@ def test_long_topic_is_truncated():
 
 
 def test_content_disposition_rfc6266_shape():
-    header = content_disposition("天蝎座.md", f"deepresearch-{RID}.md")
-    assert header.startswith('attachment; filename="deepresearch-')
+    header = content_disposition("天蝎座.md", f"ikaoju-{RID}.md")
+    assert header.startswith('attachment; filename="ikaoju-')
     assert f"filename*=UTF-8''{quote('天蝎座.md', safe='')}" in header
     assert header.isascii()  # filename* 已百分号编码，整体无裸非 ASCII

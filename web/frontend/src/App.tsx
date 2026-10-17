@@ -408,7 +408,7 @@ export default function App() {
               ◈
             </div>
             <div>
-              <p className="font-semibold tracking-tight text-ink">DeepResearch</p>
+              <p className="font-semibold tracking-tight text-ink">爱考据 iKaoju</p>
               <p className="text-xs text-ink-muted">可审计研究工作台</p>
             </div>
           </div>

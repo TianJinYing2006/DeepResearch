@@ -129,7 +129,7 @@ def render_docx(doc: ExportDocument) -> bytes:
     _set_cjk(document.styles["Normal"])
     document.styles["Normal"].font.size = Pt(11)
 
-    document.add_heading(f"{doc.topic}：DeepResearch 报告导出", level=0)
+    document.add_heading(f"{doc.topic}：爱考据 iKaoju 报告导出", level=0)
     _add_meta(document, f"run_id {doc.run_id} · 导出时间 {doc.generated_at}")
     _add_meta(document, f"run_status {doc.run_status} · 停止原因 {doc.stop_reason}"
                        f"{' · 已取消' if doc.cancelled else ''}")
