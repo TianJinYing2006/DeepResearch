@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>iKaoju · 图标方向 01</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --paper: #FBFAF7;
+    --ink: #23313A;
+    --red: #C2452D;
+    --slate: #AEB9C7;
+    --muted: #61707B;
+    --line: rgba(35, 49, 58, .10);
+    --bg: #ECE9E2;
+  }
+  html, body { background: var(--bg); }
+  body {
+    width: 1480px;
+    margin: 0 auto;
+    padding: 60px 72px 56px;
+    color: var(--ink);
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 14px;
+    margin-bottom: 30px;
+  }
+  .eyebrow {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 12px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .meta {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 12px;
+    letter-spacing: .12em;
+    color: var(--muted);
+  }
+  .meta b { color: var(--red); font-weight: normal; }
+  header h1 {
+    font-family: "SimSun", "Songti SC", Georgia, serif;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: .01em;
+    line-height: 1.25;
+  }
+  header h1 em {
+    font-family: Georgia, "Times New Roman", serif;
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--red);
+  }
+  header p {
+    margin-top: 12px;
+    max-width: 900px;
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+    margin-top: 34px;
+  }
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    padding: 26px 26px 22px;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage {
+    height: 250px;
+    display: grid;
+    place-items: center;
+  }
+  .stage img {
+    width: 232px;
+    height: 232px;
+    border-radius: 51px;
+    filter: drop-shadow(0 18px 26px rgba(35, 49, 58, .13));
+  }
+  .name {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .name .idx {
+    font-family: Georgia, serif;
+    font-size: 14px;
+    color: var(--red);
+  }
+  .name h2 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+  .name .en {
+    margin-left: auto;
+    font-family: Georgia, serif;
+    font-size: 10.5px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .desc {
+    margin-top: 10px;
+    min-height: 66px;
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--muted);
+  }
+  .rule { height: 1px; background: var(--line); margin: 18px 0 16px; }
+  .sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 22px;
+    padding-bottom: 2px;
+  }
+  .size {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+  }
+  .size img {
+    display: block;
+    border-radius: 10px;
+    filter: drop-shadow(0 4px 8px rgba(35, 49, 58, .10));
+  }
+  .size .px {
+    font-family: Georgia, serif;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    color: #8A97A2;
+  }
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    margin-top: 34px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .palette { display: flex; gap: 18px; }
+  .swatch { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--muted); }
+  .swatch i {
+    width: 14px; height: 14px; border-radius: 4px; display: block;
+    border: 1px solid rgba(35, 49, 58, .10);
+  }
+  .foot .note {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: #8A97A2;
+    letter-spacing: .02em;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="eyebrow">Icon studies / 01 &nbsp;— &nbsp;iKaoju rebrand</div>
+    <div class="meta">2026 · 10 &nbsp; | &nbsp; <b>concept sheet</b></div>
+  </div>
+
+  <header>
+    <h1>iKaoju 的三种图标方向</h1>
+    <p>同一套纸、墨、朱的语气下，三个不同的侧重：检索、收束、引证。全部为手工矢量路径，未借用图标库；每枚都在 16px 下校过轮廓，不做只在放大时成立的细节。</p>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <div class="stage"><img src="concepts/a-lens.svg" alt="深读概念图"></div>
+      <div class="name"><span class="idx">A</span><h2>深读</h2><span class="en">Lens</span></div>
+      <p class="desc">镜片里三行资料逐行收短，最后一行以墨色落定。检索与读完被放进了同一个符号里。</p>
+      <div class="rule"></div>
+      <div class="sizes">
+        <div class="size"><img src="concepts/a-lens.svg" width="48" height="48" alt="48px"><span class="px">48</span></div>
+        <div class="size"><img src="concepts/a-lens.svg" width="32" height="32" alt="32px"><span class="px">32</span></div>
+        <div class="size"><img src="concepts/a-lens.svg" width="16" height="16" alt="16px" style="border-radius:4px"><span class="px">16</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="stage"><img src="concepts/b-confluence.svg" alt="汇流概念图"></div>
+      <div class="name"><span class="idx">B</span><h2>汇流</h2><span class="en">Confluence</span></div>
+      <p class="desc">三条线索从左侧汇入一枚朱色结论块。考据不是堆叠资料，而是收束成一个判断。</p>
+      <div class="rule"></div>
+      <div class="sizes">
+        <div class="size"><img src="concepts/b-confluence.svg" width="48" height="48" alt="48px"><span class="px">48</span></div>
+        <div class="size"><img src="concepts/b-confluence.svg" width="32" height="32" alt="32px"><span class="px">32</span></div>
+        <div class="size"><img src="concepts/b-confluence.svg" width="16" height="16" alt="16px" style="border-radius:4px"><span class="px">16</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="stage"><img src="concepts/c-citation.svg" alt="引证概念图"></div>
+      <div class="name"><span class="idx">C</span><h2>引证</h2><span class="en">Citation</span></div>
+      <p class="desc">一对方括号框住一枚朱色落点：被引用的事实，与由此得到的结论。最安静的一版。</p>
+      <div class="rule"></div>
+      <div class="sizes">
+        <div class="size"><img src="concepts/c-citation.svg" width="48" height="48" alt="48px"><span class="px">48</span></div>
+        <div class="size"><img src="concepts/c-citation.svg" width="32" height="32" alt="32px"><span class="px">32</span></div>
+        <div class="size"><img src="concepts/c-citation.svg" width="16" height="16" alt="16px" style="border-radius:4px"><span class="px">16</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="palette">
+      <span class="swatch"><i style="background:#FBFAF7"></i>纸 #FBFAF7</span>
+      <span class="swatch"><i style="background:#23313A"></i>墨 #23313A</span>
+      <span class="swatch"><i style="background:#C2452D"></i>朱 #C2452D</span>
+      <span class="swatch"><i style="background:#AEB9C7"></i>灰 #AEB9C7</span>
+    </div>
+    <span class="note">512 × 512 canvas · 可选 4px 网格重绘 · 透明底与深色底版本可另出</span>
+  </footer>
+</body>
+</html>

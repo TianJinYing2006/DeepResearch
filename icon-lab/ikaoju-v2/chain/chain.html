@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>引签 · 报告内引用链（组件原型）</title>
+<style>
+/* ============================================================================
+   引签 · 引用链（组件原型）—— iKaoju identity v2 落到产品界面里的那一半
+
+   一句话：把报告正文里的 `[来源: N]` 换成图标里的那条链 ——
+   被引用的那一行（claim）、一跳一跳的虚线（三段路径）、骑在页缝上的签（seal），
+   同一种颜色，因为它们本来就是同一件事（结论和它的来源绑死）。
+
+   颜色**全部**取自产品既有令牌（web/frontend/tailwind.config.js），不是另起一套：
+     ink #171B19 · rule #D9DEDA · paper #F4F6F3 · sheet #FFFFFF
+     stamp-blue #1E5AD8（已核验）· stamp-red #B5432E（未通过）· stamp-amber #9A6B1F（无据）
+   待复核：图标里是 #7C9BE0（只在墨底上出现）。组件里签骑在白纸与墨底之间，
+   #7C9BE0 对白纸只有 2.76:1 ⇒ 压深到 #6E8FD9，纸侧 3.19:1、墨侧 5.35:1，两侧都过 3:1。
+   ========================================================================== */
+:root {
+  --paper: #f4f6f3;
+  --sheet: #ffffff;
+  --rule: #d9deda;
+  --ink: #171b19;
+  --ink-muted: #5e6862;
+  --stamp-blue: #1e5ad8;
+  --stamp-red: #b5432e;
+  --stamp-amber: #9a6b1f;
+
+  --chain-verified: #1e5ad8;
+  --chain-pending: #6e8fd9;
+  --chain-failed: #b5432e;
+  --chain-none: #9a6b1f;
+
+  --rail-w: 76px;
+  --seal: 34px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, Georgia, serif;
+  --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 0 72px;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------- 实验室横条（不属于组件） ---------------- */
+.lab {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 13px 28px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--sheet);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.lab strong { color: var(--ink); letter-spacing: 0.08em; }
+.lab .sep { flex: 1; }
+.lab button {
+  font: inherit;
+  padding: 5px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--sheet);
+  color: var(--ink);
+  cursor: pointer;
+}
+.lab button:hover { border-color: var(--ink-muted); }
+.lab button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--sheet); }
+
+/* 截图模式（?shot=1）：去掉实验室横条与桌面留白，让截图 = 页 + 投影，
+   这样 shot.py 的自动裁切才有确定的包围盒（否则横条会把 bbox 撑到整屏宽）。 */
+body[data-shot="1"] .lab { display: none; }
+body[data-shot="1"] .desk { padding: 22px; }
+
+/* ---------------- 桌面 + 页 ---------------- */
+.desk { padding: 40px 0 0 88px; }
+body[data-view="states"] .desk { padding: 32px 0 0 64px; }
+body[data-view="states"] .page { max-width: 880px; }
+body[data-view="states"] .leaf { padding: 34px 44px 30px; }
+body[data-view="states"] .leaf-head h1 { font-size: 22px; }
+@media (max-width: 1180px) { .desk { padding: 24px 16px 0; } }
+
+.page {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--rail-w);
+  width: 100%;
+  max-width: 1044px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgba(23, 27, 25, 0.05), 0 26px 60px -40px rgba(23, 27, 25, 0.45);
+}
+
+/* 纸页：右上角折起（这一页被翻过）。折角所在的那条边，就是右边那条墨色页缝。 */
+.leaf {
+  position: relative;
+  z-index: 1;
+  padding: 56px 60px 48px;
+  border-right: 1px solid var(--rule);
+  background: var(--sheet);
+  clip-path: polygon(0 0, calc(100% - 44px) 0, 100% 44px, 100% 100%, 0 100%);
+}
+.leaf::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  background: #ebe7dd;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.leaf-head { margin-bottom: 30px; }
+body[data-view="states"] .leaf-head { margin-bottom: 22px; }
+.kicker { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.16em; color: var(--ink-muted); }
+.leaf-head h1 { margin: 0 0 8px; font-family: var(--serif); font-size: 27px; font-weight: 700; }
+.leaf-head .meta { margin: 0; font-size: 12px; color: var(--ink-muted); }
+
+/* 报告正文：与产品 index.css 的 .report-prose 同族（17px / 1.85 / 衬线） */
+.report-prose { font-family: var(--serif); font-size: 17px; line-height: 1.85; }
+.report-prose h2 {
+  margin: 34px 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 19px;
+  font-weight: 600;
+}
+.report-prose p { margin: 0 0 18px; text-wrap: pretty; }
+
+.leaf-foot {
+  margin-top: 36px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 11px;
+  line-height: 1.9;
+  color: var(--ink-muted);
+}
+body[data-view="states"] .leaf-foot { margin-top: 22px; }
+
+/* ---------------- 页缝（墨色装订边） ---------------- */
+.rail { position: relative; z-index: 3; background: var(--ink); }
+/* 装订针脚：骑在页缝上 —— 左半落在白页、右半落在墨底，一针两底色 */
+.stitch {
+  position: absolute;
+  left: calc((var(--rail-w) / -2) - 1.5px);
+  top: var(--y);
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--ink) 0 50%, var(--paper) 50% 100%);
+}
+
+/* ---------------- 链：三段虚线（每段 = 一跳） ---------------- */
+.chain-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: visible; }
+.chain path {
+  fill: none;
+  stroke: var(--chain);
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  stroke-dasharray: 9 9;
+  opacity: 0;
+  transform: translateX(-7px);
+  transition: opacity 220ms var(--ease), transform 220ms var(--ease), stroke-width 160ms var(--ease);
+}
+.chain.is-in path { opacity: 1; transform: none; }
+.chain.is-in path:nth-of-type(1) { transition-delay: 0ms; }
+.chain.is-in path:nth-of-type(2) { transition-delay: 90ms; }
+.chain.is-in path:nth-of-type(3) { transition-delay: 180ms; }
+/* 被指向的那条链：虚线在流动（一跳一跳），其余静止 */
+.chain.is-live path { animation: chain-flow 1.35s linear infinite; }
+.chain.is-live path:nth-of-type(2) { animation-delay: 120ms; }
+.chain.is-live path:nth-of-type(3) { animation-delay: 240ms; }
+.chain[data-hop="1"] path:nth-of-type(1),
+.chain[data-hop="2"] path:nth-of-type(2),
+.chain[data-hop="3"] path:nth-of-type(3) { stroke-width: 4.5px; }
+@keyframes chain-flow { to { stroke-dashoffset: -36; } }
+
+/* 被引用的那一行：同一种颜色 */
+.claim { text-decoration: underline; text-decoration-color: var(--chain); text-decoration-thickness: 1.5px; text-underline-offset: 5px; }
+
+/* ---------------- 签 ---------------- */
+.seal {
+  position: absolute;
+  z-index: 4;
+  width: var(--seal);
+  height: var(--seal);
+  padding: 0;
+  border: 2px solid var(--paper);
+  border-radius: 11px;
+  background: var(--chain);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(1.5);
+  transition: opacity 200ms var(--ease), transform 240ms cubic-bezier(0.2, 1.35, 0.4, 1),
+    box-shadow 160ms var(--ease);
+}
+.seal.is-stamped { opacity: 1; transform: translateX(var(--stack-x, 0px)); }
+.seal[data-stack="1"] { --stack-x: 9px; z-index: 3; }
+.seal[data-stack="2"] { --stack-x: 18px; z-index: 2; }
+.seal:hover, .seal[aria-expanded="true"] { box-shadow: 0 0 0 4px rgba(30, 90, 216, 0.16); }
+.seal:focus-visible { outline: 2px solid rgba(30, 90, 216, 0.55); outline-offset: 3px; }
+.seal .slot,
+.seal::before,
+.seal::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 3px;
+  height: 9px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--paper);
+}
+.seal .slot { top: 7px; }
+.seal::before { top: 12.5px; }
+.seal::after { top: 18px; }
+
+/* 签即状态：已核验＝蓝实心；待复核＝浅蓝（**校验未完成**时空心）；
+   未通过＝朱；无据＝琥珀空心虚线边（沿用产品里 claim-unsourced 的色）。 */
+[data-verdict="verified"] { --chain: var(--chain-verified); }
+[data-verdict="relaxed"]  { --chain: var(--chain-pending); }
+[data-verdict="unknown"]  { --chain: var(--chain-pending); }
+[data-verdict="refuted"]  { --chain: var(--chain-failed); }
+[data-verdict="none"]     { --chain: var(--chain-none); }
+
+.seal[data-verdict="unknown"],
+.seal[data-verdict="none"] { background: transparent; }
+.seal[data-verdict="unknown"] .slot,
+.seal[data-verdict="unknown"]::before,
+.seal[data-verdict="unknown"]::after,
+.seal[data-verdict="none"] .slot,
+.seal[data-verdict="none"]::before,
+.seal[data-verdict="none"]::after { background: var(--chain); }
+.seal[data-verdict="none"] { border-style: dashed; }
+
+/* ---------------- 出处卡（从签上展开） ---------------- */
+.yin-card {
+  position: fixed;
+  z-index: 20;
+  width: 336px;
+  max-height: min(72vh, 620px);
+  overflow: auto;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgba(23, 27, 25, 0.06), 0 26px 60px -34px rgba(23, 27, 25, 0.45);
+  animation: unfold 200ms var(--ease) both;
+}
+.yin-card[hidden] { display: none; }
+@keyframes unfold {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+.yin-card h3 { margin: 0 0 2px; font-size: 14px; font-weight: 700; color: var(--chain); }
+.yin-card .verdict-line { margin: 0 0 12px; font-size: 11.5px; line-height: 1.7; color: var(--ink-muted); }
+.yin-card .claim-quote {
+  margin: 0 0 14px;
+  padding-left: 10px;
+  border-left: 2px solid var(--chain);
+  font-family: var(--serif);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.hops { margin: 0 0 14px; padding: 0; list-style: none; counter-reset: hop; }
+.hops li { position: relative; padding: 5px 0 5px 24px; font-size: 12px; line-height: 1.7; color: var(--ink); }
+.hops li::before {
+  counter-increment: hop;
+  content: counter(hop);
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--chain);
+  border-radius: 5px;
+  font-size: 9.5px;
+  line-height: 12px;
+  text-align: center;
+  color: var(--chain);
+}
+.hops li:hover { background: rgba(30, 90, 216, 0.05); }
+.hops li[data-status="open"]::before { border-style: dashed; }
+.hops .k { color: var(--ink-muted); }
+.hops .v { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+
+.kv dl { display: grid; grid-template-columns: 62px 1fr; gap: 2px 10px; margin: 0; font-size: 12px; line-height: 1.8; }
+.kv dt { color: var(--ink-muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.kv .note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 12px; line-height: 1.8; color: var(--ink-muted); }
+
+.card-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.card-close:hover { background: var(--rule); color: var(--ink); }
+
+/* ---------------- 窄屏：页缝收掉，签落到行内 ---------------- */
+@media (max-width: 860px) {
+  :root { --rail-w: 0px; }
+  .rail, .chain-layer { display: none; }
+  .desk, body[data-view="states"] .desk { padding: 16px 12px 0; }
+  .leaf { padding: 30px 20px 26px; border-right: 0; }
+  .page { grid-template-columns: minmax(0, 1fr); }
+  .seal {
+    position: static;
+    display: inline-block;
+    vertical-align: -7px;
+    width: 26px;
+    height: 26px;
+    margin-left: 8px;
+    border-radius: 9px;
+    transform: none;
+  }
+  .seal[data-stack="1"], .seal[data-stack="2"] { margin-left: -11px; }
+  .seal.is-stamped { transform: none; }
+  .seal .slot, .seal::before, .seal::after { height: 7px; width: 2.5px; margin-left: -1.25px; }
+  .seal .slot { top: 5px; }
+  .seal::before { top: 9.5px; }
+  .seal::after { top: 14px; }
+  .yin-card { left: 12px !important; right: 12px !important; top: auto !important; bottom: 12px; width: auto; max-height: 62vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chain path, .seal, .yin-card { animation: none !important; transition-duration: 0.01ms !important; }
+  .chain path { opacity: 1; transform: none; }
+  .seal { opacity: 1; }
+  .seal.is-stamped { opacity: 1; }
+}
+</style>
+</head>
+<body>
+
+<header class="lab">
+  <strong>引签 / YIN CHAIN</strong>
+  <span>报告内引用链 · 组件原型（正文为示例数据）</span>
+  <span class="sep"></span>
+  <button type="button" id="replay">重放出现动效</button>
+  <button type="button" id="all" aria-pressed="false">展开多源链</button>
+  <span>点签＝展开出处 · Esc 收起 · ← → 换一条链</span>
+</header>
+
+<main class="desk">
+  <div class="page" id="page">
+    <div class="leaf">
+      <div class="leaf-head">
+        <p class="kicker">REPORT · RUN-20261017-0309 · 深 3 跳 · 42 条证据</p>
+        <h1>多跳检索下的引用核验</h1>
+        <p class="meta">演示正文（示例数据，非真实研究结论）：每一处 [来源: N] 都被这条链替换。</p>
+      </div>
+      <article class="report-prose" id="prose"></article>
+      <div class="leaf-foot">
+        页边印记即引用状态：<b>青蓝＝已核验</b> · <b>浅蓝＝待复核</b> · <b>朱＝未通过</b> · <b>琥珀空心＝无据</b>。<br>
+        点任意一枚签，出处从页缝上展开；三段虚线依次对应三跳：论断 → 工作证据 → 原文证据 → 来源快照。
+      </div>
+    </div>
+    <div class="rail" id="rail">
+      <div class="stitch" style="--y:104px"></div>
+      <div class="stitch" style="--y:158px"></div>
+      <div class="stitch" style="--y:212px"></div>
+    </div>
+    <svg class="chain-layer" id="layer" aria-hidden="true"></svg>
+  </div>
+</main>
+
+<aside class="yin-card" id="card" hidden></aside>
+
+<script>
+"use strict";
+
+/* ============================================================================
+   1. 数据：形状对齐产品既有模型（research_engine/state.py::Citation）
+   verdict 的推导顺序对齐 web/frontend/src/lib/quality.ts::citationVerdict ——
+   verification_failed 先判（UNKNOWN 不得降格成通过或失败），再 verified，再 verified_relaxed。
+   ========================================================================== */
+const CITATIONS = {
+  12: {
+    verdict: "verified", existence: true, verified: true, sourceType: "web",
+    source: "https://example.org/notes/multi-hop-retrieval",
+    finding: "Finding 12", evidence: "ev_9c1f4a77", hash: "sha256 3f9c2ab1",
+    snapshot: "snapshot 8a41c0de", quoteAt: "引文 L0 精确命中 · char 1284–1319",
+    quote: "逐跳推进的意义不只是召回更多，而是让每一跳的新证据都能被单独核对。",
+    note: "存在性通过、忠实度通过：引文在快照内逐字命中。",
+  },
+  5: {
+    verdict: "relaxed", existence: true, verified: false, verifiedRelaxed: true, sourceType: "rag",
+    source: "内部知识库 · 检索评测报告 v3.pdf",
+    finding: "Finding 5", evidence: "ev_2b71c0de", hash: "sha256 71ab90fe",
+    snapshot: "snapshot c40f7e21", quoteAt: "引文 L1 空白折叠命中 · char 402–438",
+    quote: "单跳检索在长尾子问题上覆盖率明显下降，需要按子问题逐跳补齐。",
+    note: "严格口径未过（忠实度未直接确认），宽松口径通过：存在且（忠实或多源印证）。",
+  },
+  72: {
+    verdict: "relaxed", existence: true, verified: false, verifiedRelaxed: true, sourceType: "web",
+    source: "https://example.org/survey/long-tail-qa",
+    finding: "Finding 72", evidence: "ev_5d0a3c1b", hash: "sha256 0d3e7712",
+    snapshot: "snapshot 11b2a9f0", quoteAt: "引文 L2 标点归一命中 · char 88–121",
+    quote: "长尾问题的答案分散在多个来源，单次检索无法覆盖。",
+    note: "多源印证之一：与 Finding 5 为独立来源。",
+  },
+  77: {
+    verdict: "relaxed", existence: true, verified: false, verifiedRelaxed: true, sourceType: "arxiv",
+    source: "arXiv:2405.00000 · demo placeholder",
+    finding: "Finding 77", evidence: "ev_7f3b8e02", hash: "sha256 c81d44aa",
+    snapshot: "snapshot 55d0c1a7", quoteAt: "引文 L0 精确命中 · char 932–960",
+    quote: "迭代式检索在每一步都用上一跳的证据改写查询。",
+    note: "多源印证之一：与 Finding 5、72 均为独立来源。",
+  },
+  31: {
+    verdict: "refuted", existence: true, verified: false, sourceType: "web",
+    source: "https://example.org/faq/verification",
+    finding: "Finding 31", evidence: "ev_aa120377", hash: "sha256 4e0b91c5",
+    snapshot: "snapshot 7c3f2d18", quoteAt: "quote_status = not_found（快照内未定位到引文）",
+    quote: "",
+    note: "确证失败：查过了，论断不在来源里。这类引用会被返工循环删掉；未删时降格进文末未通过附录，但不静默消失。",
+  },
+  44: {
+    verdict: "unknown", existence: true, verified: false, verificationFailed: true, sourceType: "web",
+    source: "https://example.org/budget/limits",
+    finding: "Finding 44", evidence: "ev_31c7de90", hash: "sha256 b0f1c8d3",
+    snapshot: "snapshot 9e04ab77", quoteAt: "校验未完成，未产生引文定位",
+    quote: "",
+    note: "校验未完成（UNKNOWN）：预算在写作后耗尽，校验没跑完。既未确认成立、也未确认不成立 —— 不等于通过。",
+  },
+};
+
+/** 多源印证的代码复核产物（F12）：independent_source_count ⇒ 签的枚数。 */
+const INDEPENDENT = { "5": 3 };
+
+/* 演示正文：产品里 Writer 写出来的就是这种带 [来源: N] 的 Markdown。
+   这里直接喂原始标记、由呈现层替换 —— 与接入 ReportView 时的做法一致。 */
+const DOC = [
+  { h2: "一、检索不是一步到位" },
+  { p: "检索链路的每一步都会改变一次召回集合，单跳检索在长尾问题上往往只覆盖表层信息 [来源: 12]。因此需要按子问题逐跳推进，并把每一跳的新证据并入上下文，而不是把所有判断压在第一次召回上 [来源: 5, 72, 77]。" },
+  { h2: "二、论断与出处绑死" },
+  { p: "报告里的每条实质性论断都带引用标记，标记指向证据编号而不是文末的「参考资料」章节 [来源: 12]。校验分两步：先确认来源存在，再确认论断忠实于原文；两步都过才算严格通过 [来源: 31]。" },
+  { h2: "三、没结论也是一种结论" },
+  { p: "当校验预算耗尽时，引用会停在「未完成」状态：既未确认成立、也未确认不成立，这类引用不得当作通过处理 [来源: 44]。写作层找不到可用编号时只能标注「信息不足」，把缺口留在明面上 [来源: 信息不足]。" },
+];
+
+/* 状态对照页（?view=states）：同样长度的五句话，五种签面。 */
+const STATES_DOC = [
+  { h2: "同一条链，五种签面" },
+  { p: "严格口径通过：来源存在，且论断忠实于原文 [来源: 12]。" },
+  { p: "宽松口径通过：存在且（忠实或多源印证），不等于严格通过 [来源: 5, 72, 77]。" },
+  { p: "校验未完成：没跑出结论，既未确认成立也未确认不成立 [来源: 44]。" },
+  { p: "确证失败：查过了，结论不成立，降格附录但不静默删除 [来源: 31]。" },
+  { p: "无据：写作层只留下一个「信息不足」的标记 [来源: 信息不足]。" },
+];
+
+/* ============================================================================
+   2. 口径：后端四态 → 品牌三色（+ 形）
+   ---------------------------------------------------------------------------
+   后端与前端是四态（严格通过 / 宽松通过 / 确证失败 / 校验未完成），图标只有三色：
+     严格通过              → 已核验（蓝实心）
+     宽松通过 / 校验未完成  → 待复核（浅蓝；后者空心 —— 用形区分「有结论」与「没结论」）
+     确证失败              → 未通过（朱）
+     无编号（信息不足）     → 无据（琥珀空心虚线边）
+   ⚠️ 签面用品牌三态，卡里必须写产品的精确口径：「未知不等于通过」不能被三色抹平。
+   ========================================================================== */
+const SEVERITY = { verified: 0, relaxed: 1, unknown: 2, refuted: 3, none: 4 };
+const SEAL_TITLE = {
+  verified: "已核验",
+  relaxed: "待复核",
+  unknown: "待复核",
+  refuted: "未通过",
+  none: "无据",
+};
+const SEAL_DETAIL = {
+  verified: "来源存在且论断忠实（严格口径通过）",
+  relaxed: "宽松口径通过：存在且（忠实或多源印证）；不等于严格通过",
+  unknown: "校验未完成：LLM 校验没跑完，没得出核验结论",
+  refuted: "确证失败：查过了，结论不成立",
+  none: "写作层未给出可核验编号（[来源: 信息不足]）",
+};
+
+const page = document.getElementById("page");
+const prose = document.getElementById("prose");
+const layer = document.getElementById("layer");
+const rail = document.getElementById("rail");
+const card = document.getElementById("card");
+const params = new URLSearchParams(location.search);
+const VIEW = params.get("view") || "report";
+const narrow = () => window.matchMedia("(max-width: 860px)").matches;
+
+const chains = [];
+let activeId = null;
+let expectedChains = 0;
+
+/* ============================================================================
+   3. 呈现层
+   ========================================================================== */
+function escapeHtml(s) {
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+/** 解析 [来源: …]：兼容 '5, 72, 77' / '3、7' / '3和7' / '#5' / 渲染层标注过的 '5 · 🔵web'。 */
+function parseRefs(raw) {
+  const nums = [];
+  let none = false;
+  for (const part of raw.split(/[,，、;；/]|和/)) {
+    const piece = part.trim();
+    if (!piece) continue;
+    if (piece.includes("信息不足")) { none = true; continue; }
+    const m = piece.match(/(\d+)/);
+    if (m) nums.push(Number(m[1]));
+  }
+  return { nums, none };
+}
+
+/** 与 quality.ts::citationVerdict 同序：先判「未完成」，再判通过，最后才是失败。 */
+function verdictOf(num) {
+  const c = CITATIONS[num];
+  if (!c) return "unknown";
+  if (c.verificationFailed) return "unknown";
+  if (c.verified) return "verified";
+  if (c.verifiedRelaxed) return "relaxed";
+  return "refuted";
+}
+
+/** 一条链的整体状态取最坏的一条（与 qualityVerdict 的严重度优先级同序）。 */
+function worstOf(list) {
+  return list.reduce((a, b) => (SEVERITY[b] > SEVERITY[a] ? b : a), "verified");
+}
+
+/** 断句：只在中文句读处切。'.' 会切进 URL 与文件名，不能用。 */
+function claimStartIn(text) {
+  let cut = 0;
+  for (const ch of ["。", "！", "？", "；", "\n"]) {
+    cut = Math.max(cut, text.lastIndexOf(ch) + 1);
+  }
+  return cut;
+}
+
+function buildProse() {
+  const doc = VIEW === "states" ? STATES_DOC : DOC;
+  expectedChains = doc.reduce((n, b) => n + ((b.p || "").match(/\[来源:/g) || []).length, 0);
+  const html = doc.map((block) => {
+    if (block.h2) return `<h2>${escapeHtml(block.h2)}</h2>`;
+    const parts = [];
+    let cursor = 0;
+    const re = /\[来源:\s*([^\]]+)\]/g;
+    let m;
+    while ((m = re.exec(block.p))) {
+      const before = block.p.slice(cursor, m.index);
+      const cut = claimStartIn(before);
+      const { nums, none } = parseRefs(m[1]);
+      const verdicts = none ? ["none"] : nums.map(verdictOf);
+      const verdict = none ? "none" : worstOf(verdicts);
+      const id = `ch${chains.length}`;
+      parts.push(escapeHtml(before.slice(0, cut)));
+      // 被引用的那一行：claim 文本 + 它的端点，整段同色
+      parts.push(
+        `<span class="claim" data-chain="${id}" data-verdict="${verdict}">` +
+        escapeHtml(before.slice(cut)) +
+        `<span class="anchor" data-chain="${id}"></span></span>`
+      );
+      chains.push({
+        id, index: chains.length, refs: nums, none, verdict, verdicts,
+        lead: none ? null : nums[0],
+      });
+      cursor = m.index + m[0].length;
+    }
+    parts.push(escapeHtml(block.p.slice(cursor)));
+    return `<p>${parts.join("")}</p>`;
+  }).join("");
+  prose.innerHTML = html;
+
+  for (const chain of chains) {
+    chain.element = prose.querySelector(`.claim[data-chain="${chain.id}"]`);
+    chain.anchor = chain.element.querySelector(".anchor");
+  }
+}
+
+function buildSeals() {
+  for (const chain of chains) {
+    const count = chain.none ? 1 : Math.max(1, Math.min(INDEPENDENT[String(chain.lead)] || 1, 3));
+    for (let i = 0; i < count; i++) {
+      const state = chain.none ? "none" : chain.verdict;
+      const seal = document.createElement("button");
+      seal.type = "button";
+      seal.className = "seal";
+      seal.dataset.stack = String(i);
+      seal.dataset.verdict = state;
+      seal.dataset.chain = chain.id;
+      seal.setAttribute("aria-label", `${SEAL_TITLE[state]}：${SEAL_DETAIL[state]}；展开出处`);
+      seal.setAttribute("aria-expanded", "false");
+      seal.setAttribute("aria-controls", "card");
+      seal.innerHTML = '<span class="slot"></span>';
+      chain.seals = chain.seals || [];
+      chain.seals.push(seal);
+    }
+  }
+}
+
+function mount() {
+  for (const chain of chains) {
+    for (const seal of chain.seals) {
+      if (narrow()) chain.element.insertBefore(seal, chain.anchor.nextSibling);
+      else rail.appendChild(seal);
+    }
+  }
+}
+
+function svgEl(name, attrs) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+/** 三段虚线：起跳（论断末）→ 横过纸页 → 入签。每一段 = 一跳。 */
+function layout() {
+  layer.innerHTML = "";
+  layer.setAttribute("width", page.clientWidth);
+  layer.setAttribute("height", page.clientHeight);
+  const pRect = page.getBoundingClientRect();
+
+  for (const chain of chains) {
+    const g = svgEl("g", { class: "chain" });
+    g.dataset.chain = chain.id;
+    g.dataset.verdict = chain.none ? "none" : chain.verdict;
+    chain.paths = [];
+
+    const a = chain.anchor.getBoundingClientRect();
+    const y0 = a.top - pRect.top + a.height / 2;
+    const x0 = a.left - pRect.left;
+
+    if (narrow()) {
+      const s = chain.seals[0].getBoundingClientRect();
+      const x1 = s.left - pRect.left;
+      for (let i = 0; i < 3; i++) {
+        const from = x0 + ((x1 - x0) * i) / 3;
+        const to = x0 + ((x1 - x0) * (i + 0.6)) / 3;
+        const path = svgEl("path", { d: `M ${from} ${y0} L ${to} ${y0}` });
+        g.appendChild(path);
+        chain.paths.push(path);
+      }
+    } else {
+      const seal = chain.seals[0].getBoundingClientRect();
+      const gutter = 13 + (chain.index % 3) * 6;
+      const tx = seal.left - pRect.left;
+      const ty = seal.top - pRect.top + seal.height / 2;
+      const pts = [[x0, y0], [x0 + 16, y0 + gutter], [tx - 30, ty], [tx, ty]];
+      for (let i = 0; i < 3; i++) {
+        const path = svgEl("path", { d: `M ${pts[i][0]} ${pts[i][1]} L ${pts[i + 1][0]} ${pts[i + 1][1]}` });
+        g.appendChild(path);
+        chain.paths.push(path);
+      }
+    }
+    layer.appendChild(g);
+    chain.group = g;
+    // 重排（字体就绪 / 窗口改变）会重建 <g>，必须把「已出现」补回去，
+    // 否则链会在重排瞬间掉回 opacity:0 —— 用户看到的是整条链凭空消失。
+    if (chain.shown) g.classList.add("is-in");
+  }
+  positionSeals();
+}
+
+function positionSeals() {
+  if (narrow()) return;
+  const rRect = rail.getBoundingClientRect();
+  for (const chain of chains) {
+    const a = chain.anchor.getBoundingClientRect();
+    const y = a.top - rRect.top + a.height / 2 - 17;
+    for (const seal of chain.seals) {
+      seal.style.left = "-17px";
+      seal.style.top = `${y}px`;
+    }
+  }
+}
+
+/* ---------------- 出现动效：一跳一跳，最后盖章 ---------------- */
+function reveal(instant) {
+  for (const chain of chains) {
+    chain.shown = false;
+    if (chain.group) chain.group.classList.remove("is-in");
+    chain.seals.forEach((s) => s.classList.remove("is-stamped"));
+  }
+  if (instant) {
+    for (const chain of chains) {
+      chain.shown = true;
+      chain.group.classList.add("is-in");
+      chain.seals.forEach((s) => s.classList.add("is-stamped"));
+    }
+    return;
+  }
+  chains.forEach((chain, i) => {
+    setTimeout(() => {
+      chain.shown = true;
+      chain.group.classList.add("is-in");
+      setTimeout(() => {
+        chain.seals.forEach((s, k) => setTimeout(() => s.classList.add("is-stamped"), k * 90));
+      }, 260);
+    }, i * 110);
+  });
+}
+
+/* ---------------- 出处卡 ---------------- */
+function hopRows(chain) {
+  if (chain.none) {
+    return [
+      { k: "写作层", v: "无可用编号（[来源: 信息不足]）", status: "open" },
+      { k: "工作证据", v: "—", status: "open" },
+      { k: "来源快照", v: "—", status: "open" },
+    ];
+  }
+  const c = CITATIONS[chain.lead] || {};
+  const open = chain.verdict === "unknown" || chain.verdict === "refuted";
+  return [
+    { k: "工作证据", v: c.finding || "—", status: "ok" },
+    { k: "原文证据", v: `${c.evidence || "—"} · ${c.hash || ""}`, status: "ok" },
+    { k: "来源快照", v: `${c.snapshot || "—"} · ${c.quoteAt || "—"}`, status: open ? "open" : "ok" },
+  ];
+}
+
+function openCard(chain) {
+  activeId = chain.id;
+  const state = chain.none ? "none" : chain.verdict;
+  const c = chain.none ? null : CITATIONS[chain.lead] || {};
+  const extra = chain.refs.slice(1).length;
+  const rows = hopRows(chain)
+    .map((r, i) => `<li data-status="${r.status}" data-hop="${i + 1}">` +
+      `<span class="k">${r.k}</span> <span class="v">${escapeHtml(r.v)}</span></li>`)
+    .join("");
+
+  const refLine = chain.none
+    ? "链路未建立：写作层标了「信息不足」，缺口留在正文里，不补一个假来源。"
+    : `引用编号 ${chain.refs.join("、")}` +
+      (extra ? ` · 多源印证：${extra + 1} 处独立来源` : "") +
+      ` · 来源类型 ${c.sourceType || "—"}`;
+
+  card.dataset.verdict = state;
+  card.innerHTML =
+    `<button type="button" class="card-close" aria-label="收起出处">×</button>` +
+    `<h3>${SEAL_TITLE[state]}</h3>` +
+    `<p class="verdict-line">${SEAL_DETAIL[state]}<br>${refLine}</p>` +
+    (chain.none ? "" : `<p class="claim-quote">${escapeHtml(chain.element.textContent.trim())}</p>`) +
+    `<ol class="hops">${rows}</ol>` +
+    `<div class="kv"><dl>` +
+    (c && c.source ? `<dt>出处</dt><dd>${escapeHtml(c.source)}</dd>` : "") +
+    (c && c.quote ? `<dt>引文</dt><dd>「${escapeHtml(c.quote)}」</dd>` : "") +
+    `<dt>口径</dt><dd>存在性 ${c && c.existence ? "通过" : "未确认"} · 严格 ${c && c.verified ? "通过" : "未过"} · ` +
+    `${c && c.verificationFailed ? "校验未完成" : c && c.verifiedRelaxed ? "宽松通过" : "—"}</dd>` +
+    `</dl>${c && c.note ? `<p class="note">${escapeHtml(c.note)}</p>` : ""}</div>`;
+
+  card.hidden = false;
+  for (const other of chains) {
+    other.seals.forEach((s) => s.setAttribute("aria-expanded", String(other.id === chain.id)));
+    other.group.classList.toggle("is-live", other.id === chain.id);
+  }
+  placeCard(chain);
+  card.querySelector(".card-close").addEventListener("click", () => closeCard(true));
+  for (const li of card.querySelectorAll(".hops li")) {
+    li.addEventListener("mouseenter", () => chain.group.setAttribute("data-hop", li.dataset.hop));
+    li.addEventListener("mouseleave", () => chain.group.removeAttribute("data-hop"));
+  }
+}
+
+function placeCard(chain) {
+  const seal = chain.seals[0].getBoundingClientRect();
+  const gap = 18;
+  const width = card.offsetWidth || 336;
+  const height = card.offsetHeight || 420;
+  const roomRight = window.innerWidth - (seal.right + gap);
+  let left;
+  if (roomRight >= width) left = seal.right + gap;
+  else if (seal.left - gap - width >= 12) left = seal.left - gap - width;
+  else left = Math.max(12, Math.min(window.innerWidth - width - 12, seal.right + gap));
+  card.style.left = `${Math.round(left)}px`;
+  card.style.top = `${Math.round(Math.max(12, Math.min(window.innerHeight - height - 12, seal.top - 22)))}px`;
+}
+
+function closeCard(focus) {
+  const chain = chains.find((c) => c.id === activeId);
+  activeId = null;
+  card.hidden = true;
+  card.innerHTML = "";
+  for (const other of chains) {
+    other.seals.forEach((s) => s.setAttribute("aria-expanded", "false"));
+    other.group.classList.remove("is-live");
+    other.group.removeAttribute("data-hop");
+  }
+  if (focus && chain) chain.seals[0].focus();
+}
+
+/* ---------------- 事件 ---------------- */
+function bind() {
+  for (const chain of chains) {
+    for (const seal of chain.seals) {
+      seal.addEventListener("click", () => (activeId === chain.id ? closeCard(true) : openCard(chain)));
+      seal.addEventListener("mouseenter", () => chain.group.classList.add("is-live"));
+      seal.addEventListener("mouseleave", () => {
+        if (activeId !== chain.id) chain.group.classList.remove("is-live");
+      });
+    }
+    chain.element.addEventListener("mouseenter", () => chain.group.classList.add("is-live"));
+    chain.element.addEventListener("mouseleave", () => {
+      if (activeId !== chain.id) chain.group.classList.remove("is-live");
+    });
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && activeId) closeCard(true);
+    if (e.key === "Escape" && !activeId && document.activeElement && document.activeElement.classList.contains("seal")) {
+      document.activeElement.blur();
+    }
+    if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && activeId) {
+      const i = chains.findIndex((c) => c.id === activeId);
+      const step = e.key === "ArrowRight" ? 1 : chains.length - 1;
+      const next = chains[(i + step) % chains.length];
+      openCard(next);
+      next.seals[0].focus();
+    }
+  });
+
+  // 点空白处收起（点在卡里、或点在别的签上不收起 —— 后者由签自己的 click 处理）
+  document.addEventListener("pointerdown", (e) => {
+    if (!activeId) return;
+    if (card.contains(e.target)) return;
+    if (e.target.closest && e.target.closest(".seal")) return;
+    closeCard(false);
+  });
+
+  window.addEventListener("resize", () => {
+    if (narrow()) return;
+    layout();
+    if (activeId) placeCard(chains.find((c) => c.id === activeId));
+  });
+
+  document.getElementById("replay").addEventListener("click", () => reveal(false));
+  const all = document.getElementById("all");
+  all.addEventListener("click", () => {
+    const on = all.getAttribute("aria-pressed") !== "true";
+    all.setAttribute("aria-pressed", String(on));
+    const multi = chains.find((c) => c.refs.length > 1);
+    if (on && multi) openCard(multi);
+    else closeCard(false);
+  });
+}
+
+/* ============================================================================
+   4. 自检（?assert=1）：无头浏览器里可读的断言
+   —— 我没法「看」截图，所以把设计约束写成断言跑一遍。
+   ========================================================================== */
+function selfCheck() {
+  const lines = [];
+  const failed = [];
+  const check = (name, ok, detail) => {
+    lines.push(`${ok ? "ok  " : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+    if (!ok) failed.push(name);
+  };
+
+  const expected = expectedChains;
+  check("链数 = 正文引用标记数", chains.length === expected, `chains=${chains.length}, expected=${expected}`);
+
+  let segOk = true;
+  let ariaOk = true;
+  for (const chain of chains) {
+    if (chain.paths.length !== 3) segOk = false;
+    for (const seal of chain.seals) {
+      if (!seal.getAttribute("aria-label")) ariaOk = false;
+      if (seal.getAttribute("aria-controls") !== "card") ariaOk = false;
+      if (seal.getAttribute("aria-expanded") === null) ariaOk = false;
+    }
+  }
+  check("每条链恰好 3 段虚线（= 3 跳）", segOk);
+  check("每枚签都有 aria-label / aria-controls / aria-expanded", ariaOk);
+
+  const multi = chains.find((c) => c.refs.length === 3);
+  check("多编号 [来源: 5, 72, 77] 拆成 3 条独立来源", !!multi && multi.seals.length === 3,
+    multi ? `seals=${multi.seals.length}` : "未找到多编号引用");
+  check("多源链整体取最坏态", !!multi && multi.verdict === "relaxed", multi && multi.verdict);
+
+  const states = new Set(chains.map((c) => c.verdict));
+  if (VIEW === "states") {
+    check("状态页覆盖全部四态", ["verified", "relaxed", "unknown", "refuted"].every((s) => states.has(s)),
+      [...states].join(","));
+  }
+
+  if (!narrow()) {
+    const railRect = rail.getBoundingClientRect();
+    let onSeam = 0;
+    let aligned = 0;
+    for (const chain of chains) {
+      const s = chain.seals[0].getBoundingClientRect();
+      if (Math.abs(s.left + s.width / 2 - railRect.left) <= 1.5) onSeam += 1;
+      const a = chain.anchor.getBoundingClientRect();
+      if (Math.abs(s.top + s.height / 2 - (a.top + a.height / 2)) <= 2) aligned += 1;
+    }
+    check("每枚首签都骑在页缝上（±1.5px）", onSeam === chains.length, `${onSeam}/${chains.length}`);
+    check("每枚签正对被引用的那一行（±2px）", aligned === chains.length, `${aligned}/${chains.length}`);
+
+    const insideRail = chains.every((c) => {
+      const s = c.seals[c.seals.length - 1].getBoundingClientRect();
+      return s.right <= railRect.right + 0.5;
+    });
+    check("叠签不越出墨色页缝", insideRail);
+  } else {
+    check("窄屏：页缝层与虚线层收起", getComputedStyle(rail).display === "none" &&
+      getComputedStyle(layer).display === "none");
+    check("窄屏：签落回行内（不绝对定位）", getComputedStyle(chains[0].seals[0]).position === "static");
+  }
+
+  // 展开态：卡必须真的挂在签旁边，三跳齐全，aria 状态同步
+  if (params.get("open")) {
+    const i = Math.min(chains.length - 1, Math.max(0, Number(params.get("open")) - 1));
+    const chain = chains[i];
+    check("展开态：卡已显示", card.hidden === false);
+    check("展开态：三跳齐全", card.querySelectorAll(".hops li").length === 3,
+      `${card.querySelectorAll(".hops li").length} 行`);
+    check("展开态：签的 aria-expanded = true",
+      chain.seals.every((s) => s.getAttribute("aria-expanded") === "true"));
+    const cr = card.getBoundingClientRect();
+    const sr = chain.seals[0].getBoundingClientRect();
+    const inside = cr.left >= 12 && cr.right <= window.innerWidth - 12 && cr.top >= 12;
+    check("展开态：卡完整落在视口内", inside,
+      `card=${Math.round(cr.left)},${Math.round(cr.top)} → ${Math.round(cr.right)} 视口=${window.innerWidth}`);
+    check("展开态：不压住被引用的那一行", !narrow() ? (cr.left >= sr.right || cr.right <= sr.left) : true,
+      `card.left=${Math.round(cr.left)} seal.right=${Math.round(sr.right)}`);
+    // 点空白处收起（放在最后：它会把卡关掉）
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    check("展开态：点空白处收起卡", card.hidden === true);
+  }
+
+  // 整条链一起变色：同一枚形状的四处（下划线 / 三段路径 / 签）必须同色
+  const probe = chains[0];
+  const chainColor = getComputedStyle(probe.paths[0]).stroke;
+  const sealBg = getComputedStyle(probe.seals[0]).backgroundColor;
+  const underline = getComputedStyle(probe.element).textDecorationColor;
+  check("签与路径同色", sealBg === chainColor, `${sealBg} vs ${chainColor}`);
+  check("下划线与路径同色", underline === chainColor, `${underline} vs ${chainColor}`);
+  probe.group.dataset.verdict = "refuted";
+  const after = getComputedStyle(probe.paths[0]).stroke;
+  check("改链状态 ⇒ 路径随之换色", chainColor !== after, `${chainColor} → ${after}`);
+  probe.group.dataset.verdict = probe.verdict;
+
+  // 对比度：链色出现在白页上 ⇒ 必须 ≥ 3:1
+  const lum = (hex) => {
+    const c = hex.match(/\w\w/g).map((h) => parseInt(h, 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const ratio = (a, b) => {
+    const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+    return (x + 0.05) / (y + 0.05);
+  };
+  const ratios = {
+    verified_paper: ratio("#1e5ad8", "#ffffff"),
+    pending_paper: ratio("#6e8fd9", "#ffffff"),
+    failed_paper: ratio("#b5432e", "#ffffff"),
+    none_paper: ratio("#9a6b1f", "#ffffff"),
+  };
+  for (const [k, v] of Object.entries(ratios)) check(`链色 ${k} ≥ 3:1`, v >= 3, v.toFixed(2));
+
+  // 签的右半落在墨底上：蓝对墨底只有 2.91:1 ⇒ 靠 2px 纸色描边把签与墨底隔开（压印留白）。
+  // 断言要断在真正起作用的那条上：描边够粗、且描边色对墨底 ≥ 3:1。
+  const sealStyle = getComputedStyle(chains[0].seals[0]);
+  const keyline = parseFloat(sealStyle.borderTopWidth);
+  check("签带 ≥2px 描边（墨底一侧的隔离线）", keyline >= 2, `${keyline}px`);
+  check("描边色对墨底 ≥ 3:1", ratio("#f4f6f3", "#171b19") >= 3, ratio("#f4f6f3", "#171b19").toFixed(2));
+  const note = `info 蓝对墨底 = ${ratio("#1e5ad8", "#171b19").toFixed(2)}:1（由描边隔离，非失败）`;
+
+  // 动效：① 平时必须真的有过渡（否则「出现」这件事不存在）；
+  //       ② 终态必须全部可见（reduced-motion 走的也是这条终态，卡住不动才是真缺陷）。
+  const dur = getComputedStyle(chains[0].paths[0]).transitionDuration;
+  check("出现动效已挂上（路径有非零过渡）", parseFloat(dur) > 0, dur);
+  // 无头 + 虚拟时钟里 CSS 过渡不会推进（页面不合成）⇒ 读到的会是过渡起点。
+  // 先量「过渡是否挂上」，再关掉过渡读**终态计算值** —— 终态才是唯一要保证的东西。
+  const kill = document.createElement("style");
+  kill.textContent = "*,*::before,*::after{transition:none !important;animation:none !important}";
+  document.head.appendChild(kill);
+  void document.body.offsetWidth;
+  const bad = [];
+  for (const c of chains) {
+    if (!c.group.classList.contains("is-in")) bad.push(`${c.id}:no-is-in`);
+    if (c.seals.some((s) => !s.classList.contains("is-stamped"))) bad.push(`${c.id}:seal-not-stamped`);
+  }
+  const opacities = chains.flatMap((c) =>
+    c.paths.map((p) => Number(getComputedStyle(p).opacity))
+      .concat(c.seals.map((s) => Number(getComputedStyle(s).opacity))));
+  const minOpacity = Math.min(...opacities);
+  check("动效终态：路径与签全部可见", minOpacity > 0.99,
+    `min=${minOpacity} bad=[${bad.join(" ")}] pathStates=${chains[0].paths.map((p) => p.parentNode.className.baseVal).join("|")}`);
+  kill.remove();
+
+  const summary = `${failed.length ? "FAIL" : "OK"} ${lines.length - failed.length}/${lines.length} · ` +
+    `pending_paper=${ratios.pending_paper.toFixed(2)} verified_paper=${ratios.verified_paper.toFixed(2)}`;
+  document.title = "ASSERT " + summary;
+  const pre = document.createElement("pre");
+  pre.id = "assert";
+  pre.style.cssText = "margin:24px 28px;padding:16px;font:12px/1.7 ui-monospace,Consolas,monospace;" +
+    "background:#fff;border:1px solid #d9deda;border-radius:8px;white-space:pre-wrap";
+  pre.textContent = lines.join("\n") + "\n" + note + "\n\n" + summary;
+  document.body.appendChild(pre);
+}
+
+/** 断言前先把出现动效推到终态：无头 + 虚拟时钟里过渡未必走完，
+    而真正要保证的是「终态可见」（reduced-motion 也走这条终态）。 */
+function runSelfCheckWhenSettled() {
+  reveal(true);
+  setTimeout(selfCheck, 140);
+}
+
+/* ---------------- 启动 ---------------- */
+function start() {
+  document.body.dataset.view = VIEW;
+  document.body.dataset.shot = params.get("shot") || "0";
+  buildProse();
+  buildSeals();
+  mount();
+  layout();
+  bind();
+  reveal(params.get("motion") === "0");
+  if (params.get("open")) {
+    const i = Math.min(chains.length - 1, Math.max(0, Number(params.get("open")) - 1));
+    setTimeout(() => openCard(chains[i]), 80);
+  }
+  if (params.get("assert") === "1") runSelfCheckWhenSettled(0);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => layout());
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+else start();
+</script>
+</body>
+</html>

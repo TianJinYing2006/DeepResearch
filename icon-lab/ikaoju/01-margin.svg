@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>页边引文 · Margin Citation</title>
+  <desc>三行长短不齐的正文，页边一枚角标，一条引线把第二行与它的出处连起来。</desc>
+  <rect width="512" height="512" rx="112" fill="#F4F6F3"/>
+  <g fill="#171B19">
+    <rect x="66" y="114" width="250" height="60" rx="30"/>
+    <rect x="66" y="226" width="214" height="60" rx="30"/>
+    <rect x="66" y="338" width="160" height="60" rx="30"/>
+  </g>
+  <rect x="280" y="250" width="62" height="12" rx="6" fill="#9BA19C"/>
+  <rect x="342" y="204" width="104" height="104" rx="32" fill="#1E5AD8"/>
+</svg>

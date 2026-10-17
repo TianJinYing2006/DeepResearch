@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>角标 · 待复核</title>
+  <desc>空心角标：出处待复核。图标即状态语言。</desc>
+  <rect width="512" height="512" rx="112" fill="#F4F6F3"/>
+  <g fill="#171B19">
+    <rect x="50" y="148" width="250" height="72" rx="36"/>
+    <rect x="50" y="292" width="200" height="72" rx="36"/>
+  </g>
+  <rect x="346" y="204" width="104" height="104" rx="32" fill="none" stroke="#171B19" stroke-width="18"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>句末角标 · Claim Marker</title>
+  <desc>三行长短不齐的正文，最后一行句末挂着一枚角标——报告里每一个结论的样子。</desc>
+  <rect width="512" height="512" rx="112" fill="#F4F6F3"/>
+  <g fill="#171B19">
+    <rect x="90" y="114" width="332" height="60" rx="30"/>
+    <rect x="90" y="226" width="300" height="60" rx="30"/>
+    <rect x="90" y="338" width="176" height="60" rx="30"/>
+  </g>
+  <rect x="302" y="294" width="104" height="104" rx="32" fill="#1E5AD8"/>
+</svg>

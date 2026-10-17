@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>深读 · Lens</title>
+  <desc>镜片内三行资料逐行收短，最后一行以墨色落定；朱色镜身提示正在进行的检索。</desc>
+  <rect width="512" height="512" rx="112" fill="#FBFAF7"/>
+  <g transform="translate(-6 -6)">
+    <path d="M292 292 L406 406" fill="none" stroke="#C2452D" stroke-width="56" stroke-linecap="round"/>
+    <circle cx="220" cy="220" r="112" fill="none" stroke="#C2452D" stroke-width="44"/>
+    <rect x="148" y="168" width="132" height="16" rx="8" fill="#AEB9C7"/>
+    <rect x="164" y="206" width="100" height="16" rx="8" fill="#AEB9C7"/>
+    <rect x="180" y="244" width="68" height="16" rx="8" fill="#23313A"/>
+  </g>
+</svg>
