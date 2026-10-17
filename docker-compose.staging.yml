@@ -63,6 +63,12 @@ x-app-environment: &app-environment
   DR_MONTHLY_BUDGET_CNY: "${DR_MONTHLY_BUDGET_CNY:-1500}"
   DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:-}"
   DASHSCOPE_BASE_URL: "${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+  # 模型分档透传（不设 = 代码默认；fast 层不参与档位钉住，env 对其生效）
+  FAST_MODEL: "${FAST_MODEL:-qwen-turbo}"
+  SMART_MODEL: "${SMART_MODEL:-qwen-plus}"
+  PLANNER_MODEL: "${PLANNER_MODEL:-qwen-plus}"
+  CRITIC_MODEL: "${CRITIC_MODEL:-qwen-plus}"
+  STRATEGIC_MODEL: "${STRATEGIC_MODEL:-qwen-plus}"
   SEARCH_PROVIDER: "${SEARCH_PROVIDER:-bocha}"
   BOCHA_API_KEY: "${BOCHA_API_KEY:-}"
   ENABLE_ARXIV: "${ENABLE_ARXIV:-false}"
