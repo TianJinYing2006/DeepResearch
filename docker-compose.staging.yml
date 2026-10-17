@@ -351,6 +351,14 @@ services:
       DR_MCP_TOKEN: "${DR_MCP_TOKEN:-}"
       DR_MCP_SERVER_NAME: "${DR_MCP_SERVER_NAME:-ikaoju}"
       DR_MCP_RATE_PER_MINUTE: "${DR_MCP_RATE_PER_MINUTE:-60}"
+      # 需求 36：HITL 交互闭环（默认全关；开启 = .env 显式运营决策；仅队列模式生效）
+      DR_HITL_CLARIFY: "${DR_HITL_CLARIFY:-false}"
+      DR_HITL_PLAN_APPROVAL: "${DR_HITL_PLAN_APPROVAL:-false}"
+      DR_HITL_FOLLOWUP: "${DR_HITL_FOLLOWUP:-false}"
+      DR_HITL_CLARIFY_TTL_SECONDS: "${DR_HITL_CLARIFY_TTL_SECONDS:-86400}"
+      DR_HITL_APPROVAL_TTL_SECONDS: "${DR_HITL_APPROVAL_TTL_SECONDS:-86400}"
+      DR_HITL_MAX_CLARIFY_ROUNDS: "${DR_HITL_MAX_CLARIFY_ROUNDS:-2}"
+      DR_HITL_MAX_APPROVAL_ROUNDS: "${DR_HITL_MAX_APPROVAL_ROUNDS:-2}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -394,6 +402,14 @@ services:
       # P0-3 / P0-8：与 API 同一策略口径（Worker 也会触发审核与记账）
       DR_MODERATION_DEGRADED_POLICY: "${DR_MODERATION_DEGRADED_POLICY:-quarantine}"
       DR_USAGE_STRICT: "${DR_USAGE_STRICT:-false}"
+      # 需求 36：HITL 图开关与轮次/TTL（挂起/恢复在 Worker 侧执行；与 API 同口径）
+      DR_HITL_CLARIFY: "${DR_HITL_CLARIFY:-false}"
+      DR_HITL_PLAN_APPROVAL: "${DR_HITL_PLAN_APPROVAL:-false}"
+      DR_HITL_FOLLOWUP: "${DR_HITL_FOLLOWUP:-false}"
+      DR_HITL_CLARIFY_TTL_SECONDS: "${DR_HITL_CLARIFY_TTL_SECONDS:-86400}"
+      DR_HITL_APPROVAL_TTL_SECONDS: "${DR_HITL_APPROVAL_TTL_SECONDS:-86400}"
+      DR_HITL_MAX_CLARIFY_ROUNDS: "${DR_HITL_MAX_CLARIFY_ROUNDS:-2}"
+      DR_HITL_MAX_APPROVAL_ROUNDS: "${DR_HITL_MAX_APPROVAL_ROUNDS:-2}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
