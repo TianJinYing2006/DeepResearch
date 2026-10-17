@@ -349,7 +349,7 @@ services:
       # 与 DR_MCP_TOKEN=<强随机令牌>；未配置令牌 fail-closed 全 401；只挂 api，worker 不需要）
       DR_MCP_SERVER_ENABLED: "${DR_MCP_SERVER_ENABLED:-false}"
       DR_MCP_TOKEN: "${DR_MCP_TOKEN:-}"
-      DR_MCP_SERVER_NAME: "${DR_MCP_SERVER_NAME:-deepresearch}"
+      DR_MCP_SERVER_NAME: "${DR_MCP_SERVER_NAME:-ikaoju}"
       DR_MCP_RATE_PER_MINUTE: "${DR_MCP_RATE_PER_MINUTE:-60}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
