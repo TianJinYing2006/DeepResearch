@@ -38,7 +38,7 @@ class SMTPMailer:
 
     def send(self, to: str, subject: str, text: str, html: Optional[str] = None) -> None:
         message = EmailMessage()
-        message["From"] = formataddr(("DeepResearch", self._sender))
+        message["From"] = formataddr(("爱考据 iKaoju", self._sender))
         message["To"] = to
         message["Subject"] = subject
         message.set_content(text)
@@ -71,7 +71,7 @@ def get_mailer() -> Optional[Mailer]:
 
 def password_reset_email(link: str, *, minutes: int = 30) -> tuple[str, str, str]:
     """重置邮件模板（纯文本 + 简 HTML）：不展示用户名/邮箱，不索要密码。"""
-    subject = "重置你的 DeepResearch 密码"
+    subject = "重置你的爱考据 iKaoju 密码"
     text = (
         "我们收到了重置密码的请求。\n\n"
         f"请在 {minutes} 分钟内打开以下链接设置新密码：\n{link}\n\n"

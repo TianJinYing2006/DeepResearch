@@ -666,4 +666,4 @@ def test_export_filename_uses_topic(monkeypatch):
     assert r.status_code == 200
     cd = r.headers["content-disposition"]
     assert f"filename*=UTF-8''{quote(topic + '.md', safe='')}" in cd
-    assert f'filename="deepresearch-{rid}.md"' in cd
+    assert f'filename="ikaoju-{rid}.md"' in cd

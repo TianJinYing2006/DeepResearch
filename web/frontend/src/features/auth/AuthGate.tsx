@@ -34,7 +34,7 @@ export default function AuthGate({ notice, inviteFromUrl, onAuthed, onOpenLegal,
             <div className="flex items-center gap-2.5">
               <span aria-hidden="true" className="text-lg leading-none text-stamp-blue">◈</span>
               <div>
-                <p className="text-sm font-semibold tracking-tight text-ink">DeepResearch</p>
+                <p className="text-sm font-semibold tracking-tight text-ink">爱考据 iKaoju</p>
                 <p className="text-xs text-ink-muted">可审计研究工作台</p>
               </div>
             </div>

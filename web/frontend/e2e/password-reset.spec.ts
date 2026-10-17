@@ -85,6 +85,6 @@ test.describe('需求 24：自助找回（桌面端）', () => {
     expect(page.url()).not.toContain('#reset=')
 
     await gate.getByRole('button', { name: '返回登录' }).click()
-    await expect(gate.getByRole('heading', { name: '登录 DeepResearch' })).toBeVisible()
+    await expect(gate.getByRole('heading', { name: '登录爱考据 iKaoju' })).toBeVisible()
   })
 })

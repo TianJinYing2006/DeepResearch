@@ -49,7 +49,7 @@ def test_docx_structure_matches_markdown_semantics():
     texts = [t for _, t in styled]
 
     # 头部：标题 + 三行元数据（与 render_markdown 同信息）
-    assert styled[0][0] == "Title" and "DOCX 渲染主题：DeepResearch 报告导出" in styled[0][1]
+    assert styled[0][0] == "Title" and "DOCX 渲染主题：爱考据 iKaoju 报告导出" in styled[0][1]
     assert any("run_status success" in t and "停止原因 completed" in t for t in texts)
     assert any("token 100" in t and "降级条目 1" in t and "检索深度 2" in t for t in texts)
 

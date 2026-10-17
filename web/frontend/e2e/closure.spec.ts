@@ -32,7 +32,7 @@ test.describe('收口回归（桌面端）', () => {
     await page.getByTestId('landing-cta').click()
     const gate = page.getByTestId('auth-gate')
     await expect(gate).toBeVisible()
-    await expect(gate.getByRole('heading', { name: '登录 DeepResearch' })).toBeVisible()
+    await expect(gate.getByRole('heading', { name: '登录爱考据 iKaoju' })).toBeVisible()
 
     await gate.getByRole('button', { name: '有邀请码？去注册' }).click()
     await expect(gate.locator('#auth-invite')).toBeVisible()

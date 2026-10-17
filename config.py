@@ -315,7 +315,7 @@ class WebSnapshotConfig:
         d.strip().lower() for d in _env("DR_WEB_FETCH_APPROVED_DOMAINS").split(",") if d.strip()
     })
     user_agent: str = field(
-        default_factory=lambda: _env("DR_WEB_SNAPSHOT_USER_AGENT", "DeepResearchBot/1.0"))
+        default_factory=lambda: _env("DR_WEB_SNAPSHOT_USER_AGENT", "iKaojuBot/1.0"))
 
 
 @dataclass
@@ -389,8 +389,8 @@ class McpConfig:
         default_factory=lambda: _env_bool("DR_MCP_SERVER_ENABLED", False))
     #: 对外 Server 名（工具面标识 + service principal `mcp:<name>`；TBD-10）
     server_name: str = field(
-        default_factory=lambda: (_env("DR_MCP_SERVER_NAME", "deepresearch").strip()
-                                 or "deepresearch"))
+        default_factory=lambda: (_env("DR_MCP_SERVER_NAME", "ikaoju").strip()
+                                 or "ikaoju"))
     servers_json: str = field(default_factory=lambda: _env("DR_MCP_SERVERS", ""))
 
 

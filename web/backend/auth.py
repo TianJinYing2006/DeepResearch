@@ -45,7 +45,7 @@ BLOCKED_PASSWORDS = frozenset({
     "iloveyou", "admin", "admin123", "administrator", "root", "letmein",
     "welcome", "welcome1", "monkey", "dragon", "master", "shadow",
     "sunshine", "princess", "football", "baseball", "superman", "trustno1",
-    "whatever", "changeme", "secret", "deepresearch",
+    "whatever", "changeme", "secret", "deepresearch", "ikaoju",
 })
 
 
@@ -62,7 +62,7 @@ def check_password_strength(password: str, *, email: str = "") -> Optional[str]:
         return "该密码过于常见，请更换为更安全的口令"
     if len(set(normalized)) < 4:
         return "密码过于简单（重复字符过多）"
-    if "deepresearch" in normalized:
+    if "deepresearch" in normalized or "ikaoju" in normalized:
         return "密码不能包含服务名称"
     local = (email.split("@", 1)[0] if email else "").strip().lower()
     if len(local) >= 4 and local in normalized:

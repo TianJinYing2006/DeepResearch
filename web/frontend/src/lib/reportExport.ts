@@ -32,7 +32,7 @@ export async function downloadSyncReport(
     if (!response.ok) return await readErrorMessage(response)
     const blob = await response.blob()
     const filename = filenameFromDisposition(response.headers.get('content-disposition'))
-      ?? `deepresearch-${runId}.${format}`
+      ?? `ikaoju-${runId}.${format}`
     triggerDownload(blob, filename)
     return null
   } catch {
@@ -67,7 +67,7 @@ export async function downloadPdfReport(
     const response = await fetch(`/api/research/${runId}/export-jobs/${exportId}/download`)
     if (!response.ok) return response.status === 410 ? 'expired' : 'failed'
     const filename = filenameFromDisposition(response.headers.get('content-disposition'))
-      ?? `deepresearch-${runId}.pdf`
+      ?? `ikaoju-${runId}.pdf`
     triggerDownload(await response.blob(), filename)
     return 'exported'
   } catch {

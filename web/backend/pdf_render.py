@@ -136,7 +136,7 @@ def document_to_html(doc: Dict[str, Any]) -> str:
         return "n/a" if value is None else str(value)
 
     head = [
-        f"<h1>{_escape(str(doc.get('topic') or ''))}：DeepResearch 报告导出</h1>",
+        f"<h1>{_escape(str(doc.get('topic') or ''))}：爱考据 iKaoju 报告导出</h1>",
         f"<p class='meta'>run_id {_escape(str(doc.get('run_id') or ''))}"
         f" · 导出时间 {_escape(str(doc.get('generated_at') or ''))}</p>",
         f"<p class='meta'>run_status <b>{_escape(str(doc.get('run_status')))}</b>"

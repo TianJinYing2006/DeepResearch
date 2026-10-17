@@ -352,7 +352,10 @@ Worker 认领后以 `resumed` 执行：`Command(resume=answer)` 注入挂起节�
 （Streamable HTTP；`json_response + stateless`；TLS 由反代终止，见 §7.1）。
 鉴权：`Authorization: Bearer <DR_MCP_TOKEN>`（常量时间比较；**只认头**，query-string 一律拒绝；
 未配置令牌 ⇒ fail-closed 全部 401）。单一 service principal `mcp:<DR_MCP_SERVER_NAME>`（默认
-`mcp:deepresearch`）：MCP 创建的 run 归属该主体，status/report 仅本主体可见（不存在与无权同口径）。
+`mcp:ikaoju`，2026-10-16 品牌更名起；旧默认 `mcp:deepresearch`）：MCP 创建的 run 归属该主体，
+status/report 仅本主体可见（不存在与无权同口径）。**更名影响**：未显式配置 `DR_MCP_SERVER_NAME`
+的环境（含 staging）在下次 API 重启后主体变为 `mcp:ikaoju`（惰性开户），更名前创建的
+`mcp:deepresearch` 旧 run 不再对该主体可见（运营如需可显式设回旧名）。
 调用限流：`DR_MCP_RATE_PER_MINUTE`（默认 60/分/主体；多实例经 `DR_REDIS_URL` 共享）。
 **工具面（v1，schema 版本 `mcp-tools/v1`）**：
 

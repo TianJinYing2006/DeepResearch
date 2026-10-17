@@ -378,7 +378,7 @@ def build_mcp_asgi() -> Tuple[Any, Any]:
 
     mcp = FastMCP(
         config.mcp.server_name,
-        instructions=("DeepResearch 研究能力（只读 + 创建研究）。"
+        instructions=("爱考据 iKaoju 研究能力（只读 + 创建研究）。"
                       "工具面版本 " + TOOL_SCHEMA_VERSION + "。"),
         streamable_http_path="/",
         json_response=True,

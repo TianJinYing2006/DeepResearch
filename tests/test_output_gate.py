@@ -73,7 +73,7 @@ def test_export_unflagged_still_works(monkeypatch):
     assert response.status_code == 200
     # 需求 38 F1：store 路径与内存路径同渲染口径（正文照录 + 审计头）
     assert "# 正常报告" in response.text
-    assert "DeepResearch 报告导出" in response.text
+    assert "爱考据 iKaoju 报告导出" in response.text
 
 
 def test_stored_stream_redacts_flagged_payload(monkeypatch):

@@ -186,7 +186,7 @@ def sync_alerts(store, alerts: list[dict[str, Any]], *,
 
 def _delivery_text(delivery: dict[str, Any]) -> str:
     payload = delivery.get("payload") or {}
-    parts = [f"[DeepResearch] {str(delivery['severity']).upper()} "
+    parts = [f"[爱考据 iKaoju] {str(delivery['severity']).upper()} "
              f"{delivery['kind']}: {delivery['fingerprint']}"]
     if payload.get("message"):
         parts.append(str(payload["message"]))
@@ -205,7 +205,7 @@ def build_webhook_body(url: str, delivery: dict[str, Any]) -> dict[str, Any]:
         return {"msg_type": "text", "content": {"text": text}}
     if "dingtalk" in host:
         return {"msgtype": "markdown",
-                "markdown": {"title": "DeepResearch 告警", "text": text}}
+                "markdown": {"title": "爱考据 iKaoju 告警", "text": text}}
     if "weixin" in host or "wecom" in host:
         return {"msgtype": "markdown", "markdown": {"content": text}}
     return {

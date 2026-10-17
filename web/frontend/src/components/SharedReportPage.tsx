@@ -37,7 +37,7 @@ export default function SharedReportPage({ token }: Props) {
     <div className="min-h-dvh bg-paper">
       <header className="border-b border-rule/70 bg-paper">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-5 py-4 text-[11px] text-ink-muted sm:px-8">
-          <span className="font-semibold text-ink">DeepResearch · 只读分享</span>
+          <span className="font-semibold text-ink">爱考据 iKaoju · 只读分享</span>
           <span>可审计研究工作台</span>
         </div>
       </header>
@@ -72,7 +72,7 @@ export default function SharedReportPage({ token }: Props) {
         )}
       </main>
       <footer className="border-t border-rule/70 px-5 py-6 text-center text-[11px] text-ink-muted">
-        由 DeepResearch 生成 · 本页为只读快照，内容以分享者提供的报告为准
+        由爱考据 iKaoju 生成 · 本页为只读快照，内容以分享者提供的报告为准
       </footer>
     </div>
   )

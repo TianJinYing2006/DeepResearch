@@ -71,7 +71,7 @@ def _validate_password(password: str, email: str) -> str | None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="web.backend.admin", description="DeepResearch 管理员 CLI")
+    parser = argparse.ArgumentParser(prog="web.backend.admin", description="爱考据 iKaoju 管理员 CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     create_user = sub.add_parser("create-user", help="创建用户（不消耗邀请码）")
