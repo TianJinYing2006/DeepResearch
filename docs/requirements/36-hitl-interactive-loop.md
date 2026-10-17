@@ -107,7 +107,7 @@
 - [x] 状态机：迁移 `0023`（只增）；状态机/`ACTIVE_STATUSES`/sweep/取消/配额/等待时钟六处同步，单测锁定（含「等待态不被 sweep 误杀」「等待态取消」「TTL 自动推进留痕」）—— ✅（P1，#211；`test_hitl_interaction_pg.py` 14 条）
 - [x] 开关：三开关 + eval/CI 强制关 + `config_snapshot` 记录；**关闭态节点序列/事件序列与现状一致（确定性测试）** —— ✅（P2，#212；`test_hitl_graph.py` 拓扑硬断言 + `provenance.hitl_switches`）
 - [x] 唤醒链：用户回答 → `QUEUED` → worker 认领 → 带回答 resume（真 PG 契约测试：挂起→回答→续跑，账本对账同 R3 口径）—— ✅（P1 回答事务 + P2 `Command(resume=)` + `test_hitl_resume_drill_pg.py` 真 PG 演练）
-- [x] 前端：澄清卡/计划卡/追问框 + 断线重连可重建 + testid 契约 + e2e（桌面/窄屏）—— ✅（P3，#213；vitest 9 条 + 既有 e2e 80/80 不回归；**全链路 HITL e2e 待 staging 队列模式**，demo 模式按设计强制关闭）
+- [x] 前端：澄清卡/计划卡/追问框 + 断线重连可重建 + testid 契约 + e2e（桌面/窄屏）—— ✅（P3，#213；vitest 9 条 + 既有 e2e 80/80 不回归；**staging 全链路验收：部分通过（2026-10-17）**，demo 模式按设计强制关闭）
 - [x] 全量套件 0 失败；`SCORER_VERSION` 不变（w9.1），评测口径零漂移 —— ✅（P1~P3 各自本机全量绿；e2e 80/80）
 - [x] 文档：协议入 `release-runbook.md`；需求 7 TBD-1d 状态更新（解冻落地）；roadmap 回填 —— ✅（§7.4 含追问；需求 7 TBD-1d 已加解冻登记；roadmap §3b P1~P3 已回填）
 
@@ -153,6 +153,7 @@
 | 2026-10-13 | 实现 | CLI 端口径收口（并入 PR #213） | `cli.py` 入口强制关闭图上 HITL（clarify/plan_approval）并显式告警——与 API 非队列模式同口径（CLI 无「挂起-回答-恢复」通道；追问不受影响；`graph.run()` 的 interrupt 防御保留为兜底）；单测 3 条 + runbook §7.4 前置边界同步 | #213 |
 | 2026-10-13 | 文档 | 飞书镜像重建 | 按 P1~P3 交付版重建至 `DeepResearch 需求文档` 文件夹（`RPTKdmATQoF6q5xlvM6c8U14njd`；标题补齐 + 自引用回填；立项版已删） | — |
 | 2026-10-14 | 合入 | 三个 PR 全部合入 dev（批次 3 主线完成） | 依序 squash 合并 **#211 → #214（承接 #212）→ #213**；堆叠 PR 因 squash 改变提交谱系 ⇒ P2/P3 rebase 至新 dev 后重跑 CI（各 6/6 全绿）；#212 因 base 删除被 GitHub 自动关闭、无法重开（#212 留痕，由 #214 承接）；本地 dev/master 同步 `897d44b`、三条特性分支已清 | #211 / #214 / #213 |
+| 2026-10-17 | 验收（部分） | staging 队列模式全链路验收（遗留项） | **前置修复**：compose 未透传 `DR_HITL_*` ⇒ staging 无法开启（PR #239，默认保持全关）；staging 临时开启后：**B 等待时取消 ✅**（`cd5847620a6a` → `CANCELLED/user_cancelled`、交互清除）、**C 审批过期 ✅**（`e932e17310a5` → `PLAN_EXPIRED` + `TIMED_OUT/approval_expired`、不自动批准、交互清除）；**A 全链路待补测**（百炼 429 `limit_requests` 阻塞；fail-open 旁证：澄清判定跳过/planner 降级/研究步 RUN_ERROR）；开关已回滚、8 条临时数据已清理；登记见 §12.7。**不标记最终全绿** | #239 |
 
 ## 12. 评审结论与补充设计
 
@@ -198,3 +199,19 @@ Follow-up 的 ID 白名单只能验证「引用 ID 存在」，不能证明回�
   4. H3 claim-level grounding 失败策略 —— ✅ 由 §12.3 定案（未通过的主张标未核实或拒答；证据文本按不可信输入隔离）；
   5. 旧 checkpoint 版本迁移或 replay 对挂起 run 的影响 —— ⏳ **Phase 2 准入前置**（Phase 1 不动 state schema/`CHECKPOINT_SCHEMA_VERSION`；随 graph 改动单独拍板）。
 - **实施顺序**：按 §12.4 分阶段——Phase 1（事件/payload schema + 状态迁移 + PG 原子协议 + 契约测试，**不改图**）→ Phase 2（plan interrupt + resume + 真 PG「挂起-进程退出-回答-另一 worker 恢复」演练，eval 强制关闭）→ Phase 3（follow-up API + 证据过滤/输出校验 → UI）。排期以 Phase 为单位独立验收。
+
+### 12.7 staging 验收登记（2026-10-17，**部分通过**）
+
+> 口径：**staging 部分通过，待 LLM 配额恢复后完成全链路验收；不标记最终全绿。**
+
+- **前置修复**：compose 未透传 `DR_HITL_*`（api/worker）⇒ staging 无法开启 HITL；已修复并合入（PR **#239**），默认值保持全关。
+- **验收方式**：staging 临时开启三开关（`APPROVAL_TTL_SECONDS=120` 供过期用例），验收账号 `hitl-accept@ikaoju.cn`；脚本覆盖 澄清→审批（修订→批准）→恢复→报告→追问、刷新恢复（详情卡 + SSE 无断点重放）、等待时取消、审批过期；验收后开关已**回滚默认关**。
+
+| 用例 | 结果 | 证据（run_id → 观测） |
+|---|---|---|
+| **B. 等待时取消** | ✅ PASS | `cd5847620a6a`（重跑；首跑 `c96bbe3f7f0e`）→ 审批等待中 `POST /cancel` 200 → 终局 `CANCELLED/user_cancelled`，`interaction=null`，无残留 |
+| **C. 审批过期** | ✅ PASS | `e932e17310a5`（重跑；首跑 `687492144161`）→ TTL 132s 后 `PLAN_EXPIRED` 事件 + 终局 `TIMED_OUT/approval_expired` + **不产出报告（不自动批准口径，§3/TBD-3）** + 交互清除 |
+| **A. 全链路（澄清→审批→恢复→报告→追问）** | ⏳ **待补测** | 被 staging LLM 配额阻塞：百炼返回 429 `limit_requests`（request_id `0530e56b-c3dd-9e6d-96e9-1b97a1f2ca80`）；旁证（fail-open 路径按设计）：澄清判定 429 → 「澄清判定失败，跳过（零阻塞）」；planner 429 → 降级兜底计划；研究步 429 → `RUN_ERROR`（run `babf0a3ccaf1` 等 3 例） |
+
+- **清理**：本轮 8 条临时验收 run（3×A 失败 + B/C 各 2 + 探测 1）已删除（无孤儿事件）；验收账号保留待补测 A；staging `.env` 已从验收前备份恢复。
+- **补测前置**：百炼额度/限流恢复 → 临时开启 HITL → 重跑用例 A → 通过后关闭开关、清理数据，并回填 DoD/roadmap/看板（最终全绿以 A 通过为准）。
