@@ -1,0 +1,91 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>03 防幻觉与证据链</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>防幻觉三件套</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>三道闸各自独立实现，都不依赖「请模型自觉核实」这类提示词</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：共享标题条 + 三卡 + 底部结论条 */}
+    <Box style={{ height: '484px', gap: 10 }}>
+
+        {/* 共享标题条（锚定一） */}
+        <Box style={{ height: '40px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px' }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#FFFFFF' }}>校验 · 溯源 · 印证</Text>
+            <Text style={{ fontSize: 15, color: '#FFFFFF', opacity: 0.8 }}>三条路径互不替代：校验管「引用是否站得住」，溯源管「来自哪里」，印证管「有几个来源」</Text>
+        </Box>
+
+        {/* 三张卡 */}
+        <Box style={{ flex: 1, flexDirection: 'row', gap: 16 }}>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '20px 22px', gap: 10 }}>
+                <svg width={44} height={44} viewBox='0 0 44 44'>
+                    <path d='M22 3 L38 9 L38 22 C38 31 30 37 22 41 C14 37 6 31 6 22 L6 9 Z' fill='#0E3F8C' />
+                    <path d='M14 22 L20 28 L31 16' fill='none' stroke='#FFFFFF' strokeWidth='3' />
+                </svg>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>Validator 在图内</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    引用存在性与忠实度双层校验是图里的一个节点，不是事后脚本。不通过的论断<span style={{ fontWeight: 'bold' }}>不删除</span>，而是进报告附录并标注原因——读者看得见，才判断得出哪里不可信。返工是<span style={{ fontWeight: 'bold' }}>有界</span>的：repair 至多 1 次。
+                </Text>
+                <Box style={{ marginTop: 'auto', padding: '8px 12px', background: '#F0F5FC', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>agents/validator.py + repair.py</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '20px 22px', gap: 10 }}>
+                <svg width={44} height={44} viewBox='0 0 44 44'>
+                    <rect x='3' y='3' width='18' height='18' rx='4' fill='#0E3F8C' />
+                    <rect x='23' y='3' width='18' height='18' rx='4' fill='#1E4FA8' />
+                    <rect x='3' y='23' width='18' height='18' rx='4' fill='#3D7BD9' />
+                    <rect x='23' y='23' width='18' height='18' rx='4' fill='#E8EFF8' stroke='#3D7BD9' strokeWidth='2' />
+                </svg>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>引用溯源四桶</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    每条引用都标来源类型：web / rag / arxiv / code，报告里可逐条审计。四类可信度<span style={{ fontWeight: 'bold' }}>不混为一谈</span>——代码执行结果默认不进证据池，因为它「运行成功」不等于「回答了问题」。
+                </Text>
+                <Box style={{ marginTop: 'auto', padding: '8px 12px', background: '#F0F5FC', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>state.py · Citation.source_type</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#F0F5FC', borderRadius: 8, padding: '20px 22px', gap: 10 }}>
+                <svg width={44} height={44} viewBox='0 0 44 44'>
+                    <circle cx='16' cy='22' r='13' fill='#0E3F8C' opacity='0.55' />
+                    <circle cx='28' cy='22' r='13' fill='#1E4FA8' opacity='0.55' />
+                    <circle cx='22' cy='22' r='4' fill='#0E3F8C' />
+                </svg>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>多源印证</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    关键论断需要 ≥2 个独立来源支撑才判高置信度，置信度在报告中分级呈现。只有单一来源支撑的论断会被<span style={{ fontWeight: 'bold' }}>显式降格</span>，而不是和双来源论断混在同一段里呈现。
+                </Text>
+                <Box style={{ marginTop: 'auto', padding: '8px 12px', background: '#FFFFFF', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>validator.py 交叉验证逻辑</Text>
+                </Box>
+            </Box>
+        </Box>
+
+        {/* 底部结论条（锚定二） */}
+        <Box style={{ height: '52px', background: '#F0F5FC', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: '0 22px', gap: 14 }}>
+            <Box style={{ width: '4px', height: '30px', background: '#1E4FA8' }} />
+            <Text style={{ fontSize: 17, color: '#1A2230' }}>共同点：三道闸都<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>有确定性实现、有落盘产物</span>，所以它们的效果可以被测，而不是只能被相信。</Text>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>11 / 23</Text>
+    </Box>
+</Slide>

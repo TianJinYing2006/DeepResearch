@@ -1,0 +1,106 @@
+<Slide style={{ width: '1280px', height: '720px', padding: 0, background: '#FFFFFF', flexDirection: 'row', position: 'relative', overflow: 'hidden' }}>
+
+    {/* 顶部渐变条（与封面呼应） */}
+    <Box style={{ position: 'absolute', top: 0, left: 0, width: '1280px', height: '8px', background: 'linear-gradient(135deg, #0E3F8C 0%, #1E4FA8 100%)' }} />
+
+    {/* 左 · 总结文字 */}
+    <Box style={{ width: '800px', height: '720px', padding: '56px 56px 56px 64px', justifyContent: 'center', gap: 14 }}>
+
+        <Box style={{ flexDirection: 'row' }}>
+            <Box style={{ padding: '6px 16px', background: '#E8EFF8', borderRadius: 12 }}>
+                <Text style={{ fontSize: 15, color: '#0E3F8C', fontWeight: 'bold' }}>总结与展望</Text>
+            </Box>
+        </Box>
+
+        <Text style={{ fontSize: 40, fontWeight: 'bold', color: '#1A2230', lineHeight: 1.2 }}>
+            三条结论，三条还没做完的事
+        </Text>
+
+        <Box style={{ gap: 10, marginTop: 4 }}>
+            <Box style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                <Box style={{ width: '24px', height: '24px', background: '#0E3F8C', borderRadius: 6, alignItems: 'center', justifyContent: 'center', marginTop: 3 }}>
+                    <Text style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 'bold' }}>1</Text>
+                </Box>
+                <Text style={{ fontSize: 18, color: '#1A2230', lineHeight: 1.5, width: '620px' }}>
+                    把「继续还是收尾」写进图结构而非提示词，硬闸确定性优先于模型裁决——这是它可被测试、可被复现的前提。
+                </Text>
+            </Box>
+
+            <Box style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                <Box style={{ width: '24px', height: '24px', background: '#0E3F8C', borderRadius: 6, alignItems: 'center', justifyContent: 'center', marginTop: 3 }}>
+                    <Text style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 'bold' }}>2</Text>
+                </Box>
+                <Text style={{ fontSize: 18, color: '#1A2230', lineHeight: 1.5, width: '620px' }}>
+                    引用是可复核的坐标（快照 + 逐字引文 + 偏移），自检零模型；不通过的论断进附录而非删除。
+                </Text>
+            </Box>
+
+            <Box style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                <Box style={{ width: '24px', height: '24px', background: '#0E3F8C', borderRadius: 6, alignItems: 'center', justifyContent: 'center', marginTop: 3 }}>
+                    <Text style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 'bold' }}>3</Text>
+                </Box>
+                <Text style={{ fontSize: 18, color: '#1A2230', lineHeight: 1.5, width: '620px' }}>
+                    四指标不可判定就写不可判定，改用八项零噪声断言验收——能验收的机制不等于平均质量变好。
+                </Text>
+            </Box>
+        </Box>
+
+        <Box style={{ width: '660px', height: '1px', background: '#D6DCE5', marginTop: 8 }} />
+
+        <Box style={{ gap: 8 }}>
+            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#D9534F' }}>仍未完成，一并摆在台面上</Text>
+            <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                · 独立引用裁判尚未在固定证据池上重跑，现有引用准确率仍按非独立口径陈述<br />
+                · 单轮 48~51 分钟偏慢，档位标定样本不足（deep 档尚为零样本）<br />
+                · 公网入口与合规流程未完成，域名备案仍在进行中
+            </Text>
+        </Box>
+
+        <Box style={{ flexDirection: 'row', alignItems: 'baseline', gap: 14, marginTop: 6 }}>
+            <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#0E3F8C' }}>谢谢大家，欢迎提问</Text>
+            <Text style={{ fontSize: 15, color: '#8B97A8' }}>田金应 · 2026 年 10 月</Text>
+        </Box>
+
+        <Box style={{ marginTop: 4, padding: '10px 16px', background: '#F0F5FC', borderRadius: 8 }}>
+            <Text style={{ fontSize: 14, color: '#4A5568', lineHeight: 1.5 }}>
+                GitHub · TianJinYing2006/DeepResearch（MIT）· CI：Python 3.11 / 3.12 / 3.13 + frontend + infra + e2e 全绿，设计决策见 docs/decisions/ 共 11 篇 ADR
+            </Text>
+        </Box>
+    </Box>
+
+    {/* 右 · 淡线稿（与封面呼应） */}
+    <Box style={{ width: '480px', height: '720px', background: '#F0F5FC', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width={400} height={520} viewBox='0 0 400 520'>
+            <path d='M200 46 L200 86' fill='none' stroke='#3D7BD9' strokeWidth='2' opacity='0.5' />
+            <path d='M200 124 L200 164' fill='none' stroke='#3D7BD9' strokeWidth='2' opacity='0.5' />
+            <path d='M200 202 L200 222 L80 222 L80 248' fill='none' stroke='#3D7BD9' strokeWidth='2' opacity='0.5' />
+            <path d='M200 202 L200 222 L320 222 L320 248' fill='none' stroke='#3D7BD9' strokeWidth='2' opacity='0.5' />
+            <path d='M320 286 L320 326' fill='none' stroke='#3D7BD9' strokeWidth='2' opacity='0.5' />
+            <path d='M320 364 L320 404' fill='none' stroke='#3D7BD9' strokeWidth='2' opacity='0.5' />
+            <path d='M80 267 L40 267 L40 105 L140 105' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' opacity='0.45' />
+
+            <rect x='140' y='8' width='120' height='38' rx='8' fill='#0E3F8C' opacity='0.85' />
+            <text x='200' y='33' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>plan</text>
+
+            <rect x='140' y='86' width='120' height='38' rx='8' fill='#0E3F8C' opacity='0.85' />
+            <text x='200' y='111' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>research</text>
+
+            <rect x='140' y='164' width='120' height='38' rx='8' fill='#0E3F8C' opacity='0.85' />
+            <text x='200' y='189' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>critic</text>
+
+            <rect x='24' y='248' width='112' height='38' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+            <text x='80' y='273' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>revise</text>
+
+            <rect x='264' y='248' width='112' height='38' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+            <text x='320' y='273' fontSize='15' fill='#1A2230' textAnchor='middle' fontWeight='bold'>write</text>
+
+            <rect x='264' y='326' width='112' height='38' rx='8' fill='#1E4FA8' opacity='0.85' />
+            <text x='320' y='351' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>validate</text>
+
+            <rect x='264' y='404' width='112' height='38' rx='8' fill='#0E3F8C' opacity='0.85' />
+            <text x='320' y='429' fontSize='15' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>render</text>
+
+            <text x='200' y='486' fontSize='14' fill='#0E3F8C' textAnchor='middle' fontWeight='bold'>决策在图里，判断有出处</text>
+        </svg>
+    </Box>
+</Slide>

@@ -1,0 +1,101 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>04 评测方法与实验结果</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>诚实基线：39.8% 就写 39.8%</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>统计侧判不动，就换零噪声的确定性断言来验收——两者不能互相冒充</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：左巨型数字 + 右四条确定性断言 */}
+    <Box style={{ height: '484px', flexDirection: 'row', gap: 24 }}>
+
+        {/* 左 · 锚点数字 */}
+        <Box style={{ width: '440px', background: '#F0F5FC', borderRadius: 8, padding: '28px 30px', gap: 10 }}>
+            <Text style={{ fontSize: 16, color: '#4A5568' }}>after 基线 · coverage</Text>
+            <Box style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <Text style={{ fontSize: 110, fontWeight: 'bold', color: '#0E3F8C', lineHeight: 1.0 }}>39.8</Text>
+                <Text style={{ fontSize: 44, fontWeight: 'bold', color: '#0E3F8C' }}>%</Text>
+            </Box>
+            <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.5 }}>20 题 × 3 轮均值；before 为 44.9%，差值 −5.1pp，判定为不可判定。</Text>
+            <Box style={{ height: '1px', background: '#D6DCE5', marginTop: 4 }} />
+            <Box style={{ flexDirection: 'row' }}>
+                <Box style={{ padding: '6px 14px', background: '#FFC107', borderRadius: 12 }}>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#1A2230' }}>不粉饰，也不自我贬低</Text>
+                </Box>
+            </Box>
+            <Text style={{ fontSize: 19, color: '#1A2230', lineHeight: 1.5, fontWeight: 'bold', marginTop: 6 }}>
+                「不确定的数字就写不确定」——追问时有据可查，比一个好看但站不住的数字有用得多。
+            </Text>
+            <Box style={{ marginTop: 'auto' }}>
+                <Text style={{ fontSize: 13, color: '#8B97A8', lineHeight: 1.5 }}>
+                    口径说明：coverage / citation 均为机器评分（LLM-as-judge），另有报告级人工抽检兜底；另有四项断言（状态分层 / 异常不伪装 / 质量闸 / 产物治理）同样全绿。
+                </Text>
+            </Box>
+        </Box>
+
+        {/* 右 · 四条确定性断言 */}
+        <Box style={{ width: '736px', gap: 12 }}>
+            <Box style={{ height: '34px', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#0E3F8C' }}>换成确定性断言后，八项全部可验收（零噪声，不依赖统计功效）</Text>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8 }}>
+                <Box style={{ width: '120px' }}>
+                    <Text style={{ fontSize: 30, fontWeight: 'bold', color: '#0E3F8C' }}>0→100%</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>故障可归因率</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>工具 / provider / RAG / 内部错误均有明确 failure_reason，枚举单点定义，失败不会被记成成功</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8 }}>
+                <Box style={{ width: '120px' }}>
+                    <Text style={{ fontSize: 30, fontWeight: 'bold', color: '#0E3F8C' }}>60 / 60</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>完成率与零异常</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>after 基线 3 轮共 60 个题目实例全部完成、无异常；before 基线三轮里有两轮各失败 1 题</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8 }}>
+                <Box style={{ width: '120px' }}>
+                    <Text style={{ fontSize: 30, fontWeight: 'bold', color: '#0E3F8C' }}>¥0 ≠ 0</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>成本守恒</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>成本源缺失时显式降级并打标记，绝不静默显示 ¥0——曾真实发生过「token 一百万、成本显示零」</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, padding: '14px 20px', background: '#F0F5FC', borderRadius: 8 }}>
+                <Box style={{ width: '120px' }}>
+                    <Text style={{ fontSize: 30, fontWeight: 'bold', color: '#0E3F8C' }}>可复算</Text>
+                </Box>
+                <Box style={{ flex: 1, gap: 3 }}>
+                    <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>可复现元数据</Text>
+                    <Text style={{ fontSize: 15, color: '#4A5568' }}>配置快照、五开关生效值、prompt_hash、scorer_version、git 修订随每轮落盘；历史缺字段如实记为「未记录」</Text>
+                </Box>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>16 / 23</Text>
+    </Box>
+</Slide>

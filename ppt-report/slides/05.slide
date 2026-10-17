@@ -1,0 +1,113 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>01 项目背景与目标</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>一分钟看懂这个项目</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>输入一个研究主题，输出一份「每条论断都能追到来源」的报告</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：左大图（58%）+ 右侧文字 */}
+    <Box style={{ height: '484px', flexDirection: 'row', gap: 20 }}>
+
+        {/* 左 · L1 端到端流程主干 */}
+        <Box style={{ width: '696px', height: '484px', background: '#F7F9FC', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+            <svg width={660} height={468} viewBox='0 0 660 468'>
+                {/* 连线 */}
+                <path d='M330 52 L330 88' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M330 132 L330 168' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M330 212 L330 232 L140 232 L140 248' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M330 212 L330 232 L320 232 L320 248' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M330 212 L330 232 L500 232 L500 248' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M140 288 L140 306 L330 306 L330 328' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M320 288 L320 306 L330 306' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M500 288 L500 306 L330 306' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M330 372 L330 392 L175 392 L175 408' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M290 428 L330 428' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                {/* 回环 */}
+                <path d='M200 350 L36 350 L36 190 L200 190' fill='none' stroke='#D9534F' strokeWidth='2' strokeDasharray='6 4' />
+
+                {/* 输入 */}
+                <rect x='200' y='8' width='260' height='44' rx='8' fill='#0E3F8C' />
+                <text x='330' y='36' fontSize='16' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>研究主题（一个）</text>
+
+                {/* plan */}
+                <rect x='200' y='88' width='260' height='44' rx='8' fill='#1E4FA8' />
+                <text x='330' y='116' fontSize='16' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>plan · 分解为子问题</text>
+
+                {/* research */}
+                <rect x='200' y='168' width='260' height='44' rx='8' fill='#1E4FA8' />
+                <text x='330' y='196' fontSize='16' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>research · 多跳检索</text>
+
+                {/* 三路 */}
+                <rect x='60' y='248' width='160' height='40' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='140' y='273' fontSize='14' fill='#1A2230' textAnchor='middle'>网络搜索</text>
+                <rect x='240' y='248' width='160' height='40' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='320' y='273' fontSize='14' fill='#1A2230' textAnchor='middle'>arXiv 学术</text>
+                <rect x='420' y='248' width='160' height='40' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='500' y='273' fontSize='14' fill='#1A2230' textAnchor='middle'>私有知识库 RAG</text>
+
+                {/* critic */}
+                <rect x='200' y='328' width='260' height='44' rx='8' fill='#0E3F8C' />
+                <text x='330' y='356' fontSize='16' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>critic · 充分度裁决</text>
+
+                {/* write / validate */}
+                <rect x='60' y='408' width='230' height='40' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='175' y='433' fontSize='14' fill='#1A2230' textAnchor='middle'>write → validate 校验</text>
+                <rect x='330' y='408' width='230' height='40' rx='8' fill='#0E3F8C' />
+                <text x='445' y='433' fontSize='14' fill='#FFFFFF' textAnchor='middle' fontWeight='bold'>render · 带引用报告</text>
+
+                {/* 标注 */}
+                <text x='40' y='184' fontSize='12' fill='#D9534F' textAnchor='start'>未达标 → 回环继续检索</text>
+                <text x='620' y='452' fontSize='12' fill='#8B97A8' textAnchor='end'>实线 = 主链　虚线 = 回环</text>
+            </svg>
+        </Box>
+
+        {/* 右 · 三个可验证的事实 */}
+        <Box style={{ width: '484px', height: '484px', gap: 14 }}>
+            <Box style={{ flexDirection: 'row' }}>
+                <Box style={{ padding: '6px 14px', background: '#FFC107', borderRadius: 12 }}>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#1A2230' }}>可以逐项核对的事实</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '18px 20px', gap: 6 }}>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>8 节点编排</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    plan / research / critic / revise / write / validate / repair / render，由 LangGraph 状态机驱动；节点是纯函数，状态用 Pydantic 类型化。
+                </Text>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '18px 20px', gap: 6 }}>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>三路证据并行</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    网络搜索 + arXiv 学术检索 + 私有知识库（Qdrant 向量 + BM25 混合、RRF 融合），证据按来源身份去重后入池。
+                </Text>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#F0F5FC', borderRadius: 8, padding: '18px 20px', gap: 6 }}>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#0E3F8C' }}>全链路可观测</Text>
+                <Text style={{ fontSize: 16, color: '#4A5568', lineHeight: 1.55 }}>
+                    OTel trace 覆盖每个节点 span 与每次 LLM 调用（含 token 与成本估算），后端可插拔：Jaeger 或自托管 Langfuse。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>05 / 23</Text>
+    </Box>
+</Slide>

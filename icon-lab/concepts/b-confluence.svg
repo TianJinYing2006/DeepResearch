@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>汇流 · Confluence</title>
+  <desc>三条线索从左向右收束，汇入一枚朱色结论块。</desc>
+  <rect width="512" height="512" rx="112" fill="#FBFAF7"/>
+  <g fill="none" stroke="#23313A" stroke-width="44" stroke-linecap="round">
+    <path d="M104 148 L304 212"/>
+    <path d="M104 256 L304 256"/>
+    <path d="M104 364 L304 300"/>
+  </g>
+  <rect x="304" y="184" width="144" height="144" rx="44" fill="#C2452D"/>
+</svg>

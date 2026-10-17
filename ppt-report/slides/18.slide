@@ -1,0 +1,98 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>05 工程落地与总结</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>从脚本到服务：工程落地全景</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>CLI 只是入口之一；真正的形态是「有准入、有账本、有备份」的服务</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：非对称双栏 62:38 */}
+    <Box style={{ height: '484px', flexDirection: 'row', gap: 20 }}>
+
+        {/* 左 · L1 分层架构 */}
+        <Box style={{ width: '744px', background: '#F7F9FC', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+            <svg width={700} height={464} viewBox='0 0 700 464'>
+                <path d='M350 72 L350 92' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M350 156 L350 176' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M350 240 L350 260' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+                <path d='M350 324 L350 344' fill='none' stroke='#3D7BD9' strokeWidth='2' />
+
+                {/* 呈现层 */}
+                <rect x='30' y='8' width='640' height='64' rx='8' fill='#0E3F8C' />
+                <text x='52' y='38' fontSize='15' fill='#FFFFFF' fontWeight='bold'>呈现层</text>
+                <text x='52' y='60' fontSize='13' fill='#F0F5FC'>React + Vite + TS + Tailwind：实时阶段进度、协作式取消、报告与引用溯源</text>
+
+                {/* 接口层 */}
+                <rect x='30' y='92' width='640' height='64' rx='8' fill='#1E4FA8' />
+                <text x='52' y='122' fontSize='15' fill='#FFFFFF' fontWeight='bold'>接口层</text>
+                <text x='52' y='144' fontSize='13' fill='#F0F5FC'>FastAPI：HTTP + SSE（对齐 AG-UI 语义）、结构化错误、请求指纹幂等、CSRF 双提交</text>
+
+                {/* 执行层 */}
+                <rect x='30' y='176' width='640' height='64' rx='8' fill='#1E4FA8' />
+                <text x='52' y='206' fontSize='15' fill='#FFFFFF' fontWeight='bold'>执行层</text>
+                <text x='52' y='228' fontSize='13' fill='#F0F5FC'>Redis 队列 + Worker：租约 / 心跳 / 过期清扫 / 重试，PostgreSQL 为派发权威</text>
+
+                {/* 数据层 */}
+                <rect x='30' y='260' width='640' height='64' rx='8' fill='#0E3F8C' />
+                <text x='52' y='290' fontSize='15' fill='#FFFFFF' fontWeight='bold'>数据层</text>
+                <text x='52' y='312' fontSize='13' fill='#F0F5FC'>PostgreSQL（21 个前向迁移 + 结构断言）、Redis、Qdrant（多租户隔离）、对象存储</text>
+
+                {/* 观测层 */}
+                <rect x='30' y='344' width='640' height='64' rx='8' fill='#FFFFFF' stroke='#3D7BD9' strokeWidth='2' />
+                <text x='52' y='374' fontSize='15' fill='#1A2230' fontWeight='bold'>观测与运维</text>
+                <text x='52' y='396' fontSize='13' fill='#4A5568'>OTel 全链路 trace、/api/metrics 状态分布与成本、四类阈值告警、备份与恢复演练</text>
+
+                <text x='350' y='436' fontSize='12' fill='#8B97A8' textAnchor='middle'>同一个镜像两种入口：api 与 worker；本地开发可切回进程内执行</text>
+                <text x='350' y='456' fontSize='12' fill='#8B97A8' textAnchor='middle'>staging 已真实运行（单机 compose + 反向代理）</text>
+            </svg>
+        </Box>
+
+        {/* 右 · 论述 */}
+        <Box style={{ width: '436px', gap: 12 }}>
+            <Text style={{ fontSize: 23, fontWeight: 'bold', color: '#0E3F8C' }}>让「能用」变成「敢放人用」</Text>
+
+            <Box style={{ gap: 5 }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A2230' }}>账号与配额三闸</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>Argon2id 口令 + httpOnly 会话 + CSRF 双提交；月度预算 100% 熔断、单用户并发闸、每日次数闸，准入在单事务内原子判定。</Text>
+            </Box>
+
+            <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+            <Box style={{ gap: 5 }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A2230' }}>多租户 RAG 隔离</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>检索作用域下推到向量库过滤并做后置兜底：owner 只见本人私有块，匿名只见无主历史块，不跨用户。</Text>
+            </Box>
+
+            <Box style={{ height: '1px', background: '#D6DCE5' }} />
+
+            <Box style={{ gap: 5 }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A2230' }}>内容安全与恢复</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>输入预检 + 输出闸，审核状态与终局同事务落库；导出与历史回放强制脱敏。备份带可读校验，恢复演练进 CI。</Text>
+            </Box>
+
+            <Box style={{ marginTop: 'auto', background: '#F0F5FC', borderRadius: 8, padding: '14px 16px' }}>
+                <Text style={{ fontSize: 15, color: '#1A2230', lineHeight: 1.5 }}>
+                    一句话区分：<span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>demo 只需要跑通一次，服务必须回答「超预算怎么办、别人能不能看到你的数据」。</span>
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>18 / 23</Text>
+    </Box>
+</Slide>

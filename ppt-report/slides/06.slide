@@ -1,0 +1,48 @@
+<Slide style={{ width: '1280px', height: '720px', padding: 0, background: '#0E3F8C', flexDirection: 'row', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+
+    <Box style={{ width: '280px', height: '720px', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <Text style={{ fontSize: 150, fontWeight: 'bold', color: '#F0F5FC', opacity: 0.3, lineHeight: 1.0 }}>02</Text>
+        <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.6, letterSpacing: 3 }}>CHAPTER 02</Text>
+    </Box>
+
+    <Box style={{ width: '500px', height: '720px', justifyContent: 'center', gap: 18, paddingRight: 40 }}>
+        <Text style={{ fontSize: 40, fontWeight: 'bold', color: '#FFFFFF', lineHeight: 1.2 }}>系统架构与核心设计</Text>
+        <Box style={{ width: '64px', height: '3px', background: '#FFFFFF', opacity: 0.5 }} />
+        <Box style={{ gap: 12 }}>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— 8 节点状态机，节点是纯函数</Text>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— critic 四态条件边，硬闸先于 LLM</Text>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— 两条回环都有上限，超限确定性收口</Text>
+            <Text style={{ fontSize: 17, color: '#FFFFFF', opacity: 0.9 }}>— 三路检索并行，RRF 融合入证据池</Text>
+        </Box>
+        <Box style={{ flexDirection: 'row' }}>
+            <Box style={{ padding: '7px 14px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 14 }}>
+                <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.85 }}>本章回答：决策放在哪里</Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ width: '1px', height: '440px', background: '#FFFFFF', opacity: 0.18 }} />
+
+    <Box style={{ width: '420px', height: '720px', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <Image
+            src='assets/ui-02-running.png'
+            style={{ width: 368, height: 230, objectFit: 'cover', borderRadius: 12, border: '2px solid rgba(255,255,255,0.35)' }}
+        />
+        <Text style={{ fontSize: 12, color: '#FFFFFF', opacity: 0.6 }}>界面实拍 · 运行中：depth=2、裁决=continue</Text>
+        <Box style={{ flexDirection: 'row', gap: 8 }}>
+            <Box style={{ padding: '5px 12px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 12 }}>
+                <Text style={{ fontSize: 13, color: '#FFFFFF', opacity: 0.9 }}>8 节点</Text>
+            </Box>
+            <Box style={{ padding: '5px 12px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 12 }}>
+                <Text style={{ fontSize: 13, color: '#FFFFFF', opacity: 0.9 }}>2 回环</Text>
+            </Box>
+            <Box style={{ padding: '5px 12px', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 12 }}>
+                <Text style={{ fontSize: 13, color: '#FFFFFF', opacity: 0.9 }}>20 跳预算</Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ position: 'absolute', bottom: 28, right: 56 }}>
+        <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.6 }}>06 / 23</Text>
+    </Box>
+</Slide>

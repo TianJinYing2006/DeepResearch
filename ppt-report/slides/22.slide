@@ -1,0 +1,89 @@
+<Slide style={{ width: '1280px', height: '720px', padding: '24px 40px', background: '#FFFFFF' }}>
+
+    {/* A · 页眉顶条 */}
+    <Box style={{ height: '48px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' }}>DeepResearch · 深度研究 Agent</Text>
+        <Text style={{ fontSize: 16, color: '#FFFFFF', opacity: 0.85 }}>05 工程落地与总结</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* B · 标题块 */}
+    <Box style={{ height: '72px', justifyContent: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#1A2230' }}>质量门禁与真实运行数据</Text>
+        <Text style={{ fontSize: 16, color: '#4A5568' }}>这些数字不是写在文档里的声明，是 CI 每次提交真跑出来的结果</Text>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* C · 内容区：共享标题条 + 三张 KPI 卡 + 底部结论条 */}
+    <Box style={{ height: '484px', gap: 10 }}>
+
+        <Box style={{ height: '40px', background: '#0E3F8C', borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px' }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#FFFFFF' }}>测试 · 端到端 · 恢复</Text>
+            <Text style={{ fontSize: 15, color: '#FFFFFF', opacity: 0.8 }}>三条线各自独立，任何一条红了就不允许合入</Text>
+        </Box>
+
+        <Box style={{ flex: 1, flexDirection: 'row', gap: 16 }}>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '20px 22px', gap: 6 }}>
+                <Box style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                    <Text style={{ fontSize: 76, fontWeight: 'bold', color: '#0E3F8C', lineHeight: 1.0 }}>946</Text>
+                    <Text style={{ fontSize: 18, color: '#4A5568' }}>通过</Text>
+                </Box>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>单元测试（零 LLM、零 key）</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>
+                    共 996 项收集，其中 50 项跳过的是真实 PG / Redis 用例——它们并没有被放弃，而是交给 CI 的 infra 任务在真实服务上强制执行。ruff 静态检查同样全过。
+                </Text>
+                <Box style={{ marginTop: 'auto', padding: '8px 12px', background: '#F0F5FC', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>Python 3.11 / 3.12 / 3.13 三档并行</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#FFFFFF', border: '1px solid #D6DCE5', borderRadius: 8, padding: '20px 22px', gap: 6 }}>
+                <Box style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                    <Text style={{ fontSize: 76, fontWeight: 'bold', color: '#0E3F8C', lineHeight: 1.0 }}>49</Text>
+                    <Text style={{ fontSize: 18, color: '#4A5568' }}>条用例</Text>
+                </Box>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>浏览器端到端（9 个 spec）</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>
+                    桌面与窄屏双视口实跑真实 SSE 管线：主流程、刷新恢复、取消语义、降级可见、导出、结构化错误重试、窄屏无横向滚动。前端另有类型检查与生产构建门禁。
+                </Text>
+                <Box style={{ marginTop: 'auto', padding: '8px 12px', background: '#F0F5FC', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>官方 Chromium，无需预装浏览器</Text>
+                </Box>
+            </Box>
+
+            <Box style={{ flex: 1, background: '#F0F5FC', borderRadius: 8, padding: '20px 22px', gap: 6 }}>
+                <Box style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                    <Text style={{ fontSize: 76, fontWeight: 'bold', color: '#0E3F8C', lineHeight: 1.0 }}>21</Text>
+                    <Text style={{ fontSize: 18, color: '#4A5568' }}>个迁移</Text>
+                </Box>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A2230' }}>前向迁移 + 17 项结构断言</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568', lineHeight: 1.55 }}>
+                    迁移只前进不回退，重复执行必须 applied=0；每次 PR 还会真跑一次「备份 → 清库 → 恢复 → 比对种子数据」，确保备份不是一堆打不开的文件。
+                </Text>
+                <Box style={{ marginTop: 'auto', padding: '8px 12px', background: '#FFFFFF', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 14, color: '#0E3F8C', fontWeight: 'bold' }}>恢复演练已进 CI，非人工抽查</Text>
+                </Box>
+            </Box>
+        </Box>
+
+        {/* 底部结论条 */}
+        <Box style={{ height: '64px', background: '#F0F5FC', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: '0 22px', gap: 14 }}>
+            <Box style={{ width: '4px', height: '40px', background: '#1E4FA8' }} />
+            <Box style={{ gap: 2 }}>
+                <Text style={{ fontSize: 16, color: '#1A2230' }}>真实代价：单轮 <span style={{ fontWeight: 'bold', color: '#0E3F8C' }}>¥0.79~0.92 / 48~51 分钟</span>，偏慢，档位标定仍是开放问题。</Text>
+                <Text style={{ fontSize: 15, color: '#4A5568' }}>诚实限制：取消与超时都是协作式的——Python 线程无法被 kill，硬截止只保证传输层收口，这是语言级限制而非实现偷懒。</Text>
+            </Box>
+        </Box>
+    </Box>
+
+    <Box style={{ height: '12px' }} />
+
+    {/* D · 页脚 */}
+    <Box style={{ height: '32px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ fontSize: 14, color: '#8B97A8' }}>DeepResearch 项目汇报 · 2026-10</Text>
+        <Text style={{ fontSize: 14, color: '#1E4FA8' }}>22 / 23</Text>
+    </Box>
+</Slide>

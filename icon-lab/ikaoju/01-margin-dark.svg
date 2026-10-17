@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>页边引文 · 反白</title>
+  <desc>深色底版本：正文反白，角标用提亮后的强调色。</desc>
+  <rect width="512" height="512" rx="112" fill="#15181A"/>
+  <g fill="#EDF1EE">
+    <rect x="66" y="114" width="250" height="60" rx="30"/>
+    <rect x="66" y="226" width="214" height="60" rx="30"/>
+    <rect x="66" y="338" width="160" height="60" rx="30"/>
+  </g>
+  <rect x="280" y="250" width="62" height="12" rx="6" fill="#6A726D"/>
+  <rect x="342" y="204" width="104" height="104" rx="32" fill="#4B84F0"/>
+</svg>

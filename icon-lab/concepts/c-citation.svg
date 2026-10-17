@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>引证 · Citation</title>
+  <desc>一对方括号框住一枚朱色落点：被引用的事实，与由此得到的结论。</desc>
+  <rect width="512" height="512" rx="112" fill="#FBFAF7"/>
+  <g fill="none" stroke="#23313A" stroke-width="48">
+    <path d="M200 104 H152 Q104 104 104 152 V360 Q104 408 152 408 H200"/>
+    <path d="M312 104 H360 Q408 104 408 152 V360 Q408 408 360 408 H312"/>
+  </g>
+  <circle cx="256" cy="256" r="40" fill="#C2452D"/>
+</svg>

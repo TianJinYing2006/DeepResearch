@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>引签 · 单色</title>
+  <desc>单色版：签与纸页同色，靠它骑出页边的那一块被认出来。</desc>
+  <rect width="512" height="512" rx="112" fill="#171B19"/>
+  <path d="M106 64 H348 L400 116 V406 Q400 448 358 448 H106 Q64 448 64 406 V106 Q64 64 106 64 Z" fill="#FBFAF7"/>
+  <path d="M348 64 L400 116 H348 Z" fill="#EBE7DD"/>
+  <g fill="#171B19">
+    <rect x="104" y="176" width="232" height="20" rx="10"/>
+    <rect x="104" y="216" width="204" height="20" rx="10"/>
+    <rect x="104" y="256" width="176" height="20" rx="10"/>
+    <rect x="104" y="296" width="140" height="20" rx="10"/>
+    <rect x="280" y="258" width="16" height="16" rx="8"/>
+    <rect x="308" y="258" width="16" height="16" rx="8"/>
+    <rect x="336" y="258" width="16" height="16" rx="8"/>
+  </g>
+  <rect x="352" y="218" width="96" height="96" rx="28" fill="#FBFAF7"/>
+</svg>
