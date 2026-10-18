@@ -127,12 +127,18 @@ test.describe('视觉基线（桌面端）', () => {
     // 证据边栏：**固定尺寸 clip** 截图。
     // 为什么不用 locator 截图：Playwright 由 boundingBox 取整生成截图矩形，元素高度即使被钉成
     // 688，取整后仍可能得到 689（实测 dev push 二次命中）——clip 把宽高写死，尺寸按构造确定。
+    // ⚠️ `clip` 用**文档坐标**，而 `boundingBox()` 是视口相对：必须手动加滚动偏移，
+    //    否则会裁到错误区域（实测漏加导致 1% 像素差）。
     await pinHeight(page, '#stage-verify', 688)
-    const panel = await page.locator('#stage-verify').boundingBox()
-    if (!panel) throw new Error('证据边栏未渲染（#stage-verify）')
-    await expect(page).toHaveScreenshot('evidence-margin.png', {
-      ...SHOT,
-      clip: { x: Math.round(panel.x), y: Math.round(panel.y), width: 320, height: 688 },
+    const clip = await page.locator('#stage-verify').evaluate((el) => {
+      const rect = el.getBoundingClientRect()
+      return {
+        x: Math.round(rect.left + window.scrollX),
+        y: Math.round(rect.top + window.scrollY),
+        width: 320,
+        height: 688,
+      }
     })
+    await expect(page).toHaveScreenshot('evidence-margin.png', { ...SHOT, clip })
   })
 })
