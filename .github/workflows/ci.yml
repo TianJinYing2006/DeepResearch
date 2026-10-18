@@ -282,3 +282,16 @@ jobs:
         # 刻意直调 playwright 而不是 `npm run e2e`：后者现在会先 build，
         # 而本 job 上一步已经 build 过（dist 由 FastAPI 托管），再 build 一次是重复的。
         run: npx playwright test
+
+      # 视觉回归诊断：失败时保留 test-results/（actual / diff / expected 三图 + error-context）。
+      # 用途①：评审可在 PR 里直接下载查看像素差异；
+      # 用途②：金标准基准环境是**本 job 的 ubuntu-latest + 官方 chromium**，若与生成金标准的
+      #        本地 Linux 环境有渲染微差，从这里的 `*-actual.png` 取真实渲染重新生成金标准。
+      - name: Upload Playwright results (visual diffs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-playwright-results
+          path: web/frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
