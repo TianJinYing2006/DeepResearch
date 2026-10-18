@@ -64,3 +64,7 @@ mcp>=1.9,<1.10
 # 需求 38 F2：PDF 导出（WeasyPrint；镜像需 apt pango 运行库 + Noto CJK 字体）
 # 锁外科式（先例：需求 10/37）：只加 weasyprint 与其新增传递依赖
 weasyprint>=70,<71
+
+# 需求 20 P1-3：TOTP MFA —— TOTP secret **可逆加密**（AES-256-GCM；密钥来自 DR_MFA_SECRET_KEY）
+# 锁外科式（先例：需求 10/37/38）：只加 cryptography 与其新增传递依赖（cffi / pycparser[可选]）
+cryptography>=43

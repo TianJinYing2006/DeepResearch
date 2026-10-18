@@ -44,6 +44,7 @@ from research_engine.usage import pop_usage_sink, push_usage_sink
 from . import docx_render as docx_render_mod
 from . import export as export_mod
 from . import followup as followup_mod
+from . import secretbox
 from .agui import (
     FOLLOWUP_ANSWERED,
     FOLLOWUP_ASKED,
@@ -112,6 +113,18 @@ from .queue import RunQueue
 from .ratelimit import make_limiter
 from .runner import RunManager, _estimate_cost_cny
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
+from .totp import (
+    encode_secret as totp_encode_secret,
+)
+from .totp import (
+    hash_recovery_code,
+    new_recovery_codes,
+    new_totp_secret,
+    verify_totp,
+)
+from .totp import (
+    provisioning_uri as totp_provisioning_uri,
+)
 from .upload_guard import (
     ALLOWED_EXT,
     UploadRejected,
@@ -757,6 +770,18 @@ def _run_brief(row: dict) -> dict:
 
 
 def _session_user(request: Request) -> Optional[dict]:
+    return _session_user_impl(request, require_mfa=True)
+
+
+def _pending_session_user(request: Request) -> Optional[dict]:
+    """登录 step-up 专用：允许 `mfa_verified=false` 的**半程会话**。
+
+    仅 `/api/auth/mfa/verify` 使用；其余一律走 `_session_user`（要求已完成第二步）。
+    """
+    return _session_user_impl(request, require_mfa=False)
+
+
+def _session_user_impl(request: Request, *, require_mfa: bool) -> Optional[dict]:
     if store is None:
         return None
     token = request.cookies.get(SESSION_COOKIE)
@@ -764,11 +789,15 @@ def _session_user(request: Request) -> Optional[dict]:
         return None
     user = _store_call(store.get_session_user, token_hash(token),
                        idle_seconds=SESSION_IDLE_SECONDS)
-    if user is not None:
-        try:
-            store.touch_session(token_hash(token))  # P1-10：节流刷新 last_seen
-        except Exception:  # noqa: BLE001 —— 会话卫生旁路
-            pass
+    if user is None:
+        return None
+    if require_mfa and not user.get("session_mfa_verified", True):
+        # 半程会话（等待第二步验证）：不得访问任何受保护接口
+        return None
+    try:
+        store.touch_session(token_hash(token))  # P1-10：节流刷新 last_seen
+    except Exception:  # noqa: BLE001 —— 会话卫生旁路
+        pass
     return user
 
 
@@ -889,16 +918,19 @@ def _reject_weak_password(password: str, *, email: str = "") -> None:
         raise http_error("invalid_request", reason)
 
 
-def _set_session_cookies(response: Response, user_id: str, request: Optional[Request] = None) -> None:
+def _set_session_cookies(response: Response, user_id: str, request: Optional[Request] = None,
+                         *, mfa_verified: bool = True) -> None:
     """建会话 + 写 Cookie：session 为 httpOnly，CSRF 为可读双提交 Cookie。
 
     P1-10：会话记录 IP / User-Agent（会话治理展示与排障）。
+    P1-3：`mfa_verified=False` 表示「半程会话」——第二步验证通过前不得访问受保护接口。
     """
     token = new_token()
     _store_call(store.create_session, token_hash(token), user_id,
                 datetime.now(UTC) + timedelta(seconds=SESSION_TTL_SECONDS),
                 ip=(_client_key(request) if request is not None else None),
-                user_agent=(request.headers.get("user-agent") if request is not None else None))
+                user_agent=(request.headers.get("user-agent") if request is not None else None),
+                mfa_verified=mfa_verified)
     response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_SECONDS, httponly=True,
                         samesite="lax", secure=COOKIE_SECURE, path="/")
     response.set_cookie(CSRF_COOKIE, new_token(), max_age=SESSION_TTL_SECONDS, httponly=False,
@@ -1233,8 +1265,18 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
     new_device = is_new_device(
         [device_key(row.get("user_agent"), row.get("ip")) for row in prior],
         request.headers.get("user-agent"), _client_key(request))
-    _set_session_cookies(response, user["user_id"], request)
+    # P1-3：MFA 用户先发「半程会话」，第二步验证通过才算登录完成。
+    # fail-closed：有因子但服务端密钥不可用 ⇒ 拒绝（防「删密钥即绕过第二步」）。
+    mfa_factor = _store_call(store.get_mfa_factor, user["user_id"])
+    if mfa_factor is not None and not secretbox.configured():
+        _audit("mfa_unavailable", request=request, actor_user_id=user["user_id"])
+        raise http_error("mfa_unavailable", "MFA 暂不可用（服务端密钥未配置），请联系管理员")
+    _set_session_cookies(response, user["user_id"], request,
+                         mfa_verified=(mfa_factor is None))
     _audit("login_success", request=request, actor_user_id=user["user_id"])
+    if mfa_factor is not None:
+        _audit("mfa_challenge_issued", request=request, actor_user_id=user["user_id"])
+        return {"mfa_required": True}
     if new_device:
         _notify_new_login(user, request)
     return {"user": _public_user(user)}
@@ -1258,6 +1300,158 @@ def auth_session(request: Request) -> dict:
     user = _session_user(request)
     if user is None:
         raise http_error("unauthenticated", "未登录")
+    return {"user": _public_user(user)}
+
+
+# ------------------------------------------------------------------ MFA：TOTP + 恢复码（需求 20 P1-3）
+
+#: 认证器 App 中显示的签发方
+MFA_ISSUER = "爱考据 iKaoju"
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(..., min_length=4, max_length=32)
+
+
+class MfaDisableRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=200)
+    code: str = Field("", max_length=32)
+
+
+def _require_mfa_ready() -> None:
+    """MFA 端点前置：服务端密钥未配置即 503（fail-closed，不静默降级）。"""
+    if not secretbox.configured():
+        raise http_error("mfa_unconfigured", "MFA 未启用（服务端缺少 DR_MFA_SECRET_KEY）")
+
+
+def _iso(value) -> Optional[str]:
+    return value.isoformat() if value is not None else None
+
+
+def _verify_totp_factor(factor: dict, code: str) -> bool:
+    """用因子密文校验 TOTP；密钥不可用 / 密文损坏一律 False（fail-closed）。"""
+    try:
+        secret = secretbox.decrypt(factor["secret_encrypted"])
+    except Exception:  # noqa: BLE001
+        return False
+    if verify_totp(secret, code, time.time()):
+        _store_call(store.touch_mfa_factor_used, factor["factor_id"])
+        return True
+    return False
+
+
+def _verify_mfa_factor(user_id: str, factor: dict, code: str) -> bool:
+    """TOTP 优先；否则尝试**恢复码**（单次消费成功才算通过）。
+
+    恢复码不依赖服务端密钥 ⇒ **认证器丢失**时仍可关闭 MFA（防用户自锁）。
+    （注意：若服务端密钥丢失，登录会在第一步即 fail-closed，恢复码无法用于登录——
+    须由运维恢复 `DR_MFA_SECRET_KEY`。）
+    """
+    if _verify_totp_factor(factor, code):
+        return True
+    return bool(_store_call(store.consume_recovery_code, user_id, hash_recovery_code(code)))
+
+
+@app.get("/api/auth/mfa")
+def mfa_status(request: Request) -> dict:
+    """当前用户的 MFA 状态（前端「会话与安全」页用）。"""
+    user = _require_session_user(request)
+    factor = _store_call(store.get_mfa_factor, user["user_id"])
+    return {
+        "available": secretbox.configured(),
+        "enabled": factor is not None,
+        "type": factor["type"] if factor else None,
+        "confirmed_at": _iso(factor["confirmed_at"]) if factor else None,
+        "recovery_codes_remaining": (
+            _store_call(store.count_unused_recovery_codes, user["user_id"]) if factor else 0),
+    }
+
+
+@app.post("/api/auth/mfa/totp/begin")
+def mfa_totp_begin(request: Request) -> dict:
+    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。"""
+    _check_csrf(request)
+    user = _require_session_user(request)
+    _require_mfa_ready()
+    if _store_call(store.get_mfa_factor, user["user_id"]) is not None:
+        raise http_error("mfa_already_enabled", "已启用 MFA；如需换绑请先关闭")
+    secret = new_totp_secret()
+    factor_id = uuid.uuid4().hex[:12]
+    _store_call(store.upsert_pending_mfa_factor, factor_id, user["user_id"],
+                secretbox.encrypt(secret))
+    _audit("mfa_enroll_started", request=request, actor_user_id=user["user_id"])
+    encoded = totp_encode_secret(secret)
+    return {"secret": encoded,
+            "otpauth_uri": totp_provisioning_uri(encoded, account=user["email"],
+                                                 issuer=MFA_ISSUER)}
+
+
+@app.post("/api/auth/mfa/totp/confirm")
+def mfa_totp_confirm(req: MfaCodeRequest, request: Request) -> dict:
+    """确认绑定：校验一次 TOTP ⇒ 置 confirmed + 生成恢复码（明文**仅此一次**返回）。"""
+    _check_csrf(request)
+    user = _require_session_user(request)
+    _require_mfa_ready()
+    pending = _store_call(store.get_mfa_factor, user["user_id"], confirmed=False)
+    if pending is None:
+        raise http_error("mfa_not_started", "请先开始绑定（未找到待确认的因子）")
+    if not _verify_totp_factor(pending, req.code):
+        _audit("mfa_confirm_failed", request=request, actor_user_id=user["user_id"])
+        raise http_error("mfa_code_invalid", "验证码不正确")
+    if not _store_call(store.confirm_mfa_factor, user["user_id"], pending["factor_id"]):
+        raise http_error("mfa_not_started", "待确认因子已失效，请重新绑定")
+    codes = new_recovery_codes()
+    _store_call(store.replace_recovery_codes, user["user_id"],
+                [hash_recovery_code(code) for code in codes])
+    _audit("mfa_enabled", request=request, actor_user_id=user["user_id"])
+    return {"ok": True, "recovery_codes": codes}
+
+
+@app.post("/api/auth/mfa/disable")
+def mfa_disable(req: MfaDisableRequest, request: Request) -> dict:
+    """关闭 MFA（需密码 + TOTP/恢复码；恢复码路径保证「密钥丢失」时仍可自救）。"""
+    _check_csrf(request)
+    user = _require_session_user(request)
+    if not verify_password(user["password_hash"], req.password):
+        _audit("mfa_disable_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "bad_password"})
+        raise http_error("invalid_credentials", "密码不正确")
+    factor = _store_call(store.get_mfa_factor, user["user_id"])
+    if factor is not None and not _verify_mfa_factor(user["user_id"], factor, req.code):
+        _audit("mfa_disable_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "bad_code"})
+        raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
+    _store_call(store.delete_mfa_factors, user["user_id"])
+    _store_call(store.replace_recovery_codes, user["user_id"], [])
+    _audit("mfa_disabled", request=request, actor_user_id=user["user_id"])
+    return {"ok": True}
+
+
+@app.post("/api/auth/mfa/verify")
+def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
+    """登录第二步（step-up）：半程会话 + TOTP/恢复码 ⇒ 标记该会话已完成第二步。"""
+    _check_csrf(request)
+    user = _pending_session_user(request)
+    if user is None:
+        raise http_error("unauthenticated", "请先登录")
+    if user.get("session_mfa_verified", True):
+        return {"user": _public_user(user)}   # 幂等：已完成第二步
+    factor = _store_call(store.get_mfa_factor, user["user_id"])
+    if factor is None:
+        # 因子已在别处移除（如已关闭 MFA）：直接完成，避免把自己锁死
+        _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
+        return {"user": _public_user(user)}
+    if not _verify_mfa_factor(user["user_id"], factor, req.code):
+        _audit("mfa_verify_failed", request=request, actor_user_id=user["user_id"])
+        raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
+    _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
+    _audit("mfa_verified", request=request, actor_user_id=user["user_id"])
+    # 第二步完成后才判「新设备」：此时须排除本半程会话
+    rows = [row for row in _store_call(store.list_sessions, user["user_id"])
+            if row.get("token_hash") != user["session_token_hash"]]
+    if is_new_device([device_key(row.get("user_agent"), row.get("ip")) for row in rows],
+                     request.headers.get("user-agent"), _client_key(request)):
+        _notify_new_login(user, request)
     return {"user": _public_user(user)}
 
 

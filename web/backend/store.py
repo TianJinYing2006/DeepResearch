@@ -1604,13 +1604,19 @@ class RunStore:
 
     def create_session(self, session_hash: str, user_id: str, expires_at: datetime,
                        *, ip: Optional[str] = None,
-                       user_agent: Optional[str] = None) -> str:
-        """建会话（P1-10：记录 IP / UA / last_seen；返回对外可见 `session_id`）。"""
+                       user_agent: Optional[str] = None,
+                       mfa_verified: bool = True) -> str:
+        """建会话（P1-10：记录 IP / UA / last_seen；返回对外可见 `session_id`）。
+
+        P1-3：`mfa_verified=False` 表示**半程会话**（等待第二步验证，不得访问受保护接口）。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sessions (token_hash, user_id, expires_at, ip, user_agent) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING session_id",
-                (session_hash, user_id, expires_at, ip, (user_agent or "")[:300] or None),
+                "INSERT INTO sessions (token_hash, user_id, expires_at, ip, user_agent, "
+                "                       mfa_verified) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING session_id",
+                (session_hash, user_id, expires_at, ip, (user_agent or "")[:300] or None,
+                 mfa_verified),
             )
             return cur.fetchone()["session_id"]
 
@@ -1624,7 +1630,8 @@ class RunStore:
             cur.execute(
                 "SELECT u.*, s.session_id, s.created_at AS session_created_at, "
                 "       s.last_seen_at AS session_last_seen_at, s.ip AS session_ip, "
-                "       s.user_agent AS session_user_agent, s.token_hash AS session_token_hash "
+                "       s.user_agent AS session_user_agent, s.token_hash AS session_token_hash, "
+                "       s.mfa_verified AS session_mfa_verified "
                 "FROM sessions s JOIN users u ON u.user_id = s.user_id "
                 "WHERE s.token_hash = %s AND s.expires_at > now() AND u.status = 'active' "
                 "  AND (%s = 0 OR s.last_seen_at > now() - make_interval(secs => %s))",
@@ -1700,6 +1707,96 @@ class RunStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM sessions WHERE expires_at <= now() RETURNING token_hash")
             return len(cur.fetchall())
+
+    # ---- MFA：TOTP 因子与恢复码（需求 20 P1-3）----
+
+    def upsert_pending_mfa_factor(self, factor_id: str, user_id: str,
+                                  secret_encrypted: bytes, *,
+                                  name: Optional[str] = None) -> None:
+        """暂存未确认的 TOTP 因子。
+
+        先删除该用户任何**未确认**的同类因子（可反复重新生成），**不动已确认因子**
+        —— 已确认因子只能通过 `disable` 流程移除（防「悄悄换绑」）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM mfa_factors WHERE user_id = %s AND type = 'totp' "
+                "AND confirmed_at IS NULL",
+                (user_id,),
+            )
+            cur.execute(
+                "INSERT INTO mfa_factors (factor_id, user_id, type, secret_encrypted, name) "
+                "VALUES (%s, %s, 'totp', %s, %s)",
+                (factor_id, user_id, secret_encrypted, name),
+            )
+
+    def get_mfa_factor(self, user_id: str, *,
+                       confirmed: bool = True) -> Optional[dict[str, Any]]:
+        clause = "AND confirmed_at IS NOT NULL" if confirmed else "AND confirmed_at IS NULL"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM mfa_factors WHERE user_id = %s AND type = 'totp' {clause} "
+                "ORDER BY created_at DESC LIMIT 1",
+                (user_id,),
+            )
+            return cur.fetchone()
+
+    def confirm_mfa_factor(self, user_id: str, factor_id: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mfa_factors SET confirmed_at = now() "
+                "WHERE factor_id = %s AND user_id = %s AND confirmed_at IS NULL "
+                "RETURNING factor_id",
+                (factor_id, user_id),
+            )
+            return cur.fetchone() is not None
+
+    def touch_mfa_factor_used(self, factor_id: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE mfa_factors SET last_used_at = now() WHERE factor_id = %s",
+                        (factor_id,))
+
+    def delete_mfa_factors(self, user_id: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM mfa_factors WHERE user_id = %s RETURNING factor_id",
+                        (user_id,))
+            return len(cur.fetchall())
+
+    def replace_recovery_codes(self, user_id: str, code_hashes: list[str]) -> None:
+        """整批替换恢复码（重新生成 / 关闭 MFA 时清空）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM recovery_codes WHERE user_id = %s", (user_id,))
+            for code_hash in code_hashes:
+                cur.execute(
+                    "INSERT INTO recovery_codes (user_id, code_hash) VALUES (%s, %s)",
+                    (user_id, code_hash),
+                )
+
+    def consume_recovery_code(self, user_id: str, code_hash: str) -> bool:
+        """单次原子消费：仅当未使用过才置 `used_at`（并发下只有一个成功）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE recovery_codes SET used_at = now() "
+                "WHERE user_id = %s AND code_hash = %s AND used_at IS NULL "
+                "RETURNING id",
+                (user_id, code_hash),
+            )
+            return cur.fetchone() is not None
+
+    def count_unused_recovery_codes(self, user_id: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM recovery_codes "
+                        "WHERE user_id = %s AND used_at IS NULL", (user_id,))
+            return int(cur.fetchone()["n"])
+
+    def set_session_mfa_verified(self, session_hash: str, verified: bool) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sessions SET mfa_verified = %s WHERE token_hash = %s "
+                "RETURNING token_hash",
+                (verified, session_hash),
+            )
+            return cur.fetchone() is not None
 
     # ---- 密码重置 token（P1-10）----
 
