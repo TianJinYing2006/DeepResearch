@@ -341,6 +341,9 @@ services:
       # 空闲超时（秒；0 = 仅绝对超时）。P0-4（需求 20）：staging 默认收紧为 43200（12h）；
       # 显式设 0 可回到「仅绝对超时」。
       DR_SESSION_IDLE_SECONDS: "${DR_SESSION_IDLE_SECONDS:-43200}"
+      # 需求 20 P1-3：MFA（TOTP secret 的 AES-256-GCM 密钥，base64 的 32 字节）。
+      # 未配置 ⇒ MFA 端点 503、且「有因子的用户」登录被拒（fail-closed，防绕过第二步）。
+      DR_MFA_SECRET_KEY: "${DR_MFA_SECRET_KEY:-}"
       # P1-2 / P0-10：反代信任。优先 DR_TRUSTED_PROXY_CIDRS（只信任可信 hop 的
       # X-Forwarded-*）；DR_TRUST_PROXY=true 为历史兼容（无 CIDR 时取 XFF 首跳）。
       DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"

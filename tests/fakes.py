@@ -173,6 +173,9 @@ class FakeStore:
         self.audits: list[dict] = []
         self.workers: dict[str, dict] = {}
         self.password_resets: dict[str, dict] = {}
+        # 需求 20 P1-3：MFA 因子与恢复码
+        self.mfa_factors: dict[str, dict] = {}
+        self.recovery_codes: list[dict] = []
         self.usage: list[dict] = []
         self.quota_reservations: dict[str, dict] = {}
         self.alert_states: dict[str, dict] = {}
@@ -711,12 +714,14 @@ class FakeStore:
     def list_invites(self, limit=50):
         return list(self.invites.values())[:limit]
 
-    def create_session(self, session_hash, user_id, expires_at, *, ip=None, user_agent=None):
+    def create_session(self, session_hash, user_id, expires_at, *, ip=None, user_agent=None,
+                       mfa_verified=True):
         session_id = uuid.uuid4().hex[:12]
         self.sessions[session_hash] = {
             "token_hash": session_hash, "user_id": user_id, "session_id": session_id,
             "created_at": datetime.now(UTC), "last_seen_at": datetime.now(UTC),
             "expires_at": expires_at, "ip": ip, "user_agent": user_agent,
+            "mfa_verified": mfa_verified,
         }
         return session_id
 
@@ -738,6 +743,7 @@ class FakeStore:
             "session_ip": session["ip"],
             "session_user_agent": session["user_agent"],
             "session_token_hash": session["token_hash"],
+            "session_mfa_verified": session.get("mfa_verified", True),
         }
 
     def touch_session(self, session_hash):
@@ -772,6 +778,71 @@ class FakeStore:
         for key in keys:
             del self.sessions[key]
         return len(keys)
+
+    # ---- MFA：TOTP 因子与恢复码（需求 20 P1-3）----
+
+    def upsert_pending_mfa_factor(self, factor_id, user_id, secret_encrypted, *, name=None):
+        for key, row in list(self.mfa_factors.items()):
+            if (row["user_id"] == user_id and row["type"] == "totp"
+                    and row["confirmed_at"] is None):
+                del self.mfa_factors[key]
+        self.mfa_factors[factor_id] = {
+            "factor_id": factor_id, "user_id": user_id, "type": "totp",
+            "secret_encrypted": secret_encrypted, "name": name,
+            "created_at": datetime.now(UTC), "confirmed_at": None, "last_used_at": None,
+        }
+
+    def get_mfa_factor(self, user_id, *, confirmed=True):
+        rows = [dict(row) for row in self.mfa_factors.values()
+                if row["user_id"] == user_id and row["type"] == "totp"
+                and ((row["confirmed_at"] is not None) == confirmed)]
+        if not rows:
+            return None
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return rows[0]
+
+    def confirm_mfa_factor(self, user_id, factor_id):
+        row = self.mfa_factors.get(factor_id)
+        if row is None or row["user_id"] != user_id or row["confirmed_at"] is not None:
+            return False
+        row["confirmed_at"] = datetime.now(UTC)
+        return True
+
+    def touch_mfa_factor_used(self, factor_id):
+        row = self.mfa_factors.get(factor_id)
+        if row is not None:
+            row["last_used_at"] = datetime.now(UTC)
+
+    def delete_mfa_factors(self, user_id):
+        keys = [key for key, row in self.mfa_factors.items() if row["user_id"] == user_id]
+        for key in keys:
+            del self.mfa_factors[key]
+        return len(keys)
+
+    def replace_recovery_codes(self, user_id, code_hashes):
+        self.recovery_codes = [row for row in self.recovery_codes if row["user_id"] != user_id]
+        for code_hash in code_hashes:
+            self.recovery_codes.append({"user_id": user_id, "code_hash": code_hash,
+                                        "created_at": datetime.now(UTC), "used_at": None})
+
+    def consume_recovery_code(self, user_id, code_hash):
+        for row in self.recovery_codes:
+            if (row["user_id"] == user_id and row["code_hash"] == code_hash
+                    and row["used_at"] is None):
+                row["used_at"] = datetime.now(UTC)
+                return True
+        return False
+
+    def count_unused_recovery_codes(self, user_id):
+        return sum(1 for row in self.recovery_codes
+                   if row["user_id"] == user_id and row["used_at"] is None)
+
+    def set_session_mfa_verified(self, session_hash, verified):
+        row = self.sessions.get(session_hash)
+        if row is None:
+            return False
+        row["mfa_verified"] = verified
+        return True
 
     def update_password(self, user_id, password_hash):
         row = self.users.get(user_id)

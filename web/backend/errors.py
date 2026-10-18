@@ -149,6 +149,24 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         409, False,
         "幂等键已用于不同请求：换一个新 key 重试，或原样重发首次请求（同键不同载荷会被拒绝）。",
         component="web"),
+    # --- MFA：TOTP + 恢复码（需求 20 P1-3）--------------------------------
+    "mfa_code_invalid": ErrorSpec(
+        401, False,
+        "验证码或恢复码不正确：核对认证器时间是否同步，或改用一枚未使用的恢复码。",
+        component="auth"),
+    "mfa_unconfigured": ErrorSpec(
+        503, False,
+        "服务端未配置 MFA 密钥（DR_MFA_SECRET_KEY）：由运维配置后重试（fail-closed，不静默降级）。",
+        component="auth"),
+    "mfa_unavailable": ErrorSpec(
+        503, True,
+        "MFA 暂不可用（服务端密钥缺失或不可用）：为防「删密钥即绕过第二步」已拒绝登录；"
+        "请联系管理员恢复 DR_MFA_SECRET_KEY。",
+        component="auth"),
+    "mfa_already_enabled": ErrorSpec(
+        409, False, "该账号已启用 MFA：如需换绑请先关闭再重新绑定。", component="auth"),
+    "mfa_not_started": ErrorSpec(
+        409, False, "尚无待确认的绑定请求：请先开始绑定获取密钥。", component="auth"),
     # --- RAG 知识库（P6-A） ----------------------------------------------
     "rag_unavailable": ErrorSpec(
         503, True,

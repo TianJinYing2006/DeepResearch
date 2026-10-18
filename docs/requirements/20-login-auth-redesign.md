@@ -121,7 +121,8 @@
 **P1（产品化前）**
 - ✅ 自助邮箱找回（SMTP + `/api/auth/forgot` + 重置链路）：已随需求 24 落地。
 - ⏳ Passkey（WebAuthn）作为可选登录 / 第二因子。
-- ⏳ TOTP MFA + 恢复码；风险触发式 step-up（新设备挑战）。
+- ✅ **TOTP MFA + 恢复码（后端）**：`totp.py`（RFC 6238，stdlib）/ `secretbox.py`（AES-256-GCM）/ 迁移 0026（`mfa_factors` + `recovery_codes` + `sessions.mfa_verified`）/ 登录第二步（半程会话 + `/api/auth/mfa/*`）；前端管理界面归 P1-4。
+- ⏳ 风险触发式 step-up（仅新设备 / 敏感操作才挑战；当前是「启用后每次登录都要第二步」的强制口径）。
 - ⏳ 前端安全设置页整合（改密 / 会话 / MFA / 注销）—— **会话与改密部分已落地**（P0-3 / 需求 24），MFA 管理部分待 P1。
 
 **P2（开放注册 / 多端时）**
@@ -154,7 +155,8 @@
 | P1-1a | 邮件通道 + 自助找回 | 中 | — | ✅ | 已随需求 24 落地（SMTP + `/api/auth/forgot`）；未配 SMTP 时 503 `mail_unavailable` + CLI 兜底 |
 | P1-1b | **新登录 / 新设备通知** | 中 | P1-1a ✅ | ✅ | 登录成功且 (UA, IP 网段) 为新设备 ⇒ 发提醒邮件；同设备不重复；SMTP 未配置**显式降级**（`login_notify_skipped`）；审计 `login_notified` / `login_notify_failed`；`tests/test_login_notify.py` |
 | P1-2 | Passkey（WebAuthn）注册 / 登录 / 管理 | 中 | 库选型（`py_webauthn` / `simplewebauthn`） | ⏳ | 可选增强、不打断密码流程；凭据 CRUD + `sign_count` 单调校验；删最后一把走防锁死；§7.8 字段落地 |
-| P1-3 | TOTP MFA + 恢复码 + 风险触发 step-up | 中 | 与 P1-2 可合并排期 | ⏳ | TOTP secret **可逆加密**存储（与密码哈希分离）；恢复码单次；新设备触发 step-up；锁死防护 |
+| P1-3 | TOTP MFA 因子 + 恢复码 + 登录第二步（**后端**） | 中 | 新增依赖 `cryptography`（AES-256-GCM） | ✅ | TOTP secret **可逆加密**（密钥 `DR_MFA_SECRET_KEY`，未配置 fail-closed）；恢复码只存摘要 + 单次；半程会话阻断受保护接口；`tests/test_mfa.py` 8 例 |
+| P1-3b | 风险触发式 step-up（仅新设备 / 敏感操作挑战，MFA 可选化） | 小 | P1-3 | ⏳ | 当前口径为「启用即每次登录第二步」；本项改为按风险触发（新设备/异地） |
 | P1-4 | 前端安全设置页整合（MFA 管理） | 小 | P1-2 / P1-3 | ⏳ | MFA 因子列表 / 增删 / 恢复码；沿用 P0-3 的 `SecurityPanel` 版式 |
 | P2-1 | OIDC 社交登录 / 企业 SSO（SAML + SCIM） | 大 | 产品开放策略 | ⏳ | — |
 | P2-2 | 设备指纹 / 风险评分 / 扫码登录 | 大 | 产品开放策略 | ⏳ | — |
@@ -309,6 +311,7 @@
 
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
+| 2026-10-18 | 实施 | P1-3 后半：TOTP MFA 后端 | 新增依赖 `cryptography`（+ lock 外科式）；`totp.py`/`secretbox.py`；迁移 0026（`mfa_factors`/`recovery_codes`/`sessions.mfa_verified`）+ 结构断言；登录第二步（半程会话）+ `/api/auth/mfa`（status/begin/confirm/disable/verify）；6 条错误码；`tests/test_mfa.py` 8 例。**前端管理界面（P1-4）与风险触发 step-up（P1-3b）未做** | 本 PR |
 | 2026-10-18 | 实施 | 收尾 P0 并开工 P1 | **P0-4**（staging 空闲超时默认 43200/12h）+ **P1-1b**（新设备登录提醒：`auth.device_key`/`is_new_device` + `mailer.new_login_email` + `main._notify_new_login`，best-effort 显式降级）；`tests/test_login_notify.py` 6 例 | 本 PR |
 | 2026-10-18 | 更正 + 细化 | 文档漂移：P0-1/P0-2/P0-3 已落地但本文仍标「调研稿」 | 状态改「实施中（P0 已落地）」；§4.2 逐项标注 ✅/⚠️/⏳ 与代码位置；§6 由「分阶段草案」细化为带**状态 + 验收/DoD** 的实施清单（P0-4 收紧默认、P1-1b 新登录通知、P1-2/P1-3 MFA/Passkey、P2）；补「建议顺序」 | 本 PR |
 | 2026-10-02 | 建稿 | 产品讨论：重新设计登录鉴权原则，要求贴合现代互联网企业 | 行业调研（RFC 10017 / NIST 800-63B-4 / FIDO / 大厂会话管理 / 国内实践 / 选型）+ 现状差距 + 目标态 + P0/P1/P2 清单 | 本 PR |
