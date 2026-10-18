@@ -28,7 +28,7 @@
 | 引擎 | LangGraph：6 节点 + critic 三态条件边 + 2 回环 | `research_engine` 9492 行；`max_total_hops=20`，每子问题 `ceil(20/n)` | 编排深度足；**子问题之间串行**（`Send` 并行推 W2 未做） |
 | 外部 | 百炼 DashScope（LLM + Embedding）、博查（搜索） | arXiv / Tavily / Semantic Scholar / Langfuse Cloud **默认关闭**（境外） | 搜索是**单点**，降级策略是「无结果 + 明确提示」 |
 
-**工程质量基线**：pytest 748 收集（704 通过 + 44 跳过，跳过的均为真实 PG/Redis 用例，由 CI `infra` job 强制执行）；CI 四个 job（lint-and-test 的 Py3.11/12/13 矩阵、infra、frontend、e2e）；E2E **63 条**（含窄屏流程 `mobile-flows`、异常态 `faults`）+ 前端 **Vitest 25 条** + **UI 反模式守卫**（impeccable 59 条确定性规则，补在截图基线放弃之后）。
+**工程质量基线**：pytest 748 收集（704 通过 + 44 跳过，跳过的均为真实 PG/Redis 用例，由 CI `infra` job 强制执行）；CI 四个 job（lint-and-test 的 Py3.11/12/13 矩阵、infra、frontend、e2e）；E2E **63 条**（含窄屏流程 `mobile-flows`、异常态 `faults`）+ 前端 **Vitest 25 条** + **UI 反模式守卫**（impeccable 59 条确定性规则）+ **截图基线**（R8 补齐：`e2e/visual-baseline.spec.ts`，4 屏；reduced-motion + 金标准钉 CI 环境）。
 
 ## 2. 待优化项（按「是否阻塞上线」分级）
 
@@ -80,7 +80,7 @@
 | 国内第二搜索源 | 无 | P1 | 采购或登记风险 |
 | 依赖 / 镜像扫描 | 无 | P2 | CI 加 `pip-audit` 即可，半小时工作量 |
 | 前端单测（Vitest） | ✅ 已接入（25 条） | 已解除 | 需求 29 随质量判定模型引入；`vite.config.ts` 的 `test.include` 已限定到 `src/**/*.test.ts` |
-| UI 反模式守卫 | ✅ 已接入（59 条确定性规则） | 已解除 | 需求 32；替代放弃的截图基线（不碰像素，故不受中文字体渲染不稳影响） |
+| UI 反模式守卫 | ✅ 已接入（59 条确定性规则） | 已解除 | 需求 32；不碰像素、不受中文字体渲染不稳影响（R8 补齐截图基线后二者**互补并存**，本守卫抓代码/属性、截图基线抓像素） |
 | CDN / WAF | 无 | P2 | L3-C 才需要 |
 | K8s / Helm | 无 | P2 | **建议不做**：单云单机 + Worker 副本够覆盖 10 人规模 |
 
