@@ -51,15 +51,13 @@ const AUTH_OPTIONS = {
   invite_only: true,
 }
 
-// 抗锯齿/渲染容差：金标准在 Linux + Playwright chromium 下生成；比对侧允许
-// 0.5% 像素差 + 单像素色阈 0.2（吸收字体 hinting/AA 的平台微差），仍能抓住
-// 布局位移、配色改动、元素增删这类真回归。
-//
-// ⚠️ 临时零容差（本轮用于采集 CI 真实渲染做金标准；采集完恢复为 0.005）。
+// 抗锯齿/渲染容差：金标准钉在 CI（Linux + 官方 chromium）环境；比对侧允许
+// 0.5% 像素差 + 单像素色阈 0.2（吸收同机 AA 微差与字体 hinting 抖动），
+// 仍能抓住布局位移、配色改动、元素增删这类真回归。
 const SHOT = {
   animations: 'disabled' as const,
   threshold: 0.2,
-  maxDiffPixelRatio: 0,
+  maxDiffPixelRatio: 0.005,
 }
 
 // ⚠️ 确定性关键：`reducedMotion: 'reduce'`。
