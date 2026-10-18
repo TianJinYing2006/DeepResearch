@@ -31,6 +31,9 @@ export type CitationVerdict =
   /** 校验未完成（UNKNOWN）：LLM 失败 / 无反馈 / 结论错位 ⇒ **不得当作通过**。 */
   | 'unknown'
 
+/** 证据栏的展示筛选。每个筛选项都对应一个明确的核验结论，避免把未知状态混入失败或通过。 */
+export type CitationFilter = 'all' | CitationVerdict
+
 export function citationVerdict(citation: CitationResult): CitationVerdict {
   // 顺序即语义：`verification_failed` 必须先判 —— 后端可能出现
   // 「verification_failed=true 且 note 里同时写了别的」的组合，UNKNOWN 不可降格成失败或通过。
@@ -38,6 +41,11 @@ export function citationVerdict(citation: CitationResult): CitationVerdict {
   if (citation.verified) return 'verified'
   if (citation.verified_relaxed) return 'relaxed'
   return 'refuted'
+}
+
+export function filterCitations(citations: CitationResult[], filter: CitationFilter): CitationResult[] {
+  if (filter === 'all') return citations
+  return citations.filter((citation) => citationVerdict(citation) === filter)
 }
 
 export type QualityKind =

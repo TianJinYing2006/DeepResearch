@@ -246,7 +246,6 @@ export default function App() {
   }, [events, options])
   const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
   const findingsCount = lastDelta?.findings_count ?? 0
-  const verifiedCitations = result?.citations.filter((citation) => citation.verified).length ?? 0
   const ragSources = useMemo(
     () => Array.from(new Set((result?.visited_sources ?? []).filter(isKnowledgeBaseSource))),
     [result],
@@ -564,7 +563,7 @@ export default function App() {
             <RagStatusCard result={result} ragSources={ragSources} />
             {result ? (
               <>
-                <EvidenceMargin citations={result.citations} verifiedCitations={verifiedCitations} />
+                <EvidenceMargin citations={result.citations} quality={quality} />
                 <SourcesList sources={result.visited_sources} />
               </>
             ) : (

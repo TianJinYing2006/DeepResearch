@@ -167,6 +167,25 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(margin.getByText('引用校验')).toBeVisible()
   })
 
+  test('引用证据可按核验状态筛选，并保留空态说明', async ({ page }) => {
+    await page.fill('#topic', '引用筛选')
+    await page.click('button[type="submit"]')
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+
+    const margin = page.locator('aside[aria-label="证据边栏"]')
+    const cards = margin.getByTestId('citation-card')
+    await expect(margin.getByTestId('evidence-filter-all')).toHaveAttribute('aria-pressed', 'true')
+    await expect(cards).toHaveCount(2)
+
+    await margin.getByTestId('evidence-filter-verified').click()
+    await expect(margin.getByTestId('evidence-filter-verified')).toHaveAttribute('aria-pressed', 'true')
+    await expect(cards).toHaveCount(2)
+
+    await margin.getByTestId('evidence-filter-relaxed').click()
+    await expect(cards).toHaveCount(0)
+    await expect(margin.getByText('暂无宽松通过引用')).toBeVisible()
+  })
+
   test('运行中可停止，且不会被记成失败', async ({ page }) => {
     await page.fill('#topic', '取消语义')
     await page.click('button[type="submit"]')
