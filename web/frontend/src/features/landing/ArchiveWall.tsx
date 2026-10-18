@@ -196,14 +196,6 @@ export default function ArchiveWall({ className = '' }: { className?: string }) 
         <ellipse cx="430" cy="280" rx="410" ry="255" stroke="#1E5AD8" strokeOpacity="0.3"
                  strokeWidth="1.5" strokeDasharray="2 14" className="trace-dash" />
       </svg>
-
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(ellipse 60% 52% at 50% 44%, rgba(244,246,243,0.97) 32%, rgba(244,246,243,0.78) 62%, rgba(244,246,243,0.30) 100%)',
-        }}
-      />
     </div>
   )
 }
