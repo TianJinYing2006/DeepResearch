@@ -6,30 +6,37 @@ import { settleRun } from './helpers'
  *
  * 口径（轻量，有意收窄）：
  * - 仅桌面视口：mobile project 的 testMatch 不含本文件，天然只跑 desktop（1280x720）；
- * - 只收 3 屏：落地页首屏 / 工作台启动态 / 报告卡 / 页边证据栏；
+ * - 只收 4 屏：落地页首屏 / 工作台启动态 / 报告卡 / 页边证据栏；
  * - `animations: 'disabled'` 冻结全部 CSS 动效（rise 入场 / marquee / shimmer / 进度过渡）；
  * - 动态区用 mask 遮掉：顶部滚动进度条（landing-progress）。
  *
- * 稳定性设计（当初放弃截图基线的根因就是跨环境字体）：
- * - 金标准**必须在 Ubuntu + fonts-noto-cjk 下生成**（ci.yml e2e job 有固字步骤）；
- * - Windows / macOS 本地 `--update-snapshots` 的产物**不得提交**（系统字体不同，CI 必红）；
- * - demo 后端数据全是代码内固定夹具（报告正文 / 引用 / 计数），跨跑确定；
- * - 截图前把焦点从输入框移开（`#stage-report` 点一下），避开系统光标闪烁。
+ * ⚠️ 金标准的**基准环境 = CI 的 e2e job**（`ubuntu-latest` + 官方 chromium + `fonts-noto-cjk`）。
+ * 当初放弃截图基线的根因就是跨环境字体：同一份 UI 在本地 noble 容器与 CI runner 上，
+ * 字体 hinting/fontconfig 版本略有差异 ⇒ 文本像素整体偏移（实测 3% 差，远超容差），
+ * 所以金标准必须钉在**跑 CI 的那台机器**上，而不是随便一个 Linux。
  *
- * 更新金标准（Linux 一键，产物直接落到本目录 `*-snapshots/`，确认后提交）：
+ * 稳定性设计：
+ * - demo 后端数据全是代码内固定夹具（报告正文 / 引用 / 计数），跨跑确定；
+ * - 截图前把焦点从输入框移开（`#stage-report` 点一下），避开系统光标闪烁；
+ * - 容差 `threshold 0.2 + maxDiffPixelRatio 0.5%` 吸收同机 AA 微差。
+ *
+ * 更新金标准（唯一可靠路径：用 CI 环境自身的渲染）：
+ *   1. 改完 UI 推 PR → e2e job 失败 → 从 Actions artifact `e2e-playwright-results`
+ *      下载 `test-results/**/` 下的 `*-actual.png`（即 CI 真实渲染）；
+ *   2. 覆盖到本目录并改名：`<name>-actual.png` → `<name>-desktop-linux.png`；
+ *   3. 提交。次轮 CI 即通过。
+ *   （本机 Linux 可用下方 docker 命令近似生成，但与 CI 可能有字体微差，仅作预览。）
  *   docker run --rm -v "<仓库根>:/work" -w /work mcr.microsoft.com/playwright:v1.63.0-noble bash -lc "
  *     apt-get update -qq && apt-get install -y -qq python3-venv libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk >/dev/null &&
  *     python3 -m venv /tmp/e2e && /tmp/e2e/bin/pip install -q -r requirements-lock.txt &&
- *     npm --prefix web/frontend ci --no-audit --no-fund &&
- *     npm --prefix web/frontend run build >/dev/null &&
+ *     npm --prefix web/frontend ci --no-audit --no-fund && npm --prefix web/frontend run build >/dev/null &&
  *     cd web/frontend && E2E_CHANNEL=chromium DR_PYTHON=/tmp/e2e/bin/python OTEL_SDK_DISABLED=true npx playwright test visual-baseline --update-snapshots"
  */
 
 // 金标准按平台后缀命名（Playwright 默认行为）：本文件只提交 `-desktop-linux.png`。
 // 非 Linux 平台（本地 Windows/macOS）比对时会找不到 `win32`/`darwin` 金标准而
-// 「自动播种 + 判失败」⇒ 直接跳过；要改视觉先按下方 docker 命令在 Linux 重生成。
-// CI 是 Linux（见 ci.yml e2e job 的 fonts-noto-cjk 步骤），会真实执行本文件。
-test.skip(process.platform !== 'linux', '视觉基线金标准在 Linux 下生成；本地用文件头的 docker 命令重生成')
+// 「自动播种 + 判失败」⇒ 直接跳过。CI 是 Linux，会真实执行本文件。
+test.skip(process.platform !== 'linux', '视觉基线金标准钉在 CI（Linux）环境；本地用文件头流程重生成')
 
 const AUTH_OPTIONS = {
   search_providers: [],
@@ -48,7 +55,7 @@ const AUTH_OPTIONS = {
 const SHOT = {
   animations: 'disabled' as const,
   threshold: 0.2,
-  maxDiffPixelRatio: 0.005,
+  maxDiffPixelRatio: 0,
 }
 
 test.describe('视觉基线（桌面端）', () => {
