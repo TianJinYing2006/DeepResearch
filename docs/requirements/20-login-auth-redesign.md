@@ -115,8 +115,8 @@
 - ✅ Cookie `__Host-` 前缀：`auth.py:29-35 host_prefix_cookie_name()`，`DR_COOKIE_SECURE=true` 时返回 `__Host-dr_session` / `__Host-dr_csrf`（staging 即此）。
 - ✅ 密码策略对齐 NIST：`MIN_PASSWORD_LENGTH=12`（`auth.py:26`）+ `BLOCKED_PASSWORDS` 弱口令表 + `check_password_strength()`（精确弱口令 / 重复字符 / 服务名 / 邮箱本地部分；`auth.py:38-70`）；注册与改密双入口校验（`main.py:883 _reject_weak_password` → `:1147` / `:1320`）。
 - ✅ 会话管理页：前端已接入既有 API（`SecurityPanel.tsx` 调用 `/api/auth/sessions` 列表 / 单条撤销 / 撤销其他；端点 `main.py:1256` / `:1272` / `:1294`）。
-- ⚠️ **空闲超时收紧（唯一未了 P0）**：机制就绪（`main.py:237 DR_SESSION_IDLE_SECONDS`），但默认仍 `0`（仅 7 天绝对超时）；内测建议 12–24h —— 见 §6 P0-4。
-- ⏳ 新登录 / 新设备通知：未做（邮件通道与自助找回已随需求 24 落地；通知仍为独立小需求）—— 见 §6 P1-1。
+- ✅ 空闲超时收紧（P0-4）：`DR_SESSION_IDLE_SECONDS` 机制已在（`main.py`）；**staging 默认已收紧为 43200（12h）**（`docker-compose.staging.yml`），显式 `0` 可回到「仅绝对超时」。
+- ✅ 新登录 / 新设备通知（P1-1b）：登录成功且 `(UA, IP 网段)` 为该用户既有活跃会话之外的新设备 ⇒ 发提醒邮件（`auth.device_key` / `main._notify_new_login`）；SMTP 未配置时**显式降级**（审计 `login_notify_skipped`）。
 
 **P1（产品化前）**
 - ✅ 自助邮箱找回（SMTP + `/api/auth/forgot` + 重置链路）：已随需求 24 落地。
@@ -150,9 +150,9 @@
 | P0-1 | Cookie `__Host-` 前缀（会话 + CSRF） | 小 | — | ✅ | `DR_COOKIE_SECURE=true` 时两 Cookie 均带 `__Host-`；本地 http 退回裸名；存量会话一次性失效（低峰公告） |
 | P0-2 | 密码策略对齐 NIST | 小 | — | ✅ | 长度 ≥12；精确弱口令 / 重复字符 / 服务名 / 邮箱名拒绝；注册与改密同口径；单测覆盖 |
 | P0-3 | 前端「会话与安全」页 | 中 | — | ✅ | 列表展示 UA / IP / 最近活跃 + 当前标记；单条撤销（终止他人需重输密码）；退出其他设备 |
-| P0-4 | 空闲超时默认收紧（内测 12–24h） | 小 | — | ⚠️ | 机制已有；**staging 默认设为 43200（12h）**；评估对 e2e / 刷新恢复影响；`0` 仍为显式可选项 |
+| P0-4 | 空闲超时默认收紧（内测 12–24h） | 小 | — | ✅ | 机制已有 + **staging 默认 43200（12h）**；显式 `0` 保留；e2e 走 uvicorn 直连（不受 compose 默认影响） |
 | P1-1a | 邮件通道 + 自助找回 | 中 | — | ✅ | 已随需求 24 落地（SMTP + `/api/auth/forgot`）；未配 SMTP 时 503 `mail_unavailable` + CLI 兜底 |
-| P1-1b | **新登录 / 新设备通知** | 中 | P1-1a ✅ | ⏳ | 登录成功且 (UA, IP 网段) 为该用户**首次** ⇒ 发通知邮件；同设备不重复；SMTP 未配置时**显式降级**（不静默）；审计 `login_notified`；单测 |
+| P1-1b | **新登录 / 新设备通知** | 中 | P1-1a ✅ | ✅ | 登录成功且 (UA, IP 网段) 为新设备 ⇒ 发提醒邮件；同设备不重复；SMTP 未配置**显式降级**（`login_notify_skipped`）；审计 `login_notified` / `login_notify_failed`；`tests/test_login_notify.py` |
 | P1-2 | Passkey（WebAuthn）注册 / 登录 / 管理 | 中 | 库选型（`py_webauthn` / `simplewebauthn`） | ⏳ | 可选增强、不打断密码流程；凭据 CRUD + `sign_count` 单调校验；删最后一把走防锁死；§7.8 字段落地 |
 | P1-3 | TOTP MFA + 恢复码 + 风险触发 step-up | 中 | 与 P1-2 可合并排期 | ⏳ | TOTP secret **可逆加密**存储（与密码哈希分离）；恢复码单次；新设备触发 step-up；锁死防护 |
 | P1-4 | 前端安全设置页整合（MFA 管理） | 小 | P1-2 / P1-3 | ⏳ | MFA 因子列表 / 增删 / 恢复码；沿用 P0-3 的 `SecurityPanel` 版式 |
@@ -309,6 +309,7 @@
 
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
+| 2026-10-18 | 实施 | 收尾 P0 并开工 P1 | **P0-4**（staging 空闲超时默认 43200/12h）+ **P1-1b**（新设备登录提醒：`auth.device_key`/`is_new_device` + `mailer.new_login_email` + `main._notify_new_login`，best-effort 显式降级）；`tests/test_login_notify.py` 6 例 | 本 PR |
 | 2026-10-18 | 更正 + 细化 | 文档漂移：P0-1/P0-2/P0-3 已落地但本文仍标「调研稿」 | 状态改「实施中（P0 已落地）」；§4.2 逐项标注 ✅/⚠️/⏳ 与代码位置；§6 由「分阶段草案」细化为带**状态 + 验收/DoD** 的实施清单（P0-4 收紧默认、P1-1b 新登录通知、P1-2/P1-3 MFA/Passkey、P2）；补「建议顺序」 | 本 PR |
 | 2026-10-02 | 建稿 | 产品讨论：重新设计登录鉴权原则，要求贴合现代互联网企业 | 行业调研（RFC 10017 / NIST 800-63B-4 / FIDO / 大厂会话管理 / 国内实践 / 选型）+ 现状差距 + 目标态 + P0/P1/P2 清单 | 本 PR |
 | 2026-10-02 | 修订 | 评审反馈：补充「每个字段的设计策略」 | 新增 §7 字段设计策略（敏感级定义 + users/sessions/invites/reset/audit 逐字段 + Cookie 字段 + 规划新增字段 + 横切规则）；原 §7~§9 顺延为 §8~§10 | 本 PR |
