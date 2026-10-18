@@ -124,8 +124,15 @@ test.describe('视觉基线（桌面端）', () => {
     await page.locator('#stage-report').click()
 
     await expect(page.locator('#stage-report')).toHaveScreenshot('report-card.png', SHOT)
-    // 证据边栏高度钉整，避免 100dvh 取整抖动导致尺寸不符（见 pinHeight 注释）。
-    await pinHeight(page, '#stage-verify', (page.viewportSize()?.height ?? 720) - 32)
-    await expect(page.locator('#stage-verify')).toHaveScreenshot('evidence-margin.png', SHOT)
+    // 证据边栏：**固定尺寸 clip** 截图。
+    // 为什么不用 locator 截图：Playwright 由 boundingBox 取整生成截图矩形，元素高度即使被钉成
+    // 688，取整后仍可能得到 689（实测 dev push 二次命中）——clip 把宽高写死，尺寸按构造确定。
+    await pinHeight(page, '#stage-verify', 688)
+    const panel = await page.locator('#stage-verify').boundingBox()
+    if (!panel) throw new Error('证据边栏未渲染（#stage-verify）')
+    await expect(page).toHaveScreenshot('evidence-margin.png', {
+      ...SHOT,
+      clip: { x: Math.round(panel.x), y: Math.round(panel.y), width: 320, height: 688 },
+    })
   })
 })
