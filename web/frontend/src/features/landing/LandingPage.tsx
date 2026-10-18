@@ -101,7 +101,7 @@ export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props)
   return createPortal(
     <div ref={scrollerRef} className="fixed inset-0 z-50 overflow-y-auto bg-paper" data-testid="landing-page">
       {/* 顶部滚动进度 */}
-      <div className="pointer-events-none fixed left-0 top-0 z-[60] h-0.5 bg-stamp-blue transition-[width] duration-150"
+      <div className="pointer-events-none fixed left-0 top-0 z-50 h-0.5 bg-stamp-blue transition-[width] duration-150"
            style={{ width: `${(progress * 100).toFixed(2)}%` }} data-testid="landing-progress" />
 
       <div ref={contentRef}>

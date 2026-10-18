@@ -58,9 +58,9 @@ export default function AuthGate({ notice, inviteFromUrl, onAuthed, onOpenLegal,
 
         <aside className="relative flex flex-col justify-between gap-10 overflow-hidden bg-ink p-8 text-white sm:p-10">
           <InkFlowCanvas className="absolute inset-0 h-full w-full" />
-          {/* 文字保护罩：左侧渐入墨色，白字落在安静的深色区，右侧展示流沙 */}
+          {/* 文字保护罩：整幅均匀墨色罩，保证白字对比度；方向 B 无渐变 */}
           <div aria-hidden="true"
-               className="pointer-events-none absolute inset-0 bg-[linear-gradient(105deg,rgba(23,27,25,0.92)_0%,rgba(23,27,25,0.55)_42%,rgba(23,27,25,0)_72%)]" />
+               className="pointer-events-none absolute inset-0 bg-ink/55" />
           <p className="relative text-[27px] font-bold leading-[1.22] tracking-tight sm:text-[30px] lg:text-[34px]">
             {'把复杂问题，'}
             <br />

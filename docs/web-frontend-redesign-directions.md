@@ -1,6 +1,6 @@
 # 前端视觉重设计 · 方向提案（R6a）
 
-> 状态：**已选定方向 B（研究档案）**，R6b-1/1.5/2 均已实施：浅色令牌 + 全局换色 + 衬线报告排版；质感/动效增强（纸纹、层次阴影、入场编排、微交互）；报告优先版式（顶部状态带 + 页边证据栏 + 启动表单折叠 + 无引用段落示警）。**R7 收口已完成**：e2e 补齐 6 条（登录门/超时/配额/键盘上传/KB 删除/注销）、修复 U1（上传键盘可达）、新增 KB 删除 UI、回填需求 12 DoD —— 前端重构 R1~R7 收官；唯一未做项：截图基线（跨环境中文字体/渲染不稳定，另行提案）。
+> 状态：**已选定方向 B（研究档案）**，R6b-1/1.5/2 均已实施：浅色令牌 + 全局换色 + 衬线报告排版；质感/动效增强（纸纹、层次阴影、入场编排、微交互）；报告优先版式（顶部状态带 + 页边证据栏 + 启动表单折叠 + 无引用段落示警）。**R7 收口已完成**：e2e 补齐 6 条（登录门/超时/配额/键盘上传/KB 删除/注销）、修复 U1（上传键盘可达）、新增 KB 删除 UI、回填需求 12 DoD —— 前端重构 R1~R7 收官。**R8 补齐截图基线**（唯一遗留项，PR `feat/visual-baseline`）：`web/frontend/e2e/visual-baseline.spec.ts` 3 屏（落地页首屏 / 工作台启动态 / 报告卡 / 页边证据栏），仅桌面视口、`animations:disabled` 冻结动效、mask 遮动态区；金标准在 Linux + Playwright chromium + `fonts-noto-cjk` 下用 docker 生成并自校验，只提交 `-desktop-linux.png`（非 Linux 平台跳过）；CI `e2e` job 增 CJK 固字步骤。至此方向 B 全部收尾。
 
 ## R6b-1.5 · Skill 复核记录（本仓库 `.opencode/skills/`）
 
@@ -20,7 +20,7 @@
 | `theme-color` 与页面背景一致 / dark 主题声明 | Vercel WIG §Dark Mode & Theming | `index.html` `theme-color` → `#f4f6f3`，新增 `color-scheme: light` |
 | 配色/字体/布局刻意选择，避免模板 chrome | frontend-design §Design principles | 全大写 eyebrow 已移除（改 stamp-blue 短刻度）；单一强调色；无渐变/玻璃拟态 |
 > 方法：`frontend-design`（Anthropic 官方 skill）的「先立方向、再自我批判」流程 + `baseline-ui` 约束。
-> 约束：不改交互协议与 39 个 `data-testid`；中文优先；对比度 AA；`prefers-reduced-motion` 保留；数字用 `tabular-nums`。
+> 约束：不改交互协议与既有 `data-testid`（实测 **163 个唯一 testid**；旧记「39 个」为过时量级与失效计量方式，漂移已登记于 `docs/project-status.md`）；中文优先；对比度 AA；`prefers-reduced-motion` 保留；数字用 `tabular-nums`。
 > 选定方向后实施（R6b）：按方案落 token 与组件，尽量不动布局结构。
 
 ## 0. 命题（Design Brief）
@@ -211,4 +211,4 @@
 3. 组件类：eyebrow 改中文标签组件；按钮去 `→`；状态徽标降饱和；
 4. 字阶：引入 `IBM Plex Sans/Mono`（自托管子集或系统回退，离线可用）；
 5. 逐板块替换配色（launch / run / report / history / KB），e2e 全绿 + 对比度抽查（axe 手动跑一遍）；
-6. 截图基线（R7）随新视觉建立。
+6. 截图基线（R7）随新视觉建立。✅（R8 补齐，见文件头状态：`e2e/visual-baseline.spec.ts`）

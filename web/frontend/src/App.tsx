@@ -407,7 +407,7 @@ export default function App() {
       <div className="sr-only" role="status" aria-live="polite" data-testid="live-region">
         {announcement}
       </div>
-      <header className="border-b border-rule bg-paper/95 backdrop-blur-sm">
+      <header className="border-b border-rule bg-paper">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-md border border-stamp-blue/30 bg-stamp-blue/10 text-base text-stamp-blue"
