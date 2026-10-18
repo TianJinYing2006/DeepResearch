@@ -262,6 +262,13 @@ jobs:
         working-directory: web/frontend
         run: npm run build
 
+      # 截图基线固字（visual-baseline.spec.ts）：金标准在 Ubuntu + Noto CJK 下生成；
+      # 缺 CJK 字体时中文回退到 DejaVu/内置位图，像素必飘 —— 这正是 R7 当初放弃截图基线的根因。
+      - name: Install CJK fonts (visual baseline pinning)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+
       - name: Install Playwright Chromium
         working-directory: web/frontend
         run: npx playwright install --with-deps chromium
