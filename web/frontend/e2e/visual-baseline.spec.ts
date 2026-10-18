@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { settleRun } from './helpers'
 
@@ -69,6 +69,20 @@ const SHOT = {
 //   （如 closure.spec 断言滚动驱动的工作流逐级激活），不靠静态像素。
 test.use({ reducedMotion: 'reduce' })
 
+/** 把元素高度钉成整数像素，使**元素截图的尺寸**确定。
+ *
+ *  为什么必须：`#stage-verify` 的 `max-h-[calc(100dvh-2rem)]` 在 CI 上取整会来回抖
+ *  1px（688 ↔ 689），而截图**尺寸不符不走容差**、直接报 `size mismatch`（实测 dev push
+ *  命中过一次，PR 轮侥幸通过）。这里显式设 height+maxHeight = 由视口推出的整数
+ *  （与 CSS 公式 `100dvh - 2rem` 一致），宽度保持自然。 */
+async function pinHeight(page: Page, selector: string, heightPx: number) {
+  await page.locator(selector).evaluate((el, h) => {
+    const node = el as HTMLElement
+    node.style.height = `${h}px`
+    node.style.maxHeight = `${h}px`
+  }, heightPx)
+}
+
 test.describe('视觉基线（桌面端）', () => {
   test.afterEach(async ({ page }) => {
     await settleRun(page)
@@ -110,6 +124,8 @@ test.describe('视觉基线（桌面端）', () => {
     await page.locator('#stage-report').click()
 
     await expect(page.locator('#stage-report')).toHaveScreenshot('report-card.png', SHOT)
+    // 证据边栏高度钉整，避免 100dvh 取整抖动导致尺寸不符（见 pinHeight 注释）。
+    await pinHeight(page, '#stage-verify', (page.viewportSize()?.height ?? 720) - 32)
     await expect(page.locator('#stage-verify')).toHaveScreenshot('evidence-margin.png', SHOT)
   })
 })
