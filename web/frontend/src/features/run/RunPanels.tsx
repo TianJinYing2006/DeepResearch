@@ -265,12 +265,12 @@ type TracePanelsProps = {
 
 export function TracePanels({ timeline, degradations, eventsCount, running }: TracePanelsProps) {
   return (
-    <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
-      <div className="surface-card min-h-[360px] p-5 sm:p-6">
+    <section className="space-y-4">
+      <div className="surface-card p-5 sm:p-6">
         <SectionHeading eyebrow="实时轨迹" title="研究活动" detail={`${eventsCount} 条事件`} />
         {/* P1-7 移动端：窄屏留给活动流的高度更小，避免一屏全是时间线 */}
         {timeline.length === 0 ? (
-          <EmptyState icon="⌁" title="等待研究开始" text="事件会按最新优先排列，断线重连不会重新启动研究。" />
+          <EmptyState compact icon="⌁" title="等待研究开始" text="事件会按最新优先排列，断线重连不会重新启动研究。" />
         ) : (
           <div className="mt-5 max-h-[360px] space-y-1 overflow-y-auto pr-1 sm:max-h-[520px]"
                tabIndex={0} role="region" aria-label="研究活动事件流">
@@ -284,7 +284,7 @@ export function TracePanels({ timeline, degradations, eventsCount, running }: Tr
       <div className="surface-card p-5 sm:p-6">
         <SectionHeading eyebrow="透明记录" title="降级与恢复" detail={`${degradations.length} 项`} />
         {degradations.length === 0 ? (
-          <EmptyState icon="✓" title="暂无降级" text={running ? '如有工具或供应商降级，会在这里立即显示。' : '本次运行没有收到降级事件。'} />
+          <EmptyState compact icon="✓" title="暂无降级" text={running ? '如有工具或供应商降级，会在这里立即显示。' : '本次运行没有收到降级事件。'} />
         ) : (
           <div className="mt-5 space-y-3">
             {degradations.map((event, index) => (

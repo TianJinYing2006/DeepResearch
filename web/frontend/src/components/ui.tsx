@@ -54,13 +54,13 @@ export function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; ti
   )
 }
 
-export function EmptyState({ icon, title, text }: { icon: string; title: string; text: string }) {
+export function EmptyState({ icon, title, text, compact = false }: { icon: string; title: string; text: string; compact?: boolean }) {
   return (
-    <div className="grid min-h-48 place-items-center text-center">
+    <div className={`grid place-items-center text-center ${compact ? 'min-h-28' : 'min-h-48'}`}>
       <div className="max-w-xs">
-        <div className="mx-auto grid h-11 w-11 place-items-center rounded-lg border border-rule bg-sheet text-lg text-ink-muted shadow-[0_1px_2px_rgba(23,27,25,0.05)]"
+        <div className={`mx-auto grid place-items-center rounded-lg border border-rule bg-sheet text-ink-muted shadow-[0_1px_2px_rgba(23,27,25,0.05)] ${compact ? 'h-8 w-8 text-sm' : 'h-11 w-11 text-lg'}`}
              aria-hidden="true">{icon}</div>
-        <p className="mt-3 text-sm font-medium text-ink">{title}</p>
+        <p className={`${compact ? 'mt-2 text-xs' : 'mt-3 text-sm'} font-medium text-ink`}>{title}</p>
         <p className="mt-1 text-pretty text-xs leading-5 text-ink-muted">{text}</p>
       </div>
     </div>

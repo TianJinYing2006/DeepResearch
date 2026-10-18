@@ -78,17 +78,14 @@ export function LaunchForm({
   const tabbableProfile = activeProfile?.value ?? profileOptions[0]?.value
 
   return (
-    <form id="stage-compose" className="surface-card p-5" onSubmit={onSubmit}>
+    <form id="stage-compose" className="surface-card p-5 xl:rounded-md" onSubmit={onSubmit}>
       <div className="mb-6 flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-ink">新研究</p>
-          <p className="mt-1 text-xs leading-5 text-ink-muted">描述问题，研究过程会实时推送到右侧。</p>
+          <p className="mt-1 text-xs leading-5 text-ink-muted">描述问题，运行状态和活动会显示在主区域。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-lg border border-stamp-blue/20 bg-stamp-blue/10 px-2 py-1 text-[10px] font-bold tracking-[0.16em] text-stamp-blue">
-            Live
-          </span>
-          <button type="button" className="text-xs text-ink-muted underline hover:text-ink"
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" className="whitespace-nowrap text-xs text-ink-muted underline hover:text-ink"
                   data-testid="launch-collapse" onClick={onToggle}>收起</button>
         </div>
       </div>

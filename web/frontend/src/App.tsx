@@ -400,10 +400,10 @@ export default function App() {
       <div className="sr-only" role="status" aria-live="polite" data-testid="live-region">
         {announcement}
       </div>
-      <header className="border-b border-t-2 border-b-rule border-t-stamp-blue bg-paper/95 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+      <header className="border-b border-rule bg-paper/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg border border-stamp-blue/30 bg-stamp-blue/10 text-lg text-stamp-blue shadow-[inset_0_0_0_3px_rgba(30,90,216,0.07)]"
+            <div className="grid h-9 w-9 place-items-center rounded-md border border-stamp-blue/30 bg-stamp-blue/10 text-base text-stamp-blue"
                  aria-hidden="true">
               ◈
             </div>
@@ -413,12 +413,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${connectionInfo.className}`}>
+            <span className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 ${connectionInfo.className}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${connectionInfo.dotClass}`} aria-hidden="true" />
               {connectionInfo.label}
             </span>
-            <span className="hidden rounded-full border border-rule bg-rule/30 px-3 py-1.5 text-ink-muted sm:inline-flex">
-              AG-UI 事件语义
+            <span className="hidden border-l border-rule pl-3 text-ink-muted sm:inline-flex">
+              研究工作台
             </span>
           </div>
         </div>
@@ -431,9 +431,17 @@ export default function App() {
       {/* 方向 B（R6b-2）：报告优先 —— 页题 + 顶部状态横带 + 主列（报告）/ 页边证据栏 */}
       <main id="main"
             className="mx-auto max-w-[1600px] space-y-5 px-4 py-5 sm:space-y-6 sm:px-6 sm:py-6 lg:px-8">
-        <h1 className="text-balance font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-stamp-blue">当前研究</p>
+            <h1 className="mt-1 max-w-4xl text-balance font-serif text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           {topic.trim() || '把复杂问题变成可追溯的研究结论'}
-        </h1>
+            </h1>
+          </div>
+          <p className="hidden max-w-xs text-right text-xs leading-5 text-ink-muted lg:block">
+            先定义问题，再核验每条证据。
+          </p>
+        </div>
 
         <WorkflowRail state={workflow} />
 
@@ -473,8 +481,12 @@ export default function App() {
           />
         )}
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="min-w-0 space-y-6">
+        <div className="grid items-start gap-5 xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+          <aside
+            id="stage-compose-panel"
+            className="min-w-0 space-y-4 xl:sticky xl:top-4"
+            aria-label="研究配置"
+          >
             <LaunchForm
               topic={topic}
               instructions={instructions}
@@ -494,6 +506,9 @@ export default function App() {
               onNewTopic={handleNewTopic}
             />
             {launchOpen && <BoundaryCard />}
+          </aside>
+
+          <div className="min-w-0 space-y-6">
 
             {/* 需求 35 R4：报告完成前渐进渲染正文（终局由下方 ReportCard 整段替换） */}
             {!result && reportPreview && (
