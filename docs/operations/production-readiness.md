@@ -10,27 +10,32 @@
 > 2. 「有监控」以**告警可触达**为准 —— 只看板不告警等于没有监控；
 > 3. 「合规已确认」以**书面/可追溯的属地答复与落档记录**为准 —— 不以口头或搜索结论代替。
 >
-> 状态：**草稿**（P0 立项，2026-09-24）。拍板前所有条目默认未开始。
+> 状态：**草稿**（P0 立项，2026-09-24）。
+> **回填（2026-10-18）**：按**代码与已部署事实**对 §1 Gate / §2 环境矩阵 / §3 勾选做了整体回填
+> —— 此前大批已落地项仍空勾（迁移工具、CORS 环境变量化、SSE 反代、对象存储生命周期、队列权威迁移、
+> RAG 隔离、审计日志等均已实现并进 CI）。**判据**：**已具备** = 代码 + 离线/CI 证据成立；
+> 含云上事实者以**演练记录**（§5 / runbook §10.3）为准。标**部分具备 / 未开始**的项在阶段 1/2 前不得视为通过。
+> 「拍板前默认未开始」的旧口径已不适用（L3-A 骨架与本批功能均已落地）。
 
 ## 1. 上线准入 Gate
 
 | # | Gate | 准入标准（必须成立的事实） | 当前状态 |
 |---|------|---------------------------|---------|
-| G1 | 任务不丢 | API 重启 / 发布 / worker 崩溃后，任务状态与报告不丢；失败进入终局或可重试 | 未开始 |
-| G2 | 用户隔离 | 查询 / 取消 / 导出三路均无法越权访问他人任务；RAG 检索带强制租户 filter | 未开始 |
-| G3 | 成本可控 | 单用户日/月预算与全局熔断生效；超限自动停止并留痕 | 未开始 |
-| G4 | 内容安全 | 输入预检 + 输出审核 + 审核记录 + 申诉/复核/封禁链路可演练 | 未开始 |
-| G5 | 可恢复 | 恢复演练通过 1 次：删库 → 从备份恢复 → 报告与任务可用 → 越权核验 | 未开始 |
-| G6 | 可观测 | 关键指标可查、阈值告警可触达值班人（不低于邮件/IM） | 未开始 |
-| G7 | 合规确认 | ICP 备案完成或明确计划；生成式 AI 相关手续经属地确认并落档；数据流向定案 | 未开始 |
-| G8 | 可回滚 | 发布有灰度与回滚路径；数据库迁移可回滚且发布前兼容 | 未开始 |
+| G1 | 任务不丢 | API 重启 / 发布 / worker 崩溃后，任务状态与报告不丢；失败进入终局或可重试 | **已具备（代码 + CI/本地演练）**：派发权威在 PG（`claim_next_queued` + `SKIP LOCKED`）、租约/心跳清扫接管、幂等键（含请求指纹）、终局原子落库；kill→接管→续跑演练通过（批次 2 R3）。**云上发布窗口的端到端待阶段 1** |
+| G2 | 用户隔离 | 查询 / 取消 / 导出三路均无法越权访问他人任务；RAG 检索带强制租户 filter | **已具备**：越权负向测试（查询/取消/导出/SSE 订阅他人 run 全 404，不泄露存在性）+ RAG 强制租户 filter（`user_id`/`tenant_id`/`visibility` + payload index） |
+| G3 | 成本可控 | 单用户日/月预算与全局熔断生效；超限自动停止并留痕 | **已具备**：单用户日/月 + 全局月度预算闸（准入同事务原子判定）；超限 `budget_exceeded` / 429 `quota_exceeded` 留痕；`usage_ledger` 逐调用记账 |
+| G4 | 内容安全 | 输入预检 + 输出审核 + 审核记录 + 申诉/复核/封禁链路可演练 | **部分具备**：输入规则预检 + 输出闸（脱敏/阻断/复核）+ 申诉状态机 + 封禁/注销可演练；**有资质审核服务未接入**（§3.5 待办） |
+| G5 | 可恢复 | 恢复演练通过 1 次：删库 → 从备份恢复 → 报告与任务可用 → 越权核验 | **已具备**：云上真实恢复演练通过（2026-10-11：解密→`pg_restore -l` 208 条目→恢复→断言 21/11/22 逐项一致，见 §5 / runbook §10.3）+ CI `infra` 每次 PR 跑「备份→清库→恢复」 |
+| G6 | 可观测 | 关键指标可查、阈值告警可触达值班人（不低于邮件/IM） | **部分具备**：`/api/metrics` + `/api/ops/alerts` + 告警外送（webhook：飞书/钉钉/企业微信/JSON）已具备；**阈值待压测校准**（§7.5）、值班触达链路需运营配置 |
+| G7 | 合规确认 | ICP 备案完成或明确计划；生成式 AI 相关手续经属地确认并落档；数据流向定案 | **未开始**（外部依赖）：ICP / 公安联网 / 生成式 AI 手续 / 供应商授权均待落档，见 §3.10；数据流向已初始登记（§4）待逐项确认 |
+| G8 | 可回滚 | 发布有灰度与回滚路径；数据库迁移可回滚且发布前兼容 | **部分具备**：迁移只前向 + 回退走备份恢复（已演练）；应用版本回滚流程见 runbook §6.1，但**回滚演练未执行**（runbook §9 登记）；灰度范围待 L3-C |
 
-## 2. 环境矩阵（待填）
+## 2. 环境矩阵
 
 | 环境 | 用途 | 主机 / 域名 | PostgreSQL | Redis | 配置来源 | CORS | 密钥管理 | 状态 |
 |------|------|------------|------------|-------|---------|------|---------|------|
-| local（现状） | 开发 / 演示 | `127.0.0.1:8000` + Vite `5173` | 无（内存态） | 无 | `.env` | 固定 localhost（`main.py:47-52`） | `.env` | 已有 |
-| staging | 内测前验证 | 待填 | 待填 | 待填 | 环境变量 / 密钥服务（待定） | 环境变量控制 | 待定 | 未开始 |
+| local（现状） | 开发 / 演示 | `127.0.0.1:8000` + Vite `5173` | 无（内存态） | 无 | `.env` | 未设 `DR_CORS_ORIGINS` 时默认 localhost | `.env` | 已有 |
+| **staging** | 内测验证（内测中） | 腾讯云轻量 4C4G（北京）；公网 IP / 域名见 `deployment.md`（安全口径：公开仓不回填真实 IP） | compose 内 `postgres:16`（`127.0.0.1:5432`，不对外） | compose 内 `redis:7`（`127.0.0.1:6379`，不对外；另 `export-redis` 专用结果通道） | 环境变量 / 服务器本地 `.env` | `DR_CORS_ORIGINS` 环境变量控制 | 服务器本地 `.env`；备份私钥**离线保管** | **已部署**（2026-09-30 起；研究 / RAG / HITL / MCP 全链路冒烟与验收通过） |
 | production | 正式对外 | 待填（ICP 备案前置） | 待填 | 待填 | 环境变量 / 密钥服务（待定） | 环境变量控制 | 待定 | 未开始 |
 
 ## 3. 检查清单
@@ -38,30 +43,31 @@
 ### 3.1 部署底座
 
 - [x] `Dockerfile.api`（多阶段构建 + 依赖锁；**API 与 Worker 共用镜像、不同入口**，不单列 `Dockerfile.worker`）
-- [x] `docker-compose.staging.yml`（api / worker / PostgreSQL / Redis；反向代理待 P8）
-- [ ] 数据库迁移工具与迁移脚本（**只前向 + `schema_migrations` 幂等**；回退走备份恢复，见 §7.3）
+- [x] `docker-compose.staging.yml`（api / worker / PostgreSQL / Redis / Qdrant / export + 专用 export-redis；`caddy`/`minio`/`mailhog`/`errors` 走 profile；各服务 `deploy.resources.limits.memory` 硬上限）
+- [x] 数据库迁移工具与迁移脚本（`migrations/` + `tools/migrate.sh`：**只前向 + `schema_migrations` 幂等**；CI `infra` 每次 PR 跑两次断言 `applied=0`；回退走备份恢复，见 §7.3）
 - [x] `/api/health` 拆分为 readiness / liveness，并接反向代理探针；**P1-3 起队列模式 readiness 要求 ≥1 个心跳新鲜的 worker**（`workers` 注册表，窗口 `DR_WORKER_HEARTBEAT_MAX_AGE_SECONDS=90`）
 - [x] 配置分层：开发 / staging / 生产，敏感项全部走环境变量或密钥服务；**P0-9 起 `DR_ENV=staging|production` 启动自检 fail fast**（`DR_AUTH_REQUIRED` / `DR_COOKIE_SECURE` / `DR_CORS_ORIGINS` / `DASHSCOPE_API_KEY`），production 另拒明文 HTTP（`X-Forwarded-Proto`）
-- [ ] **CORS 环境变量化**（禁止生产继续固定 localhost，`main.py:47-52`）
-- [ ] 反向代理 SSE 专项配置：
-  - [ ] `proxy_buffering off;`
-  - [ ] `proxy_read_timeout` 明显大于最长运行时长（当前默认超时 3600s，`runner.py:54`）
-  - [ ] `proxy_http_version 1.1;` 与 `Connection` 保持
-  - [ ] 透传 `X-Accel-Buffering`（当前已在响应头设置，`main.py:229`）
-- [ ] 上线前用真实浏览器验证：15s 心跳（`agui.HEARTBEAT_SECONDS`）穿过反向代理不中断
-- [ ] 静态资源托管路径确认（FastAPI 托管 `frontend/dist`）
-- [ ] 启动脚本、优雅停机（SIGTERM 后先停接单再收尾）
+- [x] **CORS 环境变量化**（`DR_CORS_ORIGINS`；staging/生产未显式配置即启动失败，local 未设回落 localhost）
+- [x] 反向代理 SSE 专项配置（**Caddy 已落地**，`Caddyfile`）：
+  - [x] SSE 路径 `flush_interval -1`（收到即转发，等价 Nginx 的 `proxy_buffering off`）
+  - [x] `read_timeout` / `write_timeout` 3900s（> 最长运行时长 3600s + 余量）
+  - [x] SSE 路径**不做压缩**（`encode` 仅用于其余路径）；上传 `max_size 12MB`
+  - [x] 响应头保留 `X-Accel-Buffering`（`main.py`，兼容 Nginx 部署）
+  - 备注：Nginx 等价样例见 §7.1（自备网关时按此配置）
+- [ ] 上线前用真实浏览器验证：15s 心跳（`agui.HEARTBEAT_SECONDS`）穿过反向代理不中断 —— staging 长连接已受 Caddy 反代且全链路 SSE 用例通过；**完整任务的浏览器真机验证随阶段 1**
+- [x] 静态资源托管路径确认（FastAPI 托管 `web/frontend/dist`；e2e 亦经同一路径）
+- [x] 启动脚本、优雅停机（`migrate` 一次性容器 + 启动维护按执行模式分流；Worker SIGTERM 先 draining、收口后置 stopped；API 经 FastAPI shutdown 收口 LISTEN 连接与连接池）
 
 ### 3.2 数据与状态
 
-- [ ] PostgreSQL 建表：`users` / `sessions` / `runs` / `run_events` / `run_checkpoints` / `run_artifacts` / `user_quotas` / `usage_ledger` / `moderation_records` / `audit_logs`
-- [ ] `run_events` 单调 `sequence` 约束（唯一索引，防重放）
+- [x] PostgreSQL 建表：`users` / `sessions` / `runs` / `run_events` / `run_checkpoints` / `run_artifacts` / `user_quotas` / `usage_ledger` / `moderation_records` / `audit_logs`（迁移 0001~0025；CI `infra` 结构断言覆盖）
+- [x] `run_events` 单调 `sequence` 约束（唯一索引，防重放）
 - [x] 连接池与慢查询监控接入（P2-3）：`psycopg_pool.ConnectionPool` 进程内复用（懒初始化，`DR_PG_POOL_MIN/MAX/TIMEOUT_S`）；每连接 `options` 固定 `statement_timeout`（`DR_PG_STATEMENT_TIMEOUT_MS`，默认 15s）+ `application_name`；`_TimedCursor` 逐条 SQL 计时，超 `DR_PG_SLOW_QUERY_MS`（默认 500ms）记 WARNING（**只记 SQL 模板，参数不入日志**）；`RunStore.close()` 释放池
 - [x] SSE 完成通知（P2-4）：事件写入（`append_event` / `finalize_run`）在**同一事务**内 `pg_notify(dr_run_events, run_id)`（提交才送达、回滚不发）；API 侧 `RunEventNotifier` 专连接 LISTEN（不走连接池、独立 daemon 线程、1s→30s 退避重连），SSE 尾随循环被唤醒即查库；**正确性不依赖通知**——`DR_SSE_POLL_SECONDS`（默认 5s）轮询兜底，断线/丢失最多增加一个轮询间隔延迟；关闭走 FastAPI shutdown，`close()` 后可重新懒启动
 - [ ] Redis：队列 / 租约 / 限流键的过期策略；**不得作为唯一事实来源**（P0-2 起任务派发已完全离开 Redis，仅剩可选唤醒信号）
 - [x] 对象存储：报告与导出文件的生命周期规则（与「数据保存期限」拍板值一致）。**P1-6**：MinIO（compose 服务，私有桶）+ `runs/` 前缀 **90 天**生命周期（`DR_S3_REPORT_RETENTION_DAYS`，与隐私政策「报告与运行元数据 90 天」对齐）；`run_artifacts` 只存元数据（storage/object_key/sha256/size）；未配置 `DR_S3_ENDPOINT` 回落 PostgreSQL（双轨可切换）；S3 写入失败自动回落 db；读取经应用鉴权（flagged 闸在前，不暴露直链）；readiness 含对象存储探针
 - [ ] 备份策略（PostgreSQL 全量 + WAL 或等价方案；对象存储版本化）
-- [ ] 恢复演练（见 §5）
+- [x] 恢复演练（见 §5）：CI `infra` 每次 PR 跑「备份→清库→恢复」；**云上真实演练已通过（2026-10-11）**，记录见 §5
 - [x] RAG 检索按作用域强制过滤（P5：payload `user_id`/`tenant_id`/`visibility`；owner 只见本人 private，历史无主块向后兼容）；**P1-7 起为过滤字段建 payload index**（`user_id` 启用 `is_tenant=true`；幂等补齐，索引失败不阻断且留 `last_error`）
 - [x] RAG 上传面（P6-A）：类型白名单 + `DR_RAG_MAX_FILE_MB` 上限；上传按当前用户打标，清单按作用域列出。**P0-8a 硬化**：流式落盘（不整文件入内存）、magic bytes/结构三重校验、服务端 UUID 存储名、文件名清洗、内容寻址 `doc_id`（幂等去重）、解析限额（页数/字符/分块/墙钟）、按用户上传限流；**P0-8b 异步管线**：隔离区（`DR_RAG_QUARANTINE_DIR`，compose api/worker 共享卷）→ 202 登记 → Worker 解析/embedding（解析类错误直接 rejected、供应商类错误退避重试）→ `GET /api/rag/ingestions/{id}`；`DELETE /api/rag/docs` 同步删向量并验证归零；90 天保留期自动清扫（`DR_RAG_RETENTION_DAYS`）；可选 ClamAV（`DR_CLAMSCAN_BIN` 未配置则如实 `scan_status=skipped`）
 
@@ -159,8 +165,8 @@
 - [x] 备份脚本化（P8-A：`tools/backup.sh`，pg_dump + `pg_restore -l` 可读校验 + 保留 N 份）
 - [x] 恢复演练脚本化并**已跑通**（P8-A：`tools/restore.sh`；CI `infra` job 每次提 PR 真实执行「备份→清库→恢复」，
       并用种子数据 before/after 相等 + 恢复后结构断言双向验证）
-- [ ] 云上 staging / 生产的定期备份调度与保留策略（P8-B：依赖云账号）
-- [ ] 演练记录按 §5 模板落档（当前证据为 CI 日志与本地实跑记录）
+- [x] 云上 **staging** 定期备份调度与保留策略（P8-B：`tools/backup-cron.sh` 每日 03:30 加密 + rclone 同步 COS + `backup-verify` 新鲜度/md5 校验，2026-10-11 核实；**生产**随阶段 1）
+- [x] 演练记录按 §5 模板落档（**已回填 2026-10-11 云上恢复演练**；CI 日志为离线路径证据）
 
 ### 3.9 发布与回滚
 
@@ -238,7 +244,7 @@
 | Semantic Scholar | 可选的引用数后处理 | 检索查询词 | 境外 | **L3-A/B 默认关闭**；启用须独立评审 |
 | OTel trace 导出（需求 33） | 可观测（trace / 成本估算） | span 属性 + 提示词/输出截断预览（单字段 4000 / 节点 200 字符；`DR_OTEL_MASK_SENSITIVE` 默认 false）；不含密钥 | **取决于后端**：推荐自托管（Jaeger / 自托管 Langfuse OTLP ingest，境内可控） | **默认关闭**（未配置 `OTEL_EXPORTER_OTLP_ENDPOINT` = 零外发）；开启须登记后端地域 |
 | 错误追踪（需求 25） | 前后端异常聚合 | 错误堆栈、页面路径、请求 ID、版本号（**不含**输入内容/Cookie/请求体/邮箱） | 自托管 GlitchTip（境内；compose profile `errors`）；可换 ARMS（境内托管）/Sentry Cloud（须出境评审） | 默认关闭（DSN 空）；启用后按本表登记，PII 清洗见 `web/backend/observability.py` |
-| Qdrant | 向量库（默认 `127.0.0.1:6333`） | 上传文档分块与向量 | 取决于部署 | 自托管可控；L3 改为多租户隔离 |
+| Qdrant | 向量库（compose 内服务 `qdrant:6333`；`QDRANT_URL` 可覆盖为外部实例） | 上传文档分块与向量 | 单云单地域（国内，待填） | 自托管可控；**已实现多租户隔离**（payload `user_id` / `tenant_id` / `visibility` + payload index） |
 | 外部 MCP Server（需求 37 M1，默认关） | 消费侧：researcher 检索源（首发限运营方自建/可信内部） | 检索查询词（经工具参数） | 取决于 server 部署（首发可信内部） | **默认关闭**；启用须显式配置 + egress 登记 + 运营披露；仅 https；私网放行须理由（审计） |
 | MCP Client（需求 37 M2，默认关） | 对外：本项目以 MCP Server 形态提供 quick_search / deep_research / status / report | 调用方提交的查询词/主题/指令；返回检索结果/报告 | 本项目部署地域（run 归属 `mcp:<name>` 主体） | **默认关闭**；Bearer 机器令牌（封闭内测）；调用全审计（不落原始 prompt） |
 | PDF 导出结果通道（需求 38 F2） | PDF bytes 临时存放（专用 `export-redis`） | 报告渲染后的 PDF 字节（含报告正文与引用清单） | 本机容器内存（**非持久化**：禁 AOF/RDB；TTL 900s 从完成起算、下载不续期；单结果与累计预算有界） | 到期/写满即清理（过期 ⇒ 结构化错误 + 可重新申请）；作业状态在 PG（只存元数据，不存正文） |
@@ -259,7 +265,9 @@
 
 | 日期 | 执行人 | 备份点 | 步骤 1-6 结果 | 发现的问题 | 结论 | 关联工单 |
 |------|--------|--------|--------------|-----------|------|---------|
-| 待填 | 待填 | 待填 | 待填 | 待填 | 待填 | 待填 |
+| 2026-10-11 | opencode（主理人授权） | `deepresearch_20261010_193001.dump.pem`（220,327 B；md5 `e4e5…a146`） | 临时容器演练（不碰生产库）：.pem 解密 → `pg_restore -l` 208 条目 → 恢复 → 断言 `schema_migrations`/`runs`/`run_artifacts` = **21/11/22**（与生产逐项一致）；明文经 ssh stdin 流式恢复、未落服务器磁盘 | 无失败。改进项：离线私钥建议从开发机移入密码管理器/离线介质 | **可恢复** | runbook §10.3 |
+
+> 说明：上行为 **§10.2 临时容器演练**（覆盖「数据可恢复性」）；「删除 → 恢复 → 越权被拒」的全链路越权核验（步骤 5）在 staging 维护窗口按本模板执行，尚未落档。
 
 > **P0-7 追加步骤（恢复后必做）**：比对 `account_deletions` 台账与运维侧备份点之后的注销请求记录，
 > 对备份恢复后「复活」的用户重放删除（当前为人工 runbook；自动重放列 P1）。
@@ -353,6 +361,7 @@ location /api/ {
 
 | 日期 | 变更说明 |
 |------|---------|
+| 2026-10-18 | **整体回填（Issue #9 / #71）**：§1 Gate G1~G8 由「未开始」改为按代码与已部署事实的**已具备/部分具备/未开始**（含证据与缺口）；§2 环境矩阵回填 **staging 行**（已部署，不写真实 IP → 指向 `deployment.md`）；§3.1/§3.2/§3.8 大批已落地项补勾（迁移工具、CORS 环境变量化、Caddy SSE 反代、静态托管、优雅停机、建表/sequence、云上备份 cron）；§5 回填 **2026-10-11 云上恢复演练**记录。**合规（G7）与发布/回滚演练仍为未开始/未演练** |
 | 2026-09-24 | 初始草稿：G1~G8 准入 Gate、环境矩阵、十类检查清单、数据流向初始登记、恢复演练与合规落档模板 |
 | 2026-09-24 | 同步需求 10 推荐基线 v2：§3.7 预算闸改为 L3-A ¥1,500/月、L3-B ¥2,000/月 + 单次 ¥1.50 + `budget_exceeded`；§3.10 主体改为个人主体口径；§4 境外服务标记默认关闭与恢复评审条件 |
 | 2026-09-24 | 新增 §7 附录：SSE 反代样例、密钥纪律、备份/恢复命令基线、发布检查单、告警阈值初始候选（对齐需求 10 §5.9~§5.13） |
