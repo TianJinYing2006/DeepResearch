@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { cloneElement, Fragment, isValidElement, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -48,7 +48,83 @@ function nodeText(node: ReactNode): string {
   return ''
 }
 
-export function ReportView({ report }: { report: string }) {
+type ReportViewProps = {
+  report: string
+  /** 提供回调时，把正文中的引用编号渲染成可定位到证据栏的按钮。 */
+  onCitationClick?: (citationNumber: number) => void
+  citationCount?: number
+}
+
+function citationButton(number: number, label: string, onCitationClick: (citationNumber: number) => void, keySuffix: string) {
+  return (
+    <button
+      key={`citation-ref-${number}-${keySuffix}`}
+      type="button"
+      className="inline rounded px-1 text-stamp-blue underline decoration-stamp-blue/30 underline-offset-2 hover:bg-stamp-blue/10 focus-visible:ring-2 focus-visible:ring-stamp-blue/30"
+      aria-label={`查看引用 ${number}`}
+      data-testid={`citation-ref-${number}`}
+      onClick={() => onCitationClick(number)}
+    >
+      {label}
+    </button>
+  )
+}
+
+/** 把报告正文里的引用标记变成可聚焦的证据入口，代码块和链接内容保持原样。 */
+function decorateCitationNodes(
+  node: ReactNode,
+  onCitationClick: ((citationNumber: number) => void) | undefined,
+  citationCount: number | undefined,
+): ReactNode {
+  if (!onCitationClick) return node
+  if (typeof node === 'string') {
+    const marker = /\[(来源:\s*)?(\d+(?:\s*[,，]\s*\d+)*)\]/g
+    const parts: ReactNode[] = []
+    let cursor = 0
+    let match: RegExpExecArray | null
+    let partIndex = 0
+    while ((match = marker.exec(node)) !== null) {
+      const currentMatch = match
+      const numbers = currentMatch[2].split(/[,，]/).map((value) => Number(value.trim()))
+      const valid = numbers.every((number) => number > 0 && (citationCount === undefined || number <= citationCount))
+      if (!valid) continue
+      if (currentMatch.index > cursor) parts.push(node.slice(cursor, currentMatch.index))
+      if (numbers.length === 1) {
+        parts.push(citationButton(numbers[0], currentMatch[0], onCitationClick, String(currentMatch.index)))
+      } else {
+        parts.push(
+          <span key={`citation-group-${currentMatch.index}-${partIndex}`}>
+            [{currentMatch[1] ?? ''}
+            {numbers.map((number, index) => (
+              <Fragment key={`${number}-${index}`}>
+                {index > 0 ? ', ' : ''}
+                {citationButton(number, String(number), onCitationClick, `${currentMatch.index}-${index}`)}
+              </Fragment>
+            ))}]
+          </span>,
+        )
+      }
+      cursor = currentMatch.index + currentMatch[0].length
+      partIndex += 1
+    }
+    if (parts.length === 0) return node
+    if (cursor < node.length) parts.push(node.slice(cursor))
+    return parts
+  }
+  if (Array.isArray(node)) {
+    return node.map((child, index) => (
+      <Fragment key={index}>{decorateCitationNodes(child, onCitationClick, citationCount)}</Fragment>
+    ))
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    const elementType = typeof node.type === 'string' ? node.type : ''
+    if (elementType === 'code' || elementType === 'pre' || elementType === 'a' || elementType === 'button') return node
+    return cloneElement(node, undefined, decorateCitationNodes(node.props.children, onCitationClick, citationCount))
+  }
+  return node
+}
+
+export function ReportView({ report, onCitationClick, citationCount }: ReportViewProps) {
   const [chunks, setChunks] = useState(1)
 
   // 换了一份报告（重试 / 新研究）⇒ 分段必须重置，否则新报告会沿用旧的展开量
@@ -79,8 +155,14 @@ export function ReportView({ report }: { report: string }) {
             p: ({ children }: { children?: ReactNode }) => {
               const text = nodeText(children).trim()
               const unsourced = text.length >= 30 && !text.includes('[来源:')
-              return <p className={unsourced ? 'claim-unsourced' : undefined}>{children}</p>
+              return <p className={unsourced ? 'claim-unsourced' : undefined}>{decorateCitationNodes(children, onCitationClick, citationCount)}</p>
             },
+            li: ({ children }: { children?: ReactNode }) => (
+              <li>{decorateCitationNodes(children, onCitationClick, citationCount)}</li>
+            ),
+            blockquote: ({ children }: { children?: ReactNode }) => (
+              <blockquote>{decorateCitationNodes(children, onCitationClick, citationCount)}</blockquote>
+            ),
           }}
         >
           {deferred}

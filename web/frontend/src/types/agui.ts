@@ -216,6 +216,16 @@ export interface CitationResult {
   /** 审计 P1#2：校验未完成（LLM 失败/无反馈/结论错位）——不视为通过 */
   verification_failed?: boolean
   is_meta: boolean
+  /** E2：快照内逐字引文；空字符串表示当前没有可展示的原文片段。 */
+  quote?: string
+  /** E2：引文定位状态（located / not_found / stale）。 */
+  quote_status?: string
+  /** E2：引文在快照中的字符偏移，-1 表示未定位。 */
+  char_start?: number
+  char_end?: number
+  /** E2：原文快照内容寻址 id。仅用于审计展示，不在页面中展开。 */
+  snapshot_id?: string
+  match_level?: string
 }
 
 export interface ResearchResult {

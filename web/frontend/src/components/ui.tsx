@@ -3,6 +3,7 @@
  *  长列表用 CSS `content-visibility:auto` 跳过屏外布局（无需引入虚拟列表依赖）。 */
 import { memo } from 'react'
 import { eventPresentation, sourceType } from '../lib/presentation'
+import { citationVerdict } from '../lib/quality'
 import type { AguiEvent, CitationResult } from '../types/agui'
 
 export function BoundaryItem({ title, text }: { title: string; text: string }) {
@@ -94,34 +95,61 @@ export const TimelineItem = memo(function TimelineItem({ event }: { event: AguiE
   )
 })
 
-export const CitationCard = memo(function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
-  const verified = citation.verified
-  const failed = Boolean(citation.verification_failed)
-  const tone = failed
+export const CitationCard = memo(function CitationCard({ citation, index, active = false }: { citation: CitationResult; index: number; active?: boolean }) {
+  const verdict = citationVerdict(citation)
+  const tone = verdict === 'refuted'
     ? 'border-stamp-red/30 bg-stamp-red/[0.04]'
-    : verified
+    : verdict === 'verified'
       ? 'border-stamp-green/30 bg-stamp-green/[0.04]'
       : 'border-stamp-amber/30 bg-stamp-amber/[0.04]'
-  const badgeTone = failed
+  const badgeTone = verdict === 'refuted'
     ? 'bg-stamp-red/10 text-stamp-red'
-    : verified
+    : verdict === 'verified'
       ? 'bg-stamp-green/10 text-stamp-green'
       : 'bg-stamp-amber/10 text-stamp-amber'
+  const verdictLabel = {
+    verified: '严格通过',
+    relaxed: '宽松通过',
+    refuted: '确证失败',
+    unknown: '校验未完成',
+  }[verdict]
+  const sourceLabel = {
+    web: '网页来源',
+    rag: '知识库',
+    arxiv: '学术论文',
+    code: '代码来源',
+  }[citation.source_type || sourceType(citation.source)] ?? citation.source_type ?? '来源'
   return (
     <article style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-             className={`animate-rise rounded-lg border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_200px] ${tone}`}>
+             className={`animate-rise rounded-lg border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_260px] ${tone} ${active ? 'ring-2 ring-stamp-blue/40 ring-offset-1' : ''}`}
+             data-testid="citation-card" data-active={active ? 'true' : 'false'} id={`citation-${index + 1}`} tabIndex={-1}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] text-ink-muted">#{index + 1}</span>
           <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${badgeTone}`}>
-            {failed ? '校验未完成' : verified ? '严格通过' : citation.verified_relaxed ? '宽松通过' : '待复核'}
+            {verdictLabel}
           </span>
         </div>
-        <span className="font-mono text-xs text-ink-muted">{Math.round(citation.confidence * 100)}%</span>
+        <span className="font-mono text-xs tabular-nums text-ink-muted">{Math.round(citation.confidence * 100)}%</span>
       </div>
       <p className="mt-3 text-sm leading-6 text-ink">{citation.claim}</p>
       <div className="mt-3 border-t border-rule pt-3">
-        <SourceLink source={citation.source} />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="mb-1 text-[10px] font-semibold text-ink-muted">{sourceLabel}</p>
+            <SourceLink source={citation.source} />
+          </div>
+          {citation.quote_status && (
+            <span className="shrink-0 rounded-md bg-rule/40 px-2 py-1 text-[10px] text-ink-muted">
+              {citation.quote_status === 'located' ? '原文已定位' : citation.quote_status === 'stale' ? '原文已过期' : '原文未定位'}
+            </span>
+          )}
+        </div>
+        {citation.quote && (
+          <blockquote className="mt-3 max-h-36 overflow-y-auto whitespace-pre-wrap border-l-2 border-stamp-blue/40 bg-stamp-blue/[0.04] px-3 py-2 text-xs leading-5 text-ink-muted" data-testid="citation-quote">
+            {citation.quote}
+          </blockquote>
+        )}
         {citation.note && <p className="mt-2 text-xs leading-5 text-ink-muted">{citation.note}</p>}
       </div>
     </article>

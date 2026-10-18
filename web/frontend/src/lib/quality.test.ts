@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { citationVerdict, isTaskComplete, qualityVerdict } from './quality'
+import { citationVerdict, filterCitations, isTaskComplete, qualityVerdict } from './quality'
 import type { CitationResult, ResearchResult, RunFinishedEvent } from '../types/agui'
 
 function citation(over: Partial<CitationResult> = {}): CitationResult {
@@ -72,6 +72,25 @@ describe('citationVerdict：四态判定', () => {
 
   it('verification_failed 缺省（undefined，旧后端）按 false 处理', () => {
     expect(citationVerdict(citation({ verified: true, verification_failed: undefined }))).toBe('verified')
+  })
+})
+
+describe('filterCitations：证据栏四态筛选', () => {
+  const citations = [
+    citation({ finding_id: 'strict', verified: true }),
+    citation({ finding_id: 'relaxed', verified_relaxed: true }),
+    citation({ finding_id: 'refuted' }),
+    citation({ finding_id: 'unknown', verification_failed: true }),
+  ]
+
+  it('筛选与质量四态一一对应，全部保留原始顺序', () => {
+    expect(filterCitations(citations, 'all').map((item) => item.finding_id)).toEqual([
+      'strict', 'relaxed', 'refuted', 'unknown',
+    ])
+    expect(filterCitations(citations, 'verified').map((item) => item.finding_id)).toEqual(['strict'])
+    expect(filterCitations(citations, 'relaxed').map((item) => item.finding_id)).toEqual(['relaxed'])
+    expect(filterCitations(citations, 'refuted').map((item) => item.finding_id)).toEqual(['refuted'])
+    expect(filterCitations(citations, 'unknown').map((item) => item.finding_id)).toEqual(['unknown'])
   })
 })
 

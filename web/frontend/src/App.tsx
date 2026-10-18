@@ -98,6 +98,7 @@ export default function App() {
   const [profile, setProfile] = useState('quick')
   const [options, setOptions] = useState<RunOptions | null>(null)
   const [shareRunId, setShareRunId] = useState<string | null>(null)
+  const [activeCitation, setActiveCitation] = useState<number | null>(null)
   // P6-A：是否开启鉴权（登录门开关；未开启时保持匿名可用）
   const [authRequired, setAuthRequired] = useState(false)
   // P1-7 重试：记住**上一次实际发起**的参数（不是当前表单值）——
@@ -246,7 +247,6 @@ export default function App() {
   }, [events, options])
   const sourceCount = result?.visited_sources.length ?? lastDelta?.visited_sources_count ?? 0
   const findingsCount = lastDelta?.findings_count ?? 0
-  const verifiedCitations = result?.citations.filter((citation) => citation.verified).length ?? 0
   const ragSources = useMemo(
     () => Array.from(new Set((result?.visited_sources ?? []).filter(isKnowledgeBaseSource))),
     [result],
@@ -319,6 +319,7 @@ export default function App() {
     setExportState('idle')
     setPdfState('idle')
     setDocxState('idle')
+    setActiveCitation(null)
     storeLaunchParams(params)
     void start(params.topic, params.instructions, params.profile)
   }
@@ -349,6 +350,7 @@ export default function App() {
     setExportState('idle')
     setPdfState('idle')
     setDocxState('idle')
+    setActiveCitation(null)
     setLaunchOpen(true)
     setAnnouncement('已清空输入，可开始新研究')
     window.setTimeout(() => document.getElementById('topic')?.focus(), 0)
@@ -359,6 +361,11 @@ export default function App() {
     await navigator.clipboard.writeText(result.report)
     setCopyState('copied')
     window.setTimeout(() => setCopyState('idle'), 1600)
+  }
+
+  const focusCitation = (citationNumber: number) => {
+    setActiveCitation(citationNumber)
+    setAnnouncement(`已定位引用 ${citationNumber}`)
   }
 
   // P1-6：改走后端导出 —— 前端 Blob 那份只有正文，脱离页面后无从自证来源；
@@ -530,6 +537,7 @@ export default function App() {
                   onExport={() => void exportReport()}
                   onExportPdf={() => void exportPdf()}
                   onExportDocx={() => void exportDocx()}
+                  onCitationClick={focusCitation}
                   shareEnabled={Boolean(options?.share_enabled)}
                   onShare={() => { if (runId && hasReport && !outputUnderReview) setShareRunId(runId) }}
                 />
@@ -564,7 +572,7 @@ export default function App() {
             <RagStatusCard result={result} ragSources={ragSources} />
             {result ? (
               <>
-                <EvidenceMargin citations={result.citations} verifiedCitations={verifiedCitations} />
+                <EvidenceMargin citations={result.citations} quality={quality} activeCitation={activeCitation} />
                 <SourcesList sources={result.visited_sources} />
               </>
             ) : (
