@@ -22,7 +22,7 @@ import { settleRun } from './helpers'
  *
  * 更新金标准（唯一可靠路径：用 CI 环境自身的渲染）：
  *   1. 改完 UI 推 PR → e2e job 失败 → 从 Actions artifact `e2e-playwright-results`
- *      下载 `test-results/**/` 下的 `*-actual.png`（即 CI 真实渲染）；
+ *      下载 test-results 目录下的 `*-actual.png`（即 CI 真实渲染）；
  *   2. 覆盖到本目录并改名：`<name>-actual.png` → `<name>-desktop-linux.png`；
  *   3. 提交。次轮 CI 即通过。
  *   （本机 Linux 可用下方 docker 命令近似生成，但与 CI 可能有字体微差，仅作预览。）
