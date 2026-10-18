@@ -124,8 +124,18 @@ test.describe('视觉基线（桌面端）', () => {
     await page.locator('#stage-report').click()
 
     await expect(page.locator('#stage-report')).toHaveScreenshot('report-card.png', SHOT)
-    // 证据边栏高度钉整，避免 100dvh 取整抖动导致尺寸不符（见 pinHeight 注释）。
-    await pinHeight(page, '#stage-verify', (page.viewportSize()?.height ?? 720) - 32)
-    await expect(page.locator('#stage-verify')).toHaveScreenshot('evidence-margin.png', SHOT)
+    // 证据边栏：**主动滚入视口 + 固定尺寸 clip**。
+    // ① 不用 locator 截图：其截图矩形由 boundingBox 取整而来，元素高度即使钉成 688 仍可能得到
+    //    689（dev push 二次命中 688/689 的 size mismatch）；clip 把宽高写死 ⇒ 尺寸按构造确定。
+    // ② 必须先自己滚入视口：`toHaveScreenshot` 内部滚动会改变 `xl:sticky` 元素的位置，
+    //    导致裁剪区域与元素错位（实测漏此步 → 1% 像素差）。
+    // ③ clip 用**视口坐标**（与 boundingBox 同系；文档坐标会导致「Clipped area is outside」）。
+    await page.locator('#stage-verify').scrollIntoViewIfNeeded()
+    await pinHeight(page, '#stage-verify', 688)
+    const clip = await page.locator('#stage-verify').evaluate((el) => {
+      const rect = el.getBoundingClientRect()
+      return { x: Math.round(rect.left), y: Math.round(rect.top), width: 320, height: 688 }
+    })
+    await expect(page).toHaveScreenshot('evidence-margin.png', { ...SHOT, clip })
   })
 })
