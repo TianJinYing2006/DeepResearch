@@ -186,6 +186,20 @@ test.describe('研究主流程（桌面端）', () => {
     await expect(margin.getByText('暂无宽松通过引用')).toBeVisible()
   })
 
+  test('正文引用标记可定位并高亮对应证据卡', async ({ page }) => {
+    await page.fill('#topic', '正文引用定位')
+    await page.click('button[type="submit"]')
+    await expect(page.getByTestId('report-heading')).toBeVisible({ timeout: 90_000 })
+
+    const margin = page.locator('aside[aria-label="证据边栏"]')
+    await margin.getByTestId('evidence-filter-relaxed').click()
+    await expect(margin.getByTestId('citation-card')).toHaveCount(0)
+
+    await page.getByTestId('citation-ref-1').first().click()
+    await expect(margin.getByTestId('evidence-filter-all')).toHaveAttribute('aria-pressed', 'true')
+    await expect(margin.locator('#citation-1')).toHaveAttribute('data-active', 'true')
+  })
+
   test('运行中可停止，且不会被记成失败', async ({ page }) => {
     await page.fill('#topic', '取消语义')
     await page.click('button[type="submit"]')

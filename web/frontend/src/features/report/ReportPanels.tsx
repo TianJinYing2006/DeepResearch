@@ -22,6 +22,7 @@ type ReportCardProps = {
   onExport: () => void
   onExportPdf: () => void
   onExportDocx: () => void
+  onCitationClick?: (citationNumber: number) => void
   /** 需求 26：分享开关与入口（关闭时不渲染按钮）。 */
   shareEnabled?: boolean
   onShare?: () => void
@@ -51,7 +52,7 @@ export function ReportPreviewCard({ preview, stopping }: { preview: string; stop
   )
 }
 
-export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, pdfState, docxState, onCopy, onExport, onExportPdf, onExportDocx, shareEnabled, onShare }: ReportCardProps) {
+export function ReportCard({ result, runId, outputUnderReview, hasReport, copyState, exportState, pdfState, docxState, onCopy, onExport, onExportPdf, onExportDocx, onCitationClick, shareEnabled, onShare }: ReportCardProps) {
   return (
     <section id="stage-report" className="surface-card overflow-hidden">
       <div className="flex flex-col justify-between gap-4 border-b border-rule px-5 py-5 sm:flex-row sm:items-center sm:px-6">
@@ -125,7 +126,7 @@ export function ReportCard({ result, runId, outputUnderReview, hasReport, copySt
         {outputUnderReview ? (
           <EmptyState icon="⚑" title="报告待人工复核" text="报告命中内容安全预检：复核通过或申诉处理前不开放查看与导出；如认为误判可提交申诉。" />
         ) : hasReport && result.report ? (
-          <ReportView report={result.report} />
+          <ReportView report={result.report} onCitationClick={onCitationClick} citationCount={result.citations.length} />
         ) : (
           <EmptyState icon="◌" title="暂无完整报告" text="运行在报告生成前停止，已完成的事件与统计仍保留。" />
         )}
@@ -137,11 +138,12 @@ export function ReportCard({ result, runId, outputUnderReview, hasReport, copySt
 type CitationsCardProps = {
   citations: CitationResult[]
   quality: Pick<QualityVerdict, 'counts'>
+  activeCitation?: number | null
 }
 
 /** 方向 B 签名：引用证据挂在**页边栏**（与报告并排、可滚动、可聚焦），
  *  阅读时视线不离开正文；窄屏自动落到报告下方。 */
-export function EvidenceMargin({ citations, quality }: CitationsCardProps) {
+export function EvidenceMargin({ citations, quality, activeCitation = null }: CitationsCardProps) {
   const [filter, setFilter] = useState<CitationFilter>('all')
   const filteredCitations = useMemo(() => filterCitations(citations, filter), [citations, filter])
   const { counts } = quality
@@ -158,6 +160,19 @@ export function EvidenceMargin({ citations, quality }: CitationsCardProps) {
 
   // 新结果到达时回到全量，避免上一轮的筛选造成「引用消失」的错觉。
   useEffect(() => setFilter('all'), [citations])
+
+  // 正文点击的引用可能被当前筛选隐藏，先回到全量，再让浏览器滚动到目标卡。
+  useEffect(() => {
+    if (!activeCitation) return
+    const visible = filteredCitations.some((citation) => citations.indexOf(citation) === activeCitation - 1)
+    if (!visible) {
+      setFilter('all')
+      return
+    }
+    const target = document.getElementById(`citation-${activeCitation}`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    target?.focus({ preventScroll: true })
+  }, [activeCitation, citations, filteredCitations])
 
   const emptyCopy: Record<CitationFilter, { title: string; text: string }> = {
     all: { title: '暂无引用记录', text: '报告可能在引用校验前停止，或本轮未生成可校验引用。' },
@@ -202,7 +217,7 @@ export function EvidenceMargin({ citations, quality }: CitationsCardProps) {
             const originalIndex = citations.indexOf(citation)
             return (
               <li key={`${citation.source}-${originalIndex}`}>
-                <CitationCard citation={citation} index={originalIndex} />
+                <CitationCard citation={citation} index={originalIndex} active={activeCitation === originalIndex + 1} />
               </li>
             )
           })}

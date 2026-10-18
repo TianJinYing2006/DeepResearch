@@ -95,7 +95,7 @@ export const TimelineItem = memo(function TimelineItem({ event }: { event: AguiE
   )
 })
 
-export const CitationCard = memo(function CitationCard({ citation, index }: { citation: CitationResult; index: number }) {
+export const CitationCard = memo(function CitationCard({ citation, index, active = false }: { citation: CitationResult; index: number; active?: boolean }) {
   const verdict = citationVerdict(citation)
   const tone = verdict === 'refuted'
     ? 'border-stamp-red/30 bg-stamp-red/[0.04]'
@@ -121,8 +121,8 @@ export const CitationCard = memo(function CitationCard({ citation, index }: { ci
   }[citation.source_type || sourceType(citation.source)] ?? citation.source_type ?? '来源'
   return (
     <article style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-             className={`animate-rise rounded-lg border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_260px] ${tone}`}
-             data-testid="citation-card">
+             className={`animate-rise rounded-lg border p-4 [content-visibility:auto] [contain-intrinsic-size:auto_260px] ${tone} ${active ? 'ring-2 ring-stamp-blue/40 ring-offset-1' : ''}`}
+             data-testid="citation-card" data-active={active ? 'true' : 'false'} id={`citation-${index + 1}`} tabIndex={-1}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] text-ink-muted">#{index + 1}</span>
