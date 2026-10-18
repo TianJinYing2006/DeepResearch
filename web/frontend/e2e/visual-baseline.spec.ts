@@ -8,6 +8,8 @@ import { settleRun } from './helpers'
  * - 仅桌面视口：mobile project 的 testMatch 不含本文件，天然只跑 desktop（1280x720）；
  * - 只收 4 屏：落地页首屏 / 工作台启动态 / 报告卡 / 页边证据栏；
  * - `animations: 'disabled'` 冻结全部 CSS 动效（rise 入场 / marquee / shimmer / 进度过渡）；
+ * - `reducedMotion: 'reduce'` 让 JS 动效也确定化（打字机 / 滚动视差 / reveal 扫描），
+ *   见下方 `test.use` 说明 —— 这是落地页能被稳定截图的前提；
  * - 动态区用 mask 遮掉：顶部滚动进度条（landing-progress）。
  *
  * ⚠️ 金标准的**基准环境 = CI 的 e2e job**（`ubuntu-latest` + 官方 chromium + `fonts-noto-cjk`）。
@@ -52,11 +54,22 @@ const AUTH_OPTIONS = {
 // 抗锯齿/渲染容差：金标准在 Linux + Playwright chromium 下生成；比对侧允许
 // 0.5% 像素差 + 单像素色阈 0.2（吸收字体 hinting/AA 的平台微差），仍能抓住
 // 布局位移、配色改动、元素增删这类真回归。
+//
+// ⚠️ 临时零容差（本轮用于采集 CI 真实渲染做金标准；采集完恢复为 0.005）。
 const SHOT = {
   animations: 'disabled' as const,
   threshold: 0.2,
   maxDiffPixelRatio: 0,
 }
+
+// ⚠️ 确定性关键：`reducedMotion: 'reduce'`。
+// 落地页有 JS 驱动的「打字机」（逐字输出）、滚动视差与 reveal 扫描 —— 静态截图永远
+// 抓不稳（实测每次截图像素数都在变）。而本应用的 `useTypewriter` / `useRevealAll` /
+// hero 视差在 `prefers-reduced-motion: reduce` 下**全部瞬时确定化**（全量文本、无视差、
+// reveal 直接可见），CSS 动效也被该媒体查询归零。
+// ⇒ 截图基线钉在 reduced-motion 渲染上；动画态的正确性由功能 e2e 覆盖
+//   （如 closure.spec 断言滚动驱动的工作流逐级激活），不靠静态像素。
+test.use({ reducedMotion: 'reduce' })
 
 test.describe('视觉基线（桌面端）', () => {
   test.afterEach(async ({ page }) => {
