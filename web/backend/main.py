@@ -62,8 +62,10 @@ from .auth import (
     CSRF_HEADER,
     MIN_PASSWORD_LENGTH,
     check_password_strength,
+    device_key,
     hash_password,
     host_prefix_cookie_name,
+    is_new_device,
     is_valid_email,
     new_token,
     normalize_email,
@@ -85,7 +87,7 @@ from .hitl import (
     validate_answer,
 )
 from .injection_guard import scan_injection
-from .mailer import get_mailer, password_reset_email
+from .mailer import get_mailer, new_login_email, password_reset_email
 from .metrics import METRICS
 from .moderation import (
     MAX_APPEAL_LENGTH,
@@ -903,6 +905,32 @@ def _set_session_cookies(response: Response, user_id: str, request: Optional[Req
                         samesite="lax", secure=COOKIE_SECURE, path="/")
 
 
+def _notify_new_login(user: dict, request: Request) -> None:
+    """需求 20 P1-1b：新设备登录提醒（best-effort，**绝不**影响登录本身）。
+
+    - SMTP 未配置 ⇒ 审计 `login_notify_skipped`（显式降级，不静默吞）；
+    - 投递成功 / 失败分别审计 `login_notified` / `login_notify_failed`；
+    - 邮件不含 token / 链接 / 密码；设备（UA 头）与 IP 在 HTML 中已转义。
+    """
+    try:
+        mailer = get_mailer()
+        if mailer is None:
+            _audit("login_notify_skipped", request=request, actor_user_id=user["user_id"],
+                   detail={"reason": "mail_unavailable"})
+            return
+        ip = _client_key(request)
+        device = (request.headers.get("user-agent") or "").strip()[:200]
+        subject, text, html = new_login_email(
+            when=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            device=device or "未知设备", ip=ip)
+        mailer.send(user["email"], subject, text, html)
+        _audit("login_notified", request=request, actor_user_id=user["user_id"],
+               detail={"ip": ip})
+    except Exception as exc:  # noqa: BLE001 —— 通知是旁路，异常不得打断登录
+        _audit("login_notify_failed", request=request, actor_user_id=user["user_id"],
+               detail={"error": type(exc).__name__})
+
+
 # ------------------------------------------------------------------ 配额与限流（P4-B）
 
 
@@ -1200,8 +1228,15 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
         _audit("login_failed", request=request, detail={"email_hash": email_hash})
         raise http_error("invalid_credentials", "邮箱或密码不正确")
     _store_call(store.touch_last_login, user["user_id"])
+    # P1-1b：先看「该用户既有活跃会话」判断是否新设备，再建本会话（否则自己会被算进去）
+    prior = _store_call(store.list_sessions, user["user_id"])
+    new_device = is_new_device(
+        [device_key(row.get("user_agent"), row.get("ip")) for row in prior],
+        request.headers.get("user-agent"), _client_key(request))
     _set_session_cookies(response, user["user_id"], request)
     _audit("login_success", request=request, actor_user_id=user["user_id"])
+    if new_device:
+        _notify_new_login(user, request)
     return {"user": _public_user(user)}
 
 

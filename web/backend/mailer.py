@@ -11,6 +11,7 @@ import smtplib
 import ssl as ssl_module
 from email.message import EmailMessage
 from email.utils import formataddr
+from html import escape as _html_escape
 from typing import Optional, Protocol
 
 from config import config
@@ -84,5 +85,30 @@ def password_reset_email(link: str, *, minutes: int = 30) -> tuple[str, str, str
         f'<a href="{link}">重置密码</a></p>'
         "<p>链接仅可使用一次；重置后所有设备都会退出登录。<br>"
         "如果这不是你本人的操作，忽略本邮件即可，你的密码不会被修改。</p>"
+    )
+    return subject, text, html
+
+
+def new_login_email(*, when: str, device: str, ip: str) -> tuple[str, str, str]:
+    """新设备登录提醒（需求 20 P1-1b；纯文本 + 简 HTML）。
+
+    - **不含** token / 链接 / 密码；只提示「时间 / 设备 / IP」与自查建议；
+    - 设备（来自 UA 头）与 IP 均来自不可信输入 ⇒ HTML 部分**转义**，防注入。
+    """
+    subject = "你的爱考据 iKaoju 账号在新设备上登录"
+    device_line = device or "未知设备"
+    ip_line = ip or "未知地址"
+    text = (
+        "我们注意到你的账号在新设备上登录：\n\n"
+        f"时间：{when}\n设备：{device_line}\nIP：{ip_line}\n\n"
+        "如果是你本人操作，可忽略本邮件。\n"
+        "如果不是你，请尽快在「账号 → 会话与安全」中退出该设备，并立即修改密码。"
+    )
+    html = (
+        "<p>我们注意到你的账号在新设备上登录：</p>"
+        f"<p>时间：{_html_escape(when)}<br>设备：{_html_escape(device_line)}"
+        f"<br>IP：{_html_escape(ip_line)}</p>"
+        "<p>如果是你本人操作，可忽略本邮件。<br>"
+        "如果不是你，请尽快在「账号 → 会话与安全」中退出该设备，并立即修改密码。</p>"
     )
     return subject, text, html
