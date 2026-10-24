@@ -24,8 +24,18 @@ COPY requirements-lock.txt ./
 # 需求 38 F2：PDF 渲染系统依赖（WeasyPrint → pango 运行库）+ CJK 字体（Noto，OFL）
 # 只装运行库与字体（--no-install-recommends），不引入构建工具；镜像体积变化登记在
 # docs/operations/production-readiness.md（收口实测回填）
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+#
+# 国内 staging 直连 deb.debian.org 实测超时（apt 拉包 400s+ 后失败）；允许通过
+# build-arg 切换镜像源，默认保持官方源（CI 直连 docker build 走默认）。
+ARG DEBIAN_MIRROR=http://deb.debian.org
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list; \
+    fi; \
+    apt-get update -o Acquire::Retries=3 \
+    && apt-get install -y --no-install-recommends -o Acquire::Retries=3 \
         libpango-1.0-0 \
         libpangoft2-1.0-0 \
         fonts-noto-cjk \

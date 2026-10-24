@@ -164,6 +164,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        DEBIAN_MIRROR: ${DR_DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
     image: deepresearch-staging-api:latest
     restart: unless-stopped
     command: ["python", "-m", "web.backend.export_worker"]
@@ -309,6 +311,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        DEBIAN_MIRROR: ${DR_DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -391,6 +395,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+      args:
+        DEBIAN_MIRROR: ${DR_DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
     restart: unless-stopped
     command: ["python", "-m", "web.backend.worker"]
     depends_on:
