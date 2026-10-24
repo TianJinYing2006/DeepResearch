@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import BeianLink from '../../components/BeianLink'
 import { usePrefersReducedMotion, useRevealAll, useScrollState, useTypewriter } from '../../lib/useScrollFx'
 import ArchiveWall from './ArchiveWall'
 
@@ -270,7 +271,8 @@ export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props)
         <footer className="border-t border-rule/70 bg-paper">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-[11px] text-ink-muted sm:px-8">
             <span>爱考据 iKaoju · 可审计研究工作台 · 内测阶段</span>
-            <span className="flex gap-4">
+            <span className="flex flex-wrap items-center gap-4">
+              <BeianLink />
               <button type="button" className="underline decoration-rule underline-offset-4 hover:text-ink"
                       data-testid="footer-help" onClick={onOpenHelp}>帮助中心</button>
               <button type="button" className="underline decoration-rule underline-offset-4 hover:text-ink"

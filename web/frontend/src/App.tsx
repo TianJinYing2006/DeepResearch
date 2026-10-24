@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import AccountPanel from './components/AccountPanel'
+import BeianLink from './components/BeianLink'
 import ShareModal from './components/ShareModal'
 import { BoundaryCard, LaunchForm, RagStatusCard } from './features/launch/LaunchPanels'
 import { FollowupPanel, InteractionPanel } from './features/hitl/HitlPanels'
@@ -583,6 +584,9 @@ export default function App() {
           </aside>
         </div>
       </main>
+      <footer className="border-t border-rule/70 px-4 py-6 text-center text-[11px] text-ink-muted sm:px-6 lg:px-8">
+        <BeianLink />
+      </footer>
     </div>
   )
 }

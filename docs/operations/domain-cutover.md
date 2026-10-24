@@ -228,7 +228,7 @@ curl -fsS https://ikaoju.cn/api/legal/privacy         # 镜像内 docs/legal 可
 
 | # | 待办 | 依据 | 现状 |
 |---|---|---|---|
-| 1 | **首页底部展示 ICP 备案号**，且为指向 `beian.miit.gov.cn` 的**超链接** | 合规强制；只写数字不加链接会被认定展示不规范 | ❌ **前端无任何备案号展示位**（已 grep 确认 `web/frontend/src/` 零命中） |
+| 1 | **首页底部展示 ICP 备案号**，且为指向 `beian.miit.gov.cn` 的**超链接** | 合规强制；只写数字不加链接会被认定展示不规范 | ✅ **已完成（2026-10-21）**：`web/frontend/src/components/BeianLink.tsx`（`皖ICP备2026036120号` → `https://beian.miit.gov.cn/`），落地页、工作台、只读分享页页脚均已展示 |
 | 2 | 公安备案号并列展示 | ICP 后 30 日内完成公安备案 | ❌ 未开始 |
 | 3 | G7 合规确认落档 | `production-readiness.md` G7 | ❌ 未开始（须书面答复） |
 
@@ -243,7 +243,7 @@ curl -fsS https://ikaoju.cn/api/legal/privacy         # 镜像内 docs/legal 可
 | 优先级 | 事项 | 说明 |
 |---|---|---|
 | ~~**P0**~~ ✅ | ~~把数据库备份装上 cron + 做一次真实恢复演练~~ **已完成（2026-10-11）** | cron 已在跑（每日 03:30 加密 + COS）；真实恢复演练通过（21/11/22 与生产一致；记录见 `release-runbook.md` §10.3）。原缺口已关闭：`deployment.md` §6.1 |
-| P1 | 前端加备案号展示位 | §5 第 1 项，上线前必须完成 |
+| ~~P1~~ ✅ | ~~前端加备案号展示位~~ **已完成（2026-10-21）** | 落地页 / 工作台 / 只读分享页页脚展示 `皖ICP备2026036120号` 超链接，见 §5 第 1 项 |
 | P1 | 补构建版本锚点 `BUILD_INFO` | `deployment.md` §6.2：服务器非 git 仓库，无法回答「跑的是哪个 commit」 |
 | P2 | 固定 `qdrant/qdrant:latest` 的具体 tag | 其余服务均已钉版本，仅 qdrant 未钉 |
 

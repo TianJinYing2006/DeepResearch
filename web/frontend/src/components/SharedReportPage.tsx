@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { readErrorMessage } from '../lib/api'
+import BeianLink from './BeianLink'
 import { ReportView } from './ReportView'
 
 type Props = { token: string }
@@ -72,7 +73,8 @@ export default function SharedReportPage({ token }: Props) {
         )}
       </main>
       <footer className="border-t border-rule/70 px-5 py-6 text-center text-[11px] text-ink-muted">
-        由爱考据 iKaoju 生成 · 本页为只读快照，内容以分享者提供的报告为准
+        <p>由爱考据 iKaoju 生成 · 本页为只读快照，内容以分享者提供的报告为准</p>
+        <p className="mt-2"><BeianLink /></p>
       </footer>
     </div>
   )
