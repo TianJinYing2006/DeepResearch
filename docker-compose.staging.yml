@@ -350,6 +350,11 @@ services:
       # 需求 20 P1-3：MFA（TOTP secret 的 AES-256-GCM 密钥，base64 的 32 字节）。
       # 未配置 ⇒ MFA 端点 503、且「有因子的用户」登录被拒（fail-closed，防绕过第二步）。
       DR_MFA_SECRET_KEY: "${DR_MFA_SECRET_KEY:-}"
+      # 需求 20 P1-2：Passkey（RP ID 必须是有效域名，不能是 IP；Origin 与地址栏一致）。
+      # 域名切换前仍用 IP 访问时，前端会按 host 与 RP ID 不匹配自动隐藏入口。
+      DR_WEBAUTHN_RP_ID: "${DR_WEBAUTHN_RP_ID:-ikaoju.cn}"
+      DR_WEBAUTHN_RP_NAME: "${DR_WEBAUTHN_RP_NAME:-爱考据 iKaoju}"
+      DR_WEBAUTHN_ORIGIN: "${DR_WEBAUTHN_ORIGIN:-https://ikaoju.cn}"
       # P1-2 / P0-10：反代信任。优先 DR_TRUSTED_PROXY_CIDRS（只信任可信 hop 的
       # X-Forwarded-*）；DR_TRUST_PROXY=true 为历史兼容（无 CIDR 时取 XFF 首跳）。
       DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"

@@ -31,6 +31,7 @@ import {
 } from './lib/presentation'
 import { qualityVerdict } from './lib/quality'
 import { downloadPdfReport, downloadSyncReport } from './lib/reportExport'
+import { passkeyAvailableForHost } from './lib/webauthn'
 import { workflowStages } from './lib/workflow'
 import type { LaunchParams } from './types/api'
 import type {
@@ -432,7 +433,9 @@ export default function App() {
         </div>
         <div className="mx-auto max-w-[1600px] px-4 pb-3 sm:px-6 lg:px-8">
           <AccountPanel authRequired={authRequired} activeRunId={runId ?? null} running={running}
-                        shareEnabled={Boolean(options?.share_enabled)} />
+                        shareEnabled={Boolean(options?.share_enabled)}
+                        passkeyEnabled={passkeyAvailableForHost(
+                          Boolean(options?.webauthn?.available), options?.webauthn?.rp_id ?? '')} />
         </div>
       </header>
 

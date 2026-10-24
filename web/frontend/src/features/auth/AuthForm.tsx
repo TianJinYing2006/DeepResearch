@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { readErrorMessage } from '../../lib/api'
+import { loginWithPasskey } from '../../lib/webauthn'
 import type { SessionUser } from '../../types/api'
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset'
@@ -17,6 +18,8 @@ type Props = {
   notice?: string
   /** 注册模式副标题覆盖（邀请弹窗使用「邀请码已从链接预填」）。 */
   subtitle?: string
+  /** 需求 20 P1-2：当前域名支持 Passkey 时展示登录按钮。 */
+  passkeyEnabled?: boolean
   onAuthed: (user: SessionUser) => void
   onOpenLegal: (doc: 'privacy' | 'terms') => void
 }
@@ -49,6 +52,7 @@ export default function AuthForm({
   inviteFromUrl = '',
   notice = '',
   subtitle,
+  passkeyEnabled = false,
   onAuthed,
   onOpenLegal,
 }: Props) {
@@ -198,6 +202,20 @@ export default function AuthForm({
       onAuthed(body.user)
     } catch {
       setError('网络错误，请重试')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function passkeyLogin() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const user = await loginWithPasskey(email)
+      onAuthed(user)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Passkey 登录失败，请改用密码登录')
     } finally {
       setBusy(false)
     }
@@ -420,6 +438,13 @@ export default function AuthForm({
                 : '重置密码'}
       </button>
 
+      {mode === 'login' && passkeyEnabled && (
+        <button type="button" data-testid="auth-passkey-login"
+                className="mt-3 w-full rounded-lg border border-rule px-3 py-2 text-xs text-ink transition hover:border-stamp-blue/50 disabled:opacity-60"
+                disabled={busy} onClick={() => void passkeyLogin()}>
+          {busy ? '等待认证器…' : '使用 Passkey 登录'}
+        </button>
+      )}
       {mode === 'login' && (
         <button type="button" data-testid="auth-forgot-link"
                 className="mt-3 w-full text-xs text-ink-muted transition hover:text-ink"

@@ -167,6 +167,24 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         409, False, "该账号已启用 MFA：如需换绑请先关闭再重新绑定。", component="auth"),
     "mfa_not_started": ErrorSpec(
         409, False, "尚无待确认的绑定请求：请先开始绑定获取密钥。", component="auth"),
+    # --- Passkey：WebAuthn（需求 20 P1-2） -------------------------------
+    "webauthn_unavailable": ErrorSpec(
+        503, False,
+        "Passkey 未启用（服务端未配置 RP ID / Origin，或当前域名不匹配）：请用密码登录。",
+        component="auth"),
+    "webauthn_challenge_invalid": ErrorSpec(
+        400, True, "Passkey 挑战已过期或已使用：请重新发起注册 / 登录。",
+        component="auth"),
+    "webauthn_registration_invalid": ErrorSpec(
+        400, False, "Passkey 注册校验未通过：请重试；仍失败请更换浏览器 / 认证器。",
+        component="auth"),
+    "webauthn_authentication_invalid": ErrorSpec(
+        401, False, "Passkey 登录校验未通过：请重试或改用密码登录。",
+        component="auth"),
+    "passkey_exists": ErrorSpec(
+        409, False, "该 Passkey 已绑定到账号，无需重复注册。", component="auth"),
+    "passkey_not_found": ErrorSpec(
+        404, False, "Passkey 不存在或不属于当前账号。", component="auth"),
     # --- RAG 知识库（P6-A） ----------------------------------------------
     "rag_unavailable": ErrorSpec(
         503, True,

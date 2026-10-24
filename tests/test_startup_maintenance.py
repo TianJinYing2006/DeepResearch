@@ -29,6 +29,9 @@ class _StartupSpy:
     def purge_expired_password_resets(self) -> None:
         self.calls.append("purge_expired_password_resets")
 
+    def purge_expired_webauthn_challenges(self) -> None:
+        self.calls.append("purge_expired_webauthn_challenges")
+
 
 def test_startup_maintenance_queue_mode_keeps_active_runs():
     store = FakeStore()
@@ -44,9 +47,12 @@ def test_startup_maintenance_queue_mode_keeps_active_runs():
 def test_startup_maintenance_inprocess_marks_lost_and_always_purges():
     queue_spy = _StartupSpy()
     api._startup_store_maintenance(queue_spy, "queue")
-    assert queue_spy.calls == ["purge_expired_sessions", "purge_expired_password_resets"]
+    assert queue_spy.calls == [
+        "purge_expired_sessions", "purge_expired_password_resets",
+        "purge_expired_webauthn_challenges"]
 
     inprocess_spy = _StartupSpy()
     api._startup_store_maintenance(inprocess_spy, "inprocess")
     assert inprocess_spy.calls == [
-        "mark_stale_as_lost", "purge_expired_sessions", "purge_expired_password_resets"]
+        "mark_stale_as_lost", "purge_expired_sessions", "purge_expired_password_resets",
+        "purge_expired_webauthn_challenges"]

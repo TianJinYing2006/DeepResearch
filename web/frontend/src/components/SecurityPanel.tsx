@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
+import { deletePasskey, fetchPasskeys, registerPasskey, type PasskeyItem } from '../lib/webauthn'
 
 /** 会话条目（后端 `/api/auth/sessions` 形状；需求 20 P0-3）。 */
 export type SessionItem = {
@@ -47,17 +48,22 @@ function timeLabel(iso: string): string {
 type Props = {
   /** 当前会话被撤销（退出本机）时通知父组件清理登录态。 */
   onSignedOut: () => void
+  /** 需求 20 P1-2：当前域名可用时展示 Passkey 管理。 */
+  passkeyEnabled?: boolean
 }
 
 /** 会话与安全面板（需求 20 P0-3）：设备列表 / 单条撤销 / 退出其他所有设备。
  *
  * 数据来自后端既有 API（P1-10）：终止**其他**会话需重认证（当前密码），
  * 与 GitHub/Google 的设备管理形态一致。 */
-export default function SecurityPanel({ onSignedOut }: Props) {
+export default function SecurityPanel({ onSignedOut, passkeyEnabled = false }: Props) {
   const [sessions, setSessions] = useState<SessionItem[] | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [passkeys, setPasskeys] = useState<PasskeyItem[] | null>(null)
+  const [passkeyError, setPasskeyError] = useState('')
+  const [passkeyNotice, setPasskeyNotice] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +85,55 @@ export default function SecurityPanel({ onSignedOut }: Props) {
   useEffect(() => {
     void load()
   }, [load])
+
+  const loadPasskeys = useCallback(async () => {
+    if (!passkeyEnabled) return
+    try {
+      const body = await fetchPasskeys()
+      setPasskeys(body.credentials)
+      setPasskeyError('')
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : 'Passkey 列表加载失败')
+      setPasskeys(null)
+    }
+  }, [passkeyEnabled])
+
+  useEffect(() => {
+    void loadPasskeys()
+  }, [loadPasskeys])
+
+  async function addPasskey() {
+    const name = window.prompt('为此设备命名（可选）：') ?? ''
+    setBusy(true)
+    setPasskeyNotice('')
+    try {
+      await registerPasskey(name.trim())
+      setPasskeyNotice('Passkey 已添加，下次可直接免密登录')
+      await loadPasskeys()
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : 'Passkey 添加失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removePasskey(item: PasskeyItem) {
+    const password = window.prompt('删除 Passkey 需要输入当前密码确认：')
+    if (!password) return
+    setBusy(true)
+    setPasskeyNotice('')
+    try {
+      const remaining = await deletePasskey(item.credential_id, password)
+      setPasskeyNotice(remaining === 0
+        ? '已删除最后一把 Passkey；仍可使用密码登录'
+        : 'Passkey 已删除')
+      await loadPasskeys()
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : 'Passkey 删除失败')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function revoke(session: SessionItem) {
     let password = ''
@@ -185,6 +240,57 @@ export default function SecurityPanel({ onSignedOut }: Props) {
             </li>
           ))}
         </ul>
+      )}
+
+      {passkeyEnabled && (
+        <div className="mt-4 border-t border-rule pt-3" data-testid="passkey-panel">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-[11px] font-medium text-ink-muted">通行密钥（Passkey）</h4>
+            <button type="button" className="text-[11px] text-ink-muted underline hover:text-ink disabled:opacity-60"
+                    data-testid="passkey-add" disabled={busy} onClick={() => void addPasskey()}>
+              添加
+            </button>
+          </div>
+          <p className="text-[11px] text-ink-muted">用于免密登录；删除需输入当前密码确认。</p>
+          {passkeyError && (
+            <p role="alert" className="mt-2 text-stamp-red" data-testid="passkey-error">{passkeyError}</p>
+          )}
+          {!passkeyError && passkeys === null && (
+            <p role="status" aria-live="polite" className="mt-2 text-ink-muted">加载中…</p>
+          )}
+          {!passkeyError && passkeys && passkeys.length === 0 && (
+            <p className="mt-2 text-ink-muted" data-testid="passkey-empty">尚未添加 Passkey</p>
+          )}
+          {!passkeyError && passkeys && passkeys.length > 0 && (
+            <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto pr-1"
+                tabIndex={0} role="region" aria-label="Passkey 列表">
+              {passkeys.map((item) => (
+                <li key={item.credential_id} data-testid="passkey-item"
+                    className="rounded-lg border border-rule bg-rule/40 px-3 py-2 text-[11px]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-ink">{item.name}</span>
+                    <button type="button"
+                            className="text-ink-muted underline hover:text-stamp-red disabled:opacity-60"
+                            data-testid="passkey-delete" disabled={busy}
+                            onClick={() => void removePasskey(item)}>
+                      删除
+                    </button>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-ink-muted">
+                    <span>添加于：{timeLabel(item.created_at ?? '')}</span>
+                    <span>最近使用：{item.last_used_at ? timeLabel(item.last_used_at) : '从未'}</span>
+                    {item.backup_state && <span>已同步</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {passkeyNotice && (
+            <p role="status" aria-live="polite" className="mt-2 text-ink-muted" data-testid="passkey-notice">
+              {passkeyNotice}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="mt-3 flex items-center justify-between gap-2">

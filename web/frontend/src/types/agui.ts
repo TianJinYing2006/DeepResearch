@@ -98,6 +98,8 @@ export interface RunOptions {
   share_enabled?: boolean
   /** 需求 36 H3：报告后追问开关（隐藏追问入口） */
   followup_enabled?: boolean
+  /** 需求 20 P1-2：Passkey 可用性与 RP ID（前端按当前 host 再判一次） */
+  webauthn?: { available: boolean; rp_id: string }
 }
 
 export interface StepFinishedEvent extends AguiEvent {
