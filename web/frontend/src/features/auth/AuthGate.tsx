@@ -10,15 +10,19 @@ type Props = {
   inviteFromUrl?: string
   onAuthed: (user: SessionUser) => void
   onOpenLegal: (doc: 'privacy' | 'terms') => void
-  /** 返回落地页（存在落地页时提供）。 */
+  /** 返回落地页（存在落地页时提供） */
   onBack?: () => void
+  /** 需求 20 P1-2：当前域名可用时展示 Passkey 登录。 */
+  passkeyEnabled?: boolean
 }
 
 /** 登录注册页（v3，参考 LinkResume /login 的黑白分栏）：
  *
  * 左（移动端在上）：白卡表单；右（移动端在下）：墨色宣言板——
  * 衬线大字 + 闪烁光标 + 底部注解。保留全部 e2e 契约（AuthForm 未动）。 */
-export default function AuthGate({ notice, inviteFromUrl, onAuthed, onOpenLegal, onBack }: Props) {
+export default function AuthGate({
+  notice, inviteFromUrl, onAuthed, onOpenLegal, onBack, passkeyEnabled = false,
+}: Props) {
   return (
     <Modal
       onClose={() => {}}
@@ -51,6 +55,7 @@ export default function AuthGate({ notice, inviteFromUrl, onAuthed, onOpenLegal,
             initialMode={inviteFromUrl ? 'register' : 'login'}
             inviteFromUrl={inviteFromUrl}
             notice={notice}
+            passkeyEnabled={passkeyEnabled}
             onAuthed={onAuthed}
             onOpenLegal={onOpenLegal}
           />

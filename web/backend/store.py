@@ -1798,6 +1798,117 @@ class RunStore:
             )
             return cur.fetchone() is not None
 
+    # ---- Passkey：WebAuthn 凭据与一次性挑战（需求 20 P1-2） ----
+
+    def create_webauthn_challenge(self, challenge_id: str, user_id: Optional[str],
+                                  purpose: str, challenge: bytes,
+                                  expires_at: datetime) -> None:
+        """落一次挑战；顺带清理过期 / 已消费记录与该用户同用途的旧挑战。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM webauthn_challenges "
+                "WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'"
+            )
+            if user_id is not None:
+                cur.execute(
+                    "DELETE FROM webauthn_challenges "
+                    "WHERE user_id = %s AND purpose = %s AND consumed_at IS NULL",
+                    (user_id, purpose),
+                )
+            cur.execute(
+                "INSERT INTO webauthn_challenges "
+                "(challenge_id, user_id, purpose, challenge, expires_at) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (challenge_id, user_id, purpose, challenge, expires_at),
+            )
+
+    def consume_webauthn_challenge(self, challenge_id: str,
+                                   purpose: str) -> Optional[dict[str, Any]]:
+        """原子消费挑战：已消费 / 过期 / 用途不符一律不可用（防重放）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE webauthn_challenges SET consumed_at = now() "
+                "WHERE challenge_id = %s AND purpose = %s AND consumed_at IS NULL "
+                "  AND expires_at > now() "
+                "RETURNING user_id, challenge",
+                (challenge_id, purpose),
+            )
+            return cur.fetchone()
+
+    def create_webauthn_credential(self, credential_id: bytes, user_id: str,
+                                   public_key: bytes, sign_count: int, *,
+                                   transports: Optional[list[str]] = None,
+                                   aaguid: Optional[str] = None,
+                                   backup_state: bool = False,
+                                   device_type: Optional[str] = None,
+                                   name: Optional[str] = None) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO webauthn_credentials "
+                "(credential_id, user_id, public_key, sign_count, transports, aaguid, "
+                " backup_state, device_type, name) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (credential_id, user_id, public_key, sign_count, Jsonb(transports or []),
+                 aaguid, backup_state, device_type, name),
+            )
+
+    def list_webauthn_credentials(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT credential_id, aaguid, transports, backup_state, device_type, "
+                "       name, sign_count, created_at, last_used_at "
+                "FROM webauthn_credentials WHERE user_id = %s "
+                "ORDER BY created_at DESC",
+                (user_id,),
+            )
+            return cur.fetchall()
+
+    def get_webauthn_credential(self, credential_id: bytes) -> Optional[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT credential_id, user_id, public_key, sign_count, transports, "
+                "       aaguid, backup_state, device_type, name, created_at, last_used_at "
+                "FROM webauthn_credentials WHERE credential_id = %s",
+                (credential_id,),
+            )
+            return cur.fetchone()
+
+    def count_webauthn_credentials(self, user_id: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM webauthn_credentials WHERE user_id = %s",
+                        (user_id,))
+            return int(cur.fetchone()["n"])
+
+    def bump_webauthn_sign_count(self, credential_id: bytes, previous: int,
+                                 new_count: int) -> bool:
+        """仅当库里仍是 `previous` 时更新（并发下防重复消费同一断言）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE webauthn_credentials SET sign_count = %s, last_used_at = now() "
+                "WHERE credential_id = %s AND sign_count = %s "
+                "RETURNING credential_id",
+                (new_count, credential_id, previous),
+            )
+            return cur.fetchone() is not None
+
+    def delete_webauthn_credential(self, user_id: str, credential_id: bytes) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM webauthn_credentials "
+                "WHERE user_id = %s AND credential_id = %s RETURNING credential_id",
+                (user_id, credential_id),
+            )
+            return cur.fetchone() is not None
+
+    def purge_expired_webauthn_challenges(self) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM webauthn_challenges "
+                "WHERE expires_at <= now() OR consumed_at < now() - interval '1 day' "
+                "RETURNING challenge_id"
+            )
+            return len(cur.fetchall())
+
     # ---- 密码重置 token（P1-10）----
 
     def create_password_reset(self, token_hash: str, user_id: str, expires_at: datetime,

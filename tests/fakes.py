@@ -176,6 +176,9 @@ class FakeStore:
         # 需求 20 P1-3：MFA 因子与恢复码
         self.mfa_factors: dict[str, dict] = {}
         self.recovery_codes: list[dict] = []
+        # 需求 20 P1-2：Passkey 凭据与一次性挑战
+        self.webauthn_credentials: dict[bytes, dict] = {}
+        self.webauthn_challenges: dict[str, dict] = {}
         self.usage: list[dict] = []
         self.quota_reservations: dict[str, dict] = {}
         self.alert_states: dict[str, dict] = {}
@@ -843,6 +846,88 @@ class FakeStore:
             return False
         row["mfa_verified"] = verified
         return True
+
+    # ---- Passkey：WebAuthn 凭据与一次性挑战（需求 20 P1-2） ----
+
+    def create_webauthn_challenge(self, challenge_id, user_id, purpose, challenge,
+                                  expires_at):
+        now = datetime.now(UTC)
+        for key, row in list(self.webauthn_challenges.items()):
+            if row["expires_at"] <= now or (
+                    row["consumed_at"] is not None
+                    and row["consumed_at"] < now - timedelta(days=1)):
+                del self.webauthn_challenges[key]
+        if user_id is not None:
+            for key, row in list(self.webauthn_challenges.items()):
+                if (row["user_id"] == user_id and row["purpose"] == purpose
+                        and row["consumed_at"] is None):
+                    del self.webauthn_challenges[key]
+        self.webauthn_challenges[challenge_id] = {
+            "challenge_id": challenge_id, "user_id": user_id, "purpose": purpose,
+            "challenge": challenge, "created_at": now, "expires_at": expires_at,
+            "consumed_at": None,
+        }
+
+    def consume_webauthn_challenge(self, challenge_id, purpose):
+        row = self.webauthn_challenges.get(challenge_id)
+        now = datetime.now(UTC)
+        if (row is None or row["purpose"] != purpose or row["consumed_at"] is not None
+                or row["expires_at"] <= now):
+            return None
+        row["consumed_at"] = now
+        return {"user_id": row["user_id"], "challenge": row["challenge"]}
+
+    def create_webauthn_credential(self, credential_id, user_id, public_key, sign_count, *,
+                                   transports=None, aaguid=None, backup_state=False,
+                                   device_type=None, name=None):
+        if credential_id in self.webauthn_credentials:
+            raise FakeUniqueViolation("duplicate credential")
+        self.webauthn_credentials[credential_id] = {
+            "credential_id": credential_id, "user_id": user_id,
+            "public_key": public_key, "sign_count": sign_count,
+            "transports": list(transports or []), "aaguid": aaguid,
+            "backup_state": backup_state, "device_type": device_type,
+            "name": name, "created_at": datetime.now(UTC), "last_used_at": None,
+        }
+
+    def list_webauthn_credentials(self, user_id):
+        rows = [dict(row) for row in self.webauthn_credentials.values()
+                if row["user_id"] == user_id]
+        rows.sort(key=lambda row: row["created_at"], reverse=True)
+        return rows
+
+    def get_webauthn_credential(self, credential_id):
+        row = self.webauthn_credentials.get(credential_id)
+        return dict(row) if row is not None else None
+
+    def count_webauthn_credentials(self, user_id):
+        return sum(1 for row in self.webauthn_credentials.values()
+                   if row["user_id"] == user_id)
+
+    def bump_webauthn_sign_count(self, credential_id, previous, new_count):
+        row = self.webauthn_credentials.get(credential_id)
+        if row is None or row["sign_count"] != previous:
+            return False
+        row["sign_count"] = new_count
+        row["last_used_at"] = datetime.now(UTC)
+        return True
+
+    def delete_webauthn_credential(self, user_id, credential_id):
+        row = self.webauthn_credentials.get(credential_id)
+        if row is None or row["user_id"] != user_id:
+            return False
+        del self.webauthn_credentials[credential_id]
+        return True
+
+    def purge_expired_webauthn_challenges(self):
+        now = datetime.now(UTC)
+        keys = [key for key, row in self.webauthn_challenges.items()
+                if row["expires_at"] <= now
+                or (row["consumed_at"] is not None
+                    and row["consumed_at"] < now - timedelta(days=1))]
+        for key in keys:
+            del self.webauthn_challenges[key]
+        return len(keys)
 
     def update_password(self, user_id, password_hash):
         row = self.users.get(user_id)

@@ -989,3 +989,35 @@ def test_rag_meta_usage_and_requeue(store: RunStore):
 
     assert store.delete_ingestion_by_doc(TEST_USER, doc_id) == ["s.md"]
     assert store.get_rag_doc_for_user(doc_id, TEST_USER) is None
+
+def test_webauthn_challenge_and_credential_roundtrip(store: RunStore):
+    """需求 20 P1-2：挑战一次性消费 + 凭据 sign_count 条件更新 + 删除。"""
+    challenge_id = uuid.uuid4().hex[:16]
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    store.create_webauthn_challenge(challenge_id, TEST_USER, "register",
+                                    b"challenge-bytes", expires_at)
+    consumed = store.consume_webauthn_challenge(challenge_id, "register")
+    assert consumed is not None
+    assert consumed["user_id"] == TEST_USER
+    assert bytes(consumed["challenge"]) == b"challenge-bytes"
+    assert store.consume_webauthn_challenge(challenge_id, "register") is None
+
+    credential_id = uuid.uuid4().bytes
+    store.create_webauthn_credential(
+        credential_id, TEST_USER, b"public-key", 0,
+        transports=["internal"], aaguid="aaguid", backup_state=True,
+        device_type="multi_device", name="测试设备")
+    row = store.get_webauthn_credential(credential_id)
+    assert row is not None
+    assert row["user_id"] == TEST_USER
+    assert row["transports"] == ["internal"]
+    assert row["backup_state"] is True
+    assert store.count_webauthn_credentials(TEST_USER) == 1
+    listed = store.list_webauthn_credentials(TEST_USER)
+    assert [item["credential_id"] for item in listed] == [credential_id]
+    assert store.bump_webauthn_sign_count(credential_id, 0, 3) is True
+    assert store.bump_webauthn_sign_count(credential_id, 0, 4) is False
+    assert store.get_webauthn_credential(credential_id)["sign_count"] == 3
+    assert store.delete_webauthn_credential(OTHER_USER, credential_id) is False
+    assert store.delete_webauthn_credential(TEST_USER, credential_id) is True
+    assert store.get_webauthn_credential(credential_id) is None

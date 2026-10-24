@@ -24,6 +24,8 @@ type Props = {
   running: boolean
   /** 需求 26：报告分享开关（透传给历史面板，控制分享入口显示）。 */
   shareEnabled?: boolean
+  /** 需求 20 P1-2：当前域名可用时展示 Passkey 登录 / 管理入口。 */
+  passkeyEnabled?: boolean
 }
 
 /**
@@ -32,7 +34,9 @@ type Props = {
  * - 鉴权开启（authRequired）且未登录时渲染全屏登录门；
  * - 未开启鉴权时保持匿名可用（历史/上传仍可用，配额由后端按匿名口径返回）。
  */
-export default function AccountPanel({ authRequired, activeRunId, running, shareEnabled = false }: Props) {
+export default function AccountPanel({
+  authRequired, activeRunId, running, shareEnabled = false, passkeyEnabled = false,
+}: Props) {
   // 验收点③ 切片 S1（会话域 state）：会话探测与未登录访客分流已抽到
   // `features/account/useSessionEntry.ts`。解构沿用原名（含 setter 与 `loadSession`），
   // JSX 与全部调用点零改动；⚠️ `checked` 与 `user` 语义不同、`inviteFromUrl` 只在挂载时读一次 URL，
@@ -221,6 +225,7 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
         <AuthGate
           notice={authNotice}
           inviteFromUrl={inviteFromUrl}
+          passkeyEnabled={passkeyEnabled}
           onBack={() => setAuthView('landing')}
           onAuthed={(next) => {
             setUser(next)
@@ -519,7 +524,8 @@ export default function AccountPanel({ authRequired, activeRunId, running, share
       <ChunkPreviewModal preview={preview} />
 
       {securityOpen && user && (
-        <SecurityPanel onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
+        <SecurityPanel passkeyEnabled={passkeyEnabled}
+                       onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
       )}
 
       {inviteOpen && !authRequired && !user && (

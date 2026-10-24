@@ -68,3 +68,7 @@ weasyprint>=70,<71
 # 需求 20 P1-3：TOTP MFA —— TOTP secret **可逆加密**（AES-256-GCM；密钥来自 DR_MFA_SECRET_KEY）
 # 锁外科式（先例：需求 10/37/38）：只加 cryptography 与其新增传递依赖（cffi / pycparser[可选]）
 cryptography>=43
+
+# 需求 20 P1-2：Passkey（WebAuthn）—— py_webauthn 服务端选项生成 / 签名校验
+# 锁外科式（先例：需求 10/37/38）：只加 webauthn 与其新增传递依赖
+webauthn>=3.0,<4
