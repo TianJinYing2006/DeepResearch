@@ -40,7 +40,10 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
         libpangoft2-1.0-0 \
         fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir -r requirements-lock.txt
+# 国内 staging 直连 PyPI 实测 ~15 kB/s（依赖总量 100MB+，构建超 90 分钟超时）；
+# 同样允许通过 build-arg 切换 index，默认保持官方源（CI 直连 docker build 走默认）。
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" -r requirements-lock.txt
 COPY config.py cli.py ./
 COPY research_engine/ ./research_engine/
 COPY web/ ./web/
