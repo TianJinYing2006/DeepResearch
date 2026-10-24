@@ -166,6 +166,7 @@ services:
       dockerfile: Dockerfile.api
       args:
         DEBIAN_MIRROR: ${DR_DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
+        PIP_INDEX_URL: ${DR_PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
     image: deepresearch-staging-api:latest
     restart: unless-stopped
     command: ["python", "-m", "web.backend.export_worker"]
@@ -313,6 +314,7 @@ services:
       dockerfile: Dockerfile.api
       args:
         DEBIAN_MIRROR: ${DR_DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
+        PIP_INDEX_URL: ${DR_PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -397,6 +399,7 @@ services:
       dockerfile: Dockerfile.api
       args:
         DEBIAN_MIRROR: ${DR_DEBIAN_MIRROR:-https://mirrors.cloud.tencent.com}
+        PIP_INDEX_URL: ${DR_PIP_INDEX_URL:-https://mirrors.cloud.tencent.com/pypi/simple}
     restart: unless-stopped
     command: ["python", "-m", "web.backend.worker"]
     depends_on:
