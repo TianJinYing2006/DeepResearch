@@ -67,13 +67,15 @@ python -m pip install -r requirements-lock.txt -r requirements-dev-lock.txt
 
 > 请在独立虚拟环境中安装；不要用系统 Python 3.14。两份 lock 分别固定运行依赖与 pytest/ruff 开发依赖。
 
-> **本地测试两种模式（P0-3，2026-10-07）**：
+> **本地测试两种模式（P0-3，2026-10-07；E-5 2026-10-26 修正）**：
 > 1. **零依赖单测（与 CI 同口径）**：`pytest tests/ -q` —— `tests/conftest.py` 会覆盖式清空
->    `DR_DATABASE_URL` / `DR_REDIS_URL` / `QDRANT_URL`，不受本机 `.env` 是否配置了本地服务影响；
+>    `DR_DATABASE_URL` / `DR_REDIS_URL` / `QDRANT_URL`，并把 **`.env` 来源的 `DR_TEST_*` 置空**
+>    （显式环境变量与 `DR_TEST_INTEGRATION=1` 除外），不受本机 `.env` 是否配置服务影响；
 > 2. **含真实 PG/Redis 的集成 lane**：先起依赖并迁移
 >    （`docker compose -f docker-compose.staging.yml up -d postgres redis qdrant` +
 >    `docker compose -f docker-compose.staging.yml run --rm migrate`），再在 `.env` 配置
->    `DR_TEST_DATABASE_URL` / `DR_TEST_REDIS_URL`，重跑 `pytest tests/ -q` 即执行原本跳过的集成用例。
+>    `DR_TEST_DATABASE_URL` / `DR_TEST_REDIS_URL` 并设 **`DR_TEST_INTEGRATION=1`**，重跑
+>    `pytest tests/ -q` 即执行原本跳过的集成用例；CI `infra` job 直接用显式 env，不依赖此开关。
 
 ### 3. 配置
 

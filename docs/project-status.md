@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（E-5 测试隔离）**：`tests/conftest.py` 在零依赖 lane 下把 **`.env` 来源的 `DR_TEST_*` 置空**（显式 env / `DR_TEST_INTEGRATION=1` 保留），修复本机 `.env` 配不可达 PG/Redis 时集成用例报错、掩盖真回归；README / `.env.example` 口径同步。本机验证：`test_run_store` 41 skip、`test_worker_integration` 5 skip、`test_web_health` 通过。 |
 | 更新 | **2026-10-26（P0-1 反代信任）**：compose 默认 `DR_TRUSTED_PROXY_CIDRS=172.16.0.0/12`；Caddyfile 显式覆盖 `X-Forwarded-For/Proto`（不采信客户端自带 XFF）；`deploy.sh` 在 api 滚动后 `caddy reload`（失败 WARN，不阻断）；`.env.example` / runbook 补「两出口独立限流 + 伪造 XFF 无效」验证；新增配置回归测试 3 例。 |
 | 更新 | **2026-10-26（P0-2b Passkey 注册 step-up）**：`/api/auth/webauthn/register/begin` 要求当前密码（`invalid_credentials` + `passkey_enroll_auth_failed` 审计）；前端「添加 Passkey」先密码确认；`tests/test_passkeys.py` 新增错误/缺失密码用例；需求 20 变更记录同步。MFA 前端整合（P1-4）仍未做。 |
 | 更新 | **2026-10-26（CI：字体 deb 缓存修正）**：#279 的 apt `.deb` 缓存实测未生效（`gh cache list` 无对应条目）。lint job 的 CJK 字体改为**复用 e2e 的缓存方案**：`~/.cache/dr-fonts` + `fonts-noto-cjk-20230817-${runner.os}` + `apt-get download` + `dpkg -i`；pango 两库仍走 apt（小包、直装失败再 update+重试）；删除未生效的 apt 缓存步骤。 |

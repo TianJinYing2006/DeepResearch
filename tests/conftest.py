@@ -37,6 +37,13 @@ os.environ["DR_HITL_FOLLOWUP"] = "false"
 for _unreachable_key in ("DR_DATABASE_URL", "DR_REDIS_URL", "QDRANT_URL"):
     os.environ[_unreachable_key] = ""
 
+# E-5（2026-10-26）：`.env` 里的 DR_TEST_* 不应自动激活集成 lane —— 否则本机零依赖模式
+# 会变成集成 lane（PG/Redis 用例报错，掩盖真回归）。显式环境变量（CI infra / 手动 export）
+# 仍保留；本地用 `.env` 跑集成 lane 时显式设 `DR_TEST_INTEGRATION=1`。
+if os.getenv("DR_TEST_INTEGRATION") != "1":
+    for _integration_key in ("DR_TEST_DATABASE_URL", "DR_TEST_REDIS_URL"):
+        os.environ.setdefault(_integration_key, "")
+
 # P4-B：单测进程内关掉登录/提交限流（默认 10/分钟会跨用例累计，导致假失败）；
 # 限流本身由 tests/test_ratelimit.py 与 test_quotas.py 用显式限流器覆盖。
 os.environ.setdefault("DR_LOGIN_RATE_PER_MINUTE", "0")
