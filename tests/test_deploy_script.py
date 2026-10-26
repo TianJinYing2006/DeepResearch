@@ -20,6 +20,7 @@ def test_deploy_has_step_timing_and_timeouts() -> None:
 def test_deploy_reloads_exact_compose_caddy_and_fails_hard() -> None:
     text = (ROOT / "tools" / "deploy.sh").read_text(encoding="utf-8")
     assert "ps -q caddy" in text
+    assert "--force-recreate --wait caddy" in text  # 单文件 bind mount 旧 inode ⇒ 必须重建
     assert "caddy reload --config /etc/caddy/Caddyfile" in text
     assert "WARN Caddy reload" not in text  # 旧行为：失败只 WARN；现在必须失败
 

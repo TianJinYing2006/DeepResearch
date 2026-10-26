@@ -100,7 +100,7 @@ bash tools/deploy.sh --rollback rollback-<sha>                       # 应用回
 # 脚本做什么（失败即中止，旧版本保持在线）：
 #   前置检查 → 新鲜备份+COS → 回滚镜像标记（rollback-<prev-sha>）→ 源码快照
 #   → git 同步（HTTP/1.1+重试）→ 构建（latest + SHA tag）→ 迁移（幂等 ×2）
-#   → 滚动 worker→api→export → Caddy reload（按 compose service 精确命中；失败即中止）
+#   → 滚动 worker→api→export → Caddy 重建 + reload（单文件 bind mount 锁旧 inode，必须重建容器）
 #   → 冒烟（本机+公网 readiness / checkpoint 探测 / worker 异常扫描）
 # 记录：$APP_DIR/deployments.log（时间 / 提交 / 结果）；回滚命令随失败信息打印。
 # 耗时/超时（2026-10-26 起）：每阶段打印耗时；backup 900s / snapshot 300s / build 1800s /
