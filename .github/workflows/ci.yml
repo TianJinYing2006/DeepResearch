@@ -341,7 +341,16 @@ jobs:
           fi
           sudo dpkg -i "$pkg_dir"/*.deb
 
+      # Playwright 浏览器 ~170MB；GitHub 镜像偶发极慢（实测 e2e 18m）。按 lock 缓存浏览器，
+      # 命中时跳过下载；step 超时兜底（系统依赖仍由 --with-deps 安装）。
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/frontend/package-lock.json') }}
+
       - name: Install Playwright Chromium
+        timeout-minutes: 20
         working-directory: web/frontend
         run: npx playwright install --with-deps chromium
 
