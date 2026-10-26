@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（部署可观测性 + Caddy reload 精确命中）**：`deploy.sh` 每阶段打印耗时并给 backup/build/migrate/rolling/caddy/冒烟加超时；Caddy reload 改为 `docker compose ps -q caddy` 精确命中且**失败即中止**（修复 P0-5 线上 `/metrics` 仍 404 的根因：`grep caddy` 可能误选容器 + 只 WARN 静默）；新增静态测试 3 例。 |
 | 更新 | **2026-10-26（P0-5 公网 /metrics 屏蔽）**：Caddyfile 对 `/metrics` 与 `/metrics/*` 统一 `respond 403`（指标仅供本机/内网直连 API）；`.env.example` 补 `DR_METRICS_PROMETHEUS` 口径；runbook 冒烟加「公网 403」断言；配置回归测试 +1。 |
 | 更新 | **2026-10-26（CI：Playwright 浏览器缓存）**：e2e job 缓存 `~/.cache/ms-playwright`（key = `playwright-${runner.os}-${hashFiles(package-lock.json)}`），`Install Playwright Chromium` 加 **20 分钟**超时；解决 PR #289 e2e **18m15** / dev 14m 的浏览器下载等待。 |
 | 更新 | **2026-10-26（P0-4 备份凭据）**：`backup.sh` / `restore.sh` 连接参数优先 PG*，兼容 `DATABASE_URL` 时在脚本内解析（不再进子进程 argv）；新增 `BACKUP_REQUIRE_ENCRYPTION=1` 强制闸；`backup-cron.sh` 改临时 `--env-file`（0600 + trap）传 PG*，默认强制加密；CI 备份/恢复演练改用 PG*；runbook 补凭据与默认口令轮换检查；静态回归测试 3 例。服务器现有默认口令轮换仍待运维窗口。 |
