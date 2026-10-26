@@ -112,6 +112,7 @@ from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profil
 from .queue import RunQueue
 from .ratelimit import make_limiter
 from .runner import RunManager, _estimate_cost_cny
+from .security_headers import SecurityHeadersMiddleware
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 from .totp import (
     encode_secret as totp_encode_secret,
@@ -217,6 +218,7 @@ async def _https_enforcement(request: Request, call_next):
             )
     return await call_next(request)
 
+
 # DR_DEMO=1 ⇒ 用假 graph 跑演示（不调 LLM、不烧钱），用于查看 UI 效果。
 # 演示与真实运行**共用**后端全部 SSE 管线，故事件序列 / 降级推送 / 取消行为都是真的。
 DEMO_MODE = os.getenv("DR_DEMO") == "1"
@@ -261,6 +263,15 @@ def _parse_env() -> str:
 
 
 ENV = _parse_env()
+
+# P0-3（2026-10-26）：全局安全响应头（CSP / HSTS / nosniff / frame-ancestors / Referrer /
+# Permissions）。纯 ASGI 中间件放在最外层，流式（SSE）语义不变，且不覆盖应用已设 header。
+# HSTS 与 upgrade-insecure-requests 仅在 staging/production 注入。
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    env=ENV,
+    connect_src_extra=(os.getenv("DR_CSP_CONNECT_SRC") or "").strip(),
+)
 
 
 def _validate_runtime_config() -> None:

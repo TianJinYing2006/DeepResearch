@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（P0-3 安全响应头）**：新增应用层 `SecurityHeadersMiddleware`（纯 ASGI）：CSP / HSTS / nosniff / X-Frame-Options / Referrer / Permissions；HSTS 与 `upgrade-insecure-requests` 仅在 staging/production 注入；`DR_CSP_CONNECT_SRC` 可追加前端 Sentry origin；不覆盖应用已有 header（分享页 `no-referrer` 保留）。单测 6 + web 子集 38 通过；Caddy 继续保持 TLS/SSE，未改。 |
 | 更新 | **2026-10-26（CI 可靠性）**：PR 校验覆盖所有 base（堆叠 PR 不再无 checks）；4 个 job 加 `timeout-minutes`；weasyprint / CJK 字体 apt 依赖改为「直装 → update+重试」并给 step 超时（实测单次 545s，正常 10~15s）；`pytest --durations=10` 便于后续定位慢用例。根因：apt 网络偶发极慢导致 dev CI 10~20 分钟不绿、`workflow_run` 部署延迟。 |
 | 更新 | **2026-10-26（安全：公开仓 IP 守卫 + 部署凭据迁 secrets）**：PR **#269** 新增 `tools/check_public_ip.py`（7 单测 + CI `--strict`），脱敏 `project-status` / `requirements/37` / `release-runbook` 的 staging 真实 IP；本 PR 将部署凭据迁 GitHub Secrets（`DEPLOY_SSH_KEY` / `STAGING_HOST` / `STAGING_HOST_KEY`），`tools/deploy.sh` 去掉 IP 默认值（`DR_PUBLIC_URL` 改为可选，未配置时跳过公网 readiness 并 WARN），守卫基线清零。**历史 commit 仍含旧 IP**；换 IP/安全组属运维动作，待执行。 |
 | 更新 | **2026-10-26（治理：约束 v2.0 + 边界重划 ADR-0017 + ADR 索引修复）**：`CONTRIBUTING.md` 全面修订 v2.0→v2.2（文档层级 / L3-A/B 当前边界与五条产品化准入 / 三层质量门禁 / 公开仓脱敏 / 仓库边界 / 本机环境铁律 / AI 协作规则 / 约束执行矩阵）；新增 **ADR-0017** 重划产品边界，**ADR-0009 转「已采纳」**（2026-10-26 追认）；修正 ADR 重号（原 `0012-otel-observability-migration` → **0016**，2026-10-11 晚于 0012-side-data）并补齐索引 0010/0011/0016/0017；新增 `docs/action-plan-2026-10-26.md`（A/B/C 准入的行动清单）；**新增 `docs/figures.md`（对外数字唯一表）并回填 README 数字（1290 测试 / 92 E2E / 17 ADR / 27 迁移 / 23 checks）**。**本次只改文档，未改代码、未动评测产物；分 5 个 PR 提交（#259 起的堆叠 PR 系列，按顺序合并）。** |
