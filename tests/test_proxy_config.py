@@ -27,3 +27,9 @@ def test_deploy_reloads_caddy_after_rolling_api() -> None:
     text = (ROOT / "tools" / "deploy.sh").read_text(encoding="utf-8")
     assert "caddy reload --config /etc/caddy/Caddyfile" in text
     assert text.index("caddy reload") > text.index("up -d --wait api")
+
+
+def test_caddy_blocks_public_metrics() -> None:
+    text = (ROOT / "Caddyfile").read_text(encoding="utf-8")
+    assert "path /metrics /metrics/*" in text
+    assert 'respond "metrics endpoint is internal-only" 403' in text

@@ -146,6 +146,9 @@ curl -sI $BASE/ | grep -Ei 'content-security-policy|strict-transport-security|x-
 # 反代信任（P0-1）：同一客户端伪造不同 XFF 连打 11 次登录（每次随机邮箱）=> 第 11 次应 429；
 # 两个不同公网出口应各自独立计数；`admin audit-list` 里的 ip 必须是真实出口 IP。
 
+# 公网 /metrics 必须 403（P0-5；本机 127.0.0.1:8000/metrics 仍可抓取）
+code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/metrics"); [ "$code" = "403" ]
+
 # 登录 → 提交 → 尾随 → 取消 → 导出（P4-A 鉴权开启时带 Cookie + CSRF）
 # 用管理员 CLI 侧核对（示例）：
 python -m web.backend.admin audit-list --limit 5
