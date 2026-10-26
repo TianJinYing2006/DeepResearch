@@ -26,6 +26,9 @@
 	@stream path /api/research/*/stream
 	handle @stream {
 		reverse_proxy api:8000 {
+			# P0-1：显式覆盖客户端可伪造的 X-Forwarded-*（应用只信任可信 CIDR 的最后一跳）
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Forwarded-Proto {scheme}
 			flush_interval -1
 			transport http {
 				# 单次运行默认超时 3600s（DR_RUN_TIMEOUT_SECONDS），留 5 分钟余量
@@ -38,7 +41,10 @@
 	# ---- 其余路径：正常压缩 ----
 	handle {
 		encode zstd gzip
-		reverse_proxy api:8000
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 
 	# 上传上限对齐 DR_RAG_MAX_FILE_MB（默认 10 MB）+ multipart 余量；
