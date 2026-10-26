@@ -45,3 +45,7 @@ os.environ.setdefault("DR_LOGIN_ACCOUNT_RATE_PER_MINUTE", "0")
 os.environ.setdefault("DR_SUBMIT_RATE_PER_MINUTE", "0")
 # 需求 36 H3：追问限流同理关闭（限流本身由定向用例覆盖）
 os.environ.setdefault("DR_FOLLOWUP_RATE_PER_MINUTE", "0")
+# P0-2（2026-10-26）：MFA / Passkey 管理限流同理关闭；定向用例用 monkeypatch 覆盖
+os.environ.setdefault("DR_MFA_VERIFY_RATE_PER_MINUTE", "0")
+os.environ.setdefault("DR_MFA_ENROLL_RATE_PER_MINUTE", "0")
+os.environ.setdefault("DR_PASSKEY_MANAGE_RATE_PER_MINUTE", "0")

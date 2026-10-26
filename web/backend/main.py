@@ -320,6 +320,16 @@ SUBMIT_LIMITER = make_limiter(
 FOLLOWUP_LIMITER = make_limiter(
     "followup", int(_env_number("DR_FOLLOWUP_RATE_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
+# P0-2（2026-10-26 评审）：MFA step-up / MFA 管理 / Passkey 管理的爆破防护（按用户）。
+MFA_VERIFY_LIMITER = make_limiter(
+    "mfa_verify", int(_env_number("DR_MFA_VERIFY_RATE_PER_MINUTE", 5)),
+    redis_url=_LIMITER_REDIS_URL)
+MFA_ENROLL_LIMITER = make_limiter(
+    "mfa_enroll", int(_env_number("DR_MFA_ENROLL_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
+PASSKEY_MANAGE_LIMITER = make_limiter(
+    "passkey_manage", int(_env_number("DR_PASSKEY_MANAGE_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
 # P1-2 / P0-10：可信反向代理。生产口径：显式配置代理 CIDR（反向代理必须清理
 # 外部传入的 X-Forwarded-* 头），应用只信任来自可信 hop 的 XFF / X-Forwarded-Proto。
 # `DR_TRUST_PROXY=true` 是历史布尔开关（信任任意来源的 XFF 首跳），仅在未配置
@@ -1388,6 +1398,9 @@ def mfa_totp_begin(request: Request) -> dict:
     _check_csrf(request)
     user = _require_session_user(request)
     _require_mfa_ready()
+    if not MFA_ENROLL_LIMITER.allow(f"mfa-enroll:{user['user_id']}"):
+        _audit("mfa_enroll_rate_limited", request=request, actor_user_id=user["user_id"])
+        raise http_error("rate_limited", "MFA 操作过于频繁，稍后再试")
     if _store_call(store.get_mfa_factor, user["user_id"]) is not None:
         raise http_error("mfa_already_enabled", "已启用 MFA；如需换绑请先关闭")
     secret = new_totp_secret()
@@ -1407,6 +1420,9 @@ def mfa_totp_confirm(req: MfaCodeRequest, request: Request) -> dict:
     _check_csrf(request)
     user = _require_session_user(request)
     _require_mfa_ready()
+    if not MFA_ENROLL_LIMITER.allow(f"mfa-enroll:{user['user_id']}"):
+        _audit("mfa_enroll_rate_limited", request=request, actor_user_id=user["user_id"])
+        raise http_error("rate_limited", "MFA 操作过于频繁，稍后再试")
     pending = _store_call(store.get_mfa_factor, user["user_id"], confirmed=False)
     if pending is None:
         raise http_error("mfa_not_started", "请先开始绑定（未找到待确认的因子）")
@@ -1427,6 +1443,9 @@ def mfa_disable(req: MfaDisableRequest, request: Request) -> dict:
     """关闭 MFA（需密码 + TOTP/恢复码；恢复码路径保证「密钥丢失」时仍可自救）。"""
     _check_csrf(request)
     user = _require_session_user(request)
+    if not MFA_ENROLL_LIMITER.allow(f"mfa-enroll:{user['user_id']}"):
+        _audit("mfa_enroll_rate_limited", request=request, actor_user_id=user["user_id"])
+        raise http_error("rate_limited", "MFA 操作过于频繁，稍后再试")
     if not verify_password(user["password_hash"], req.password):
         _audit("mfa_disable_failed", request=request, actor_user_id=user["user_id"],
                detail={"reason": "bad_password"})
@@ -1456,6 +1475,9 @@ def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
         # 因子已在别处移除（如已关闭 MFA）：直接完成，避免把自己锁死
         _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
         return {"user": _public_user(user)}
+    if not MFA_VERIFY_LIMITER.allow(f"mfa-verify:{user['user_id']}"):
+        _audit("mfa_verify_rate_limited", request=request, actor_user_id=user["user_id"])
+        raise http_error("rate_limited", "验证码尝试过于频繁，稍后再试")
     if not _verify_mfa_factor(user["user_id"], factor, req.code):
         _audit("mfa_verify_failed", request=request, actor_user_id=user["user_id"])
         raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
@@ -1510,6 +1532,13 @@ def _passkey_view(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _passkey_manage_rate_limit(user: dict[str, Any], request: Request) -> None:
+    """P0-2：Passkey 管理（注册/删除）按用户限流，防挑战刷取与枚举。"""
+    if not PASSKEY_MANAGE_LIMITER.allow(f"passkey-manage:{user['user_id']}"):
+        _audit("passkey_manage_rate_limited", request=request, actor_user_id=user["user_id"])
+        raise http_error("rate_limited", "Passkey 操作过于频繁，稍后再试")
+
+
 def _passkey_rate_limit(request: Request, email_hash: Optional[str] = None) -> None:
     allowed = LOGIN_LIMITER.allow(f"passkey:{_client_key(request)}")
     if email_hash is not None:
@@ -1536,6 +1565,7 @@ def webauthn_status(request: Request) -> dict:
 def webauthn_register_begin(request: Request) -> dict:
     _check_csrf(request)
     user = _require_session_user(request)
+    _passkey_manage_rate_limit(user, request)
     _require_webauthn_ready()
     existing = _store_call(store.list_webauthn_credentials, user["user_id"])
     challenge, options = passkeys.registration_options(
@@ -1553,6 +1583,7 @@ def webauthn_register_complete(req: WebAuthnRegisterCompleteRequest,
                                request: Request) -> dict:
     _check_csrf(request)
     user = _require_session_user(request)
+    _passkey_manage_rate_limit(user, request)
     _require_webauthn_ready()
     challenge_row = _store_call(store.consume_webauthn_challenge,
                                 req.challenge_id, "register")
@@ -1688,6 +1719,7 @@ def webauthn_delete(credential_id: str, req: WebAuthnDeleteRequest,
                     request: Request) -> dict:
     _check_csrf(request)
     user = _require_session_user(request)
+    _passkey_manage_rate_limit(user, request)
     _require_webauthn_ready()
     try:
         raw_id = passkeys.credential_id_from_payload({"rawId": credential_id})

@@ -210,3 +210,35 @@ def test_recovery_code_hash_is_stored_not_plaintext(client: TestClient, store: F
     stored = {row["code_hash"] for row in store.recovery_codes}
     assert stored and all(code not in stored for code in codes)
     assert hash_recovery_code(codes[0]) in stored
+
+
+class _DenyLimiter:
+    def allow(self, _key: str) -> bool:
+        return False
+
+
+def test_mfa_verify_rate_limited(client: TestClient, monkeypatch, store: FakeStore) -> None:
+    """P0-2：登录 step-up 的验证码尝试必须限流（含正确验证码也不放行）。"""
+    assert _register(client).status_code == 200
+    _codes, secret = _enable_mfa(client)
+    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _login(client).json() == {"mfa_required": True}
+
+    monkeypatch.setattr(api, "MFA_VERIFY_LIMITER", _DenyLimiter())
+    resp = client.post("/api/auth/mfa/verify",
+                       json={"code": totp_at(secret, time.time())},
+                       headers=_csrf(client))
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["code"] == "rate_limited"
+    assert client.get("/api/auth/session").status_code == 401
+    assert "mfa_verify_rate_limited" in _actions(store)
+
+
+def test_mfa_enroll_rate_limited(client: TestClient, monkeypatch, store: FakeStore) -> None:
+    """P0-2：MFA 绑定/关闭接口同样限流。"""
+    assert _register(client).status_code == 200
+    monkeypatch.setattr(api, "MFA_ENROLL_LIMITER", _DenyLimiter())
+    resp = client.post("/api/auth/mfa/totp/begin", headers=_csrf(client))
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["code"] == "rate_limited"
+    assert "mfa_enroll_rate_limited" in _actions(store)
