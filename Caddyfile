@@ -20,6 +20,12 @@
 }
 
 {$DR_DOMAIN} {
+	# P0-5：Prometheus /metrics 不对外；公网统一 403（本机/内网可直连 127.0.0.1:8000/metrics）
+	@metrics path /metrics /metrics/*
+	handle @metrics {
+		respond "metrics endpoint is internal-only" 403
+	}
+
 	# ---- SSE 事件流：不压缩、不缓冲 ----
 	# 压缩会让代理缓冲响应体，表现为「进度条长时间不动然后一次性跳完」；
 	# flush_interval -1 是 Caddy 的「收到即转发」开关。
