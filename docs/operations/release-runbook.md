@@ -133,6 +133,9 @@ docker compose -f docker-compose.staging.yml up -d --wait api
 BASE=https://<staging-host>
 curl -fsS $BASE/api/health/ready | jq '.ok, .checks'          # readiness 全绿
 
+# 安全响应头（P0-3）：CSP / HSTS / nosniff / frame-ancestors 必须存在
+curl -sI $BASE/ | grep -Ei 'content-security-policy|strict-transport-security|x-content-type-options|referrer-policy'
+
 # 登录 → 提交 → 尾随 → 取消 → 导出（P4-A 鉴权开启时带 Cookie + CSRF）
 # 用管理员 CLI 侧核对（示例）：
 python -m web.backend.admin audit-list --limit 5
