@@ -100,8 +100,11 @@ bash tools/deploy.sh --rollback rollback-<sha>                       # 应用回
 # 脚本做什么（失败即中止，旧版本保持在线）：
 #   前置检查 → 新鲜备份+COS → 回滚镜像标记（rollback-<prev-sha>）→ 源码快照
 #   → git 同步（HTTP/1.1+重试）→ 构建（latest + SHA tag）→ 迁移（幂等 ×2）
-#   → 滚动 worker→api（--wait）→ 冒烟（本机+公网 readiness / checkpoint 探测 / worker 异常扫描）
+#   → 滚动 worker→api→export → Caddy reload（按 compose service 精确命中；失败即中止）
+#   → 冒烟（本机+公网 readiness / checkpoint 探测 / worker 异常扫描）
 # 记录：$APP_DIR/deployments.log（时间 / 提交 / 结果）；回滚命令随失败信息打印。
+# 耗时/超时（2026-10-26 起）：每阶段打印耗时；backup 900s / snapshot 300s / build 1800s /
+#   migrate 600s / rolling 300s / caddy reload 60s，超时按失败处理（不再无限等待）。
 #
 # 失败重试（2026-10-14 起）：workflow 部署步骤内置「延迟自动重跑」——失败后 600s 重试，
 #   最多 3 次尝试（覆盖大陆服务器→GitHub 偶发断流等瞬时故障；每次失败均安全中止、
