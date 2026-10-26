@@ -172,15 +172,19 @@ run_timeout 300 docker compose -f "$COMPOSE_FILE" up -d --wait api || die "api �
 run_timeout 300 docker compose -f "$COMPOSE_FILE" up -d --wait export || die "export 启动失败/超时"
 step_done
 
-step_start "7b) Caddy reload（Caddyfile 变更生效）"
-# 精确按 compose service 找容器（不再用 grep 名字，避免误 reload 其它项目的 caddy）
+step_start "7b) Caddy 配置生效（重建容器 + reload）"
+# 单文件 bind mount 会锁旧 inode：git checkout 替换 Caddyfile 后，容器仍读到旧内容 ⇒ 先重建再 reload 校验。
 CADDY_ID="$(docker compose -f "$COMPOSE_FILE" ps -q caddy 2>/dev/null | head -n 1 || true)"
 if [ -n "$CADDY_ID" ]; then
+    run_timeout 120 docker compose --profile proxy -f "$COMPOSE_FILE" up -d --force-recreate --wait caddy \
+        || die "Caddy 重建失败/超时（Caddyfile 未生效）"
+    CADDY_ID="$(docker compose -f "$COMPOSE_FILE" ps -q caddy 2>/dev/null | head -n 1 || true)"
+    [ -n "$CADDY_ID" ] || die "Caddy 重建后找不到容器"
     run_timeout 60 docker exec "$CADDY_ID" caddy reload --config /etc/caddy/Caddyfile \
         || die "Caddy reload 失败/超时（Caddyfile 未生效；请手动排查）"
-    log "Caddy reload OK（container=${CADDY_ID:0:12}）"
+    log "Caddy 已重建并 reload（container=${CADDY_ID:0:12}）"
 else
-    log "未发现运行中的 caddy 服务（proxy profile 未启用）⇒ 跳过 reload"
+    log "未发现运行中的 caddy 服务（proxy profile 未启用）⇒ 跳过重建"
 fi
 step_done
 
