@@ -311,6 +311,7 @@
 
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
+| 2026-10-26 | 实施 | P0-2b：Passkey 注册 step-up | `/api/auth/webauthn/register/begin` 要求当前密码（`invalid_credentials` + `passkey_enroll_auth_failed` 审计）；前端安全面板添加 Passkey 前弹密码；`tests/test_passkeys.py` 新增「错误密码 401 / 缺失密码 422」用例；MFA 前端整合（P1-4）仍未做 | 本 PR |
 | 2026-10-24 | 实施 | P1-2：Passkey（WebAuthn） | 新增依赖 `webauthn`（+ lock 外科式：cbor2 / pyasn1 / pyasn1-modules / pyOpenSSL）；`passkeys.py`；迁移 0027（`webauthn_credentials`/`webauthn_challenges`）+ 结构断言；`/api/auth/webauthn`（status/register begin+complete/authenticate begin+complete/delete）；`sign_count` 克隆检测；删除需密码（最后一把可删，密码为备用方式）；前端登录按钮 + 安全面板管理 + base64url 单测；`tests/test_passkeys.py` 7 例 + 真 PG 1 例。**风险触发 step-up（P1-3b）与 MFA 前端整合（P1-4）未做** | 本 PR |
 | 2026-10-18 | 实施 | P1-3 后半：TOTP MFA 后端 | 新增依赖 `cryptography`（+ lock 外科式）；`totp.py`/`secretbox.py`；迁移 0026（`mfa_factors`/`recovery_codes`/`sessions.mfa_verified`）+ 结构断言；登录第二步（半程会话）+ `/api/auth/mfa`（status/begin/confirm/disable/verify）；6 条错误码；`tests/test_mfa.py` 8 例。**前端管理界面（P1-4）与风险触发 step-up（P1-3b）未做** | 本 PR |
 | 2026-10-18 | 实施 | 收尾 P0 并开工 P1 | **P0-4**（staging 空闲超时默认 43200/12h）+ **P1-1b**（新设备登录提醒：`auth.device_key`/`is_new_device` + `mailer.new_login_email` + `main._notify_new_login`，best-effort 显式降级）；`tests/test_login_notify.py` 6 例 | 本 PR |

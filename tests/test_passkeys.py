@@ -53,8 +53,9 @@ def _register(client: TestClient):
                              "invite_code": "invite-1", "agree_terms": True})
 
 
-def _begin_registration(client: TestClient):
-    return client.post("/api/auth/webauthn/register/begin", headers=_csrf(client))
+def _begin_registration(client: TestClient, password: str = PASSWORD):
+    return client.post("/api/auth/webauthn/register/begin",
+                       json={"password": password}, headers=_csrf(client))
 
 
 def _fake_registration(*_args, **_kwargs):
@@ -199,6 +200,19 @@ def test_unknown_email_begin_does_not_leak_account(monkeypatch, client: TestClie
 class _DenyLimiter:
     def allow(self, _key: str) -> bool:
         return False
+
+
+def test_register_begin_requires_password(client: TestClient, store: FakeStore):
+    """P0-2b：会话被劫持时，没有密码不能开始绑定 Passkey。"""
+    assert _register(client).status_code == 200
+    wrong = _begin_registration(client, "wrong-password")
+    assert wrong.status_code == 401
+    assert wrong.json()["detail"]["code"] == "invalid_credentials"
+    assert "passkey_enroll_auth_failed" in _actions(store)
+
+    missing = client.post("/api/auth/webauthn/register/begin", headers=_csrf(client))
+    assert missing.status_code == 422
+    assert missing.json()["detail"]["code"] == "invalid_request"
 
 
 def test_passkey_manage_rate_limited(monkeypatch, client: TestClient, store: FakeStore):

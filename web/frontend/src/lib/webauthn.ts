@@ -117,12 +117,12 @@ export async function fetchPasskeys(): Promise<PasskeyList> {
   return readJson<PasskeyList>(await fetch('/api/auth/webauthn'))
 }
 
-export async function registerPasskey(name: string): Promise<PasskeyItem | null> {
+export async function registerPasskey(name: string, password: string): Promise<PasskeyItem | null> {
   const begun = await readJson<{ challenge_id: string; options: JsonObject }>(
     await fetch('/api/auth/webauthn/register/begin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ password }),
     }),
   )
   const credential = await navigator.credentials.create({

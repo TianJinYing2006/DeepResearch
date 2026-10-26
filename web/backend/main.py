@@ -1501,6 +1501,12 @@ class WebAuthnRegisterCompleteRequest(BaseModel):
     name: str = Field("", max_length=80)
 
 
+class WebAuthnRegisterBeginRequest(BaseModel):
+    """P0-2b：添加 Passkey 前必须重新输入当前密码（防会话劫持后持久化绑定）。"""
+
+    password: str = Field(..., min_length=1, max_length=200)
+
+
 class WebAuthnAuthenticateBeginRequest(BaseModel):
     email: str = Field("", max_length=254)
 
@@ -1562,11 +1568,14 @@ def webauthn_status(request: Request) -> dict:
 
 
 @app.post("/api/auth/webauthn/register/begin")
-def webauthn_register_begin(request: Request) -> dict:
+def webauthn_register_begin(req: WebAuthnRegisterBeginRequest, request: Request) -> dict:
     _check_csrf(request)
     user = _require_session_user(request)
     _passkey_manage_rate_limit(user, request)
     _require_webauthn_ready()
+    if not verify_password(user["password_hash"], req.password):
+        _audit("passkey_enroll_auth_failed", request=request, actor_user_id=user["user_id"])
+        raise http_error("invalid_credentials", "密码不正确")
     existing = _store_call(store.list_webauthn_credentials, user["user_id"])
     challenge, options = passkeys.registration_options(
         user["user_id"], user["email"], existing)
