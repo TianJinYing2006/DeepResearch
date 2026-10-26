@@ -75,36 +75,48 @@ jobs:
         run: python tools/check_public_ip.py --strict
 
       # 需求 38 F2：weasyprint 运行依赖（PDF 渲染测试真跑；字体含 CJK，保证中文可提取）
-      # 2026-10-26：apt 网络偶发极慢（实测 545s / 12m+）⇒ 缓存 .deb；命中时本地安装，未命中才下载。
-      - name: Cache apt debs (pango + fonts-noto-cjk)
+      # 2026-10-26：apt 慢源主要是 fonts-noto-cjk（61MB）。字体复用 e2e 的 deb 缓存；
+      # pango 两库很小，保留 apt（先直装，失败再 update+重试）。step 超时 12 分钟兜底。
+      - name: Cache CJK font package (lint)
         uses: actions/cache@v4
         with:
-          path: ~/.cache/dr-apt
-          key: apt-pango-fonts-${{ runner.os }}-v1
+          path: ~/.cache/dr-fonts
+          key: fonts-noto-cjk-20230817-${{ runner.os }}
 
       - name: Install PDF render system deps (weasyprint)
         timeout-minutes: 12
         run: |
           set -euo pipefail
-          cache="$HOME/.cache/dr-apt"
-          mkdir -p "$cache/partial"
-          packages=(libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk)
           apt_get() {
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 \
-              -o "Dir::Cache::archives=$cache/" "$@"
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 "$@"
           }
-          # 包索引通常已存在；缓存命中时这一步几乎不联网
-          if apt_get install -y --no-install-recommends "${packages[@]}"; then
-            exit 0
+          pango=(libpango-1.0-0 libpangoft2-1.0-0)
+          if ! apt_get install -y --no-install-recommends "${pango[@]}"; then
+            for attempt in 1 2 3; do
+              if apt_get update && apt_get install -y --no-install-recommends "${pango[@]}"; then
+                break
+              fi
+              echo "pango apt 第 ${attempt} 次失败，10s 后重试"
+              sleep 10
+            done
           fi
-          for attempt in 1 2 3; do
-            if apt_get update && apt_get install -y --no-install-recommends "${packages[@]}"; then
-              exit 0
-            fi
-            echo "apt 第 ${attempt} 次失败，10s 后重试"
-            sleep 10
-          done
-          exit 1
+          if ! dpkg -s libpango-1.0-0 >/dev/null 2>&1; then
+            echo "pango 依赖安装失败"; exit 1
+          fi
+          # CJK 字体：复用 e2e 的 deb 缓存（命中后无需下载 61MB）
+          pkg_dir="$HOME/.cache/dr-fonts"
+          mkdir -p "$pkg_dir"
+          if ! ls "$pkg_dir"/*.deb >/dev/null 2>&1; then
+            for attempt in 1 2 3; do
+              if (cd "$pkg_dir" && apt-get download fonts-noto-cjk); then
+                break
+              fi
+              apt_get update || true
+              echo "字体包下载第 ${attempt} 次失败，10s 后重试"
+              sleep 10
+            done
+          fi
+          sudo dpkg -i "$pkg_dir"/*.deb
 
       - name: Test (pytest)
         run: pytest tests/ -q --durations=10
