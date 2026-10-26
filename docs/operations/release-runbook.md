@@ -471,7 +471,7 @@ API 侧端点：`POST /api/research/{run_id}/export-jobs`（202 + `export_id`；
 |---|---|---|
 | 备份 → 清库 → 恢复 | ✅ 每次 CI `infra` job 执行 | `tools/backup.sh` + `tools/restore.sh` + 种子数据/结构断言双向验证 |
 | 云上恢复演练（staging，临时容器） | ✅ 已执行（2026-10-11） | 离线私钥解密（208 条目）→ 云上临时容器恢复 → 断言与生产一致（schema_migrations/runs/run_artifacts = 21/11/22）；记录见 §10.3 |
-| 应用版本回滚 | ⏳ 未演练（staging 执行后回填本节） | 本文 §6.1 为流程；回滚能力验证前，发布窗口需预留人工介入 |
+| 应用版本回滚 | ⏳ 未演练（2026-10-26 v0.2.0 收口登记：SSH forced command 只允许默认 `deploy.sh`，无法远程传 `--rollback`；需服务器侧受控入口，Issue #299） | 本文 §6.1 为流程；回滚能力验证前，发布窗口需预留人工介入 |
 | 迁移失败中断 | ⏳ 未演练 | 依赖 migrate 单事务语义；可在 staging 用损坏 fixture 演练 |
 
 ## 10. 云上备份安装与恢复演练（一次性；需求 1，2026-10-07）
