@@ -78,7 +78,7 @@ jobs:
       # 2026-10-26：apt 网络偶发极慢（实测单次 545s，正常 10~15s）⇒ 先直装、失败再 update+重试，
       # 并给 step 超时，避免 10~20 分钟静默等待阻塞 PR/dev 部署。
       - name: Install PDF render system deps (weasyprint)
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           packages=(libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk)
@@ -294,23 +294,30 @@ jobs:
 
       # 截图基线固字（visual-baseline.spec.ts）：金标准在 Ubuntu + Noto CJK 下生成；
       # 缺 CJK 字体时中文回退到 DejaVu/内置位图，像素必飘 —— 这正是 R7 当初放弃截图基线的根因。
+      # 视觉基线需要固定的 Noto CJK；61MB 下载在 GitHub 镜像上偶发 >3 分钟。
+      # 用 actions/cache 缓存 .deb，避免每个 PR 重复下载（首次慢、之后快）。
+      - name: Cache CJK font package
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dr-fonts
+          key: fonts-noto-cjk-20230817-${{ runner.os }}
+
       - name: Install CJK fonts (visual baseline pinning)
-        timeout-minutes: 3
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          if sudo apt-get install -y --no-install-recommends fonts-noto-cjk; then
-            exit 0
+          pkg_dir="$HOME/.cache/dr-fonts"
+          mkdir -p "$pkg_dir"
+          if ! ls "$pkg_dir"/*.deb >/dev/null 2>&1; then
+            for attempt in 1 2 3; do
+              if (cd "$pkg_dir" && apt-get download fonts-noto-cjk); then
+                break
+              fi
+              echo "字体包下载第 ${attempt} 次失败，10s 后重试"
+              sleep 10
+            done
           fi
-          for attempt in 1 2; do
-            if sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15 \
-               && sudo apt-get install -y --no-install-recommends \
-                    -o Acquire::Retries=3 -o Acquire::http::Timeout=15 fonts-noto-cjk; then
-              exit 0
-            fi
-            echo "CJK 字体安装第 ${attempt} 次失败，10s 后重试"
-            sleep 10
-          done
-          exit 1
+          sudo dpkg -i "$pkg_dir"/*.deb
 
       - name: Install Playwright Chromium
         working-directory: web/frontend
