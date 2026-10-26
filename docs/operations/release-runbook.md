@@ -86,7 +86,7 @@ docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|
 ```bash
 # 链路：dev 合入 ⇒ CI 6/6 绿 ⇒ 「Deploy staging」workflow 自动 SSH 触发服务器侧脚本
 #   （也可在 Actions 页手动 workflow_dispatch，或服务器上直接执行）
-ssh ubuntu@82.156.88.246 "bash /opt/deepresearch/tools/deploy.sh"   # 手动补部署（部署 origin/dev 最新）
+ssh ubuntu@<STAGING_HOST> "bash /opt/deepresearch/tools/deploy.sh"   # 手动补部署（真实 host 见本地运维笔记，不入库）
 bash tools/deploy.sh <sha|branch>                                    # 指定提交
 bash tools/deploy.sh --rollback rollback-<sha>                       # 应用回滚（仅镜像；DB 不动）
 
@@ -499,7 +499,7 @@ docker rm -f dr-drill; rm -f /tmp/drill.dump
 
 | 项 | 值 |
 |---|---|
-| 演练日期 / 执行人 | 2026-10-11 23:10~23:20（CST）/ opencode（主理人授权，经 `ubuntu@82.156.88.246`） |
+| 演练日期 / 执行人 | 2026-10-11 23:10~23:20（CST）/ opencode（主理人授权，经 `ubuntu@<STAGING_HOST>`） |
 | 备份点（文件 / 时间 / 大小 / md5） | `deepresearch_20261010_193001.dump.pem`（2026-10-11 03:30 CST 生成；220,327 B；md5 `e4e54e1091fa4ea1f9404d53b10ba146`） |
 | 产物形态（明文 / .enc / .pem） | .pem（openssl smime 非对称）→ 离线私钥解密成功（明文 161,871 B；`pg_restore -l` 208 条目） |
 | 解密与 `pg_restore -l` | 通过 |

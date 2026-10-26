@@ -62,6 +62,11 @@ jobs:
       - name: 前端边界守卫（不得 import research_engine）
         run: python tools/check_frontend_boundary.py
 
+      # 2026-10-26 C0-2：公开仓不得出现真实主机 IP。存量部署文件走基线 WARN，
+      # PR-B 迁移到 GitHub Secrets 后清空基线（届时可加 --strict）。零 LLM、零网络。
+      - name: 公开仓脱敏守卫（真实 IP）
+        run: python tools/check_public_ip.py
+
       # 需求 38 F2：weasyprint 运行依赖（PDF 渲染测试真跑；字体含 CJK，保证中文可提取）
       - name: Install PDF render system deps (weasyprint)
         run: |
