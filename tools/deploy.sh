@@ -139,6 +139,13 @@ docker compose -f "$COMPOSE_FILE" run --rm migrate | tail -1
     # 需求 38 F2：export 与 api 共用镜像 tag；api 的 depends_on 会先拉起 export-redis
     docker compose -f "$COMPOSE_FILE" up -d --wait export || die "export 启动失败"
 
+    # P0-1：Caddyfile 变更需 reload 才生效（未启用 proxy profile 时跳过；失败只 WARN）
+    CADDY_CONTAINER="$(docker ps --format '{{.Names}}' | grep -m1 'caddy' || true)"
+    if [ -n "$CADDY_CONTAINER" ]; then
+        docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile \
+            || log "WARN Caddy reload 失败（旧配置仍生效；请手动 docker exec $CADDY_CONTAINER caddy reload）"
+    fi
+
     log "== 8) 冒烟 =="
     sleep 2
     curl -fsS http://127.0.0.1:8000/api/health/ready | grep -q '"ok":true' || die "本机 readiness 失败"

@@ -136,6 +136,9 @@ curl -fsS $BASE/api/health/ready | jq '.ok, .checks'          # readiness 全绿
 # 安全响应头（P0-3）：CSP / HSTS / nosniff / frame-ancestors 必须存在
 curl -sI $BASE/ | grep -Ei 'content-security-policy|strict-transport-security|x-content-type-options|referrer-policy'
 
+# 反代信任（P0-1）：同一客户端伪造不同 XFF 连打 11 次登录（每次随机邮箱）=> 第 11 次应 429；
+# 两个不同公网出口应各自独立计数；`admin audit-list` 里的 ip 必须是真实出口 IP。
+
 # 登录 → 提交 → 尾随 → 取消 → 导出（P4-A 鉴权开启时带 Cookie + CSRF）
 # 用管理员 CLI 侧核对（示例）：
 python -m web.backend.admin audit-list --limit 5

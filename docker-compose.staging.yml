@@ -358,7 +358,9 @@ services:
       # P1-2 / P0-10：反代信任。优先 DR_TRUSTED_PROXY_CIDRS（只信任可信 hop 的
       # X-Forwarded-*）；DR_TRUST_PROXY=true 为历史兼容（无 CIDR 时取 XFF 首跳）。
       DR_TRUST_PROXY: "${DR_TRUST_PROXY:-false}"
-      DR_TRUSTED_PROXY_CIDRS: "${DR_TRUSTED_PROXY_CIDRS:-}"
+      # P0-1：compose 默认网段在 172.16.0.0/12 内；Caddyfile 已显式覆盖 XFF。
+      # 自建网络/多级反代时务必在 .env 显式覆盖为真实网段。
+      DR_TRUSTED_PROXY_CIDRS: "${DR_TRUSTED_PROXY_CIDRS:-172.16.0.0/12}"
       DR_PROXY_HOPS: "${DR_PROXY_HOPS:-1}"
       # P0-9：运维接口（/api/metrics、/api/ops/*）应用层鉴权；staging/生产未配置即 401
       DR_OPS_TOKEN: "${DR_OPS_TOKEN:-}"
