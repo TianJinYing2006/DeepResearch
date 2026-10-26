@@ -5,7 +5,7 @@
 - **编号**：0009
 - **标题**：L3 多用户生产化架构：PostgreSQL 权威状态 + Redis 队列/租约 + 独立 Worker + 用户/配额 + 部署底座
 - **日期**：2026-09-24
-- **状态**：**草稿（P0 立项）** —— 首发参数决策表（`docs/requirements/10-l3-production.md` §3.1）拍板后转「已采纳」；拍板前不进入实现
+- **状态**：**已采纳（2026-10-26 追认）** —— 实施已于 2026-09-26 ~ 2026-10-24 先行落地（L3 P1~P8 + 后续 HITL / MCP / 导出 / Passkey）；首发参数见需求 10 §3.1 与 `docs/project-status.md`；产品边界由 ADR-0017 统一重划，本 ADR 只承载 L3 架构决策
 - **涉及模块**：`web/backend/`（`runner.py` / `main.py` 的职责外置与加固）、新增 `worker/`、新增部署文件（`Dockerfile.api` / `Dockerfile.worker` / `docker-compose.staging.yml` / 反向代理配置 / 数据库迁移）、`docs/operations/`、`docs/requirements/10-l3-production.md`；`research_engine/` **只读复用，不改判定口径**
 - **关联**：需求 10（本 ADR 的需求侧落点）；D-19 / D-20 / ADR-0001 §1.1（本 ADR 显式解除其 L3 边界）；`docs/operations/production-readiness.md`（上线准入清单）
 
@@ -186,3 +186,4 @@ L3（对外可用）的阻塞按优先级排序：
 |------|---------|
 | 2026-09-24 | 初始记录：L3 生产化架构立项草稿；显式解除 D-19 / D-20 / ADR-0001 §1.1 的 L3 边界；确立 PG 权威状态 + Redis 队列 + 独立 Worker + 任务不丢优先的策略；首发参数决策表见需求 10 §3.1（待拍板） |
 | 2026-09-24 | 追加 §5 迁移映射：`RunManager` 内存字段 → PostgreSQL / Redis 落点；明确本地演示路径保留（`DR_DEMO` 不受影响）、事件序号与终局原子化纪律不变；同步需求 10 §5.9~§5.13 的任务模型细化、API 面、审计计量与配置清单 |
+| 2026-10-26 | **状态由「草稿」转「已采纳」**：实施已先行交付并通过验收（L3 P1~P8、HITL、MCP、导出、MFA/Passkey）；同日新增 ADR-0017 重划产品边界，本 ADR 中「显式解除 D-19 / D-20 / ADR-0001 §1.1 边界」的声明由 ADR-0017 承接，架构决策仍以本文为准。 |
