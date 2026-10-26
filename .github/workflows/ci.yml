@@ -75,20 +75,30 @@ jobs:
         run: python tools/check_public_ip.py --strict
 
       # 需求 38 F2：weasyprint 运行依赖（PDF 渲染测试真跑；字体含 CJK，保证中文可提取）
-      # 2026-10-26：apt 网络偶发极慢（实测单次 545s，正常 10~15s）⇒ 先直装、失败再 update+重试，
-      # 并给 step 超时，避免 10~20 分钟静默等待阻塞 PR/dev 部署。
+      # 2026-10-26：apt 网络偶发极慢（实测 545s / 12m+）⇒ 缓存 .deb；命中时本地安装，未命中才下载。
+      - name: Cache apt debs (pango + fonts-noto-cjk)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dr-apt
+          key: apt-pango-fonts-${{ runner.os }}-v1
+
       - name: Install PDF render system deps (weasyprint)
         timeout-minutes: 12
         run: |
           set -euo pipefail
+          cache="$HOME/.cache/dr-apt"
+          mkdir -p "$cache/partial"
           packages=(libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk)
-          if sudo apt-get install -y --no-install-recommends "${packages[@]}"; then
+          apt_get() {
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 \
+              -o "Dir::Cache::archives=$cache/" "$@"
+          }
+          # 包索引通常已存在；缓存命中时这一步几乎不联网
+          if apt_get install -y --no-install-recommends "${packages[@]}"; then
             exit 0
           fi
           for attempt in 1 2 3; do
-            if sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15 \
-               && sudo apt-get install -y --no-install-recommends \
-                    -o Acquire::Retries=3 -o Acquire::http::Timeout=15 "${packages[@]}"; then
+            if apt_get update && apt_get install -y --no-install-recommends "${packages[@]}"; then
               exit 0
             fi
             echo "apt 第 ${attempt} 次失败，10s 后重试"
