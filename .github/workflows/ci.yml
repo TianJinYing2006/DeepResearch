@@ -188,12 +188,12 @@ jobs:
         run: |
           set -e
           DC="docker compose -f docker-compose.staging.yml"
-          DSN="postgresql://deepresearch:deepresearch-local@postgres:5432/deepresearch"
+          PG_ENV="-e PGHOST=postgres -e PGPORT=5432 -e PGUSER=deepresearch -e PGDATABASE=deepresearch -e PGPASSWORD=deepresearch-local"
           $DC exec -T postgres psql -U deepresearch -d deepresearch -v ON_ERROR_STOP=1 \
             -c "INSERT INTO users (user_id, email, password_hash) VALUES ('drill-user', 'drill@example.com', 'x') ON CONFLICT DO NOTHING" > /dev/null
           before=$($DC exec -T postgres psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM users WHERE user_id = 'drill-user'")
-          $DC exec -T -e DATABASE_URL="$DSN" -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/backup.sh
-          $DC exec -T -e DATABASE_URL="$DSN" -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/restore.sh
+          $DC exec -T $PG_ENV -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/backup.sh
+          $DC exec -T $PG_ENV -e BACKUP_DIR=/tmp/dr-backups postgres sh -s < tools/restore.sh
           after=$($DC exec -T postgres psql -U deepresearch -d deepresearch -tAc "SELECT count(*) FROM users WHERE user_id = 'drill-user'")
           test "$before" = "1"
           test "$after" = "1"

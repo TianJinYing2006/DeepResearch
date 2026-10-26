@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（P0-4 备份凭据）**：`backup.sh` / `restore.sh` 连接参数优先 PG*，兼容 `DATABASE_URL` 时在脚本内解析（不再进子进程 argv）；新增 `BACKUP_REQUIRE_ENCRYPTION=1` 强制闸；`backup-cron.sh` 改临时 `--env-file`（0600 + trap）传 PG*，默认强制加密；CI 备份/恢复演练改用 PG*；runbook 补凭据与默认口令轮换检查；静态回归测试 3 例。服务器现有默认口令轮换仍待运维窗口。 |
 | 更新 | **2026-10-26（E-5 测试隔离）**：`tests/conftest.py` 在零依赖 lane 下把 **`.env` 来源的 `DR_TEST_*` 置空**（显式 env / `DR_TEST_INTEGRATION=1` 保留），修复本机 `.env` 配不可达 PG/Redis 时集成用例报错、掩盖真回归；README / `.env.example` 口径同步。本机验证：`test_run_store` 41 skip、`test_worker_integration` 5 skip、`test_web_health` 通过。 |
 | 更新 | **2026-10-26（P0-1 反代信任）**：compose 默认 `DR_TRUSTED_PROXY_CIDRS=172.16.0.0/12`；Caddyfile 显式覆盖 `X-Forwarded-For/Proto`（不采信客户端自带 XFF）；`deploy.sh` 在 api 滚动后 `caddy reload`（失败 WARN，不阻断）；`.env.example` / runbook 补「两出口独立限流 + 伪造 XFF 无效」验证；新增配置回归测试 3 例。 |
 | 更新 | **2026-10-26（P0-2b Passkey 注册 step-up）**：`/api/auth/webauthn/register/begin` 要求当前密码（`invalid_credentials` + `passkey_enroll_auth_failed` 审计）；前端「添加 Passkey」先密码确认；`tests/test_passkeys.py` 新增错误/缺失密码用例；需求 20 变更记录同步。MFA 前端整合（P1-4）仍未做。 |

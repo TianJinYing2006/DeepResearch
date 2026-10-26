@@ -31,14 +31,26 @@ NET=$(docker network ls --format '{{.Name}}' | grep -m1 '^deepresearch-staging' 
 [ -n "$NET" ] || { echo "找不到 compose 网络（deepresearch-staging_*）"; exit 1; }
 
 mkdir -p "$OUT"
+# P0-4：连接参数用临时 env-file（0600 + trap 清理）传给容器 —— 口令不进 docker CLI argv/ps。
+CONN_ENV="$(mktemp)"
+chmod 600 "$CONN_ENV"
+trap 'rm -f "$CONN_ENV"' EXIT
+cat > "$CONN_ENV" <<EOF
+PGHOST=postgres
+PGPORT=5432
+PGUSER=deepresearch
+PGDATABASE=deepresearch
+PGPASSWORD=${DR_POSTGRES_PASSWORD}
+EOF
 docker run --rm --network "$NET" \
     -v "$APP_DIR/tools/backup.sh:/b.sh:ro" \
     -v "$OUT:/backups" \
     -v "$CERT:/backup-recipient.crt:ro" \
-    -e "DATABASE_URL=postgresql://deepresearch:${DR_POSTGRES_PASSWORD}@postgres:5432/deepresearch" \
+    --env-file "$CONN_ENV" \
     -e BACKUP_RECIPIENT_CERT=/backup-recipient.crt \
     -e BACKUP_DIR=/backups \
     -e "BACKUP_KEEP=${BACKUP_KEEP:-14}" \
+    -e BACKUP_REQUIRE_ENCRYPTION=1 \
     postgres:16 sh /b.sh
 
 rclone --config "$RCLONE_CONF" copy --immutable "$OUT" "${REMOTE}:${BUCKET}/backups/"

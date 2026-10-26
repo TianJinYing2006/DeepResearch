@@ -35,8 +35,10 @@ gh pr checks <PR号>            # 发布提交对应 PR
 ls migrations/00*.sql | tail -3
 
 # 2.3 备份 + 校验可读（P8-A 脚本；失败即中止发布）
-bash tools/backup.sh            # pg_dump -Fc + pg_restore -l 可读校验 + 轮转保留
-# 可选加密（需求 20 §8，推荐非对称）：BACKUP_RECIPIENT_CERT=<公钥.crt> bash tools/backup.sh
+# 凭据走 PG* 环境变量（PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE）；DATABASE_URL 仅兼容解析，
+# 不再进入 pg_dump/psql argv（ps 可见）。生产强制加密：BACKUP_REQUIRE_ENCRYPTION=1。
+PGHOST=... PGPASSWORD=... PGDATABASE=... bash tools/backup.sh   # pg_dump -Fc + pg_restore -l
+# 加密（需求 20 §8，推荐非对称）：BACKUP_RECIPIENT_CERT=<公钥.crt> ...
 #   → 产出 deepresearch_*.dump.pem（openssl smime -aes256；服务器只存公钥，私钥离线保管）
 # 对称备选：BACKUP_ENCRYPT=1 BACKUP_PASSPHRASE=...（口令仅环境变量注入、异地托管）
 # 每日自动：tools/backup-cron.sh（备份 + rclone 同步 COS），cron 03:30，见脚本头注释
@@ -74,6 +76,11 @@ docker compose -f docker-compose.staging.yml config | grep -E "DR_(CORS|MONTHLY|
 #   - smoke：报告页创建分享（7 天）→ 匿名浏览器打开 /s/<token> 可见 → 撤销 → 同一链接 404
 #   - 响应头核对：Cache-Control: private, no-store / X-Robots-Tag: noindex, nofollow, noarchive /
 #     Referrer-Policy: no-referrer
+
+# 2.4f 默认口令轮换（P0-4，上线前必做）：
+#   - compose 默认口令仅用于本地；staging/生产必须覆盖 DR_POSTGRES_PASSWORD / DR_S3_SECRET_KEY /
+#     DR_GLITCHTIP_SECRET_KEY，且不得等于 deepresearch-local / change-me-*
+#   - 轮换需同窗口更新依赖方（api/worker/export/migrate/glitchtip）并重建容器；变更后跑一次备份恢复演练
 
 # 2.5 容量检查：连接预算（capacity-model §3.1）
 # N_api×DR_PG_POOL_MAX + N_worker×DR_PG_POOL_MAX + LISTEN + 余量 <= PG max_connections
