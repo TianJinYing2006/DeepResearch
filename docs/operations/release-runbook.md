@@ -101,8 +101,11 @@ bash tools/deploy.sh --rollback rollback-<sha>                       # 应用回
 #   旧版本保持在线，脚本幂等可重复执行）；连续 3 次失败才需人工介入（上方手动补部署 / 回滚）。
 #   注：deploy.sh 始终部署 origin/dev 最新，延迟重跑天然补上落后版本。
 #
-# 安全口径：CD 密钥在 GitHub Secret `DEPLOY_SSH_KEY`，服务器侧以 forced command
-#   限定为只能执行本脚本（见 .github/workflows/deploy-staging.yml 头注释）；
+# 安全口径：部署凭据只存 GitHub Secrets —— `DEPLOY_SSH_KEY`（SSH 私钥）、
+#   `STAGING_HOST`（主机名/IP）、`STAGING_HOST_KEY`（host key，运行时写入 known_hosts）；
+#   仓库与文档不写真实 host（`tools/check_public_ip.py --strict` 强制）。
+#   服务器侧以 forced command 限定为只能执行本脚本（见 .github/workflows/deploy-staging.yml 头注释）；
+#   公网冒烟：服务器 .env 配 `DR_PUBLIC_URL`；未配则跳过公网 readiness（WARN，本机仍强制）。
 #   ⚠️ 能合入 dev 即具备 staging 部署能力 —— 勿在 dev 上合并未审代码。
 ```
 

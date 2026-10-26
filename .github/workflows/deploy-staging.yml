@@ -9,10 +9,12 @@ name: Deploy staging
 #     覆盖大陆服务器→GitHub 偶发断流等瞬时故障；连续 3 次失败才需人工介入（runbook §3.0）。
 #
 # 安全口径（登记在 release-runbook.md §3）：
-#   - 部署私钥仅存仓库 Secret `DEPLOY_SSH_KEY`；服务器侧 authorized_keys 以
-#     **forced command** 限定该密钥只能执行 `/opt/deepresearch/tools/deploy.sh`
-#     （no-pty / no-port-forwarding / no-agent-forwarding / no-X11-forwarding / no-user-rc）；
-#   - 服务器 host key 指纹**固定在下方**（防中间人）；
+#   - 部署私钥 / 主机名 / host key 仅存仓库 Secrets：`DEPLOY_SSH_KEY` / `STAGING_HOST` /
+#     `STAGING_HOST_KEY`；仓库与文档不写真实 host（`tools/check_public_ip.py --strict` 强制）。
+#   - 服务器侧 authorized_keys 以 **forced command** 限定该密钥只能执行
+#     `/opt/deepresearch/tools/deploy.sh`（no-pty / no-port-forwarding / no-agent-forwarding /
+#     no-X11-forwarding / no-user-rc）；
+#   - host key 在运行时由 `STAGING_HOST_KEY` 写入 known_hosts（防中间人；不在仓库固定明文）；
 #   - ⚠️ 权限事实：能合入 dev 即具备 staging 部署能力（CD 的固有性质，勿在 dev 上合并未审代码）。
 on:
   workflow_run:
@@ -38,20 +40,27 @@ jobs:
     timeout-minutes: 90
     environment: staging
     steps:
-      - name: 准备 SSH（部署密钥 + 固定 host key）
+      - name: 准备 SSH（部署密钥 + host key，来自 Secrets）
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_HOST_KEY: ${{ secrets.STAGING_HOST_KEY }}
         run: |
+          if [ -z "$STAGING_HOST" ] || [ -z "$STAGING_HOST_KEY" ]; then
+            echo "缺少 STAGING_HOST / STAGING_HOST_KEY secrets（Settings → Secrets and variables → Actions）"
+            exit 1
+          fi
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          cat > ~/.ssh/known_hosts <<'EOF'
-          82.156.88.246 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH/swjFVZi3J6R1fbMORhsRgVLxZbs6pe6XXqibmvKOL
-          EOF
+          printf '%s %s\n' "$STAGING_HOST" "$STAGING_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       - name: 触发服务器部署（forced command：仅允许执行 tools/deploy.sh；失败延迟自动重跑）
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
         run: |
           for i in 1 2 3; do
-            if ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 ubuntu@82.156.88.246 deploy; then
+            if ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 "ubuntu@$STAGING_HOST" deploy; then
               echo "部署成功（第 $i 次尝试）"
               exit 0
             fi

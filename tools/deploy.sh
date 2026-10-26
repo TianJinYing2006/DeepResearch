@@ -12,7 +12,8 @@
 #
 # 环境变量（可选）：
 #   DR_APP_DIR      部署目录（默认 /opt/deepresearch）
-#   DR_PUBLIC_URL   公网冒烟地址（默认 https://82.156.88.246）
+#   DR_PUBLIC_URL   公网冒烟地址（可选；真实 host 不入库）。未设置时读服务器 .env 的
+#                   DR_PUBLIC_URL；仍无则跳过公网冒烟并 WARN（本机 readiness 仍强制执行）
 #   SKIP_SAME=1     目标提交与当前相同时直接跳过（CI 重复触发用）
 #   FORCE=1         与 SKIP_SAME 同提交时的显式重部署
 #
@@ -21,7 +22,13 @@
 set -euo pipefail
 
 APP_DIR="${DR_APP_DIR:-/opt/deepresearch}"
-PUBLIC_URL="${DR_PUBLIC_URL:-https://82.156.88.246}"
+PUBLIC_URL="${DR_PUBLIC_URL:-}"
+if [ -z "$PUBLIC_URL" ] && [ -f "$APP_DIR/.env" ]; then
+    PUBLIC_URL="$(sed -n 's/^DR_PUBLIC_URL=//p' "$APP_DIR/.env" | tail -n 1)"
+fi
+PUBLIC_URL="${PUBLIC_URL%\"}"
+PUBLIC_URL="${PUBLIC_URL#\"}"
+PUBLIC_URL="${PUBLIC_URL%/}"
 COMPOSE_FILE="docker-compose.staging.yml"
 LOCK_FILE="/tmp/dr-deploy.lock"
 LOG_FILE="$APP_DIR/deployments.log"
@@ -135,7 +142,11 @@ docker compose -f "$COMPOSE_FILE" run --rm migrate | tail -1
     log "== 8) 冒烟 =="
     sleep 2
     curl -fsS http://127.0.0.1:8000/api/health/ready | grep -q '"ok":true' || die "本机 readiness 失败"
-    curl -sk --ssl-revoke-best-effort -fsS "$PUBLIC_URL/api/health/ready" | grep -q '"ok":true' || die "公网 readiness 失败"
+    if [ -n "$PUBLIC_URL" ]; then
+        curl -sk --ssl-revoke-best-effort -fsS "$PUBLIC_URL/api/health/ready" | grep -q '"ok":true' || die "公网 readiness 失败"
+    else
+        log "WARN DR_PUBLIC_URL 未配置（服务器 .env 或环境变量）；跳过公网 readiness"
+    fi
     docker exec deepresearch-staging-worker-1 python -c \
         "import os; from web.backend.checkpoint import get_pg_checkpointer as g; assert g(os.getenv('DR_DATABASE_URL')), 'checkpoint 不可用'" \
         || die "checkpoint 运行时探测失败"

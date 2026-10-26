@@ -9,8 +9,8 @@ project-status 与 requirements。公开仓只允许占位符；真实部署实�
 - 只扫 `git ls-files` 能看到的文本文件；二进制与依赖 lock 跳过（版本号会误报）。
 - 放行：回环 / 私网 / 链路本地 / 未指定 / 多播 / 保留网段；RFC 5737 文档网段。
 - 放行：测试夹具白名单（`FIXTURE_ALLOWLIST`，逐条写理由）。
-- 基线：`BASELINE_PATHS` 中仍含真实 host 的部署文件只输出 WARN（PR-B 迁移到
-  GitHub Secrets 后必须删掉基线，否则守卫会提醒基线过期）。
+- 基线：`BASELINE_PATHS` 中仍含真实 host 的文件只输出 WARN；当前为空（部署链路已迁
+  GitHub Secrets）。CI 使用 `--strict`，基线出现即失败；保留机制供未来过渡期。
 
 用法：`python tools/check_public_ip.py [--root <repo>] [--strict]`
 退出码：0 = 无基线外公网 IP；1 = 发现新泄漏（或 --strict 下基线仍有命中）。
@@ -44,11 +44,9 @@ FIXTURE_ALLOWLIST = {
     "3.1.1.2": "NIST SP 800-63B-4 §3.1.1.2 版本号，非 IP",
 }
 
-# 已知存量：部署链路仍使用真实 host；PR-B 迁移到 secrets 后必须清空本基线。
-BASELINE_PATHS = {
-    ".github/workflows/deploy-staging.yml": "PR-B：迁移到 GitHub Secrets 后移除",
-    "tools/deploy.sh": "PR-B：迁移到环境变量后移除",
-}
+# 过渡基线：当前为空（部署链路已迁 GitHub Secrets）。保留机制：未来若出现临时例外，
+# 在此登记 path → 原因；CI 使用 --strict，基线一旦出现即失败（清零后才允许合并）。
+BASELINE_PATHS: dict[str, str] = {}
 
 SKIP_SUFFIXES = (".lock",)
 SKIP_NAME_MARKERS = ("-lock.", "package-lock.json")
