@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（CI：字体 deb 缓存修正）**：#279 的 apt `.deb` 缓存实测未生效（`gh cache list` 无对应条目）。lint job 的 CJK 字体改为**复用 e2e 的缓存方案**：`~/.cache/dr-fonts` + `fonts-noto-cjk-20230817-${runner.os}` + `apt-get download` + `dpkg -i`；pango 两库仍走 apt（小包、直装失败再 update+重试）；删除未生效的 apt 缓存步骤。 |
 | 更新 | **2026-10-26（CI：apt 依赖缓存）**：matrix 的 pango/fonts `.deb` 增加 `actions/cache`（`~/.cache/dr-apt` + `Dir::Cache::archives`）：首次下载、后续本地安装；保留「直装 → update+重试」兜底，step 超时 12 分钟。解决今天 3 次 apt 偶发 545s/12m+ 导致的 PR/dev 阻塞。 |
 | 更新 | **2026-10-26（P0-2 MFA/Passkey 限流）**：MFA step-up 5 次/分/用户、MFA 管理 10 次/分、Passkey 管理 10 次/分（配置 Redis 时共享滑动窗口，否则进程内）；命中统一 429 `rate_limited` + `*_rate_limited` 审计；`DR_MFA_VERIFY_RATE_PER_MINUTE` / `DR_MFA_ENROLL_RATE_PER_MINUTE` / `DR_PASSKEY_MANAGE_RATE_PER_MINUTE` 文档化；新增 3 个定向用例（MFA/Passkey 套件 30 passed）。Passkey 注册 step-up 另 PR。 |
 | 更新 | **2026-10-26（P0-3 安全响应头）**：新增应用层 `SecurityHeadersMiddleware`（纯 ASGI）：CSP / HSTS / nosniff / X-Frame-Options / Referrer / Permissions；HSTS 与 `upgrade-insecure-requests` 仅在 staging/production 注入；`DR_CSP_CONNECT_SRC` 可追加前端 Sentry origin；不覆盖应用已有 header（分享页 `no-referrer` 保留）。单测 6 + web 子集 38 通过；Caddy 继续保持 TLS/SSE，未改。 |
