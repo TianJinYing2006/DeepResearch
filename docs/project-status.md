@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（v0.2.0 发布收口）**：新增 `CHANGELOG.md`（v0.1.0→v0.2.0 全量分类）；FastAPI `version` `w9` → `0.2.0`；`dev → master` + annotated tag `v0.2.0` + GitHub Release；回滚演练阻塞如实登记（forced command 限制，Issue #299）。 |
 | 更新 | **2026-10-26（Caddy 单文件 bind mount 修复）**：定位 `/metrics` 仍 404 的根因——`./Caddyfile:/etc/caddy/Caddyfile` 单文件 bind mount 在 `git checkout` 替换文件后仍锁**旧 inode**，reload 读到的还是旧配置；deploy.sh 改为先 `--force-recreate caddy` 再 `caddy reload` 校验，失败即中止；静态测试更新。 |
 | 更新 | **2026-10-26（部署可观测性 + Caddy reload 精确命中）**：`deploy.sh` 每阶段打印耗时并给 backup/build/migrate/rolling/caddy/冒烟加超时；Caddy reload 改为 `docker compose ps -q caddy` 精确命中且**失败即中止**（修复 P0-5 线上 `/metrics` 仍 404 的根因：`grep caddy` 可能误选容器 + 只 WARN 静默）；新增静态测试 3 例。 |
 | 更新 | **2026-10-26（P0-5 公网 /metrics 屏蔽）**：Caddyfile 对 `/metrics` 与 `/metrics/*` 统一 `respond 403`（指标仅供本机/内网直连 API）；`.env.example` 补 `DR_METRICS_PROMETHEUS` 口径；runbook 冒烟加「公网 403」断言；配置回归测试 +1。 |

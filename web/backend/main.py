@@ -136,7 +136,7 @@ from .upload_guard import (
 )
 from .usage import make_store_sink
 
-app = FastAPI(title="爱考据 iKaoju", version="w9")
+app = FastAPI(title="爱考据 iKaoju", version="0.2.0")
 
 # P1-8：OpenTelemetry（默认关闭；OTLP 端点 / Prometheus 开关任一存在才启用）
 OTEL_ENABLED = setup_otel("deepresearch-api")
