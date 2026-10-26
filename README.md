@@ -250,8 +250,9 @@ Web UI 支持：提交研究主题与**运行档位**（quick / standard / deep�
 强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
 会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
 
-**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，10 条用例（主流程 / **刷新恢复** / **完成后续看** /
-降级可见 / 导出 / 取消语义 / 结构化错误 + 重试 + **详情折叠** / 窄屏无横向滚动）约 41s。
+**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，当前 **92 个用例 / 20 个 spec**
+（desktop + mobile 双 project，2026-10-26 `npx playwright test --list`）。覆盖主流程 / **刷新恢复** / **完成后续看** /
+降级可见 / 导出 / 取消语义 / 结构化错误 + 重试 + **详情折叠** / 窄屏无横向滚动。
 
 ```bash
 cd web/frontend
@@ -337,9 +338,9 @@ DeepResearch/
 │   ├── check_tailwind_tokens.py    # CI 守卫：Tailwind 色板 token 不得误用
 │   ├── migrate.sh / backup.sh / restore.sh
 │   └── loadtest/                 # Locust 压测脚本
-├── migrations/                   # 21 个前向迁移（NNNN_slug.sql + schema_migrations）
-│   └── checks/                   # 17 个结构断言 SQL（CI infra job 强制执行）
-├── docs/                         # 需求 28 篇 / ADR 11 篇 / 评测结论 / 运维 runbook / legal
+├── migrations/                   # 27 个前向迁移（NNNN_slug.sql + schema_migrations）
+│   └── checks/                   # 23 个结构断言 SQL（CI infra job 强制执行）
+├── docs/                         # 需求 42 篇（另模板）/ ADR 17 篇 / 评测结论 / 运维 runbook / legal；对外数字见 figures.md
 ├── Dockerfile.api                # API 镜像（node 构建前端 + python 运行时，多阶段）
 ├── docker-compose.staging.yml    # staging：PostgreSQL + Redis + 迁移 + API + worker
 ├── Caddyfile                     # 反向代理样例
@@ -470,12 +471,14 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **996 项收集 = 946 通过 + 50 跳过** | 2026-10-08 本机 Python 3.13.1 复验（零 LLM、零 key）；50 项跳过为真实 PG/Redis 用例，由 CI `infra` job 强制执行。CI：3.11/3.12/3.13 + `frontend` + `infra`（迁移幂等 + 结构断言 + 仓储/Worker 集成 + **备份恢复演练**）+ `e2e`。**浏览器 E2E 49 个用例 / 9 个 spec**（desktop + mobile 双 project） |
+| 单元测试 | **1290 项（JUnit 执行统计，2026-10-26）** | 本机零依赖 lane：1208 通过 / 74 跳过 / 8 环境相关失败（3 个需真实 PG、5 个 OTel 版本漂移，详见 `docs/figures.md`）；跳过项为真实 PG/Redis 集成用例，由 CI `infra` job 强制执行。CI：3.11/3.12/3.13 + `frontend` + `infra`（迁移幂等 + 结构断言 + 仓储/Worker 集成 + **备份恢复演练**）+ `e2e`。**浏览器 E2E 92 个用例 / 20 个 spec**（desktop + mobile 双 project） |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |
 | 信息不足标记率 | **78.7%** | `insufficient_marker_ratio`：渲染器给报告小节打上「信息不足」标记的比例（after 基线 3 轮均值）。**只观测、无达标线**，但它反映的是系统对自己输出的评价 |
 | 单轮成本 | **¥0.79~0.92 / 48~51 分钟** | 20 题、并发 3、qwen-plus + qwen-turbo；真实 API 非确定性，需多轮取均值 |
+
+以上数字的采集命令、日期与口径断点见 [`docs/figures.md`](docs/figures.md)；跨口径/跨断点不得直接比较。
 
 不吹指标。覆盖度 39.8% 就写 39.8%；before/after 的差值**不可判定**就写不可判定 —— 追问时有据可查
 （完整判定过程见 `docs/eval-w8-after-baseline.md`）。
@@ -511,4 +514,6 @@ plan → research → critic ──(conditional_edge)──┐
 
 初始设计决策见 [docs/decisions/0001-initial-design.md](docs/decisions/0001-initial-design.md)。
 
-> **现状（如实登记，2026-10-08）**：`docs/decisions/` 现有 **11 篇** ADR（0001–0011），而仓库累计 **232 个提交** —— 覆盖率约 4.7%，远低于上述规范。另外索引 `docs/decisions/README.md` **只登记到 0009**（0010 / 0011 未入索引），ADR-0009（L3 多用户）状态仍写「草稿（待拍板）」而 L3 已交付。以上均为待补项。
+> **现状（如实登记，2026-10-26）**：`docs/decisions/` 现有 **17 篇** ADR（0001–0017，索引完整），仓库累计 **338 个提交**
+> —— 覆盖率约 **5.0%**。ADR 规范为**分级执行**（架构级改动与线上缺陷必须写，局部实现可免），不以覆盖率作为考核。
+> 索引已补齐（0010/0011/0016 已入索引），ADR-0009 已转「已采纳」（2026-10-26 追认），0012 重号已修正（OTel ADR → 0016）。
