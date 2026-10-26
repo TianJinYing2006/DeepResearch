@@ -139,14 +139,14 @@ deepresearch-worker）；CLI 自初始化路径。
 
 - 复用 W3 已验证决策：单点埋点、显式 span、flat 轮次 span、fail-silent、常量进代码——只换承载物；
 - 需求 3 :53 的否决理由以今天资产看（Web 侧 `otel.py` 已跑通、OTel 六件套已在依赖）**不再构成阻塞**，
-  问题主要是代价——由 ADR-0012 记录「接受代价」的拍板，不推翻 W3 的观测设计（span 结构 / 对账 /
+  问题主要是代价——由 ADR-0016 记录「接受代价」的拍板，不推翻 W3 的观测设计（span 结构 / 对账 /
   脱敏全部延续）；
 - Langfuse 在 TBD-1 选项 B 中从「SDK 依赖」降为「可选后端」，语义从「接入方式」变成「部署选项」；
 - 观测是旁路、不动主链路判定口径 ⇒ 无需 eval 基线；回归走 pytest + 冒烟。
 
 ## 7. 验收标准（DoD）
 
-- [x] ADR-0012 建立（`docs/decisions/0012-otel-observability-migration.md`）；需求 3 变更记录追加「被需求 33 反转」注记
+- [x] ADR-0016 建立（`docs/decisions/0016-otel-observability-migration.md`）；需求 3 变更记录追加「被需求 33 反转」注记
 - [x] `research_engine/observability.py` 重写为 OTel 原生：根 span + 节点 span（attrs：node/round/
       depth/sq_id）+ generation span（gen_ai.* + usage）；单测断言引擎侧无 `langfuse` import（防回退）
 - [x] 三态开关 + 知情打印 + fail-silent + 截断常量全部保留（能力不许退化）
@@ -244,7 +244,7 @@ deepresearch-worker）；CLI 自初始化路径。
 
 | 批次 | 内容 | 产出 | 依赖 | 粗估 |
 |---|---|---|---|---|
-| A | 设计评审（TBD-1~8 拍板）+ ADR-0012 + 需求 3 注记 | 拍板记录 / ADR | — | 0.5 天 |
+| A | 设计评审（TBD-1~8 拍板）+ ADR-0016 + 需求 3 注记 | 拍板记录 / ADR | — | 0.5 天 |
 | B | 引擎 OTel 埋点层重写 + 单测 | observability.py / tests | A | 1.5~2 天 |
 | C | 导出与后端（Jaeger compose、URL 模板、知情打印、成本行、egress 披露） | 可跑链路 | B | 1 天 |
 | D | 验证与资产（verify 脚本、真实冒烟、README/简历/截图、依赖清理） | 冒烟记录 / 文档 | C | 1 天 |
@@ -283,7 +283,7 @@ deepresearch-worker）；CLI 自初始化路径。
 | 日期 | 类型 | 原因 | 改动摘要 | 关联 PR/commit |
 |---|---|---|---|---|
 | 2026-10-11 | 文档 | 主理人拍板：可观测层对齐国内趋势，Langfuse → OTel | 建稿（草稿）：反转记录、现状盘点、TBD-1~8、DoD、排期（含同期 EvidenceFlow 借鉴项排期） | 本文档 |
-| 2026-10-11 | 设计 | ADR-0012 | 反转记录建立：需求 3:53「OTel OTLP 出局」→ OTel 原生（代价接受清单 + W3 资产平移清单 + 影响范围） | `docs/decisions/0012-otel-observability-migration.md` |
+| 2026-10-11 | 设计 | ADR-0016 | 反转记录建立：需求 3:53「OTel OTLP 出局」→ OTel 原生（代价接受清单 + W3 资产平移清单 + 影响范围） | `docs/decisions/0016-otel-observability-migration.md` |
 | 2026-10-11 | 实现 | 需求 33 代码主体（Issue #180） | observability.py 重写（OTel 原生）；client.py generation 单点；graph.py 接线；`OtelConfig` 替换 LangfuseConfig；egress 披露；`verify_otel_trace.py` 替代 `verify_w3_trace.py`；requirements 移除 langfuse（openai 锁暂留）；tests 重写/适配 + 无 langfuse import 守卫；README / `.env.example` / 运维法务口径切换 | `feature/180-otel-observability-migration` / PR #181 |
 | 2026-10-11 | 自测 | 本地全量回归（3.13.14 venv） | ruff 全过；pytest **1002 收集 = 715 通过 + 260 跳过（PG/Redis 缺失镜像 CI skip 语义）+ 27 既有环境失败（与需求 27 基线逐项一致，零新增）** | 本机 |
 | 2026-10-11 | 同步 | 飞书镜像 | 已创建「需求设计文档：OTel 观测迁移」（docx `YHiEdRhNpoqRs4xUMyxcIFBHnXX`，经导入接口；`~` 转义版已核验）；正文在个人空间，待客户端移入 `DeepResearch 需求文档` 文件夹（同需求 27 情形） | 本文档 |

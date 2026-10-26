@@ -20,6 +20,8 @@
 3. **模板**见 [TEMPLATE.md](TEMPLATE.md)。
 4. 修改代码时，在对应 ADR 中追加"变更记录"，保持决策链完整。
 
+> **编号修正说明（2026-10-26）**：原 `0012-otel-observability-migration.md`（2026-10-11 创建）与 `0012-side-data-generation.md`（2026-10-09 创建）重号。按“后到者改号”规则，前者已改为 **0016**；原索引缺失的 0010 / 0011 / 0016 一并补齐。
+
 ## 决策索引
 
 | 编号 | 标题 | 状态 | 日期 |
@@ -33,7 +35,10 @@
 | 0007 | 修复 Qdrant 点 ID 跨进程不稳定（hash 改 hashlib） | 已采纳 | 2026-08-20 |
 | 0008 | 修复强制收口与终局写入的竞态（终局原子化） | 已采纳 | 2026-09-24 |
 | 0009 | L3 多用户生产化架构（状态外置 / Worker / 用户体系 / 部署底座） | 草稿（待拍板） | 2026-09-24 |
+| 0010 | [禁止用字符串覆盖 Tailwind 内置色板名](0010-tailwind-color-token-naming.md) | 已采纳 | 2026-09-29 |
+| 0011 | [审计 P1 整改（R01–R05、R10）](0011-audit-p1-remediation.md) | 已采纳 | 2026-10-07 |
 | 0012 | [Side-data request ownership](0012-side-data-generation.md) | 已采纳 | 2026-10-09 |
 | 0013 | [Preview response ownership](0013-preview-generation.md) | 已采纳 | 2026-10-09 |
 | 0014 | [Report availability](0014-report-availability.md) | 已采纳 | 2026-10-09 |
 | 0015 | [Complete side-data request isolation](0015-side-data-json-isolation.md) | 已采纳 | 2026-10-09 |
+| 0016 | [可观测层迁移：Langfuse → OTel 原生](0016-otel-observability-migration.md)（原 0012） | 已采纳 | 2026-10-11 |
