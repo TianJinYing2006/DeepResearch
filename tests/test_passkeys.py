@@ -194,3 +194,18 @@ def test_unknown_email_begin_does_not_leak_account(monkeypatch, client: TestClie
                            json={"email": "nobody@example.com"})
     assert response.status_code == 200
     assert response.json()["options"]["allowCredentials"] == []
+
+
+class _DenyLimiter:
+    def allow(self, _key: str) -> bool:
+        return False
+
+
+def test_passkey_manage_rate_limited(monkeypatch, client: TestClient, store: FakeStore):
+    """P0-2：Passkey 注册/删除按用户限流（挑战刷取防护）。"""
+    assert _register(client).status_code == 200
+    monkeypatch.setattr(api, "PASSKEY_MANAGE_LIMITER", _DenyLimiter())
+    response = _begin_registration(client)
+    assert response.status_code == 429
+    assert response.json()["detail"]["code"] == "rate_limited"
+    assert "passkey_manage_rate_limited" in _actions(store)
