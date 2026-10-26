@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-26（P0-2b Passkey 注册 step-up）**：`/api/auth/webauthn/register/begin` 要求当前密码（`invalid_credentials` + `passkey_enroll_auth_failed` 审计）；前端「添加 Passkey」先密码确认；`tests/test_passkeys.py` 新增错误/缺失密码用例；需求 20 变更记录同步。MFA 前端整合（P1-4）仍未做。 |
 | 更新 | **2026-10-26（CI：字体 deb 缓存修正）**：#279 的 apt `.deb` 缓存实测未生效（`gh cache list` 无对应条目）。lint job 的 CJK 字体改为**复用 e2e 的缓存方案**：`~/.cache/dr-fonts` + `fonts-noto-cjk-20230817-${runner.os}` + `apt-get download` + `dpkg -i`；pango 两库仍走 apt（小包、直装失败再 update+重试）；删除未生效的 apt 缓存步骤。 |
 | 更新 | **2026-10-26（CI：apt 依赖缓存）**：matrix 的 pango/fonts `.deb` 增加 `actions/cache`（`~/.cache/dr-apt` + `Dir::Cache::archives`）：首次下载、后续本地安装；保留「直装 → update+重试」兜底，step 超时 12 分钟。解决今天 3 次 apt 偶发 545s/12m+ 导致的 PR/dev 阻塞。 |
 | 更新 | **2026-10-26（P0-2 MFA/Passkey 限流）**：MFA step-up 5 次/分/用户、MFA 管理 10 次/分、Passkey 管理 10 次/分（配置 Redis 时共享滑动窗口，否则进程内）；命中统一 429 `rate_limited` + `*_rate_limited` 审计；`DR_MFA_VERIFY_RATE_PER_MINUTE` / `DR_MFA_ENROLL_RATE_PER_MINUTE` / `DR_PASSKEY_MANAGE_RATE_PER_MINUTE` 文档化；新增 3 个定向用例（MFA/Passkey 套件 30 passed）。Passkey 注册 step-up 另 PR。 |

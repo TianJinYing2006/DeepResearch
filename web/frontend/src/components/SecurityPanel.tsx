@@ -103,11 +103,13 @@ export default function SecurityPanel({ onSignedOut, passkeyEnabled = false }: P
   }, [loadPasskeys])
 
   async function addPasskey() {
+    const password = window.prompt('添加 Passkey 需要输入当前密码确认：')
+    if (!password) return
     const name = window.prompt('为此设备命名（可选）：') ?? ''
     setBusy(true)
     setPasskeyNotice('')
     try {
-      await registerPasskey(name.trim())
+      await registerPasskey(name.trim(), password)
       setPasskeyNotice('Passkey 已添加，下次可直接免密登录')
       await loadPasskeys()
     } catch (err) {
@@ -251,7 +253,7 @@ export default function SecurityPanel({ onSignedOut, passkeyEnabled = false }: P
               添加
             </button>
           </div>
-          <p className="text-[11px] text-ink-muted">用于免密登录；删除需输入当前密码确认。</p>
+          <p className="text-[11px] text-ink-muted">用于免密登录；添加与删除均需输入当前密码确认。</p>
           {passkeyError && (
             <p role="alert" className="mt-2 text-stamp-red" data-testid="passkey-error">{passkeyError}</p>
           )}
