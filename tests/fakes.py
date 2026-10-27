@@ -451,6 +451,9 @@ class FakeStore:
         return sum(1 for row in self.runs.values()
                    if row["user_id"] == user_id and row["created_at"] >= since)
 
+    def count_users_since(self, since):
+        return sum(1 for row in self.users.values() if row["created_at"] >= since)
+
     def month_cost_cny(self):
         month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         return sum(float(row.get("cost_estimate_cny") or 0.0)

@@ -243,6 +243,31 @@ def _env_number(name: str, default: float) -> float:
 
 # P4-A：鉴权。默认全关（本地开发 / E2E 零变化）；staging/生产由环境变量打开。
 AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
+# 开放注册防滥用第一层（P0 风控）：总开关 / 全局每日上限 / 一次性邮箱域名黑名单。
+REGISTRATION_ENABLED = _env_flag("DR_REGISTRATION_ENABLED", "true")
+REGISTRATION_DAILY_LIMIT = int(_env_number("DR_REGISTRATION_DAILY_LIMIT", 100))
+DEFAULT_EMAIL_DOMAIN_BLOCKLIST = (
+    "mailinator.com",
+    "10minutemail.com",
+    "yopmail.com",
+    "guerrillamail.com",
+    "sharklasers.com",
+    "tempmail.com",
+    "trashmail.com",
+)
+_email_blocklist_raw = (os.getenv("DR_EMAIL_DOMAIN_BLOCKLIST") or "").strip()
+EMAIL_DOMAIN_BLOCKLIST = tuple(
+    item.strip().lower()
+    for item in (_email_blocklist_raw or ",".join(DEFAULT_EMAIL_DOMAIN_BLOCKLIST)).split(",")
+    if item.strip()
+)
+
+
+def _email_domain_blocked(email: str) -> bool:
+    domain = email.rsplit("@", 1)[-1].lower()
+    return any(domain == blocked or domain.endswith("." + blocked)
+               for blocked in EMAIL_DOMAIN_BLOCKLIST)
+
 COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
 # RFC 6265bis `__Host-` 前缀（仅 HTTPS 启用）：要求 Secure + Path=/ + 无 Domain；
 # HTTP 本地调试模式浏览器会拒收，故退回裸名（测试/本地行为不变）。
@@ -1221,12 +1246,23 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
         raise http_error("rate_limited", "注册请求过于频繁，稍后再试")
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
+    if not REGISTRATION_ENABLED:
+        _audit("register_blocked", request=request, detail={"reason": "disabled"})
+        raise http_error("registration_disabled", "注册通道已关闭，请稍后再试")
     email = normalize_email(req.email)
     if not is_valid_email(email):
         raise http_error("invalid_request", "邮箱格式不合法")
     if not req.agree_terms:
         raise http_error("invalid_request", "请先阅读并同意《用户协议》与《隐私政策》")
     _reject_weak_password(req.password, email=email)
+    if _email_domain_blocked(email):
+        _audit("register_blocked", request=request, detail={"reason": "email_domain"})
+        raise http_error("email_domain_blocked", "该邮箱域名不支持注册，请使用常用邮箱")
+    if REGISTRATION_DAILY_LIMIT > 0:
+        created_today = _store_call(store.count_users_since, _day_start_utc())
+        if created_today >= REGISTRATION_DAILY_LIMIT:
+            _audit("register_blocked", request=request, detail={"reason": "daily_limit"})
+            raise http_error("registration_limit_reached", "今日注册名额已满，请明天再试")
     user_id = uuid.uuid4().hex[:12]
     try:
         user = store.create_user(user_id, email, hash_password(req.password))

@@ -1012,6 +1012,12 @@ class RunStore:
             )
             return cur.fetchone()["n"]
 
+    def count_users_since(self, since: datetime) -> int:
+        """自 `since` 起创建的账号数（开放注册全局每日上限用）。"""
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) AS n FROM users WHERE created_at >= %s", (since,))
+            return int(cur.fetchone()["n"])
+
     def month_cost_cny(self) -> float:
         """本自然月（UTC）全部运行的成本估算合计（全局月度预算闸用）。"""
         with self._connect() as conn, conn.cursor() as cur:
