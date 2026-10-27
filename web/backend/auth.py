@@ -138,7 +138,3 @@ def new_token() -> str:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def new_invite_code() -> str:
-    return secrets.token_urlsafe(16)

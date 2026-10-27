@@ -241,9 +241,8 @@ def _env_number(name: str, default: float) -> float:
         return default
 
 
-# P4-A：鉴权与邀请制。默认全关（本地开发 / E2E 零变化）；staging/生产由环境变量打开。
+# P4-A：鉴权。默认全关（本地开发 / E2E 零变化）；staging/生产由环境变量打开。
 AUTH_REQUIRED = _env_flag("DR_AUTH_REQUIRED", "false")
-INVITE_ONLY = _env_flag("DR_INVITE_ONLY", "true")
 COOKIE_SECURE = _env_flag("DR_COOKIE_SECURE", "false")
 # RFC 6265bis `__Host-` 前缀（仅 HTTPS 启用）：要求 Secure + Path=/ + 无 Domain；
 # HTTP 本地调试模式浏览器会拒收，故退回裸名（测试/本地行为不变）。
@@ -581,7 +580,6 @@ def options() -> dict:
         "max_concurrent_runs": manager.max_concurrent_runs,
         # P4-A / P6-A：前端据此决定是否展示登录页（未开启鉴权时保持匿名可用）
         "auth_required": AUTH_REQUIRED,
-        "invite_only": INVITE_ONLY,
         # 需求 25：错误追踪（DSN 空 = 前端不初始化，零网络请求）
         "sentry_dsn": config.observability.sentry_dsn_frontend,
         "sentry_environment": config.observability.sentry_environment,
@@ -1203,7 +1201,6 @@ def _start_queued(*, topic: str, instructions: str, idempotency_key: Optional[st
 class RegisterRequest(BaseModel):
     email: str = Field(..., max_length=254)
     password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=200)
-    invite_code: Optional[str] = Field(None, max_length=128, description="邀请制下必填")
     agree_terms: bool = Field(False, description="需求 25：必须勾选同意《用户协议》与《隐私政策》")
 
 
@@ -1219,7 +1216,7 @@ class ChangePasswordRequest(BaseModel):
 
 @app.post("/api/auth/register")
 def auth_register(req: RegisterRequest, request: Request, response: Response) -> dict:
-    """邀请制注册（`DR_INVITE_ONLY=true` 时邀请码必填）；成功后自动登录。"""
+    """开放注册：邮箱 + 密码 + 同意条款；成功后自动登录。"""
     if not LOGIN_LIMITER.allow(f"register:{_client_key(request)}"):
         raise http_error("rate_limited", "注册请求过于频繁，稍后再试")
     if store is None:
@@ -1232,15 +1229,7 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
     _reject_weak_password(req.password, email=email)
     user_id = uuid.uuid4().hex[:12]
     try:
-        if INVITE_ONLY:
-            if not req.invite_code:
-                raise ValueError("invite_invalid")
-            user = store.register_with_invite(
-                user_id, email, hash_password(req.password), token_hash(req.invite_code.strip()))
-        else:
-            user = store.create_user(user_id, email, hash_password(req.password))
-    except ValueError as exc:
-        raise http_error("invite_invalid", "邀请码无效、已使用或已过期") from exc
+        user = store.create_user(user_id, email, hash_password(req.password))
     except Exception as exc:  # noqa: BLE001
         if getattr(exc, "sqlstate", None) == "23505":
             raise http_error("email_taken", "该邮箱已注册") from exc
@@ -1260,7 +1249,7 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
                  for doc_type, version in consent_versions.items()],
                 ip_hash=hashlib.sha256(_client_key(request).encode("utf-8")).hexdigest()[:16])
     _audit("register_success", request=request, actor_user_id=user["user_id"],
-           detail={"invite": bool(req.invite_code), "consents": consent_versions})
+           detail={"consents": consent_versions})
     return {"user": _public_user(user)}
 
 

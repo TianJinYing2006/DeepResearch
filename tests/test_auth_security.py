@@ -13,7 +13,6 @@ from web.backend.auth import (
     SESSION_COOKIE,
     check_password_strength,
     host_prefix_cookie_name,
-    token_hash,
 )
 
 # ---------------------------------------------------------------- cookie 前缀
@@ -67,18 +66,15 @@ def test_reasonable_passwords_accepted():
 @pytest.fixture()
 def client(monkeypatch) -> TestClient:
     fake = FakeStore()
-    fake.create_invite(token_hash("invite-1"), created_by="test")
     monkeypatch.setattr(api, "store", fake)
     monkeypatch.setattr(api, "queue", None)
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", True)
     return TestClient(api.app)
 
 
-def _register(client: TestClient, email: str, password: str, code: str = "invite-1"):
+def _register(client: TestClient, email: str, password: str):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": password, "invite_code": code,
-                             "agree_terms": True})
+                       json={"email": email, "password": password, "agree_terms": True})
 
 
 def test_register_rejects_weak_password(client: TestClient):
@@ -86,7 +82,7 @@ def test_register_rejects_weak_password(client: TestClient):
     assert resp.status_code == 422  # invalid_request 约定 422（errors.py ErrorSpec）
     assert "常见" in resp.json()["detail"]["message"]
 
-    # 上下文词（邮箱本地部分 ≥4 字符）命中；失败发生在落库前，不消耗邀请码
+    # 上下文词（邮箱本地部分 ≥4 字符）命中；失败发生在落库前，不创建用户
     resp = _register(client, "context@example.com", "context-pass-2026")
     assert resp.status_code == 422
 

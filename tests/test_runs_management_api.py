@@ -10,7 +10,7 @@ from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
 from web.backend import main as api
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
 from web.backend.runner import RunManager
 
 PASSWORD = "password-123456"
@@ -19,8 +19,6 @@ PASSWORD = "password-123456"
 @pytest.fixture()
 def store() -> FakeStore:
     fake = FakeStore()
-    fake.create_invite(token_hash("invite-1"), created_by="test")
-    fake.create_invite(token_hash("invite-2"), created_by="test")
     return fake
 
 
@@ -33,17 +31,15 @@ def client(monkeypatch, store: FakeStore) -> TestClient:
     monkeypatch.setattr(api, "queue", None)
     monkeypatch.setattr(api, "EXECUTION_MODE", "inprocess")
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", True)
     # 用例内直接用 FakeStore 预置种子 run，会占满默认日配额/并发闸 —— 放开（闸行为另有用例覆盖）
     monkeypatch.setattr(api, "DAILY_RUNS_PER_USER", 0)
     monkeypatch.setattr(api, "MAX_USER_CONCURRENT", 8)
     return TestClient(api.app)
 
 
-def _register(client: TestClient, email: str, code: str = "invite-1"):
+def _register(client: TestClient, email: str):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": PASSWORD, "invite_code": code,
-                             "agree_terms": True})
+                       json={"email": email, "password": PASSWORD, "agree_terms": True})
 
 
 def _csrf(client: TestClient) -> dict[str, str]:
@@ -152,12 +148,12 @@ def test_retry_clones_request_with_lineage_and_idempotency(
 
 
 def test_cross_user_actions_are_404(client: TestClient, store: FakeStore):
-    assert _register(client, "owner@example.com", code="invite-1").status_code == 200
+    assert _register(client, "owner@example.com").status_code == 200
     owner_id = _user_id(client)
     row = _seed(store, user_id=owner_id, status="FAILED", topic="owner 的任务")
 
     client.cookies.clear()
-    assert _register(client, "other@example.com", code="invite-2").status_code == 200
+    assert _register(client, "other@example.com").status_code == 200
 
     assert client.patch(f"/api/runs/{row['run_id']}", json={"topic": "盗改"},
                         headers=_csrf(client)).status_code == 404
