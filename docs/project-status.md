@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-27（开放注册防滥用第一层）**：`DR_REGISTRATION_ENABLED` 总开关、`DR_REGISTRATION_DAILY_LIMIT`（默认 100/日，0=不限）、`DR_EMAIL_DOMAIN_BLOCKLIST`（默认 mailinator/10minutemail/yopmail/guerrillamail/sharklasers/tempmail/trashmail）；命中分别 403/429/422 并留审计；`RunStore.count_users_since` + FakeStore 同口径；`.env.example`/compose/ADR-0017 同步。 |
 | 更新 | **2026-10-27（取消邀请制 / 开放注册）**：后端 #302 + 前端 #303；注册改为邮箱 + 密码 + 同意条款，删除邀请码字段/校验/`/api/options.invite_only`/CLI 邀请命令/邀请弹窗/E2E；文档、ADR-0017、需求 10/20、用户协议、FAQ、figures 同步；保留注册/登录限流、每日配额、月度预算；开放注册成本风险待邮箱验证/CAPTCHA。 |
 | 更新 | **2026-10-26（v0.2.0 发布收口）**：新增 `CHANGELOG.md`（v0.1.0→v0.2.0 全量分类）；FastAPI `version` `w9` → `0.2.0`；`dev → master` + annotated tag `v0.2.0` + GitHub Release；回滚演练阻塞如实登记（forced command 限制，Issue #299）。 |
 | 更新 | **2026-10-26（Caddy 单文件 bind mount 修复）**：定位 `/metrics` 仍 404 的根因——`./Caddyfile:/etc/caddy/Caddyfile` 单文件 bind mount 在 `git checkout` 替换文件后仍锁**旧 inode**，reload 读到的还是旧配置；deploy.sh 改为先 `--force-recreate caddy` 再 `caddy reload` 校验，失败即中止；静态测试更新。 |

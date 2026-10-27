@@ -125,8 +125,12 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         component="auth"),
     "email_taken": ErrorSpec(
         409, False, "该邮箱已注册：直接登录，或更换邮箱。", component="auth"),
-    "invite_invalid": ErrorSpec(
-        400, False, "邀请码无效、已使用或已过期：向管理员索取新邀请码。", component="auth"),
+    "registration_disabled": ErrorSpec(
+        403, False, "注册通道暂时关闭：请稍后再试或联系管理员。", component="auth"),
+    "registration_limit_reached": ErrorSpec(
+        429, True, "今日注册名额已满：请明天再试。", component="auth"),
+    "email_domain_blocked": ErrorSpec(
+        422, False, "该邮箱域名不支持注册：请使用常用邮箱。", component="auth"),
     "csrf_failed": ErrorSpec(
         403, False,
         "CSRF 校验失败：写操作需携带与 dr_csrf Cookie 一致的 X-CSRF-Token。",
