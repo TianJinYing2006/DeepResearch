@@ -30,7 +30,6 @@ test.describe('窄屏流程回归', () => {
           max_subquestions_default: 2,
           run_timeout_seconds: 3,
           auth_required: true,
-          invite_only: true,
         },
       }),
     )

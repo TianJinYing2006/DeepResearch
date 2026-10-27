@@ -48,7 +48,6 @@ const AUTH_OPTIONS = {
   max_subquestions_default: 2,
   run_timeout_seconds: 3,
   auth_required: true,
-  invite_only: true,
 }
 
 // 抗锯齿/渲染容差：金标准钉在 CI（Linux + 官方 chromium）环境；比对侧允许

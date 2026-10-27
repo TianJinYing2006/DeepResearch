@@ -6,8 +6,6 @@ import InkFlowCanvas from './InkFlowCanvas'
 type Props = {
   /** 顶部提示（如「账号已注销」）。 */
   notice?: string
-  /** 邀请链接预填的邀请码（带邀请链接打开时默认注册模式）。 */
-  inviteFromUrl?: string
   onAuthed: (user: SessionUser) => void
   onOpenLegal: (doc: 'privacy' | 'terms') => void
   /** 返回落地页（存在落地页时提供） */
@@ -21,7 +19,7 @@ type Props = {
  * 左（移动端在上）：白卡表单；右（移动端在下）：墨色宣言板——
  * 衬线大字 + 闪烁光标 + 底部注解。保留全部 e2e 契约（AuthForm 未动）。 */
 export default function AuthGate({
-  notice, inviteFromUrl, onAuthed, onOpenLegal, onBack, passkeyEnabled = false,
+  notice, onAuthed, onOpenLegal, onBack, passkeyEnabled = false,
 }: Props) {
   return (
     <Modal
@@ -52,8 +50,6 @@ export default function AuthGate({
           <AuthForm
             idPrefix="auth"
             titleId="auth-title"
-            initialMode={inviteFromUrl ? 'register' : 'login'}
-            inviteFromUrl={inviteFromUrl}
             notice={notice}
             passkeyEnabled={passkeyEnabled}
             onAuthed={onAuthed}
@@ -72,8 +68,7 @@ export default function AuthGate({
             变成可追溯的研究结论
           </p>
           <p className="relative max-w-[26em] text-xs leading-relaxed text-white/60">
-            内测阶段，仅限邀请；普通账号由邀请码创建。
-            登录后可在「会话与安全」中随时查看设备并退出其他会话。
+            注册即可使用；登录后可在「会话与安全」中随时查看设备并退出其他会话。
           </p>
         </aside>
       </div>
