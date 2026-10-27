@@ -23,7 +23,7 @@
 | **评测体系** | 两阶段管道（`--run-only` 存原文产出 / `--eval-only` 零成本复算）+ 七指标聚合 + 质量闸（`verdict` + ±stderr），入口 `research_engine/eval/run.py` |
 | **故障可归因（W8）** | 工具/provider/RAG/内部错误均有明确 `failure_reason`；`run_status`/`invoke_status`/`metrics_status` 三层状态分层，失败 run 不会伪装成成功 |
 | **可复现与产物治理（W8）** | 每轮 run 落盘配置快照、五开关生效值、`prompt_hash`（含分角色 `prompt_slots`）、`scorer_version` 与 git 修订；质量闸出 `verdict` + ±stderr；评测产物白名单 ≡ git 跟踪集合 |
-| **L3 生产能力（P1–P8）** | 账号与会话（Argon2id + httpOnly Session + CSRF 双提交）、邀请制、配额三闸（月度预算 / 单用户并发 / 每日次数）与预留式结算、分布式限流（Redis 滑动窗口）、多租户 RAG 隔离、内容安全与申诉状态机、报告只读分享、用量账本、安全审计日志、对象存储（MinIO/S3）、队列模式 Worker（PostgreSQL 为派发权威） |
+| **L3 生产能力（P1–P8）** | 账号与会话（Argon2id + httpOnly Session + CSRF 双提交）、开放注册（邮箱 + 密码）、配额三闸（月度预算 / 单用户并发 / 每日次数）与预留式结算、分布式限流（Redis 滑动窗口）、多租户 RAG 隔离、内容安全与申诉状态机、报告只读分享、用量账本、安全审计日志、对象存储（MinIO/S3）、队列模式 Worker（PostgreSQL 为派发权威） |
 | **故障与恢复** | `GET /api/metrics`（状态分布 / 成功率 / 队列积压 / 过期租约 / 月度成本）、`GET /api/ops/alerts`（阈值判定 + webhook 退避外送）、`tools/backup.sh` / `restore.sh`，CI 每次 PR 真实执行「备份 → 清库 → 恢复」演练 |
 
 ## 架构
@@ -98,7 +98,7 @@ cp .env.example .env
 **L3 部署相关（P1–P8，全部有默认值，本地开发零配置）**：
 - `DR_ENV`：`local`（默认）/ `staging` / `production`。**staging 与 production 会 fail fast** —— 鉴权开关、Secure Cookie、显式 CORS、LLM 密钥缺失即拒绝启动；production 另拒明文 HTTP。
 - 执行模式与队列：`DR_EXECUTION_MODE`（代码默认 `inprocess`，compose 默认 `queue`）、`DR_WORKER_*`（租约 / 心跳 / 清扫 / 重试）、`DR_MAX_CONCURRENT_RUNS`、`DR_RUN_TIMEOUT_SECONDS`。
-- 账号：`DR_AUTH_REQUIRED`（代码默认 `false`，compose `true`）、`DR_INVITE_ONLY`（默认 `true`）、`DR_SESSION_TTL_SECONDS` / `DR_SESSION_IDLE_SECONDS`；邮件通道见 `DR_SMTP_*` / `DR_MAIL_BASE_URL`。
+- 账号：`DR_AUTH_REQUIRED`（代码默认 `false`，compose `true`）、`DR_SESSION_TTL_SECONDS` / `DR_SESSION_IDLE_SECONDS`；邮件通道见 `DR_SMTP_*` / `DR_MAIL_BASE_URL`。
 - 配额与限流：`DR_RUN_BUDGET_CNY`（¥1.50）、`DR_MONTHLY_BUDGET_CNY`（¥1,500）、`DR_DAILY_RUNS_PER_USER`、`DR_MAX_USER_CONCURRENT`、`DR_TRUSTED_PROXY_CIDRS` / `DR_PROXY_HOPS`。
 - 数据面：`DR_DATABASE_URL` / `DR_REDIS_URL`、`DR_PG_*`（连接池 / `statement_timeout` / 慢查询阈值）、`DR_S3_*`（MinIO/对象存储，未配置回落 PG）、`DR_RETENTION_*`（事件 30d / 任务 90d / 用量·审核·审计 180d）。
 - 内容安全与运维：`DR_MODERATION_PROVIDER`（默认 `local_rules`）、`DR_MODERATION_DEGRADED_POLICY`（默认 `quarantine`）、`DR_ALERT_*` + `DR_ALERT_WEBHOOK_URL`、`DR_OPS_TOKEN`（staging/prod 未设则 401）、`DR_SHARE_ENABLED`（默认 `false`）。
@@ -194,7 +194,7 @@ docker compose -f docker-compose.staging.yml down       # 停服；加 -v 连数
 - CORS：不设 `DR_CORS_ORIGINS` 时仅允许本地 Vite（5173）；staging/生产**必须显式设置**；
 - Qdrant 不在 compose 内：默认指向宿主机 `host.docker.internal:6333`，staging 用 `QDRANT_URL` 指向真实实例；
 - 外部服务按推荐基线默认关闭（OTel 导出 `DR_OTEL_ENABLED=false` / `ENABLE_ARXIV=false`）；
-- **账号（P4-A / P1-10 / 需求 24）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（Argon2id + httpOnly `__Host-` Session + CSRF 双提交）；邀请制（`DR_INVITE_ONLY` 默认 `true`）；会话治理（列表 / 终止其他设备 / 空闲超时）；CLI：`python -m web.backend.admin create-invite` / `create-user` / `ban-user` / `create-reset-token`；自助找回密码（`DR_SMTP_*`，未配置整条关闭且恒 200 防枚举）。
+- **账号（P4-A / P1-10 / 需求 24）**：`DR_AUTH_REQUIRED=true` 后运行接口需登录（Argon2id + httpOnly `__Host-` Session + CSRF 双提交）；开放注册（邮箱 + 密码 + 同意条款）；会话治理（列表 / 终止其他设备 / 空闲超时）；CLI：`python -m web.backend.admin create-user` / `ban-user` / `create-reset-token`；自助找回密码（`DR_SMTP_*`，未配置整条关闭且恒 200 防枚举）。
 - **配额与限流（P4-B / P1-1 / P1-2）**：单用户 `DR_DAILY_RUNS_PER_USER` 次/日、并发 `DR_MAX_USER_CONCURRENT`；单次预算 `DR_RUN_BUDGET_CNY=¥1.50`、全局月度 `DR_MONTHLY_BUDGET_CNY=¥1,500`（100% 熔断新任务，查询/导出不受影响）；准入与月度预留在 **PostgreSQL 单事务 + `pg_advisory_xact_lock`** 下原子判定（并发不再一起越闸）；`GET /api/quota` 查余量；请求指纹幂等（同键不同载荷 409 `idempotency_conflict`）；限流为 **Redis 滑动窗口（Lua）** 多实例共享，Redis 故障 fail-open 并回落进程内计数（`ratelimit_redis_error` 指标）——多实例下限流为准入参考而非强保证。
 - **RAG 三层与隔离（P5-A / 需求 23 / P0-8）**：知识库块带 `user_id`/`tenant_id`/`visibility`，检索作用域**下推 Qdrant `must` 过滤** + Python 后置兜底（owner 只见本人 private，匿名只见无主历史块，绝不跨用户）；分块 v2（结构保真、token 预算）、双路召回 + RRF、可选云端 rerank（`DR_RAG_RERANK` 默认关，失败 fail-open）；上传面已上线：流式落盘 + 扩展名/magic bytes 校验 + 内容寻址 `doc_id` 幂等 + 异步摄取管线（隔离区 → 202 → Worker 状态机，可选 ClamAV，90 天清扫）。
 - **内容安全与隐私（P7-A / P0-4 / P2-5）**：输入预检词表命中即拒；**输出闸**在发帧 / 落库前递归脱敏，审核状态与终局**同事务**落库，导出与历史回放强制脱敏（403 `output_under_review`）；申诉状态机 + SLA（`DR_APPEAL_SLA_HOURS=72`）；注销走 durable outbox（验证向量归零 + 指数退避 + 耗尽 `abandoned`）；保留期自动清理（`DR_RETENTION_*`）；安全审计日志 append-only（`X-Request-ID` 贯穿）。⚠️ `DR_MODERATION_PROVIDER` 默认 `local_rules` 是**本地规则词表、不是审核服务**，正式开放前必须接入有资质服务。

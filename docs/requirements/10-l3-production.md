@@ -345,7 +345,6 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | `DR_SESSION_TTL_SECONDS` | 604800 | 会话有效期（7 天） |
 | `DR_AUTH_REQUIRED` | `false`（本地）/ `true`（staging） | 运行类接口是否必须登录（P4-A） |
 | `DR_COOKIE_SECURE` | `false`（本地 http）/ `true`（HTTPS） | Session / CSRF Cookie 的 Secure 标记（P4-A） |
-| `DR_INVITE_ONLY` | `true` | 关闭自由注册（P4-A：注册需一次性邀请码） |
 | `DR_MAX_USER_CONCURRENT` | 1 | 单用户并发 |
 | `DR_DAILY_RUNS_PER_USER` | 1 | 单用户每日运行数 |
 | `DR_GLOBAL_DAILY_RUNS` | 5（L3-A）/ 10（L3-B） | 全局每日运行数 |
@@ -390,7 +389,7 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 - [x] 用户不能访问他人任务（查询 / 取消 / 导出 / SSE 订阅四路负向测试；P4-A：非本人一律 404，不泄露存在性）
 - [x] Worker 挂掉后任务不会永久卡住（P3-A 租约 + P3-B 超时清扫接管：可重试→重排、重试耗尽→`LOST`）
 - [x] 成本超限自动停止（单 run 预算闸 P3-B；用户级每日/并发 + 全局月度闸 P4-B；查询与导出不受影响）
-- [x] 邀请码注册 / 登录 / 登出 / 会话过期行为符合预期（P4-A；密码重置与限流留 P4-B）
+- [x] 开放注册 / 登录 / 登出 / 会话过期行为符合预期（P4-A；密码重置与限流留 P4-B）
 - [ ] staging 环境一键起停（本地 compose 已具备；云上 staging 待部署）；迁移**只前向**执行且二次幂等（回退走备份恢复，见上线准入 §7.3）
 
 ### 7.2 L3-B（邀请制内测版）
@@ -515,3 +514,4 @@ CREATED → QUEUED → RUNNING →（CANCEL_REQUESTED）
 | 2026-09-27 | P2-5b 申诉/复核状态机 | §5.7 / 代码 / CI | 迁移 0014 `moderation_appeals` + `web/backend/appeals.py`（submit/review/SLA）+ API 建单与本人查询 + accepted⇒`cleared` / rejected⇒`flagged` + `appeal_sla_overdue` 告警 + CLI 三命令 + 180 天保留入 P2-2 政策；真实 PG 契约入 CI `infra`；测试 727 收集（686 通过 + 41 跳过） | [PR #51](https://github.com/TianJinYing2006/DeepResearch/pull/51) |
 | 2026-09-27 | P2-7 容量标定（压测） | §7.5 / 工具 / 文档 | `tools/loadtest/locustfile.py` + README；Worker `DR_LOADTEST_GRAPH=1` 假图（零 LLM；生产禁用）；`docs/operations/capacity-model.md`（公式/连接预算/存储上界/实测基线待回填）；手动执行不进 CI；测试 730 收集（689 通过 + 41 跳过） | [PR #52](https://github.com/TianJinYing2006/DeepResearch/pull/52) |
 | 2026-09-27 | P2-8 发布/回滚 runbook | §7.4 / 文档 | `docs/operations/release-runbook.md`（前向兼容原则 + 发布步骤 + 冒烟 + 观察窗口 + 回滚决策树 + 记录模板 + 演练状态登记）；§7.4 检查单同步；纯文档，测试基线不变（730 收集 = 689 通过 + 41 跳过） | [PR #53](https://github.com/TianJinYing2006/DeepResearch/pull/53) |
+| 2026-10-27 | 边界变更 | 取消邀请制 / 开放注册 | 注册改为邮箱+密码+同意条款；移除 DR_INVITE_ONLY、邀请码校验、管理 CLI 邀请命令（#302）；用户上限条款以 ADR-0017 变更记录为准 | #302 / #303 |
