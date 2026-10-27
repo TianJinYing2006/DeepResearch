@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from web.backend import main as api
 from web.backend import secretbox
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
 from web.backend.runner import RunManager
 from web.backend.totp import (
     decode_secret,
@@ -33,7 +33,6 @@ EMAIL = "a@example.com"
 @pytest.fixture()
 def store() -> FakeStore:
     fake = FakeStore()
-    fake.create_invite(token_hash("invite-1"), created_by="test")
     return fake
 
 
@@ -46,7 +45,6 @@ def client(monkeypatch, store: FakeStore) -> TestClient:
     monkeypatch.setattr(api, "queue", None)
     monkeypatch.setattr(api, "EXECUTION_MODE", "inprocess")
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", True)
     monkeypatch.setenv("DR_MFA_SECRET_KEY", secretbox.generate_key_b64())
     return TestClient(api.app)
 
@@ -58,7 +56,7 @@ def _csrf(client: TestClient) -> dict[str, str]:
 def _register(client: TestClient):
     return client.post("/api/auth/register",
                        json={"email": EMAIL, "password": PASSWORD,
-                             "invite_code": "invite-1", "agree_terms": True})
+                             "agree_terms": True})
 
 
 def _login(client: TestClient):

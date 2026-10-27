@@ -8,7 +8,7 @@ from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
 from web.backend import main as api
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
 from web.backend.runner import RunManager
 
 PASSWORD = "password-123456"
@@ -17,7 +17,6 @@ PASSWORD = "password-123456"
 @pytest.fixture()
 def store() -> FakeStore:
     fake = FakeStore()
-    fake.create_invite(token_hash("invite-1"), created_by="test")
     return fake
 
 
@@ -30,14 +29,13 @@ def client(monkeypatch, store: FakeStore) -> TestClient:
     monkeypatch.setattr(api, "queue", None)
     monkeypatch.setattr(api, "EXECUTION_MODE", "inprocess")
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", True)
     return TestClient(api.app)
 
 
 def _register(client: TestClient, email: str = "fb@example.com"):
     return client.post("/api/auth/register",
                        json={"email": email, "password": PASSWORD,
-                             "invite_code": "invite-1", "agree_terms": True})
+                             "agree_terms": True})
 
 
 def _csrf(client: TestClient) -> dict[str, str]:

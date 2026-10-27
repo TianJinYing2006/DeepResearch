@@ -12,7 +12,7 @@ from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
 from web.backend import main as api
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, token_hash
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
 from web.backend.ratelimit import FixedWindowLimiter
 from web.backend.runner import RunManager
 from web.backend.store import QuotaExceeded
@@ -23,7 +23,6 @@ PASSWORD = "password-123456"
 @pytest.fixture()
 def store() -> FakeStore:
     fake = FakeStore()
-    fake.create_invite(token_hash("invite-1"), created_by="test")
     return fake
 
 
@@ -35,7 +34,6 @@ def _client(monkeypatch, store: FakeStore, *, steps: int = 2, delay: float = 0.0
     monkeypatch.setattr(api, "queue", None)
     monkeypatch.setattr(api, "EXECUTION_MODE", "inprocess")
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", True)
     monkeypatch.setattr(api, "DAILY_RUNS_PER_USER", 1)
     monkeypatch.setattr(api, "MAX_USER_CONCURRENT", 1)
     monkeypatch.setattr(api, "RUN_BUDGET_CNY", 1.5)
@@ -46,7 +44,7 @@ def _client(monkeypatch, store: FakeStore, *, steps: int = 2, delay: float = 0.0
         monkeypatch.setattr(api, key, value)
     client = TestClient(api.app)
     register = client.post("/api/auth/register", json={
-        "email": "quota@example.com", "password": PASSWORD, "invite_code": "invite-1",
+        "email": "quota@example.com", "password": PASSWORD,
         "agree_terms": True})
     assert register.status_code == 200
     return client

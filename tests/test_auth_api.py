@@ -1,6 +1,6 @@
 """P4-A 鉴权 API 测试（FakeStore，零 PostgreSQL）。
 
-覆盖：邀请制注册（一次性/无效/邮箱重复）、登录/登出/会话、CSRF 双提交、
+覆盖：开放注册（无需邀请码/邮箱重复）、登录/登出/会话、CSRF 双提交、
 运行接口的 401（未登录）与 403（缺 CSRF）、跨用户越权一律 404（不泄露存在性）。
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
 from web.backend import main as api
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, token_hash
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
 from web.backend.runner import RunManager
 
 PASSWORD = "password-123456"
@@ -20,10 +20,7 @@ PASSWORD = "password-123456"
 
 @pytest.fixture()
 def store() -> FakeStore:
-    fake = FakeStore()
-    fake.create_invite(token_hash("invite-1"), created_by="test")
-    fake.create_invite(token_hash("invite-2"), created_by="test")
-    return fake
+    return FakeStore()
 
 
 @pytest.fixture()
@@ -35,14 +32,12 @@ def client(monkeypatch, store: FakeStore) -> TestClient:
     monkeypatch.setattr(api, "queue", None)
     monkeypatch.setattr(api, "EXECUTION_MODE", "inprocess")
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", True)
     return TestClient(api.app)
 
 
-def _register(client: TestClient, email: str, code: str = "invite-1"):
+def _register(client: TestClient, email: str):
     return client.post("/api/auth/register",
-                       json={"email": email, "password": PASSWORD, "invite_code": code,
-                             "agree_terms": True})
+                       json={"email": email, "password": PASSWORD, "agree_terms": True})
 
 
 def _login(client: TestClient, email: str):
@@ -53,20 +48,15 @@ def _csrf(client: TestClient) -> dict[str, str]:
     return {CSRF_HEADER: client.cookies.get(CSRF_COOKIE)}
 
 
-def test_register_requires_valid_one_time_invite(client: TestClient):
-    assert _register(client, "a@example.com", code="").status_code == 400
-    assert _register(client, "a@example.com", code="wrong-code").status_code == 400
-
+def test_register_is_open_without_invite(client: TestClient):
     assert _register(client, "a@example.com").status_code == 200
     assert client.cookies.get(SESSION_COOKIE)
     assert client.cookies.get(CSRF_COOKIE)
 
-    # 邀请码一次性：同一码不能再注册
-    assert _register(client, "b@example.com").status_code == 400
-    # 邮箱重复
-    assert _register(client, "A@EXAMPLE.COM", code="invite-2").status_code == 409
-    # 上一条失败不应消耗 invite-2
-    assert _register(client, "c@example.com", code="invite-2").status_code == 200
+    assert _register(client, "b@example.com").status_code == 200
+    # 邮箱重复（大小写归一后）仍拒绝
+    assert _register(client, "A@EXAMPLE.COM").status_code == 409
+
 
 
 def test_login_logout_and_session(client: TestClient):
@@ -107,12 +97,12 @@ def test_run_endpoints_require_auth_and_csrf(client: TestClient):
 
 
 def test_cross_user_access_is_404(client: TestClient, store: FakeStore):
-    assert _register(client, "owner@example.com", code="invite-1").status_code == 200
+    assert _register(client, "owner@example.com").status_code == 200
     run_id = client.post("/api/research", json={"topic": "t"}, headers=_csrf(client)).json()["run_id"]
 
     # 换第二个用户（清掉 cookie 再注册）
     client.cookies.clear()
-    assert _register(client, "other@example.com", code="invite-2").status_code == 200
+    assert _register(client, "other@example.com").status_code == 200
 
     assert client.get(f"/api/research/{run_id}").status_code == 404
     assert client.get(f"/api/research/{run_id}/report").status_code == 404
@@ -137,14 +127,6 @@ def test_owner_can_read_and_cancel(client: TestClient):
     assert client.get(f"/api/research/{run_id}/stream").status_code == 200
     assert client.post(f"/api/research/{run_id}/cancel", headers=_csrf(client)).status_code == 200
     assert client.get("/api/runs").json()["runs"][0]["run_id"] == run_id
-
-
-def test_register_without_invite_when_not_invite_only(monkeypatch, client: TestClient):
-    monkeypatch.setattr(api, "INVITE_ONLY", False)
-    response = client.post("/api/auth/register",
-                           json={"email": "free@example.com", "password": PASSWORD,
-                                 "agree_terms": True})
-    assert response.status_code == 200
 
 
 def test_change_password_revokes_other_sessions(client: TestClient):
@@ -184,8 +166,7 @@ def test_change_password_requires_login_and_current_password(client: TestClient)
 def test_register_requires_consent_and_records_versions(client: TestClient, store: FakeStore):
     """需求 25：注册必须勾选同意；成功后按文档 hash 留档 terms/privacy 两行。"""
     without = client.post("/api/auth/register",
-                          json={"email": "noconsent@example.com", "password": PASSWORD,
-                                "invite_code": "invite-2"})
+                          json={"email": "noconsent@example.com", "password": PASSWORD})
     assert without.status_code == 422
     assert without.json()["detail"]["code"] == "invalid_request"
     assert store.users == {}  # 未勾选不建用户、不消耗邀请码

@@ -22,7 +22,6 @@ def store() -> FakeStore:
 def _client(monkeypatch, store: FakeStore) -> TestClient:
     monkeypatch.setattr(api, "store", store)
     monkeypatch.setattr(api, "AUTH_REQUIRED", True)
-    monkeypatch.setattr(api, "INVITE_ONLY", False)
     return TestClient(api.app)
 
 

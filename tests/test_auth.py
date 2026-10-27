@@ -4,7 +4,6 @@ from __future__ import annotations
 from web.backend.auth import (
     hash_password,
     is_valid_email,
-    new_invite_code,
     new_token,
     normalize_email,
     token_hash,
@@ -33,10 +32,6 @@ def test_token_hash_is_stable_sha256():
     assert digest == token_hash(token)
     assert len(digest) == 64
     assert token not in digest
-
-
-def test_invite_codes_are_random():
-    assert new_invite_code() != new_invite_code()
 
 
 def test_email_normalize_and_validate():

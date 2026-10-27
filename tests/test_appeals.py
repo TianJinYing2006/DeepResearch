@@ -18,7 +18,6 @@ DSN = os.getenv("DR_TEST_DATABASE_URL", "").strip()
 def _client(monkeypatch, store: FakeStore) -> TestClient:
     monkeypatch.setattr(api, "store", store)
     monkeypatch.setattr(api, "AUTH_REQUIRED", False)
-    monkeypatch.setattr(api, "INVITE_ONLY", False)
     return TestClient(api.app)
 
 
