@@ -3,6 +3,20 @@
 本项目采用 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 风格，版本号遵循语义化版本。
 对外数字（测试数、提交数等）以 [`docs/figures.md`](docs/figures.md) 为唯一来源，本文件不重复维护易漂移的数字。
 
+## [Unreleased]
+
+### Changed
+
+- 注册改为**开放注册**（邮箱 + 密码 + 同意条款），不再需要邀请码；仍受注册/登录限流、单用户每日配额与月度预算约束。
+
+### Removed
+
+- 邀请制/邀请码：后端邀请码校验与 `/api/options.invite_only`、管理 CLI `create-invite` / `list-invites` / `revoke-invite`、前端邀请码字段与 `?invite=` 邀请弹窗、相关 E2E 全部删除。
+
+### Security
+
+- 开放注册后的成本/滥用风险登记：后续评估邮箱验证、CAPTCHA 或邀请式灰度回退开关。
+
 ## [0.2.0] - 2026-10-26
 
 自 `v0.1.0`（2026-09-07，W1–W6 里程碑）以来的研究引擎、L3 多用户与产品化底座收口版本。
