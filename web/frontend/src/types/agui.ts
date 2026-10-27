@@ -88,8 +88,6 @@ export interface RunOptions {
   max_concurrent_runs?: number
   /** P4-A / P6-A：是否开启鉴权（前端据此决定是否展示登录门） */
   auth_required?: boolean
-  /** P4-A：注册是否需要邀请码 */
-  invite_only?: boolean
   /** 需求 25：错误追踪（DSN 空 = 前端不初始化） */
   sentry_dsn?: string | null
   sentry_environment?: string | null

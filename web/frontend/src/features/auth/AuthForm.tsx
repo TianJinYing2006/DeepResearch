@@ -7,28 +7,20 @@ type Mode = 'login' | 'register' | 'forgot' | 'reset'
 type ResetState = 'form' | 'invalid' | 'done'
 
 type Props = {
-  /** 表单控件 id 前缀（auth / invite）：两个入口互斥渲染，与既有 e2e 契约对齐。 */
+  /** 表单控件 id 前缀（auth）：与既有 e2e 契约对齐。 */
   idPrefix: string
   /** 标题元素 id（Modal 的 aria-labelledby 指向它）。 */
   titleId: string
   initialMode?: Mode
-  /** 邀请链接预填的邀请码（可空）。 */
-  inviteFromUrl?: string
   /** 顶部提示（如「账号已注销」），仅登录门使用。 */
   notice?: string
-  /** 注册模式副标题覆盖（邀请弹窗使用「邀请码已从链接预填」）。 */
-  subtitle?: string
   /** 需求 20 P1-2：当前域名支持 Passkey 时展示登录按钮。 */
   passkeyEnabled?: boolean
   onAuthed: (user: SessionUser) => void
   onOpenLegal: (doc: 'privacy' | 'terms') => void
 }
 
-/** 登录 / 邀请制注册 / 自助找回 / 重置密码表单（自包含状态与提交逻辑；登录门与邀请弹窗共用）。
- *
- * UX 基线（Linear/Clerk/Stripe + 需求 24 市面调研）：单一主行动、清晰标签、邮箱 autofill、
- * 密码显示/隐藏（aria-pressed）、错误 role=alert 且与输入建立 aria-describedby；
- * 找回流程防枚举中性文案、失效链接给出「重新申请」活路、密码规则常显并实时反馈（灰→绿）。 */
+/** 登录 / 注册 / 自助找回 / 重置密码表单（自包含状态与提交逻辑）。 */
 const RESET_HASH_RE = /^#reset=([A-Za-z0-9_-]{10,256})$/
 const RESET_COOLDOWN_SECONDS = 60
 const RESET_RULES_ADVISORY = '避免常见口令与邮箱账号名（提交时校验）'
@@ -49,9 +41,7 @@ export default function AuthForm({
   idPrefix,
   titleId,
   initialMode = 'login',
-  inviteFromUrl = '',
   notice = '',
-  subtitle,
   passkeyEnabled = false,
   onAuthed,
   onOpenLegal,
@@ -63,7 +53,6 @@ export default function AuthForm({
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [inviteCode, setInviteCode] = useState(inviteFromUrl)
   const [agreed, setAgreed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -81,7 +70,7 @@ export default function AuthForm({
     mode === 'login'
       ? '登录爱考据 iKaoju'
       : mode === 'register'
-        ? '邀请制注册'
+        ? '注册账号'
         : mode === 'forgot'
           ? forgotSent
             ? '查收重置邮件'
@@ -93,13 +82,11 @@ export default function AuthForm({
               : '设置新密码'
 
   const subtitleText =
-    subtitle && mode === 'register'
-      ? subtitle
-      : mode === 'login'
-        ? '使用邮箱与密码继续'
-        : mode === 'register'
-          ? '邀请码一次性使用，由管理员发放'
-          : mode === 'forgot'
+    mode === 'login'
+      ? '使用邮箱与密码继续'
+      : mode === 'register'
+        ? '邮箱注册后即可登录使用'
+        : mode === 'forgot'
             ? forgotSent
               ? '如果该邮箱已注册，我们已发送重置链接'
               : '输入注册邮箱，我们会发送重置链接'
@@ -185,7 +172,7 @@ export default function AuthForm({
       const payload =
         mode === 'login'
           ? { email, password }
-          : { email, password, invite_code: inviteCode, agree_terms: agreed }
+          : { email, password, agree_terms: agreed }
       const response = await fetch(`/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -197,7 +184,6 @@ export default function AuthForm({
       }
       const body = (await response.json()) as { user: SessionUser }
       setPassword('')
-      setInviteCode('')
       setShowPassword(false)
       onAuthed(body.user)
     } catch {
@@ -391,12 +377,6 @@ export default function AuthForm({
 
       {mode === 'register' && (
         <>
-          <label className="field-label animate-rise mt-4" htmlFor={`${idPrefix}-invite`}>邀请码</label>
-          <input id={`${idPrefix}-invite`} name="invite_code"
-                 className="field-control animate-rise" autoComplete="off" spellCheck={false}
-                 style={{ animationDelay: '60ms' }}
-                 data-testid={idPrefix === 'invite' ? 'invite-code-input' : undefined}
-                 value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
           <label className="mt-4 flex items-start gap-2 text-[11px] text-ink-muted">
             <input type="checkbox" className="mt-0.5" checked={agreed}
                    data-testid="auth-agree-terms"
@@ -461,7 +441,7 @@ export default function AuthForm({
       {(mode === 'login' || mode === 'register') && (
         <button type="button" className="mt-3 w-full text-xs text-ink-muted transition hover:text-ink"
                 onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}>
-          {mode === 'login' ? '有邀请码？去注册' : '已有账号？去登录'}
+          {mode === 'login' ? '没有账号？去注册' : '已有账号？去登录'}
         </button>
       )}
       {mode === 'login' && (

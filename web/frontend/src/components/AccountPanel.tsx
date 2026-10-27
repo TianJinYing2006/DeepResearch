@@ -1,5 +1,4 @@
 import { useCallback, useEffect } from 'react'
-import AuthForm from '../features/auth/AuthForm'
 import AuthGate from '../features/auth/AuthGate'
 import LandingPage from '../features/landing/LandingPage'
 import HistoryPanel from '../features/history/HistoryPanel'
@@ -14,7 +13,6 @@ import { csrfHeaders, readErrorMessage } from '../lib/api'
 import { useSideData } from '../hooks/useSideData'
 import { formatBytes, formatCny } from '../lib/format'
 import HelpModal from './HelpModal'
-import Modal from './Modal'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
 
@@ -39,14 +37,11 @@ export default function AccountPanel({
 }: Props) {
   // 验收点③ 切片 S1（会话域 state）：会话探测与未登录访客分流已抽到
   // `features/account/useSessionEntry.ts`。解构沿用原名（含 setter 与 `loadSession`），
-  // JSX 与全部调用点零改动；⚠️ `checked` 与 `user` 语义不同、`inviteFromUrl` 只在挂载时读一次 URL，
-  // 理由见该文件头部（R1/R3/R4）。
+  // JSX 与全部调用点零改动；⚠️ `checked` 与 `user` 语义不同，理由见该文件头部（R1/R2/R4）。
   const {
     user, setUser,
     checked,
     authNotice, setAuthNotice,
-    inviteFromUrl,
-    inviteOpen, setInviteOpen,
     authView, setAuthView,
     loadSession,
   } = useSessionEntry()
@@ -117,7 +112,7 @@ export default function AccountPanel({
   const resetLocalData = useCallback(() => {
     clearSideData()
     clearBarUi()
-    setAuthView(inviteFromUrl ? 'auth' : 'landing')
+    setAuthView('landing')
     setHistoryEpoch((epoch) => epoch + 1)
     clearUploads()
     // —— 知识库侧（U41 补全）——
@@ -127,19 +122,11 @@ export default function AccountPanel({
     // 预览弹窗：**必须**连状态一起清 —— 它受 `previewDoc` 驱动而非 `user` 驱动，
     // 在「鉴权可选」的部署里登出不会卸载该分支，弹窗会带着上一账号的分块正文留在屏幕上。
     preview.reset()
-  }, [clearSideData, clearUploads, clearRagActions, inviteFromUrl, preview.reset, support])
+  }, [clearSideData, clearUploads, clearRagActions, preview.reset, support])
 
   useEffect(() => {
     void loadSession()
   }, [loadSession])
-
-  // R3（审计 U42）：邀请参数一次性消费 —— 之后刷新/前进后退不再重开注册弹窗
-  useEffect(() => {
-    if (!inviteFromUrl) return
-    const url = new URL(window.location.href)
-    url.searchParams.delete('invite')
-    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
-  }, [inviteFromUrl])
 
   useEffect(() => {
     if (checked && user) void refreshSideData()
@@ -206,7 +193,7 @@ export default function AccountPanel({
   )
 
   if (authRequired && checked && !user) {
-    // 分流：未登录访客先看落地页；CTA / 邀请链接 / ?login 进入登录注册页
+    // 分流：未登录访客先看落地页；CTA / ?login 进入登录注册页
     if (authView === 'landing') {
       return (
         <>
@@ -224,7 +211,6 @@ export default function AccountPanel({
       <>
         <AuthGate
           notice={authNotice}
-          inviteFromUrl={inviteFromUrl}
           passkeyEnabled={passkeyEnabled}
           onBack={() => setAuthView('landing')}
           onAuthed={(next) => {
@@ -528,32 +514,6 @@ export default function AccountPanel({
                        onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
       )}
 
-      {inviteOpen && !authRequired && !user && (
-        <Modal
-          onClose={() => setInviteOpen(false)}
-          labelledBy="invite-title"
-          testId="invite-register"
-          overlayClassName="z-50 flex items-center justify-center bg-ink/35 p-4 "
-          panelClassName="surface-card relative w-full max-w-md p-6"
-        >
-          <button type="button" className="absolute right-5 top-5 text-xs text-ink-muted transition hover:text-ink"
-                  data-testid="invite-close"
-                  onClick={() => setInviteOpen(false)}>关闭</button>
-          <AuthForm
-            idPrefix="invite"
-            titleId="invite-title"
-            initialMode="register"
-            inviteFromUrl={inviteFromUrl}
-            subtitle="邀请码已从链接预填；注册成功后自动登录。"
-            onAuthed={(next) => {
-              setUser(next)
-              setInviteOpen(false)
-              void refreshSideData()
-            }}
-            onOpenLegal={(doc) => void legalDoc.open(doc)}
-          />
-        </Modal>
-      )}
       {legalModal}
       <SupportModals support={support} />
     </div>

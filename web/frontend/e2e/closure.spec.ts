@@ -13,7 +13,6 @@ const AUTH_OPTIONS = {
   max_subquestions_default: 2,
   run_timeout_seconds: 3,
   auth_required: true,
-  invite_only: true,
 }
 
 test.describe('收口回归（桌面端）', () => {
@@ -34,10 +33,11 @@ test.describe('收口回归（桌面端）', () => {
     await expect(gate).toBeVisible()
     await expect(gate.getByRole('heading', { name: '登录爱考据 iKaoju' })).toBeVisible()
 
-    await gate.getByRole('button', { name: '有邀请码？去注册' }).click()
-    await expect(gate.locator('#auth-invite')).toBeVisible()
-    await gate.getByRole('button', { name: '已有账号？去登录' }).click()
+    await gate.getByRole('button', { name: '没有账号？去注册' }).click()
+    await expect(gate.getByRole('heading', { name: '注册账号' })).toBeVisible()
     await expect(gate.locator('#auth-invite')).toHaveCount(0)
+    await gate.getByRole('button', { name: '已有账号？去登录' }).click()
+    await expect(gate.getByRole('heading', { name: '登录爱考据 iKaoju' })).toBeVisible()
 
     await gate.locator('#auth-email').fill('demo@example.com')
     await gate.locator('#auth-password').fill('password1234')

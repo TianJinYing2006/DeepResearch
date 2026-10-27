@@ -10,13 +10,12 @@ const AUTH_OPTIONS = {
   max_subquestions_default: 2,
   run_timeout_seconds: 3,
   auth_required: true,
-  invite_only: true,
 }
 
 test.describe('需求 25：帮助与反馈（桌面端）', () => {
   test('帮助弹窗渲染 FAQ', async ({ page }) => {
     await page.route('**/api/help/faq', (route) =>
-      route.fulfill({ json: { markdown: '# 帮助中心\n\n## 账号与邀请\n\n内测采用邀请制。' } }),
+      route.fulfill({ json: { markdown: '# 帮助中心\n\n## 账号注册\n\n开放注册，邮箱即可注册。' } }),
     )
 
     await page.goto('/')
@@ -25,7 +24,7 @@ test.describe('需求 25：帮助与反馈（桌面端）', () => {
     const modal = page.getByTestId('help-modal')
     await expect(modal).toBeVisible()
     await expect(modal).toContainText('帮助中心')
-    await expect(modal).toContainText('内测采用邀请制')
+    await expect(modal).toContainText('开放注册')
   })
 
   test('反馈弹窗：未达最小长度禁用，提交后显示成功态', async ({ page }) => {
@@ -62,7 +61,7 @@ test.describe('需求 25：帮助与反馈（桌面端）', () => {
     await page.goto('/')
     await page.getByTestId('landing-cta').click()
     const gate = page.getByTestId('auth-gate')
-    await gate.getByRole('button', { name: '有邀请码？去注册' }).click()
+    await gate.getByRole('button', { name: '没有账号？去注册' }).click()
 
     const submit = gate.getByRole('button', { name: '注册并登录' })
     await expect(submit).toBeDisabled()
