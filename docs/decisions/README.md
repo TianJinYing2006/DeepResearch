@@ -42,6 +42,7 @@
 | 0015 | [Complete side-data request isolation](0015-side-data-json-isolation.md) | 已采纳 | 2026-10-09 |
 | 0016 | [可观测层迁移：Langfuse → OTel 原生](0016-otel-observability-migration.md)（原 0012） | 已采纳 | 2026-10-11 |
 | 0017 | [产品边界重划与产品化路线](0017-boundary-and-productization.md) | 已采纳 | 2026-10-26 |
+| 0018 | [开放注册内测（G7 落档前的边界修订）](0018-open-registration-internal-test.md) | 已采纳（2026-10-27 拍板，2026-10-28 补落档） | 2026-10-27 |
 
 ## 新增 ADR 流程
 

@@ -345,7 +345,7 @@ DeepResearch/
 │   └── loadtest/                 # Locust 压测脚本
 ├── migrations/                   # 27 个前向迁移（NNNN_slug.sql + schema_migrations）
 │   └── checks/                   # 23 个结构断言 SQL（CI infra job 强制执行）
-├── docs/                         # 需求 42 篇（另模板）/ ADR 17 篇 / 评测结论 / 运维 runbook / legal；对外数字见 figures.md
+├── docs/                         # 需求 42 篇（另模板）/ ADR 18 篇 / 评测结论 / 运维 runbook / legal；对外数字见 figures.md
 ├── Dockerfile.api                # API 镜像（node 构建前端 + python 运行时，多阶段）
 ├── docker-compose.staging.yml    # staging：PostgreSQL + Redis + 迁移 + API + worker
 ├── Caddyfile                     # 反向代理样例

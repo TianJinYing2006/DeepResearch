@@ -48,7 +48,7 @@
 
 **L3-A/B 开放注册内测**：个人主体、邮箱开放注册、单机 compose；staging 已部署；域名 `ikaoju.cn` 已备案并上线（ICP 备案号见页脚）。
 **当前不是公开产品**：无对外付费、无 SLA 承诺；注册开放但规模与成本受配额、月度预算与运营能力约束。
-**开放注册的风险控制（2026-10-27 登记）**：已有注册总开关、每日注册上限、一次性邮箱域名黑名单；**邮箱验证与 CAPTCHA 尚未上线**，G7 合规未落档前不得公开推广、投放或收费；转「完整产品」前必须关闭该风险（见 ADR-0017 §3/§4）。
+**开放注册的风险控制（2026-10-27 登记）**：已有注册总开关、每日注册上限、一次性邮箱域名黑名单；**邮箱验证与 CAPTCHA 尚未上线**，G7 合规未落档前不得公开推广、投放或收费；转「完整产品」前必须关闭该风险（见 ADR-0018 与 ADR-0017 §4）。
 
 ### 2.2 当前允许的产品面
 
@@ -172,6 +172,8 @@ feature/<issue>-<slug> | fix/<issue>-<slug> | docs/<slug> | chore/<slug>
 | 守卫 | `check_results_whitelist.py` / `check_frontend_boundary.py` / `check_public_ip.py` / `check_doc_consistency.py` / `check_tailwind_tokens.py` / `check_ui_patterns.py` | CI |
 | 浏览器 | Playwright E2E（desktop + mobile project） | `e2e` |
 | 镜像 | `docker build -f Dockerfile.api` | `infra` |
+
+> 注：`tests/test_doc_consistency.py` 需要完整 tag 历史；`git clone --depth 1` 的本机克隆会失败并提示 `fetch-depth: 0`，先 `git fetch --unshallow --tags` 再跑（CI 已固定 `fetch-depth: 0`）。
 
 ### 6.2 确定性回归门禁（eval 固定证据池，同口径才比较）
 

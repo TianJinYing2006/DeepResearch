@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-28（ADR-0018 落档 + PR #307 自审修复）**：补 **ADR-0018**（开放注册内测：边界 / 防滥用 / 回退与 G7 风险登记），满足 ADR-0017 §6「边界变更必须新增 ADR」；ADR-0017 追加授权引用与编号口径修正；`docs/decisions/README.md`、`figures`（ADR 18 篇）、`README` 同步；需求 10 明确「10 人为运营目标、非代码强制」；`domain-cutover` 撤回未验证的「IP 直访不再作为入口」表述；`CONTRIBUTING` 补本机 shallow 克隆提示。PR #307 自审结论见 PR 评论。未改产品代码、未动评测产物。 |
 | 更新 | **2026-10-27（文档漂移守卫上线）**：新增 `tools/check_doc_consistency.py`（CI 第 6 个守卫：figures tag ↔ git、ICP 号三处一致、CI 守卫清单三处一致、开放注册口径、ADR 索引、README 数字 == figures）+ `tests/test_doc_consistency.py`（14 例，含逐项负向破坏与「破坏→红→恢复→绿」实证）；lint job checkout 改 `fetch-depth: 0`（shallow 克隆显式失败，不静默空转）；**未改产品代码、未动评测产物**。 |
 | 更新 | **2026-10-27（测试/状态数字回填）**：需求 28~32 状态由「草稿」更正为「已合」（#156 / #158 / #159 / #160 / #161）；figures 回填 pytest 收集 **1332** / E2E **88** / 测试文件 **147**（README 同步）；本机 lane 未复验如实标注（临时目录写入受限，以 CI 三档矩阵为准）。 |
 | 更新 | **2026-10-27（规则层与上线事实对齐，A 类文档收口）**：`CONTRIBUTING` §2.1/§2.3/§8.4、`ADR-0017` §3、需求 10 §3.1/§5.7/§7.2、需求 24、`README` 统一为「开放注册内测（受控）」口径，并把「G7 未落档 + 邮箱验证/CAPTCHA 未上线」登记为转完整产品的前置风险；`figures` 回填 `v0.2.0` / dev==master / 363 提交；`domain-cutover`、`production-readiness`（G7 / §3.10 / §6 / G6）、`launch-readiness-review`、`roadmap` 回填「ICP 已备案（`皖ICP备2026036120号`，2026-10-21）、`https://ikaoju.cn` 已上线（`/api/health/ready` 200）」；**未改代码、未动评测产物**。 |
