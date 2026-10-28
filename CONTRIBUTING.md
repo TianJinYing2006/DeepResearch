@@ -46,8 +46,9 @@
 
 ### 2.1 当前阶段（2026-10）
 
-**L3-A/B 开放注册内测**：个人主体、邮箱开放注册、单机 compose；staging 已部署；域名 `ikaoju.cn` 已备案。
+**L3-A/B 开放注册内测**：个人主体、邮箱开放注册、单机 compose；staging 已部署；域名 `ikaoju.cn` 已备案并上线（ICP 备案号见页脚）。
 **当前不是公开产品**：无对外付费、无 SLA 承诺；注册开放但规模与成本受配额、月度预算与运营能力约束。
+**开放注册的风险控制（2026-10-27 登记）**：已有注册总开关、每日注册上限、一次性邮箱域名黑名单；**邮箱验证与 CAPTCHA 尚未上线**，G7 合规未落档前不得公开推广、投放或收费；转「完整产品」前必须关闭该风险（见 ADR-0018 与 ADR-0017 §4）。
 
 ### 2.2 当前允许的产品面
 
@@ -55,11 +56,11 @@
 
 ### 2.3 当前禁止（未拍板前一律不做）
 
-- 公开注册（绕过邀请）、对外付费与计费、对外 SLA/赔付承诺；
+- 未经 §2.1 口径批准的注册方式变更、对外付费与计费、对外 SLA/赔付承诺；
 - 对外多租户或开放 API 商业化、第三方平台分发；
 - 未成年人相关场景、跨境数据传输、境外服务默认开启；
 - 移动端/桌面客户端、K8s/多区域/自动扩缩容；
-- 在 G7 合规未落档前进行任何公开推广或公网开放注册。
+- 在 G7 合规未落档前进行公开推广、投放、对外收费或宣布「完整产品」。
 
 ### 2.4 向“完整产品”演进
 
@@ -168,9 +169,11 @@ feature/<issue>-<slug> | fix/<issue>-<slug> | docs/<slug> | chore/<slug>
 | 迁移 | compose 校验 + 迁移幂等（第二次 `applied=0`）+ `migrations/checks/*.sql` 结构断言 | `infra` |
 | 恢复 | 备份 → 清库 → 恢复 → 数据相等 + backup-verify 新鲜/过期双路径 | `infra` |
 | 前端 | `npm ci` + `tsc --noEmit` + `vitest run` + `vite build` | `frontend` |
-| 守卫 | `check_results_whitelist.py` / `check_frontend_boundary.py` / `check_tailwind_tokens.py` / `check_ui_patterns.py` | CI |
+| 守卫 | `check_results_whitelist.py` / `check_frontend_boundary.py` / `check_public_ip.py` / `check_doc_consistency.py` / `check_tailwind_tokens.py` / `check_ui_patterns.py` | CI |
 | 浏览器 | Playwright E2E（desktop + mobile project） | `e2e` |
 | 镜像 | `docker build -f Dockerfile.api` | `infra` |
+
+> 注：`tests/test_doc_consistency.py` 需要完整 tag 历史；`git clone --depth 1` 的本机克隆会失败并提示 `fetch-depth: 0`，先 `git fetch --unshallow --tags` 再跑（CI 已固定 `fetch-depth: 0`）。
 
 ### 6.2 确定性回归门禁（eval 固定证据池，同口径才比较）
 
@@ -251,7 +254,7 @@ feature/<issue>-<slug> | fix/<issue>-<slug> | docs/<slug> | chore/<slug>
 
 - PII 最小化；日志/事件/导出不落原始密钥与完整正文（除经审核的导出通道）。
 - 保留期、注销、申诉 SLA、审计日志 append-only 不得绕过。
-- G7 未落档前：不公开推广、不开放注册、不承诺 SLA。
+- G7 未落档前：不公开推广、不投放、不承诺 SLA；开放注册按 §2.1 的风险控制口径执行，新增注册面须先登记风险。
 - 数据流向登记表（`production-readiness.md` §4）新增外部服务必须同步登记。
 
 ---
@@ -348,7 +351,7 @@ feature/<issue>-<slug> | fix/<issue>-<slug> | docs/<slug> | chore/<slug>
 - [ ] `ruff check .` 通过
 - [ ] `pytest tests/ -q` 通过（零依赖口径）
 - [ ] 涉及前端的：`tsc --noEmit` / `vitest run` / `npm run build` / e2e
-- [ ] 四个 CI 守卫通过
+- [ ] 全部 CI 守卫通过（清单见 §6 表）
 - [ ] 涉及检索/证据/校验/写作：固定证据池复算，确定性指标未下降
 - [ ] PR 描述 6 项齐全；DoD 勾选
 - [ ] 主理人确认后才合并

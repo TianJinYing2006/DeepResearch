@@ -37,6 +37,10 @@ jobs:
       # v7: Node 24 + ESM（v5 起要求 runner >= v2.327.1，GitHub-hosted 已满足）
       # 升级目的：消除 "Node.js 20 is deprecated" 告警
       - uses: actions/checkout@v7
+        with:
+          # 2026-10-27：文档漂移守卫要校验 figures 的 tag 集合 ≡ git tag；
+          # 默认 shallow 克隆会让该校验空转（shallow 时守卫显式失败，不静默降级）
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
@@ -73,6 +77,11 @@ jobs:
       # 基线已清空 ⇒ 使用 --strict（零 LLM、零网络）。
       - name: 公开仓脱敏守卫（真实 IP）
         run: python tools/check_public_ip.py --strict
+
+      # 2026-10-27：文档漂移守卫（figures tag / ICP 号 / ADR 索引 / CI 守卫清单 / 开放注册口径 / README 数字）。
+      # 依赖完整 tag 历史 ⇒ 本 job 的 checkout 已设 fetch-depth: 0；零 LLM、零网络。
+      - name: 文档漂移守卫（figures/ADR/注册口径）
+        run: python tools/check_doc_consistency.py
 
       # 需求 38 F2：weasyprint 运行依赖（PDF 渲染测试真跑；字体含 CJK，保证中文可提取）
       # 2026-10-26：apt 慢源主要是 fonts-noto-cjk（61MB）。字体复用 e2e 的 deb 缓存；
