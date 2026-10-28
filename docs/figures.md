@@ -4,7 +4,7 @@
 > 一律引用本表，不再自行维护数字。
 > **规则**：① 引用必须带**值 + 采集日期**；② 不同口径/不同断点的数字**不得直接相减或比较**；
 > ③ 未核实或样本不足的项必须标注；④ 发版/批次收口时更新本表，并在 §8 记录变更。
-> **本版建立**：2026-10-26；**下一复验点**：`v0.2.0` 发布批次收口。
+> **本版建立**：2026-10-26；**本版更新**：2026-10-27（`v0.2.0` 已发布、dev==master、ICP 备案 + 域名上线）；**下一复验点**：下一批次收口。
 
 ---
 
@@ -12,9 +12,9 @@
 
 | 指标 | 当前值 | 口径 / 定义 | 采集命令或来源 | 日期 |
 | --- | --- | --- | --- | --- |
-| 提交总数 | 338 | 当前分支（dev）历史提交数 | `git rev-list --count HEAD` | 2026-10-26 |
-| dev 领先 master | 30 | 未合入里程碑的提交数；master 无领先提交 | `git rev-list --count master..HEAD` | 2026-10-26 |
-| 版本 tag | v0.1.0 | 仅 1 个 tag；`v0.2.0` 待批次收口 | `git tag` | 2026-10-26 |
+| 提交总数 | 363 | 当前分支（dev）历史提交数 | `git rev-list --count HEAD` | 2026-10-27 |
+| dev 领先 master | 0 | master 与 dev 已同步（`v0.2.0` 已合入 master） | `git rev-list --count master..HEAD` | 2026-10-27 |
+| 版本 tag | v0.1.0 / v0.2.0 | 2 个 tag；`v0.2.0` = 2026-10-26 里程碑发布 | `git tag` | 2026-10-27 |
 | 需求文档 | 42 篇 + 1 模板 | `docs/requirements/*.md`，排除 `模板.md` | 目录计数 | 2026-10-26 |
 | ADR | 17 篇 | `docs/decisions/0*.md`（0001–0017，索引完整） | 目录计数 + 索引链接校验 | 2026-10-26 |
 | 数据库迁移 | 27 个 + 23 个结构断言 | `migrations/*.sql` + `migrations/checks/*.sql`；只前向 | 目录计数 | 2026-10-26 |
@@ -24,23 +24,23 @@
 
 | 指标 | 当前值 | 口径 / 定义 | 采集命令或来源 | 日期 |
 | --- | --- | --- | --- | --- |
-| 引擎代码 | 13,492 行 | `research_engine/**/*.py`，物理行（含空行与注释） | `Get-Content \| Measure-Object -Line` | 2026-10-26 |
+| 引擎代码 | 13,492 行 | `research_engine/**/*.py`，非空行（`Get-Content \| Measure-Object -Line`，含注释） | `Get-Content \| Measure-Object -Line` | 2026-10-26 |
 | 后端代码 | 13,106 行 | `web/backend/**/*.py`，同上 | 同上 | 2026-10-26 |
 | 测试代码 | 20,758 行 | `tests/**/*.py`，同上 | 同上 | 2026-10-26 |
 | 前端源码 | 8,429 行 | `web/frontend/src/**/*.{ts,tsx}`，同上 | 同上 | 2026-10-26 |
 | E2E 代码 | 1,898 行 | `web/frontend/e2e/**/*.ts`，同上 | 同上 | 2026-10-26 |
-| 测试文件 | 142 个 | `tests/*.py` | 目录计数 | 2026-10-26 |
+| 测试文件 | 147 个 | `tests/*.py` | 目录计数 | 2026-10-27 |
 
 ## 3. 测试与 CI
 
 | 指标 | 当前值 | 口径 / 定义 | 采集命令或来源 | 日期 |
 | --- | --- | --- | --- | --- |
-| pytest 收集/执行 | **1290** 项 | 全量 `tests/`；JUnit `tests=1290` | `pytest tests/ -q --junitxml=...` | 2026-10-26 |
-| 零依赖 lane（本机） | **1208 通过 / 74 跳过 / 8 失败** | 1208 + 74 + 8 = 1290。8 失败均为**本机环境**：3 个 PG 导出用例（本机 `.env` 的 `DR_TEST_*` 未清空）+ 5 个 OTel 用例（`.deps` 与 lock 版本漂移）；**CI 三版本矩阵为准** | 同上 | 2026-10-26 |
+| pytest 收集/执行 | **1332** 项 | 全量 `tests/`；JUnit `tests=1332` | `pytest tests/ -q --junitxml=...` | 2026-10-27 |
+| 零依赖 lane（本机） | **本机未复验（2026-10-27）** | 全量执行依赖临时目录写入，当前本机环境不可用；**以 CI 三版本矩阵为准**。上次 2026-10-26 口径：1208 通过 / 74 跳过 / 8 环境失败（合计 1290） | 同上 | 2026-10-27 |
 | 跳过项性质 | 真实 PG/Redis 集成用例 | 由 CI `infra` job 通过 `DR_TEST_DATABASE_URL` / `DR_TEST_REDIS_URL` 强制执行 | `tests/conftest.py` | 2026-10-26 |
 | CI job 数 | 4 个定义 / **6 项检查** | lint-and-test（3.11/3.12/3.13 矩阵）+ infra + frontend + e2e | `.github/workflows/ci.yml` | 2026-10-26 |
-| CI 守卫 | 4 个 | 评测产物白名单 / 前端边界 / Tailwind token / UI 反模式 | `tools/check_*.py` | 2026-10-26 |
-| 浏览器 E2E | **92 tests / 20 spec** | desktop 全量 + mobile 3 spec（双 project 执行） | `npx playwright test --list` | 2026-10-26 |
+| CI 守卫 | 6 个 | 评测产物白名单 / 前端边界 / 公开仓 IP / 文档漂移 / Tailwind token / UI 反模式 | `tools/check_*.py` | 2026-10-27 |
+| 浏览器 E2E | **88 tests / 20 spec** | desktop 全量 + mobile 3 spec（双 project 执行） | `npx playwright test --list` | 2026-10-27 |
 | 前端单测 | **47 tests / 5 files** | Vitest，纯逻辑（质量判定 / 工作流 / HITL / WebAuthn / 预览） | `npx vitest run` | 2026-10-26 |
 | Python 版本 | 3.11 / 3.12 / 3.13 | 声明区间 `>=3.11,<3.14`；运行时闸在 import 时报错 | `pyproject.toml` + `research_engine/__init__.py` | 2026-10-26 |
 
@@ -80,6 +80,7 @@
 | 指标 | 当前值 | 口径 / 定义 | 采集命令或来源 | 日期 |
 | --- | --- | --- | --- | --- |
 | staging 状态 | **已部署**（2026-09-30 起） | 单机 compose + Caddy；内测中；不写真实 IP | `docs/operations/production-readiness.md:38` | 2026-10-18 |
+| 对外入口 | **`https://ikaoju.cn`（已备案 + HTTPS）** | ICP `皖ICP备2026036120号`（2026-10-21 公示）；Caddy 自动证书；`/api/health/ready` 返回 200 | 线上实测 + `docs/operations/domain-cutover.md` §7 | 2026-10-27 |
 | 内测规模 | **开放注册（受配额/预算约束）** | 个人主体；注册开放，单用户每日 1 次、并发 1、月度预算 ¥1,500 兜底；L3-C 暂缓 | `docs/requirements/10-l3-production.md` §3.1 | 2026-10-27 |
 | 镜像体积 | ≈**927 MB** | API/Worker/Export 共用镜像；多阶段构建 | `docs/project-status.md` 2026-10-16 | 2026-10-16 |
 | PDF 导出容量 | 33 页 / 370KB / 10.8s / 峰值 **347MB** | 133.8KB 输入的真实链路复测；限额余量约 353MB | 同上 | 2026-10-16 |
@@ -93,10 +94,12 @@
 - **禁止**：把单机压测当线上容量；把 n=1 的 standard 耗时当稳定基线；把同族 LLM judge 说成“独立裁判”；
   把 39.8% 与 44.9% 比较后宣称“下降”；在样本不足时宣称质量提升/下降。
 
-**推荐引用模板**：`按 docs/figures.md（2026-10-26）：1290 项测试收集、17 篇 ADR、338 个提交、92 个 E2E 用例。`
+**推荐引用模板**：`按 docs/figures.md（2026-10-27）：1332 项测试收集、17 篇 ADR、363 个提交、88 个 E2E 用例。`
 
 ## 8. 变更记录
 
 | 日期 | 变更 | 说明 |
 | --- | --- | --- |
+| 2026-10-27 | 守卫与数字回填 | 新增文档漂移守卫 `tools/check_doc_consistency.py`（CI 第 6 个守卫）；pytest 收集 1290→**1332**、E2E 92→**88**（删除邀请流程用例）、测试文件 142→**147**；README 同步 |
+| 2026-10-27 | 发布/上线事实回填 | `v0.2.0` 已发布（dev==master，363 提交）；新增「对外入口」行：`https://ikaoju.cn` 已 ICP 备案（`皖ICP备2026036120号`，2026-10-21）并 HTTPS 上线；更新推荐引用模板 |
 | 2026-10-26 | 建立本表 | 按 `CONTRIBUTING.md` §0/§13 建立对外数字唯一源；回填 README 的测试 / E2E / 需求 / ADR / 迁移 / checks 数字；标注本机 8 个环境相关失败与样本不足项 |

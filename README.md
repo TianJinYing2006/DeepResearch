@@ -209,7 +209,7 @@ Web UI 支持：提交研究主题与**运行档位**（quick / standard / deep�
 **后端导出报告**（正文 + run_id / run_status / 降级条数等审计元数据 + 引用清单）、**刷新页面恢复当前运行**、
 **历史任务列表**（`GET /api/runs`，需配置任务库；支持状态筛选、分页、置顶 / 归档 / 重试）、
 **只读分享**（`DR_SHARE_ENABLED` 打开后生成公开只读链接 `/s/{token}`）、
-**账号与会话**（P6 / P1-10：鉴权开启时登录门；邀请链接 `?invite=CODE`；配额 chip；历史报告预览；知识库上传 / 清单 / 删除；会话与安全面板；自助找回密码）、
+**账号与会话**（P6 / P1-10：鉴权开启时登录门；开放注册（邮箱 + 密码）；配额 chip；历史报告预览；知识库上传 / 清单 / 删除；会话与安全面板；自助找回密码）、
 **反馈与帮助中心**（`/api/feedback`、`/api/help/faq`）、
 查看**运行摘要**（总耗时 / 完成节点 / 检索跳数 / 降级条目 / 报告字数 / 成本估算）。
 
@@ -252,8 +252,8 @@ Web UI 支持：提交研究主题与**运行档位**（quick / standard / deep�
 强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
 会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
 
-**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，当前 **92 个用例 / 20 个 spec**
-（desktop + mobile 双 project，2026-10-26 `npx playwright test --list`）。覆盖主流程 / **刷新恢复** / **完成后续看** /
+**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，当前 **88 个用例 / 20 个 spec**
+（desktop + mobile 双 project，2026-10-27 `npx playwright test --list`）。覆盖主流程 / **刷新恢复** / **完成后续看** /
 降级可见 / 导出 / 取消语义 / 结构化错误 + 重试 + **详情折叠** / 窄屏无横向滚动。
 
 ```bash
@@ -337,7 +337,10 @@ DeepResearch/
 ├── tools/
 │   ├── check_frontend_boundary.py  # CI 守卫：前端目录不得 import research_engine
 │   ├── check_results_whitelist.py  # CI 守卫：评测产物白名单 ≡ git 跟踪集合
+│   ├── check_public_ip.py          # CI 守卫：公开仓不得出现真实主机 IP
+│   ├── check_doc_consistency.py    # CI 守卫：figures/ADR/注册口径/README 数字一致性
 │   ├── check_tailwind_tokens.py    # CI 守卫：Tailwind 色板 token 不得误用
+│   ├── check_ui_patterns.py        # CI 守卫：UI 反模式（impeccable 确定性规则）
 │   ├── migrate.sh / backup.sh / restore.sh
 │   └── loadtest/                 # Locust 压测脚本
 ├── migrations/                   # 27 个前向迁移（NNNN_slug.sql + schema_migrations）
@@ -473,7 +476,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **1290 项（JUnit 执行统计，2026-10-26）** | 本机零依赖 lane：1208 通过 / 74 跳过 / 8 环境相关失败（3 个需真实 PG、5 个 OTel 版本漂移，详见 `docs/figures.md`）；跳过项为真实 PG/Redis 集成用例，由 CI `infra` job 强制执行。CI：3.11/3.12/3.13 + `frontend` + `infra`（迁移幂等 + 结构断言 + 仓储/Worker 集成 + **备份恢复演练**）+ `e2e`。**浏览器 E2E 92 个用例 / 20 个 spec**（desktop + mobile 双 project） |
+| 单元测试 | **1332 项（收集统计，2026-10-27）** | 本机零依赖 lane 2026-10-27 未复验（全量执行依赖临时目录写入，当前环境不可用）；上次 2026-10-26 口径为 1208 通过 / 74 跳过 / 8 环境相关失败（详见 `docs/figures.md`）；跳过项为真实 PG/Redis 集成用例，由 CI `infra` job 强制执行。CI：3.11/3.12/3.13 + `frontend` + `infra`（迁移幂等 + 结构断言 + 仓储/Worker 集成 + **备份恢复演练**）+ `e2e`。**浏览器 E2E 88 个用例 / 20 个 spec**（desktop + mobile 双 project） |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |
