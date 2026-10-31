@@ -11,7 +11,7 @@
 
 只有 **ETA 是估算**（基于实测的节点数中位数），UI 上必须标注「约」。
 */
-import type { AguiEvent } from '../types/agui'
+import type { AguiEvent, RunFinishedEvent } from '../types/agui'
 
 export const STAGES = [
   { name: '规划', nodes: ['plan'] },
@@ -25,6 +25,9 @@ export const STAGES = [
  *  出处：docs/requirements/9-web-ui-rewrite.md §5.4.1。仅用于 ETA，不参与百分比。 */
 const EST_TOTAL_NODES = 24
 
+/** 终局类型（2026-10-31 #308：失败/取消/超时都不能再显示成「完成 100%」）。 */
+export type ProgressOutcome = 'running' | 'finished' | 'cancelled' | 'timeout' | 'error'
+
 /** 进度所需原始量（R5：由事件流增量累加，不再每帧全量重扫）。 */
 export interface ProgressSummary {
   /** 最近完成的节点名 */
@@ -35,11 +38,19 @@ export interface ProgressSummary {
   nodeCount: number
   /** 累计耗时（毫秒） */
   elapsedMs: number
-  finished: boolean
+  /** 终局类型；running = 仍在执行 */
+  outcome: ProgressOutcome
 }
 
 export function emptySummary(): ProgressSummary {
-  return { currentNode: null, depth: 0, maxTotalHops: 20, nodeCount: 0, elapsedMs: 0, finished: false }
+  return {
+    currentNode: null,
+    depth: 0,
+    maxTotalHops: 20,
+    nodeCount: 0,
+    elapsedMs: 0,
+    outcome: 'running',
+  }
 }
 
 /** 单事件增量更新（O(1)）；`summarize` = 事件流上的 reduce。 */
@@ -60,8 +71,20 @@ export function applyEvent(summary: ProgressSummary, event: AguiEvent): Progress
       nodeCount: summary.nodeCount + 1,
     }
   }
-  if (event.type === 'RUN_FINISHED' || event.type === 'RUN_ERROR') {
-    return { ...summary, finished: true }
+  if (event.type === 'RUN_FINISHED') {
+    const finished = event as RunFinishedEvent
+    // ⚠️ 后端超时收口是 RUN_FINISHED(stop_reason=timeout, cancelled=false)；
+    // 只看 cancelled 会把「已到时限停止」误判成正常完成（#308 自审发现）。
+    const outcome: ProgressOutcome =
+      finished.stop_reason === 'timeout'
+        ? 'timeout'
+        : finished.cancelled || finished.stop_reason === 'cancelled'
+          ? 'cancelled'
+          : 'finished'
+    return { ...summary, outcome }
+  }
+  if (event.type === 'RUN_ERROR') {
+    return { ...summary, outcome: 'error' }
   }
   return summary
 }
@@ -74,6 +97,8 @@ export interface Progress {
   etaSeconds: number | null
   /** ETA 是否为估算值（恒为 true，提醒 UI 标注「约」） */
   etaIsEstimate: boolean
+  /** 终局类型：finished = 正常完成；error/cancelled/timeout = 已停止（不得显示 100%） */
+  outcome: ProgressOutcome
 }
 
 function stageOf(node: string | null): number {
@@ -82,10 +107,18 @@ function stageOf(node: string | null): number {
 }
 
 export function computeProgress(input: ProgressSummary): Progress {
-  const { currentNode, depth, maxTotalHops, nodeCount, elapsedMs, finished } = input
+  const { currentNode, depth, maxTotalHops, nodeCount, elapsedMs, outcome } = input
   const idx = stageOf(currentNode)
 
-  if (finished) {
+  // 阶段内进度：检索阶段用**真实的**跳数比；其余阶段只有一个节点 ⇒ 完成即 100%
+  const inner = idx === 1 && maxTotalHops > 0
+    ? Math.min(depth / maxTotalHops, 1)
+    : idx >= 0
+      ? 1
+      : 0
+  const partialPercent = idx < 0 ? 0 : Math.min(((idx + inner) / STAGES.length) * 100, 99)
+
+  if (outcome === 'finished') {
     return {
       stageIndex: STAGES.length,
       stageName: '完成',
@@ -93,8 +126,28 @@ export function computeProgress(input: ProgressSummary): Progress {
       innerPercent: 100,
       etaSeconds: 0,
       etaIsEstimate: false,
+      outcome,
     }
   }
+
+  // 🚨 #308：失败/取消/超时是「停止」不是「完成」——不得出现 100% / 已完成。
+  if (outcome === 'error' || outcome === 'cancelled' || outcome === 'timeout') {
+    return {
+      stageIndex: idx >= 0 ? idx + 1 : 0,
+      stageName:
+        outcome === 'error'
+          ? '运行失败'
+          : outcome === 'timeout'
+            ? '已到时限停止'
+            : '已停止',
+      percent: Math.round(partialPercent),
+      innerPercent: Math.round(inner * 100),
+      etaSeconds: null,
+      etaIsEstimate: false,
+      outcome,
+    }
+  }
+
   if (idx < 0 || nodeCount === 0) {
     return {
       stageIndex: 0,
@@ -103,16 +156,9 @@ export function computeProgress(input: ProgressSummary): Progress {
       innerPercent: 0,
       etaSeconds: null,
       etaIsEstimate: true,
+      outcome,
     }
   }
-
-  // 阶段内进度：检索阶段用**真实的**跳数比；其余阶段只有一个节点 ⇒ 完成即 100%
-  const isResearch = idx === 1
-  const inner = isResearch && maxTotalHops > 0
-    ? Math.min(depth / maxTotalHops, 1)
-    : 1
-
-  const percent = Math.min(((idx + inner) / STAGES.length) * 100, 99)
 
   // ETA：平均单节点耗时 × 预估剩余节点数（**估算**）
   const avgNodeMs = elapsedMs / nodeCount
@@ -122,10 +168,11 @@ export function computeProgress(input: ProgressSummary): Progress {
   return {
     stageIndex: idx + 1,
     stageName: STAGES[idx].name,
-    percent: Math.round(percent),
+    percent: Math.round(partialPercent),
     innerPercent: Math.round(inner * 100),
     etaSeconds,
     etaIsEstimate: true,
+    outcome,
   }
 }
 

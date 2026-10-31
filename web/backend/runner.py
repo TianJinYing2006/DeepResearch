@@ -753,11 +753,14 @@ class RunManager:
         """
         if step.stop_reason == STOP_ERROR:
             err = step.state.error or {}
+            code = err.get("code", "unknown") if err else "unknown"
+            # #308：图内 LLM 失败归因到 llm，不再冒充 graph（provider_error 是工具层
+            # 5 值，图内不使用；见 failure_reasons 单向派生契约）。
             payload = error_payload(
-                err.get("code", "unknown") if err else "unknown",
+                code,
                 err.get("message", "") if err else "",
                 node=err.get("node") if err else None,
-                component="graph",
+                component="llm" if code == "llm_error" else "graph",
             )
             seq = self._emit_terminal_frame(
                 run_id, RUN_ERROR, payload,

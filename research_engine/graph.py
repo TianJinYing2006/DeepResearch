@@ -37,7 +37,7 @@ from research_engine.context.manager import ContextManager
 from research_engine.critic import Critic, route_critic
 from research_engine.evidence import dedupe_new_findings, ensure_evidence_identity  # F08/F10
 from research_engine.evidence_grading import grade_evidence_chain  # 需求 34 E5：分级处置
-from research_engine.failure_reasons import classify_exception  # W8 Arm 1（§5.1.4）
+from research_engine.failure_reasons import describe_exception  # W8 Arm 1（§5.1.4）
 from research_engine.llm.client import LLMClient  # W3（Q3=D'）：类级计数做 run 级对账基线
 from research_engine.observability import (  # 需求 33：OTel 原生可观测层（W3 接入的迁移）
     create_trace_id,
@@ -781,8 +781,10 @@ class DeepResearchGraph:
                 user_instructions=initial.user_instructions,
             )
 
-        code = classify_exception(exc)
-        state.set_error(code=code, message=str(exc)[:500], node=None)
+        # 2026-10-31（#308）：provider 侧 LLM 异常（429/5xx/网络超时）归为 llm_error
+        # 并给可行动文案；原始异常文本仍写入下方 degradation detail，供复核。
+        code, message = describe_exception(exc)
+        state.set_error(code=code, message=message, node=None)
         state.add_degradation(
             node="run",
             component="graph",

@@ -62,7 +62,7 @@ class FailureReason(StrEnum):
     PARSE_ERROR = "parse_error"  # 返回了数据但解析失败
 
     # ---- 非工具层产生（4 值；由 Arm 1 直接构造）----
-    LLM_ERROR = "llm_error"  # LLM 调用失败（非超时、非限流）
+    LLM_ERROR = "llm_error"  # LLM 调用失败（节点内降级 / 图内冒泡；含 provider 限流、超时、5xx）
     TOKEN_LIMIT = "token_limit"  # 触发 token 硬闸 / 上下文超长
     RECURSION_LIMIT = "recursion_limit"  # GraphRecursionError
     INTERNAL = "internal"  # 其他未分类异常
@@ -132,20 +132,58 @@ def is_fault_reason(reason: Optional[str]) -> bool:
     return reason not in NON_FAULT_REASONS
 
 
+#: provider 异常类名（OpenAI SDK / httpx 直抛）——冒泡到图外的 LLM 调用失败
+_PROVIDER_EXCEPTION_NAMES: FrozenSet[str] = frozenset(
+    {
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "ServiceUnavailableError",
+        "ConnectError",
+        "ReadTimeout",
+    }
+)
+
+#: provider 错误消息里的限流线索（百炼 `limit_requests` / 标准 429 文案）
+_PROVIDER_RATE_LIMIT_HINTS = (
+    "limit_requests",
+    "rate limit",
+    "ratelimit",
+    "too many requests",
+    "429",
+)
+
+
+def _is_provider_exception(exc: BaseException) -> bool:
+    """是否是「LLM provider 侧」异常（429/5xx/网络超时/限流文案）。"""
+    name = type(exc).__name__
+    msg = f"{name}: {exc}".lower()
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and (status == 429 or 500 <= status <= 599):
+        return True
+    if any(hint in msg for hint in _PROVIDER_RATE_LIMIT_HINTS):
+        return True
+    return name in _PROVIDER_EXCEPTION_NAMES
+
+
 def classify_exception(exc: BaseException) -> str:
     """把异常归类为**非工具类**失败原因（Arm 1 ``run()`` 异常路径用）。
 
     只返回 :data:`NON_TOOL_REASONS` 中的值 —— 工具层异常应当已经在工具内部被捕获并
-    转成 ``SearchResponse.failure_reason``，能冒泡到 ``run()`` 的一律是框架级/内部错误。
-
-    归类依据（按优先级）：
+    转成 ``SearchResponse.failure_reason``，能冒泡到 ``run()`` 的按以下优先级归类：
 
     * ``GraphRecursionError`` ⇒ ``recursion_limit``（LangGraph 图循环超限）
     * 异常类名/消息含 token / context length 线索 ⇒ ``token_limit``
+    * provider 429 / 5xx、限流类异常名、OpenAI SDK 网络异常 ⇒ ``llm_error``
     * 其余 ⇒ ``internal``
 
-    不做 ``llm_error`` 的自动判定：LLM 调用失败在节点内已走各节点自己的 fallback，
-    能冒泡到 ``run()`` 说明不是普通 LLM 错误，留由调用方显式指定。
+    ⚠️ 2026-10-31 修正：此前只要不是递归/token 就一律 ``internal``，把百炼 429
+    （``limit_requests``，真实线上首跳失败）误判成内部错误，前端只能显示
+    「未知错误」。**不能**把图内异常归成 ``provider_error``：那是工具层 5 值之一，
+    由 ``is_tool_reason`` 锁死「只能由工具层产生」的单向派生契约；图内 LLM 失败
+    使用非工具层的 ``llm_error``。原始响应体仍留在 ``degradation_log.detail``
+    供复核（见 :func:`describe_exception`）。
     """
     name = type(exc).__name__
     if name == "GraphRecursionError":
@@ -153,4 +191,33 @@ def classify_exception(exc: BaseException) -> str:
     msg = f"{name}: {exc}".lower()
     if "token" in msg or "context length" in msg or "context_length" in msg:
         return FailureReason.TOKEN_LIMIT.value
+    if _is_provider_exception(exc):
+        return FailureReason.LLM_ERROR.value
     return FailureReason.INTERNAL.value
+
+
+def describe_exception(exc: BaseException) -> tuple[str, str]:
+    """把异常映射成 ``(failure_reason, 面向用户的 message)``。
+
+    provider 侧 ``llm_error`` 不回显原始响应体（可能是整段 provider JSON），只给
+    可行动的中文说明；原始 ``str(exc)`` 仍由调用方写入 ``degradation_log.detail``。
+    其他错误保持原样，避免掩盖真实堆栈信息（截断 500 字符）。
+    """
+    code = classify_exception(exc)
+    if code != FailureReason.LLM_ERROR.value or not _is_provider_exception(exc):
+        return code, str(exc)[:500]
+    status = getattr(exc, "status_code", None)
+    if status == 429:
+        return (
+            code,
+            "模型服务请求频率超限（HTTP 429）；请稍后点击「用同样参数重试」。",
+        )
+    if isinstance(status, int) and status >= 500:
+        return (
+            code,
+            f"模型服务暂时不可用（HTTP {status}）；请稍后点击「用同样参数重试」。",
+        )
+    return (
+        code,
+        "模型服务调用失败（网络异常或超时）；请稍后点击「用同样参数重试」。",
+    )

@@ -9,6 +9,7 @@
 
 | 项 | 值 |
 | --- | --- |
+| 更新 | **2026-10-31（#308 线上快速修复：LLM 限流归因 + 失败/取消/超时进度）**：`failure_reasons` 新增 `describe_exception`——provider 429/5xx/网络异常归为 **`llm_error`**（非工具层；`provider_error` 属工具层 5 值，按 D-04 不得由 Arm 1 构造），用户文案可行动（原始响应体留在 degradation detail）；`web/backend/errors.py` 补 `llm_error` / `internal` / `token_limit` / `recursion_limit` 规格（仅 llm_error 默认可重试、归因 llm），runner 不再把图内 LLM 失败标成 graph；前端 `lib/progress.ts` 区分 running/finished/cancelled/timeout/error，`ProgressBar` 对失败/取消/超时显示「运行失败/已停止/已到时限停止」且不再 100% 点亮；新增 `tests/test_exception_attribution.py`（13 例）与 `lib/progress.test.ts`（6 例）；figures/README 数字同步（pytest 1345 / 前端单测 53/6）；**未改判定口径与评测产物**。 |
 | 更新 | **2026-10-28（ADR-0018 落档 + PR #307 自审修复）**：补 **ADR-0018**（开放注册内测：边界 / 防滥用 / 回退与 G7 风险登记），满足 ADR-0017 §6「边界变更必须新增 ADR」；ADR-0017 追加授权引用与编号口径修正；`docs/decisions/README.md`、`figures`（ADR 18 篇）、`README` 同步；需求 10 明确「10 人为运营目标、非代码强制」；`domain-cutover` 撤回未验证的「IP 直访不再作为入口」表述；`CONTRIBUTING` 补本机 shallow 克隆提示。PR #307 自审结论见 PR 评论。未改产品代码、未动评测产物。 |
 | 更新 | **2026-10-27（文档漂移守卫上线）**：新增 `tools/check_doc_consistency.py`（CI 第 6 个守卫：figures tag ↔ git、ICP 号三处一致、CI 守卫清单三处一致、开放注册口径、ADR 索引、README 数字 == figures）+ `tests/test_doc_consistency.py`（14 例，含逐项负向破坏与「破坏→红→恢复→绿」实证）；lint job checkout 改 `fetch-depth: 0`（shallow 克隆显式失败，不静默空转）；**未改产品代码、未动评测产物**。 |
 | 更新 | **2026-10-27（测试/状态数字回填）**：需求 28~32 状态由「草稿」更正为「已合」（#156 / #158 / #159 / #160 / #161）；figures 回填 pytest 收集 **1332** / E2E **88** / 测试文件 **147**（README 同步）；本机 lane 未复验如实标注（临时目录写入受限，以 CI 三档矩阵为准）。 |
