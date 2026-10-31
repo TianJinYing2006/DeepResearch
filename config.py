@@ -65,6 +65,10 @@ class LLMConfig:
     # ⚠️ 价格有时效，默认值以阿里云官网为准，失效请更新——不要相信任何写死的长期价。
     pricing: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
         "qwen-turbo": {"input": 0.0003, "output": 0.0006},
+        # #310：quick 档现用 flash；价格以百炼官方按量计费为准（华北2，≤128K 档，
+        # 2026-10-31 核对：输入 $0.022/M、输出 $0.216/M，折人民币约 0.00015/0.0015 元/1K）。
+        # 阶梯计费（128K/256K 以上更贵）未建模——当前 prompt 均 <128K，属已知简化。
+        "qwen-flash": {"input": 0.00015, "output": 0.0015},
         "qwen-plus": {"input": 0.0008, "output": 0.002},
         "qwen-max": {"input": 0.0024, "output": 0.0096},
         "deepseek-r1": {"input": 0.003, "output": 0.012},  # 预留 W4 强推理切换

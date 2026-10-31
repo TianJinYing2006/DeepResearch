@@ -8,6 +8,7 @@
 ### Changed
 
 - 注册改为**开放注册**（邮箱 + 密码 + 同意条款），不再需要邀请码；仍受注册/登录限流、单用户每日配额与月度预算约束。
+- **quick 档模型改为 `qwen-flash`（Issue #310）**：百炼 `qwen-turbo` 持续 429 `limit_requests` 且 quick 档把四个核心角色钉在 turbo ⇒ quick 不可用；`PROFILE_VERSION` v1→v2，补 qwen-flash 成本单价；standard/deep 不变。
 
 ### Removed
 
@@ -16,6 +17,7 @@
 ### Fixed
 
 - **模型限流错误归因与失败进度显示（Issue #308）**：provider 429/5xx/网络异常不再被记为 `internal`，统一为 `llm_error`（非工具层；错误卡可重试、归因 `llm`、文案可行动）；失败/取消/超时的运行进度不再显示「当前阶段 完成 100%」，改为「运行失败 / 已停止 / 已到时限停止」；补齐 `llm_error` / `internal` / `token_limit` / `recursion_limit` 的错误规格。
+- **LLM 有界重试（Issue #310）**：任务时限存在时 SDK 重试被关闭（`max_retries=0`）；新增客户端层有界重试，仅对 provider 429/5xx/网络错误生效（默认 2 次、指数退避+抖动、受剩余时限约束，非 provider 错误/流式不重试），避免一次瞬时限流打穿整轮 run。
 
 ### Security
 

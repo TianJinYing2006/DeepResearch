@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 import json
+import os
+import random
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from openai import OpenAI
@@ -21,9 +24,33 @@ from research_engine.budget import (
     reserve_call,
     settle_call,
 )
+from research_engine.failure_reasons import is_provider_exception
 from research_engine.observability import llm_call_span, record_llm_result
 from research_engine.runtime_profile import task_deadline_remaining
 from research_engine.usage import UsageRecord, emit_usage
+
+#: #310：有任务时限时 SDK 自带重试被关闭（不得越过整场 deadline），由下面的有界重试补偿。
+#: 只重试 provider 侧瞬时错误（429/5xx/网络），且剩余时限必须大于「退避 + 最小调用余量」。
+_RETRY_MIN_REMAINING_SECONDS = 5.0
+
+
+def _llm_retry_max() -> int:
+    """有界重试次数（默认 2，clamp 0..5）。"""
+    try:
+        value = int(os.getenv("DR_LLM_RETRY_MAX", "2"))
+    except ValueError:
+        value = 2
+    return max(0, min(5, value))
+
+
+def _retry_delay_seconds(attempt: int) -> float:
+    """指数退避 + 抖动（base 默认 2s，单次上限 60s）。"""
+    try:
+        base = float(os.getenv("DR_LLM_RETRY_BASE_SECONDS", "2"))
+    except ValueError:
+        base = 2.0
+    base = max(0.5, min(30.0, base))
+    return min(base * (2 ** attempt), 60.0) + random.uniform(0.0, 0.5)
 
 
 class LLMClient:
@@ -77,43 +104,57 @@ class LLMClient:
         写进 `max_tokens`；调用结束按真实用量结算。缺 usage 时按预占保守计入，
         并发 / 重试不再能一起越过预算线。任务时限存在时禁用 SDK 内部重试
         （`max_retries=0`），保证单次调用（含重试）不越过整场 deadline。
+        #310（2026-10-31）：禁用 SDK 重试后，由本方法自带**有界重试**补偿 provider 瞬时
+        429/5xx/网络错误（默认 2 次、指数退避 + 抖动），且剩余时限不足时不再重试；
+        非 provider 错误（400 等）不重试。流式路径不重试（避免半截输出重复）。
         """
         # 先解析时限（已过期直接拒绝，不预占、不调用），再预占预算
         has_deadline = task_deadline_remaining() is not None
-        resolved_timeout = self._resolve_timeout(timeout)
-        reservation = None
-        if state is not None:
-            reservation = reserve_call(
-                state,
-                input_tokens=estimate_messages_tokens(messages),
-                desired_output=max_tokens,
-            )
-        kwargs: Dict[str, Any] = {
+        base_kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else config.llm.temperature,
         }
-        if reservation is not None:
-            kwargs["max_tokens"] = reservation.output_tokens
-        elif max_tokens:
-            kwargs["max_tokens"] = max_tokens
         if response_format:
-            kwargs["response_format"] = response_format
-        if resolved_timeout is not None:
-            kwargs["timeout"] = resolved_timeout
+            base_kwargs["response_format"] = response_format
 
         client = self._get_client()
+        if has_deadline:
+            client = client.with_options(max_retries=0)
+        max_retries = _llm_retry_max() if has_deadline else 0
+        attempt = 0
         # 需求 33（TBD-2）：generation 单点 span —— 唯一 LLM 出口在此，未启用时 no-op
         with llm_call_span(self.model, role=self.role, messages=messages) as gen_span:
-            try:
-                if has_deadline:
-                    client = client.with_options(max_retries=0)
-                resp = client.chat.completions.create(**kwargs)
-            except BaseException:
-                # 调用失败（超时/网络）：预占按保守口径计入（可能已消耗输入 token），
-                # 由 settle_call 的默认语义完成记账后原样抛出（span 自动标 error）。
-                settle_call(reservation)
-                raise
+            while True:
+                resolved_timeout = self._resolve_timeout(timeout)  # 每次尝试重算（deadline 会缩短）
+                reservation = None
+                if state is not None:
+                    reservation = reserve_call(
+                        state,
+                        input_tokens=estimate_messages_tokens(messages),
+                        desired_output=max_tokens,
+                    )
+                kwargs = dict(base_kwargs)
+                if reservation is not None:
+                    kwargs["max_tokens"] = reservation.output_tokens
+                elif max_tokens:
+                    kwargs["max_tokens"] = max_tokens
+                if resolved_timeout is not None:
+                    kwargs["timeout"] = resolved_timeout
+                try:
+                    resp = client.chat.completions.create(**kwargs)
+                    break
+                except BaseException as exc:
+                    # 调用失败（超时/限流/网络）：预占按保守口径计入（可能已消耗输入 token）。
+                    settle_call(reservation)
+                    if attempt >= max_retries or not is_provider_exception(exc):
+                        raise
+                    delay = _retry_delay_seconds(attempt)
+                    remaining = task_deadline_remaining()
+                    if remaining is not None and remaining <= delay + _RETRY_MIN_REMAINING_SECONDS:
+                        raise  # 剩余时限不足：不把调用冒险推到 deadline 之后
+                    time.sleep(delay)
+                    attempt += 1
             content = resp.choices[0].message.content or ""
             record_llm_result(gen_span, resp, content)  # fail-silent：观测旁路
         self._accumulate_usage(resp, state, reservation)  # D'：无条件调用（内部处理 state=None）

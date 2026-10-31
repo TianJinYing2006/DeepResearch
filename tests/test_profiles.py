@@ -24,7 +24,7 @@ from web.backend.profiles import DEFAULT_PROFILE, PROFILES, resolve_profile
 
 def test_profile_table_matches_requirements():
     expected = {
-        "quick": (6, 2, 60_000, 15 * 60, "qwen-turbo", 0.75),
+        "quick": (6, 2, 60_000, 15 * 60, "qwen-flash", 0.75),
         "standard": (12, 3, 120_000, 30 * 60, "qwen-plus", 1.25),
         "deep": (20, 4, 200_000, 60 * 60, "qwen-plus", 1.50),
     }
@@ -36,7 +36,7 @@ def test_profile_table_matches_requirements():
         assert profile.timeout_seconds == timeout
         assert profile.model == model
         assert profile.run_budget_cny == budget
-        assert profile.version == "v1"
+        assert profile.version == "v2"
     assert DEFAULT_PROFILE == "quick"
 
 
@@ -75,10 +75,10 @@ def test_effective_llm_model_roles(monkeypatch):
     monkeypatch.setattr(config.llm, "validator_model", "validator-env")
 
     with use_profile(resolve_profile("quick")):
-        assert effective_llm_model("smart") == "qwen-turbo"
-        assert effective_llm_model("strategic") == "qwen-turbo"
-        assert effective_llm_model("critic") == "qwen-turbo"
-        assert effective_llm_model("validator") == "qwen-turbo"
+        assert effective_llm_model("smart") == "qwen-flash"
+        assert effective_llm_model("strategic") == "qwen-flash"
+        assert effective_llm_model("critic") == "qwen-flash"
+        assert effective_llm_model("validator") == "qwen-flash"
         assert effective_llm_model("fast") == "fast-env"  # 压缩档保持全局配置
 
     # 无档位（CLI / eval）→ 全局配置逐角色回落

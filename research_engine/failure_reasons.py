@@ -155,8 +155,12 @@ _PROVIDER_RATE_LIMIT_HINTS = (
 )
 
 
-def _is_provider_exception(exc: BaseException) -> bool:
-    """是否是「LLM provider 侧」异常（429/5xx/网络超时/限流文案）。"""
+def is_provider_exception(exc: BaseException) -> bool:
+    """是否是「LLM provider 侧」异常（429/5xx/网络超时/限流文案）。
+
+    单一口径：图内归因（:func:`classify_exception`）与 LLM 客户端有界重试
+    （``research_engine.llm.client``）共用本函数，避免两处判定漂移。
+    """
     name = type(exc).__name__
     msg = f"{name}: {exc}".lower()
     status = getattr(exc, "status_code", None)
@@ -191,7 +195,7 @@ def classify_exception(exc: BaseException) -> str:
     msg = f"{name}: {exc}".lower()
     if "token" in msg or "context length" in msg or "context_length" in msg:
         return FailureReason.TOKEN_LIMIT.value
-    if _is_provider_exception(exc):
+    if is_provider_exception(exc):
         return FailureReason.LLM_ERROR.value
     return FailureReason.INTERNAL.value
 
@@ -204,7 +208,7 @@ def describe_exception(exc: BaseException) -> tuple[str, str]:
     其他错误保持原样，避免掩盖真实堆栈信息（截断 500 字符）。
     """
     code = classify_exception(exc)
-    if code != FailureReason.LLM_ERROR.value or not _is_provider_exception(exc):
+    if code != FailureReason.LLM_ERROR.value or not is_provider_exception(exc):
         return code, str(exc)[:500]
     status = getattr(exc, "status_code", None)
     if status == 429:

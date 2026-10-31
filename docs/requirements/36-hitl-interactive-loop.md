@@ -215,4 +215,5 @@ Follow-up 的 ID 白名单只能验证「引用 ID 存在」，不能证明回�
 | **C. 审批过期** | ✅ PASS | `e932e17310a5`（重跑；首跑 `687492144161`）→ TTL 132s 后 `PLAN_EXPIRED` 事件 + 终局 `TIMED_OUT/approval_expired` + **不产出报告（不自动批准口径，§3/TBD-3）** + 交互清除 |
 
 - **模型环境备注（验收期发现，运营口径）**：百炼 `qwen-turbo` 被限流（429 `limit_requests`，`qwen-flash/plus/max` 正常）；**quick 档把 smart/strategic/critic/validator 全部钉在 `qwen-turbo`**（`profiles.py:25`）⇒ turbo 限流期间 quick 档不可用；本次验收以 **standard 档**（qwen-plus）+ fast 层 `FAST_MODEL=qwen-flash` 完成。staging 现保留 `FAST_MODEL=qwen-flash`（turbo 恢复后可切回，属运营决定）。
+- **2026-10-31 修复（#310）**：quick 档模型改为 `qwen-flash`（`PROFILE_VERSION` v1→v2，见 [需求 10 变更记录](10-l3-production.md)），turbo 限流不再影响 quick；LLM 客户端对任务时限内的 429/5xx/网络错误增加有界重试（默认 2 次、指数退避、受剩余时限约束）。上述「turbo 恢复后切回」不再必要。
 - **清理**：两轮共 10 条临时验收 run 全部删除（无孤儿事件）；验收账号保留；staging `.env` HITL 行已回滚。
