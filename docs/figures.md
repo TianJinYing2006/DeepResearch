@@ -41,7 +41,7 @@
 | CI job 数 | 4 个定义 / **6 项检查** | lint-and-test（3.11/3.12/3.13 矩阵）+ infra + frontend + e2e | `.github/workflows/ci.yml` | 2026-10-26 |
 | CI 守卫 | 6 个 | 评测产物白名单 / 前端边界 / 公开仓 IP / 文档漂移 / Tailwind token / UI 反模式 | `tools/check_*.py` | 2026-10-27 |
 | 浏览器 E2E | **88 tests / 20 spec** | desktop 全量 + mobile 3 spec（双 project 执行） | `npx playwright test --list` | 2026-10-27 |
-| 前端单测 | **52 tests / 6 files** | Vitest，纯逻辑（质量判定 / 工作流 / HITL / WebAuthn / 预览 / 进度终局） | `npx vitest run` | 2026-10-31 |
+| 前端单测 | **53 tests / 6 files** | Vitest，纯逻辑（质量判定 / 工作流 / HITL / WebAuthn / 预览 / 进度终局） | `npx vitest run` | 2026-10-31 |
 | Python 版本 | 3.11 / 3.12 / 3.13 | 声明区间 `>=3.11,<3.14`；运行时闸在 import 时报错 | `pyproject.toml` + `research_engine/__init__.py` | 2026-10-26 |
 
 ## 4. 质量与评测
@@ -100,7 +100,7 @@
 
 | 日期 | 变更 | 说明 |
 | --- | --- | --- |
-| 2026-10-31 | #308 归因与进度修复回填 | 新增 `tests/test_exception_attribution.py`（provider 归因 + error 规格 + 图异常落点）与 `lib/progress.test.ts`（失败/取消终局）；pytest 收集 1332→**1344**、测试文件 147→**148**、前端单测 47/5→**52/6**；README 同步 |
+| 2026-10-31 | #308 归因与进度修复回填 | 新增 `tests/test_exception_attribution.py`（provider 归因 + error 规格 + 图异常落点）与 `lib/progress.test.ts`（失败/取消终局）；pytest 收集 1332→**1344**、测试文件 147→**148**、前端单测 47/5→**53/6**；README 同步 |
 | 2026-10-27 | 守卫与数字回填 | 新增文档漂移守卫 `tools/check_doc_consistency.py`（CI 第 6 个守卫）；pytest 收集 1290→**1332**、E2E 92→**88**（删除邀请流程用例）、测试文件 142→**147**；README 同步 |
 | 2026-10-27 | 发布/上线事实回填 | `v0.2.0` 已发布（dev==master，363 提交）；新增「对外入口」行：`https://ikaoju.cn` 已 ICP 备案（`皖ICP备2026036120号`，2026-10-21）并 HTTPS 上线；更新推荐引用模板 |
 | 2026-10-26 | 建立本表 | 按 `CONTRIBUTING.md` §0/§13 建立对外数字唯一源；回填 README 的测试 / E2E / 需求 / ADR / 迁移 / checks 数字；标注本机 8 个环境相关失败与样本不足项 |

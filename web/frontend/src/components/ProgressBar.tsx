@@ -9,9 +9,9 @@ interface ProgressBarProps {
 
 export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
   const percent = Math.max(0, Math.min(progress.percent, 100))
-  // #308：只有「正常完成」才算完成；失败/取消是停止，不能把 5 段全部点亮。
+  // #308：只有「正常完成」才算完成；失败/取消/超时是停止，不能把 5 段全部点亮。
   const finished = progress.outcome === 'finished'
-  const stopped = progress.outcome === 'error' || progress.outcome === 'cancelled'
+  const stopped = progress.outcome !== 'running' && progress.outcome !== 'finished'
 
   return (
     <div>
@@ -99,6 +99,7 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
 function etaLabel(progress: Progress, cancelling: boolean): string {
   if (cancelling) return '当前节点完成后停止'
   if (progress.outcome === 'error') return '运行失败，未生成报告'
+  if (progress.outcome === 'timeout') return '已到时限停止，未生成报告'
   if (progress.outcome === 'cancelled') return '已停止，未生成报告'
   if (progress.outcome === 'finished') return '已完成'
   if (progress.etaSeconds === null) return progress.stageIndex === 0 ? '等待首个节点' : '剩余时间估算中'

@@ -50,6 +50,19 @@ describe('progress.computeProgress（#308 失败/取消不得显示完成）', (
     expect(progress.percent).toBeLessThan(100)
   })
 
+  it('RUN_FINISHED(timeout)：显示已到时限停止，不是完成', () => {
+    const progress = computeProgress(
+      summarize([
+        ev('RUN_STARTED', { max_total_hops: 20 }),
+        step('write', 5),
+        ev('RUN_FINISHED', { cancelled: false, stop_reason: 'timeout' }),
+      ]),
+    )
+    expect(progress.outcome).toBe('timeout')
+    expect(progress.stageName).toBe('已到时限停止')
+    expect(progress.percent).toBeLessThan(100)
+  })
+
   it('RUN_FINISHED(completed)：正常完成才是 100% / 完成', () => {
     const progress = computeProgress(
       summarize([

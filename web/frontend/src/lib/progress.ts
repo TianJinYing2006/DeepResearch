@@ -25,8 +25,8 @@ export const STAGES = [
  *  出处：docs/requirements/9-web-ui-rewrite.md §5.4.1。仅用于 ETA，不参与百分比。 */
 const EST_TOTAL_NODES = 24
 
-/** 终局类型（2026-10-31 #308：失败/取消都不能再显示成「完成 100%」）。 */
-export type ProgressOutcome = 'running' | 'finished' | 'cancelled' | 'error'
+/** 终局类型（2026-10-31 #308：失败/取消/超时都不能再显示成「完成 100%」）。 */
+export type ProgressOutcome = 'running' | 'finished' | 'cancelled' | 'timeout' | 'error'
 
 /** 进度所需原始量（R5：由事件流增量累加，不再每帧全量重扫）。 */
 export interface ProgressSummary {
@@ -73,7 +73,15 @@ export function applyEvent(summary: ProgressSummary, event: AguiEvent): Progress
   }
   if (event.type === 'RUN_FINISHED') {
     const finished = event as RunFinishedEvent
-    return { ...summary, outcome: finished.cancelled ? 'cancelled' : 'finished' }
+    // ⚠️ 后端超时收口是 RUN_FINISHED(stop_reason=timeout, cancelled=false)；
+    // 只看 cancelled 会把「已到时限停止」误判成正常完成（#308 自审发现）。
+    const outcome: ProgressOutcome =
+      finished.stop_reason === 'timeout'
+        ? 'timeout'
+        : finished.cancelled || finished.stop_reason === 'cancelled'
+          ? 'cancelled'
+          : 'finished'
+    return { ...summary, outcome }
   }
   if (event.type === 'RUN_ERROR') {
     return { ...summary, outcome: 'error' }
@@ -122,11 +130,16 @@ export function computeProgress(input: ProgressSummary): Progress {
     }
   }
 
-  // 🚨 #308：失败/取消是「停止」不是「完成」——不得出现 100% / 已完成。
-  if (outcome === 'error' || outcome === 'cancelled') {
+  // 🚨 #308：失败/取消/超时是「停止」不是「完成」——不得出现 100% / 已完成。
+  if (outcome === 'error' || outcome === 'cancelled' || outcome === 'timeout') {
     return {
       stageIndex: idx >= 0 ? idx + 1 : 0,
-      stageName: outcome === 'error' ? '运行失败' : '已停止',
+      stageName:
+        outcome === 'error'
+          ? '运行失败'
+          : outcome === 'timeout'
+            ? '已到时限停止'
+            : '已停止',
       percent: Math.round(partialPercent),
       innerPercent: Math.round(inner * 100),
       etaSeconds: null,
