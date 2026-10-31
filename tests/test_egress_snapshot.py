@@ -57,7 +57,7 @@ def test_run_snapshot_persisted_and_exported(monkeypatch):
     run_id = response.json()["run_id"]
     row = store.get_run(run_id)
     assert row["request"]["egress"]["profile"] == "quick"
-    assert row["request"]["egress"]["llm"]["model"] == "qwen-turbo"
+    assert row["request"]["egress"]["llm"]["model"] == "qwen-flash"
 
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and not store.has_artifact(run_id, "export_json"):
@@ -67,7 +67,7 @@ def test_run_snapshot_persisted_and_exported(monkeypatch):
     assert payload["egress"]["profile"] == "quick"
 
     live = client.get(f"/api/research/{run_id}/report?format=json").json()
-    assert live["egress"]["llm"]["model"] == "qwen-turbo"
+    assert live["egress"]["llm"]["model"] == "qwen-flash"
 
 
 def test_snapshot_endpoint_falls_back_to_store(monkeypatch):

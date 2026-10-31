@@ -6,6 +6,12 @@
 
 数值口径：需求 10 §5.6 初始封顶（Quick 6/2/60k/15min/¥0.75、Standard 12/3/120k/30min/¥1.25、
 Deep 20/4/200k/60min/¥1.50）。校准只能收紧，放宽必须重新评审（§5.6 原文）。
+
+v2（2026-10-31，#310）：quick 档模型 `qwen-turbo` → **`qwen-flash`**。原因：百炼
+`qwen-turbo` 持续 429 `limit_requests`（需求 36 §12.7 2026-10-17 已记录），而 quick 档把
+smart/strategic/critic/validator 全部钉在 profile.model 上 ⇒ turbo 限流期间 quick 不可用；
+`qwen-flash` 在公共端点与 MaaS 业务空间端点均实测可用。档位版本 bump 到 v2，便于
+evidence manifest / run 快照区分新旧模型口径。
 """
 from __future__ import annotations
 
@@ -13,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from research_engine.runtime_profile import RuntimeProfile
 
-PROFILE_VERSION = "v1"
+PROFILE_VERSION = "v2"
 DEFAULT_PROFILE = "quick"
 
 #: 档位可用性（需求 10 §5.6）：Quick 全员；Standard L3-A 手动可用；Deep 仅管理员审批。
@@ -22,7 +28,7 @@ PROFILES: Dict[str, RuntimeProfile] = {
     "quick": RuntimeProfile(
         name="quick", version=PROFILE_VERSION,
         max_total_hops=6, max_subquestions=2, token_budget=60_000,
-        timeout_seconds=15 * 60, model="qwen-turbo",
+        timeout_seconds=15 * 60, model="qwen-flash",
         run_budget_cny=0.75, max_replan=1, per_subq_hop_cap=3,
     ),
     "standard": RuntimeProfile(
