@@ -271,8 +271,8 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         "模型服务限流或暂时不可用；可稍后点击「用同样参数重试」。",
         component="provider"),
     "internal": ErrorSpec(
-        None, True,
-        "研究链路内部错误；可原样重试；若稳定复现请附 message 反馈。",
+        None, False,
+        "研究链路内部错误；若稳定复现请附 message 反馈（可先用同样参数重试排查）。",
         component="graph"),
     "token_limit": ErrorSpec(
         None, False,

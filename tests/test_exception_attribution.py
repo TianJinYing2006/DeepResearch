@@ -100,7 +100,8 @@ def test_error_payload_provider_spec_is_retryable_and_attributed_to_provider() -
 
 def test_error_payload_internal_spec_no_longer_falls_back_to_unknown() -> None:
     payload = error_payload("internal", "internal detail")
-    assert payload["retryable"] is True
+    # 保守：只有 provider_error 默认给「一键重试」，内部错误不承诺可重试
+    assert payload["retryable"] is False
     assert "未知错误" not in payload["hint"]
 
 
