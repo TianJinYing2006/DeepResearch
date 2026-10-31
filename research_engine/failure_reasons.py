@@ -155,6 +155,18 @@ _PROVIDER_RATE_LIMIT_HINTS = (
 )
 
 
+def _is_provider_exception(exc: BaseException) -> bool:
+    """是否是「LLM provider 侧」异常（429/5xx/网络超时/限流文案）。"""
+    name = type(exc).__name__
+    msg = f"{name}: {exc}".lower()
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and (status == 429 or 500 <= status <= 599):
+        return True
+    if any(hint in msg for hint in _PROVIDER_RATE_LIMIT_HINTS):
+        return True
+    return name in _PROVIDER_EXCEPTION_NAMES
+
+
 def classify_exception(exc: BaseException) -> str:
     """把异常归类为**非工具类**失败原因（Arm 1 ``run()`` 异常路径用）。
 
@@ -163,13 +175,15 @@ def classify_exception(exc: BaseException) -> str:
 
     * ``GraphRecursionError`` ⇒ ``recursion_limit``（LangGraph 图循环超限）
     * 异常类名/消息含 token / context length 线索 ⇒ ``token_limit``
-    * provider 429 / 5xx、限流类异常名、OpenAI SDK 网络异常 ⇒ ``provider_error``
+    * provider 429 / 5xx、限流类异常名、OpenAI SDK 网络异常 ⇒ ``llm_error``
     * 其余 ⇒ ``internal``
 
     ⚠️ 2026-10-31 修正：此前只要不是递归/token 就一律 ``internal``，把百炼 429
     （``limit_requests``，真实线上首跳失败）误判成内部错误，前端只能显示
-    「未知错误」。provider 错误必须可归因且可重试；原始响应体仍留在
-    ``degradation_log.detail`` 供复核（见 :func:`describe_exception`）。
+    「未知错误」。**不能**把图内异常归成 ``provider_error``：那是工具层 5 值之一，
+    由 ``is_tool_reason`` 锁死「只能由工具层产生」的单向派生契约；图内 LLM 失败
+    使用非工具层的 ``llm_error``。原始响应体仍留在 ``degradation_log.detail``
+    供复核（见 :func:`describe_exception`）。
     """
     name = type(exc).__name__
     if name == "GraphRecursionError":
@@ -177,25 +191,20 @@ def classify_exception(exc: BaseException) -> str:
     msg = f"{name}: {exc}".lower()
     if "token" in msg or "context length" in msg or "context_length" in msg:
         return FailureReason.TOKEN_LIMIT.value
-    status = getattr(exc, "status_code", None)
-    if isinstance(status, int) and (status == 429 or 500 <= status <= 599):
-        return FailureReason.PROVIDER_ERROR.value
-    if any(hint in msg for hint in _PROVIDER_RATE_LIMIT_HINTS):
-        return FailureReason.PROVIDER_ERROR.value
-    if name in _PROVIDER_EXCEPTION_NAMES:
-        return FailureReason.PROVIDER_ERROR.value
+    if _is_provider_exception(exc):
+        return FailureReason.LLM_ERROR.value
     return FailureReason.INTERNAL.value
 
 
 def describe_exception(exc: BaseException) -> tuple[str, str]:
     """把异常映射成 ``(failure_reason, 面向用户的 message)``。
 
-    ``provider_error`` 不回显原始响应体（可能是整段 provider JSON），只给可行动的
-    中文说明；原始 ``str(exc)`` 仍由调用方写入 ``degradation_log.detail``。
+    provider 侧 ``llm_error`` 不回显原始响应体（可能是整段 provider JSON），只给
+    可行动的中文说明；原始 ``str(exc)`` 仍由调用方写入 ``degradation_log.detail``。
     其他错误保持原样，避免掩盖真实堆栈信息（截断 500 字符）。
     """
     code = classify_exception(exc)
-    if code != FailureReason.PROVIDER_ERROR.value:
+    if code != FailureReason.LLM_ERROR.value or not _is_provider_exception(exc):
         return code, str(exc)[:500]
     status = getattr(exc, "status_code", None)
     if status == 429:

@@ -27,7 +27,7 @@ class ErrorSpec:
             （如 `run_timeout` 通过 `RUN_FINISHED` 表达，不是 HTTP 错误）。
         retryable: **同一个请求原样重发**是否有意义（不是「换个参数再试」）。
         hint: 给用户的下一步动作，直接展示在前端错误卡里。
-        component: 归因组件（`web` / `runner` / `graph` / `search`）。
+        component: 归因组件（`web` / `runner` / `graph` / `search` / `llm`）。
     """
 
     http_status: Optional[int]
@@ -266,10 +266,12 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
     # 2026-10-31（#308）：图内异常落点可能出现的 4 个 failure_reason。缺规格时
     # error_payload 会回退到 unknown（hint「未知错误」+ retryable=False），
     # 真实线上把百炼 429 显示成「未知错误」即此因。
-    "provider_error": ErrorSpec(
+    # ⚠️ 图内 LLM 失败用非工具层的 `llm_error`（provider_error 属工具层 5 值，
+    # 由 failure_reasons.is_tool_reason 锁死单向派生契约，不得在此复用）。
+    "llm_error": ErrorSpec(
         503, True,
-        "模型服务限流或暂时不可用；可稍后点击「用同样参数重试」。",
-        component="provider"),
+        "模型服务调用失败（限流 / 超时 / 暂时不可用）；可稍后点击「用同样参数重试」。",
+        component="llm"),
     "internal": ErrorSpec(
         None, False,
         "研究链路内部错误；若稳定复现请附 message 反馈（可先用同样参数重试排查）。",

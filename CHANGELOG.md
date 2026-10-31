@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- **模型限流错误归因与失败进度显示（Issue #308）**：provider 429/5xx/网络异常不再被记为 `internal`，统一为 `provider_error`（错误卡可重试、归因 `provider`、文案可行动）；失败/取消的运行进度不再显示「当前阶段 完成 100%」，改为「运行失败 / 已停止」；补齐 `internal` / `token_limit` / `recursion_limit` 的错误规格。
+- **模型限流错误归因与失败进度显示（Issue #308）**：provider 429/5xx/网络异常不再被记为 `internal`，统一为 `llm_error`（非工具层；错误卡可重试、归因 `llm`、文案可行动）；失败/取消/超时的运行进度不再显示「当前阶段 完成 100%」，改为「运行失败 / 已停止 / 已到时限停止」；补齐 `llm_error` / `internal` / `token_limit` / `recursion_limit` 的错误规格。
 
 ### Security
 
