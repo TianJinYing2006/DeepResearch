@@ -118,9 +118,6 @@ class LLMClient:
         if response_format:
             base_kwargs["response_format"] = response_format
 
-        client = self._get_client()
-        if has_deadline:
-            client = client.with_options(max_retries=0)
         max_retries = _llm_retry_max() if has_deadline else 0
         attempt = 0
         # 需求 33（TBD-2）：generation 单点 span —— 唯一 LLM 出口在此，未启用时 no-op
@@ -141,6 +138,11 @@ class LLMClient:
                     kwargs["max_tokens"] = max_tokens
                 if resolved_timeout is not None:
                     kwargs["timeout"] = resolved_timeout
+                # ⚠️ 不变量：预算准入 / 时限检查**先于** SDK 客户端获取——
+                # 预算耗尽或 deadline 过期时不得初始化 SDK（既有单测锁死）。
+                client = self._get_client()
+                if has_deadline:
+                    client = client.with_options(max_retries=0)
                 try:
                     resp = client.chat.completions.create(**kwargs)
                     break
