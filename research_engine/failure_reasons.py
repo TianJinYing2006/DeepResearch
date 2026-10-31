@@ -62,7 +62,7 @@ class FailureReason(StrEnum):
     PARSE_ERROR = "parse_error"  # 返回了数据但解析失败
 
     # ---- 非工具层产生（4 值；由 Arm 1 直接构造）----
-    LLM_ERROR = "llm_error"  # LLM 调用失败（非超时、非限流）
+    LLM_ERROR = "llm_error"  # LLM 调用失败（节点内降级 / 图内冒泡；含 provider 限流、超时、5xx）
     TOKEN_LIMIT = "token_limit"  # 触发 token 硬闸 / 上下文超长
     RECURSION_LIMIT = "recursion_limit"  # GraphRecursionError
     INTERNAL = "internal"  # 其他未分类异常
