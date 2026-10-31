@@ -97,7 +97,7 @@ export interface Progress {
   etaSeconds: number | null
   /** ETA 是否为估算值（恒为 true，提醒 UI 标注「约」） */
   etaIsEstimate: boolean
-  /** 终局类型：finished = 正常完成；error/cancelled = 已停止（不得显示 100%） */
+  /** 终局类型：finished = 正常完成；error/cancelled/timeout = 已停止（不得显示 100%） */
   outcome: ProgressOutcome
 }
 

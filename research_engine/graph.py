@@ -781,8 +781,8 @@ class DeepResearchGraph:
                 user_instructions=initial.user_instructions,
             )
 
-        # 2026-10-31（#308）：provider 429/5xx/网络异常归为 provider_error 并给可行动文案；
-        # 原始异常文本仍写入下方 degradation detail，供复核。
+        # 2026-10-31（#308）：provider 侧 LLM 异常（429/5xx/网络超时）归为 llm_error
+        # 并给可行动文案；原始异常文本仍写入下方 degradation detail，供复核。
         code, message = describe_exception(exc)
         state.set_error(code=code, message=message, node=None)
         state.add_degradation(
