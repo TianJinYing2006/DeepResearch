@@ -9,14 +9,16 @@ interface ProgressBarProps {
 
 export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
   const percent = Math.max(0, Math.min(progress.percent, 100))
-  const finished = progress.stageIndex >= STAGES.length
+  // #308：只有「正常完成」才算完成；失败/取消是停止，不能把 5 段全部点亮。
+  const finished = progress.outcome === 'finished'
+  const stopped = progress.outcome === 'error' || progress.outcome === 'cancelled'
 
   return (
     <div>
       <div className="grid grid-cols-5 gap-1.5" aria-label="研究阶段">
         {STAGES.map((stage, index) => {
           const completed = finished || index < progress.stageIndex - 1
-          const active = !finished && index === progress.stageIndex - 1
+          const active = progress.outcome === 'running' && index === progress.stageIndex - 1
           return (
             <div key={stage.name} className="min-w-0">
               <div
@@ -50,7 +52,13 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
           </p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-2xl font-semibold tabular-nums text-stamp-blue">{percent}%</p>
+          <p
+            className={`font-mono text-2xl font-semibold tabular-nums ${
+              progress.outcome === 'error' ? 'text-stamp-red' : 'text-stamp-blue'
+            }`}
+          >
+            {percent}%
+          </p>
           <p className="mt-1 text-xs text-ink-muted">{etaLabel(progress, cancelling)}</p>
         </div>
       </div>
@@ -61,16 +69,18 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
         {/* R5（审计 U61）：只动画合成属性 transform（scaleX），不再动画 layout 的 width */}
         <div
           className={`h-full w-full origin-left rounded-full transition-transform duration-500 ${
-            cancelling
-              ? 'bg-stamp-amber'
-              : 'bg-stamp-blue'
+            progress.outcome === 'error'
+              ? 'bg-stamp-red'
+              : stopped || cancelling
+                ? 'bg-stamp-amber'
+                : 'bg-stamp-blue'
           }`}
           style={{ transform: `scaleX(${percent / 100})` }}
         />
         {/* 从左往右循环的高光渐变（shimmer）：只在**运行中**出现，表示「还在推进」。
             ⚠️ 它纯粹是动效，**不改变 percent** —— 总进度仍只用可确认的数据推导，
             不因为有了动画就假装知道剩余比例。完成后停止，避免闪烁干扰读数。 */}
-        {!cancelling && percent < 100 && (
+        {progress.outcome === 'running' && !cancelling && percent < 100 && (
           <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
             <span className="absolute inset-y-0 left-0 w-1/3 animate-shimmer bg-gradient-to-r from-transparent via-white/45 to-transparent" />
           </span>
@@ -88,7 +98,9 @@ export function ProgressBar({ progress, cancelling }: ProgressBarProps) {
 
 function etaLabel(progress: Progress, cancelling: boolean): string {
   if (cancelling) return '当前节点完成后停止'
-  if (progress.stageIndex >= STAGES.length) return '已完成'
+  if (progress.outcome === 'error') return '运行失败，未生成报告'
+  if (progress.outcome === 'cancelled') return '已停止，未生成报告'
+  if (progress.outcome === 'finished') return '已完成'
   if (progress.etaSeconds === null) return progress.stageIndex === 0 ? '等待首个节点' : '剩余时间估算中'
   if (progress.etaSeconds <= 0) return '即将完成'
   return `约剩 ${formatDuration(progress.etaSeconds * 1000)}`

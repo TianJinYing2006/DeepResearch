@@ -419,7 +419,7 @@ def test_degraded_reachable_end_to_end_shape():
 
 def test_recursion_error_maps_to_recursion_limit(monkeypatch):
     _patch_no_observability(monkeypatch)
-    import research_engine.graph as G
+    from research_engine.failure_reasons import classify_exception
 
     class GraphRecursionError(Exception):
         pass
@@ -430,4 +430,4 @@ def test_recursion_error_maps_to_recursion_limit(monkeypatch):
 
     out = g.run("题目")
     assert out.error["code"] == "recursion_limit"
-    assert G.classify_exception(GraphRecursionError("x")) == "recursion_limit"
+    assert classify_exception(GraphRecursionError("x")) == "recursion_limit"

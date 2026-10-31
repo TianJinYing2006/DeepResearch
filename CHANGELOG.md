@@ -13,6 +13,10 @@
 
 - 邀请制/邀请码：后端邀请码校验与 `/api/options.invite_only`、管理 CLI `create-invite` / `list-invites` / `revoke-invite`、前端邀请码字段与 `?invite=` 邀请弹窗、相关 E2E 全部删除。
 
+### Fixed
+
+- **模型限流错误归因与失败进度显示（Issue #308）**：provider 429/5xx/网络异常不再被记为 `internal`，统一为 `provider_error`（错误卡可重试、归因 `provider`、文案可行动）；失败/取消的运行进度不再显示「当前阶段 完成 100%」，改为「运行失败 / 已停止」；补齐 `internal` / `token_limit` / `recursion_limit` 的错误规格。
+
 ### Security
 
 - 开放注册后的成本/滥用风险登记：后续评估邮箱验证、CAPTCHA 或邀请式灰度回退开关。

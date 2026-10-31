@@ -263,6 +263,25 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
     "graph_error": ErrorSpec(
         None, True, "研究链路报错并被结构化捕获，run_status 已按 W8 口径写入 state。",
         component="graph"),
+    # 2026-10-31（#308）：图内异常落点可能出现的 4 个 failure_reason。缺规格时
+    # error_payload 会回退到 unknown（hint「未知错误」+ retryable=False），
+    # 真实线上把百炼 429 显示成「未知错误」即此因。
+    "provider_error": ErrorSpec(
+        503, True,
+        "模型服务限流或暂时不可用；可稍后点击「用同样参数重试」。",
+        component="provider"),
+    "internal": ErrorSpec(
+        None, True,
+        "研究链路内部错误；可原样重试；若稳定复现请附 message 反馈。",
+        component="graph"),
+    "token_limit": ErrorSpec(
+        None, False,
+        "输入或上下文超出模型上限；建议缩短主题/说明或降低运行档位后重试。",
+        component="graph"),
+    "recursion_limit": ErrorSpec(
+        None, False,
+        "研究循环达到配置上限；建议缩小主题范围或降低跳数上限后重试。",
+        component="graph"),
     "unknown": ErrorSpec(
         None, False, "未知错误，详情见 message。", component="web"),
 }

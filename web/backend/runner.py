@@ -753,11 +753,13 @@ class RunManager:
         """
         if step.stop_reason == STOP_ERROR:
             err = step.state.error or {}
+            code = err.get("code", "unknown") if err else "unknown"
+            # #308：provider 错误归因到 provider，不冒充 graph；其余仍归 graph。
             payload = error_payload(
-                err.get("code", "unknown") if err else "unknown",
+                code,
                 err.get("message", "") if err else "",
                 node=err.get("node") if err else None,
-                component="graph",
+                component="provider" if code == "provider_error" else "graph",
             )
             seq = self._emit_terminal_frame(
                 run_id, RUN_ERROR, payload,
