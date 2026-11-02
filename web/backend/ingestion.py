@@ -113,13 +113,15 @@ def process_ingestions_once(
         # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
         with run_span("dr.ingest", **{"dr.ingestion_id": item["ingestion_id"],
                                       "dr.doc_id": item["doc_id"]}):
-            _process_item(store, item, ingester_factory, max_attempts, summary)
+            _process_item(store, item, ingester_factory, max_attempts, summary,
+                          claimed_by)
     return summary
 
 
 def _process_item(store: RunStore, item: dict[str, Any],
                   ingester_factory: Optional[Callable[[], Any]],
-                  max_attempts: int, summary: dict[str, int]) -> None:
+                  max_attempts: int, summary: dict[str, int],
+                  claimed_by: str) -> None:
     from research_engine.rag.ingest import IngestLimitExceeded
 
     from .rag_pipeline import (
@@ -134,16 +136,29 @@ def _process_item(store: RunStore, item: dict[str, Any],
     task = (item.get("task") or "ingest").strip() or "ingest"
     path = quarantine_path(item["stored_name"])
     keep_file = task == "ingest"  # 仅 ingest 使用隔离区文件（rechunk/reembed 走 PG 层）
+    # 审计 #335（F05）：本次领取的租约凭据；所有终态/退避写入必须带它做条件更新，
+    # 旧 attempt 失租后的迟到写入会被 store 拒绝（返回 False / "missing"）。
+    attempts = int(item["attempts"])
+
+    def mark_rejected(error: str, *, scan_status: Optional[str] = None) -> bool:
+        """带租约围栏的 rejected 写入；False = 租约已易主（不得再删隔离区文件）。"""
+        ok = store.mark_ingestion_rejected(
+            ingestion_id, error, claimed_by=claimed_by, attempts=attempts,
+            scan_status=scan_status)
+        if not ok:
+            _log(f"lease lost ingestion={ingestion_id} attempt={attempts}: "
+                 "skip rejected write")
+        return ok
+
     try:
         scan = "skipped"
         if keep_file:
             scan = _scan_file(path)
             if scan == "infected":
-                store.mark_ingestion_rejected(ingestion_id, "malware_detected",
-                                              scan_status="infected")
-                _remove(path)
-                summary["rejected"] += 1
-                _log(f"REJECTED ingestion={ingestion_id}: malware detected")
+                if mark_rejected("malware_detected", scan_status="infected"):
+                    _remove(path)
+                    summary["rejected"] += 1
+                    _log(f"REJECTED ingestion={ingestion_id}: malware detected")
                 return
             if not os.path.isfile(path):
                 raise FileNotFoundError(f"quarantine file missing: {item['stored_name']}")
@@ -170,36 +185,44 @@ def _process_item(store: RunStore, item: dict[str, Any],
                                          user_id=item["user_id"])
         chunks = int(result.get("chunks") or 0)
         if not chunks:
-            store.mark_ingestion_rejected(ingestion_id, "empty_document", scan_status=scan)
-            _remove(path)
-            summary["rejected"] += 1
+            if mark_rejected("empty_document", scan_status=scan):
+                _remove(path)
+                summary["rejected"] += 1
             return
-        store.mark_ingestion_ready(ingestion_id, chunks, scan_status=scan)
+        if not store.mark_ingestion_ready(
+                ingestion_id, chunks, claimed_by=claimed_by, attempts=attempts,
+                scan_status=scan):
+            # 租约已易主：不得删隔离区文件（新执行者还要用），也不得计 ready/rejected
+            _log(f"lease lost ingestion={ingestion_id} attempt={attempts}: skip ready write")
+            return
         _remove(path)
         summary["ready"] += 1
     except (NoSnapshotError, NoActiveChunksError) as exc:
         # 前置缺失（无快照 / 无活动分块）：重试无意义，如实拒绝
-        store.mark_ingestion_rejected(ingestion_id, _error_category(exc))
-        _remove(path)
-        summary["rejected"] += 1
-        _log(f"REJECTED ingestion={ingestion_id}: {exc}")
+        if mark_rejected(_error_category(exc)):
+            _remove(path)
+            summary["rejected"] += 1
+            _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except IngestLimitExceeded as exc:
-        store.mark_ingestion_rejected(ingestion_id, _error_category(exc))
-        _remove(path)
-        summary["rejected"] += 1
-        _log(f"REJECTED ingestion={ingestion_id}: {exc}")
+        if mark_rejected(_error_category(exc)):
+            _remove(path)
+            summary["rejected"] += 1
+            _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except ValueError as exc:
         # 解析/格式类错误：重试无意义，直接 rejected
-        store.mark_ingestion_rejected(ingestion_id, _error_category(exc))
-        _remove(path)
-        summary["rejected"] += 1
-        _log(f"REJECTED ingestion={ingestion_id}: {exc}")
+        if mark_rejected(_error_category(exc)):
+            _remove(path)
+            summary["rejected"] += 1
+            _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except Exception as exc:  # noqa: BLE001 —— 供应商/IO 类失败进入退避
         error = _error_category(exc)
         backoff = min(30 * (2 ** max(0, int(item["attempts"]) - 1)), DEFAULT_BACKOFF_CAP_SECONDS)
         new_status = store.mark_ingestion_retry(
-            ingestion_id, error, backoff_seconds=backoff, max_attempts=max_attempts)
-        if new_status == "rejected":
+            ingestion_id, error, claimed_by=claimed_by, attempts=attempts,
+            backoff_seconds=backoff, max_attempts=max_attempts)
+        if new_status == "missing":
+            _log(f"lease lost ingestion={ingestion_id} attempt={attempts}: skip retry write")
+        elif new_status == "rejected":
             summary["rejected"] += 1
             _remove(path)
             _log(f"REJECTED ingestion={ingestion_id} after retries: "

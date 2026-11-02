@@ -20,7 +20,12 @@ from fakes import FakeQueue, FakeStore, TinyGraph, event_types
 
 from web.backend.persistence import ACTIVE_STATUSES, persist_terminal
 from web.backend.store import LeaseLostError, RunOwnership
-from web.backend.worker import Worker
+from web.backend.worker import (
+    CheckpointWriteFence,
+    Worker,
+    install_checkpoint_fence,
+    should_persist_checkpoint,
+)
 
 
 def _queued(store: FakeStore, *, lease_seconds: float = 3600) -> str:
@@ -159,6 +164,151 @@ def test_worker_still_finalizes_with_ownership_when_healthy():
     assert row["status"] == "SUCCEEDED"
     assert store.get_artifact(run_id, "report_md") == "# 正常"
     assert event_types(store, run_id)[-1] == "RUN_FINISHED"
+
+
+# ------------------------------------------------ checkpoint 写入围栏（#335 / F05）
+
+
+class _RecordingSaver:
+    """记录 put / put_writes 的最小 saver 替身（不依赖 langgraph）。"""
+
+    def __init__(self) -> None:
+        self.puts: list = []
+        self.writes: list = []
+
+    def put(self, config, checkpoint, metadata, new_versions):
+        self.puts.append((config, checkpoint, metadata, new_versions))
+        return config
+
+    def put_writes(self, config, writes, task_id, task_path=""):
+        self.writes.append((config, writes, task_id, task_path))
+        return None
+
+
+def test_should_persist_checkpoint_truth_table():
+    """纯逻辑：失租或归属不符都必须拒绝写 checkpoint。"""
+    assert should_persist_checkpoint(lease_lost=False, ownership_ok=True) is True
+    assert should_persist_checkpoint(lease_lost=True, ownership_ok=True) is False
+    assert should_persist_checkpoint(lease_lost=False, ownership_ok=False) is False
+    assert should_persist_checkpoint(lease_lost=True, ownership_ok=False) is False
+
+
+def test_old_attempt_checkpoint_write_rejected_new_owner_allowed():
+    """F05：旧 attempt 的 checkpoint 写入被门闩拒绝，新执行者写入照常。"""
+    store = FakeStore()
+    run_id = _queued(store)
+    assert store.claim_run(run_id, "worker-a", 60) is not None
+    _takeover(store, run_id)  # worker-b 接管，attempt=2
+
+    saver = _RecordingSaver()
+    fence = CheckpointWriteFence()
+    install_checkpoint_fence(saver, fence)
+    worker_a = Worker(store, FakeQueue(), graph_factory=lambda: None, worker_id="worker-a")
+    lease_lost = threading.Event()
+
+    old = RunOwnership("worker-a", 1)
+    fence.bind(lambda: worker_a._checkpoint_write_allowed(run_id, old, lease_lost))
+    with pytest.raises(LeaseLostError):
+        saver.put({}, {}, {}, {})
+    with pytest.raises(LeaseLostError):
+        saver.put_writes({}, [], "task-1")
+    assert saver.puts == [] and saver.writes == [], "旧 attempt 不得写 checkpoint"
+
+    # 新 attempt 必须放行（守卫不得误伤健康执行者）
+    new = RunOwnership("worker-b", 2)
+    fence.bind(lambda: worker_a._checkpoint_write_allowed(run_id, new, lease_lost))
+    saver.put({"configurable": {}}, {"v": 1}, {}, {})
+    saver.put_writes({"configurable": {}}, [], "task-2")
+    assert len(saver.puts) == 1 and len(saver.writes) == 1
+
+
+def test_checkpoint_fence_rejects_after_lease_lost_event():
+    """本地心跳判定失租后，即使 DB 归属查询仍可用也必须拒绝写入。"""
+    store = FakeStore()
+    run_id = _queued(store)
+    assert store.claim_run(run_id, "worker-a", 60) is not None
+    worker = Worker(store, FakeQueue(), graph_factory=lambda: None, worker_id="worker-a")
+    ownership = RunOwnership("worker-a", 1)
+    lease_lost = threading.Event()
+
+    assert worker._checkpoint_write_allowed(run_id, ownership, lease_lost) is True
+    lease_lost.set()
+    assert worker._checkpoint_write_allowed(run_id, ownership, lease_lost) is False
+
+
+# -------------------------------------- ingestion / deletion outbox 租约围栏（#335 / F05）
+
+
+def _claimed_ingestion(store: FakeStore) -> tuple[dict, dict]:
+    """建一条摄取并先由 worker-a 领取；返回 (首次领取行, worker-b 接管行)。"""
+    store.create_ingestion("ing-lease-1", "doc-lease", user_id="u-lease",
+                           source="a.txt", sha256="x", size_bytes=1, stored_name="a.txt")
+    first = store.claim_next_ingestion("worker-a", 60)
+    assert first is not None and first["attempts"] == 1
+    store.ingestions["ing-lease-1"]["lease_expires_at"] = (
+        datetime.now(UTC) - timedelta(seconds=1))
+    second = store.claim_next_ingestion("worker-b", 60)
+    assert second is not None and second["attempts"] == 2
+    return first, second
+
+
+def test_old_ingestion_claim_cannot_mark_ready_or_rejected():
+    store = FakeStore()
+    _claimed_ingestion(store)
+
+    assert store.mark_ingestion_ready("ing-lease-1", 5, claimed_by="worker-a",
+                                      attempts=1) is False
+    assert store.mark_ingestion_rejected("ing-lease-1", "boom", claimed_by="worker-a",
+                                         attempts=1) is False
+    row = store.get_ingestion("ing-lease-1")
+    assert row["status"] == "processing" and row["claimed_by"] == "worker-b", \
+        "旧 attempt 不得覆盖新执行者的 processing 状态"
+
+    assert store.mark_ingestion_ready("ing-lease-1", 5, claimed_by="worker-b",
+                                      attempts=2) is True
+    assert store.get_ingestion("ing-lease-1")["status"] == "ready"
+
+
+def test_old_ingestion_retry_write_rejected():
+    store = FakeStore()
+    _claimed_ingestion(store)
+
+    assert store.mark_ingestion_retry(
+        "ing-lease-1", "provider down", claimed_by="worker-a", attempts=1,
+        backoff_seconds=30, max_attempts=3) == "missing"
+    row = store.get_ingestion("ing-lease-1")
+    assert row["status"] == "processing" and row["claimed_by"] == "worker-b"
+
+    assert store.mark_ingestion_retry(
+        "ing-lease-1", "provider down", claimed_by="worker-b", attempts=2,
+        backoff_seconds=30, max_attempts=3) == "pending"
+    assert store.get_ingestion("ing-lease-1")["status"] == "pending"
+
+
+def test_old_deletion_executor_cannot_overwrite_new_owner():
+    store = FakeStore()
+    store.request_account_deletion("req-lease", "u-del")
+    first = store.claim_deletion_outbox("worker-a", 60, limit=1)
+    assert len(first) == 1 and first[0]["attempts"] == 1
+    key = (first[0]["request_id"], first[0]["target"])
+    store.deletion_outbox[key]["lease_expires_at"] = (
+        datetime.now(UTC) - timedelta(seconds=1))
+    second = store.claim_deletion_outbox("worker-b", 60, limit=1)
+    assert len(second) == 1 and second[0]["attempts"] == 2
+
+    assert store.mark_deletion_done(first[0]["id"], claimed_by="worker-a",
+                                    attempts=1) is False
+    assert store.mark_deletion_retry(
+        first[0]["id"], "boom", claimed_by="worker-a", attempts=1,
+        backoff_seconds=30, max_attempts=5) == "missing"
+    outbox = store.deletion_outbox[key]
+    assert outbox["status"] == "in_progress" and outbox["claimed_by"] == "worker-b", \
+        "旧执行者不得把新执行者的 in_progress 改成 done/pending"
+    assert store.deletions["req-lease"]["status"] == "in_progress"
+
+    assert store.mark_deletion_done(second[0]["id"], claimed_by="worker-b",
+                                    attempts=2) is True
+    assert store.deletions["req-lease"]["status"] == "completed"
 
 
 if __name__ == "__main__":

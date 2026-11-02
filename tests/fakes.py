@@ -450,6 +450,15 @@ class FakeStore:
         row["worker_status"] = "alive"
         return True
 
+    def owns_lease(self, run_id, worker_id, attempt):
+        """审计 #335：与 RunStore 同语义 —— `worker_id + attempt` 仍持执行租约。"""
+        row = self.runs.get(run_id)
+        if row is None:
+            return False
+        return (row["status"] in ("RUNNING", "CANCEL_REQUESTED")
+                and row["worker_id"] == worker_id
+                and int(row.get("attempt") or 0) == int(attempt))
+
     def count_active(self, user_id=None):
         return sum(1 for row in self.runs.values()
                    if row["status"] in ACTIVE and (user_id is None or row["user_id"] == user_id))
@@ -1153,11 +1162,14 @@ class FakeStore:
                 parent["status"] = "in_progress"
         return claimed
 
-    def mark_deletion_done(self, outbox_id):
+    def mark_deletion_done(self, outbox_id, *, claimed_by, attempts):
+        """审计 #335（F05）：`claimed_by + attempts` 不符 ⇒ False 且不改状态。"""
         row = next((item for item in self.deletion_outbox.values()
                     if item["id"] == outbox_id), None)
         if row is None:
-            return
+            return False
+        if row["claimed_by"] != claimed_by or int(row["attempts"]) != int(attempts):
+            return False
         row["status"] = "done"
         row["lease_expires_at"] = None
         row["last_error"] = None
@@ -1170,13 +1182,18 @@ class FakeStore:
                 parent["completed_at"] = datetime.now(UTC)
             else:
                 parent["status"] = "in_progress"
+        return True
 
-    def mark_deletion_retry(self, outbox_id, error, *, backoff_seconds, max_attempts):
+    def mark_deletion_retry(self, outbox_id, error, *, claimed_by, attempts,
+                            backoff_seconds, max_attempts):
+        """审计 #335（F05）：租约不符 ⇒ "missing"（旧执行者不得覆盖新执行者状态）。"""
         row = next((item for item in self.deletion_outbox.values()
                     if item["id"] == outbox_id), None)
         if row is None:
             return "missing"
-        exhausted = row["attempts"] >= max_attempts
+        if row["claimed_by"] != claimed_by or int(row["attempts"]) != int(attempts):
+            return "missing"
+        exhausted = int(attempts) >= max_attempts
         row["status"] = "abandoned" if exhausted else "pending"
         row["lease_expires_at"] = None
         row["claimed_by"] = None
@@ -1267,28 +1284,42 @@ class FakeStore:
                    lease_expires_at=now + timedelta(seconds=lease_seconds))
         return row
 
-    def mark_ingestion_ready(self, ingestion_id, chunks, scan_status="skipped"):
+    def mark_ingestion_ready(self, ingestion_id, chunks, *, claimed_by, attempts,
+                             scan_status="skipped"):
+        """审计 #335（F05）：租约不符 ⇒ False 且不改状态。"""
         row = self.ingestions.get(ingestion_id)
         if row is None:
-            return
+            return False
+        if row["claimed_by"] != claimed_by or int(row["attempts"]) != int(attempts):
+            return False
         row.update(status="ready", chunks=chunks, scan_status=scan_status,
                    lease_expires_at=None, claimed_by=None, last_error=None,
                    processed_at=datetime.now(UTC))
+        return True
 
-    def mark_ingestion_rejected(self, ingestion_id, error, *, scan_status=None):
+    def mark_ingestion_rejected(self, ingestion_id, error, *, claimed_by, attempts,
+                                scan_status=None):
+        """审计 #335（F05）：租约不符 ⇒ False 且不改状态。"""
         row = self.ingestions.get(ingestion_id)
         if row is None:
-            return
+            return False
+        if row["claimed_by"] != claimed_by or int(row["attempts"]) != int(attempts):
+            return False
         row.update(status="rejected", last_error=error[:500], lease_expires_at=None,
                    claimed_by=None, processed_at=datetime.now(UTC))
         if scan_status is not None:
             row["scan_status"] = scan_status
+        return True
 
-    def mark_ingestion_retry(self, ingestion_id, error, *, backoff_seconds, max_attempts):
+    def mark_ingestion_retry(self, ingestion_id, error, *, claimed_by, attempts,
+                             backoff_seconds, max_attempts):
+        """审计 #335（F05）：租约不符 ⇒ "missing"（旧 execution 不得改新执行者状态）。"""
         row = self.ingestions.get(ingestion_id)
         if row is None:
             return "missing"
-        if row["attempts"] >= max_attempts:
+        if row["claimed_by"] != claimed_by or int(row["attempts"]) != int(attempts):
+            return "missing"
+        if int(attempts) >= max_attempts:
             row.update(status="rejected", last_error=error[:500], lease_expires_at=None,
                        claimed_by=None, processed_at=datetime.now(UTC))
             return "rejected"
