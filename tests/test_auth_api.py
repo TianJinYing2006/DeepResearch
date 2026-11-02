@@ -191,3 +191,18 @@ def test_login_unknown_user_still_runs_password_hash(client: TestClient, monkeyp
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "invalid_credentials"
     assert len(calls) == 1 and calls[0].startswith("$argon2")
+
+
+def test_store_failure_does_not_leak_exception_text(client: TestClient, monkeypatch):
+    """异常原文（可能含 DB 内部信息）不得进入响应体，只返回固定文案。"""
+    from web.backend import main as api_mod
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("password authentication failed for user dr_prod host=10.0.0.5")
+
+    monkeypatch.setattr(api_mod.store, "get_user_by_email", boom)
+    resp = client.post("/api/auth/login",
+                       json={"email": "a@example.com", "password": "whatever-123456"})
+    body = resp.text
+    assert resp.status_code >= 500 or resp.status_code == 503
+    assert "dr_prod" not in body and "10.0.0.5" not in body and "RuntimeError" not in body
