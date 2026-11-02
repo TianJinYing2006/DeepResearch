@@ -2532,6 +2532,9 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
         tmp_dir = tempfile.mkdtemp(prefix="dr-rag-")
         path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}{extension}")
 
+    #: #325：只有真正登记成功（202/200）后隔离区文件才交给 worker，不得删；
+    #: 写盘后的任何拒绝路径（400/413/500）都必须清掉，否则留下无 DB 记录的孤儿文件。
+    registered = False
     try:
         try:
             size, digest, head = await stream_to_temp(file, path, max_bytes)
@@ -2563,12 +2566,14 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
             if created is None:
                 existing = _store_call(store.find_ingestion_by_doc, user_id, doc_id)
                 os.remove(path)
+                registered = True  # 去重命中：本文件已删，别让 finally 重复处理
                 if existing is None:
                     raise http_error("persistence_unavailable", "摄取登记冲突，请重试")
                 return JSONResponse(status_code=202, content={
                     "ingestion_id": existing["ingestion_id"], "doc_id": doc_id,
                     "source": existing["source"], "status": existing["status"],
                 })
+            registered = True
             return JSONResponse(status_code=202, content={
                 "ingestion_id": ingestion_id, "doc_id": doc_id,
                 "source": filename, "status": "pending",
@@ -2597,6 +2602,8 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
     finally:
         if store is None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+        elif not registered and os.path.exists(path):
+            os.remove(path)  # #325：拒绝路径不留在隔离区（无 DB 记录 = 永久孤儿）
 
 
 @app.get("/api/rag/ingestions/{ingestion_id}")
