@@ -17,6 +17,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -350,6 +351,10 @@ LOGIN_ACCOUNT_LIMITER = make_limiter(
     redis_url=_LIMITER_REDIS_URL)
 SUBMIT_LIMITER = make_limiter(
     "submit", int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
+# #337：申诉入口此前无限流（feedback 有 SUBMIT_LIMITER）⇒ 可按用户刷申诉/占复核队列。
+APPEAL_LIMITER = make_limiter(
+    "appeal", int(_env_number("DR_APPEAL_RATE_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
 # 需求 36 H3：追问按用户限流（每次追问都是真实 LLM 调用）
 FOLLOWUP_LIMITER = make_limiter(
@@ -2403,6 +2408,10 @@ def moderation_appeal(req: AppealRequest, request: Request) -> dict:
         raise http_error("persistence_unavailable", "申诉需要任务库（DR_DATABASE_URL）")
     user_id = _require_user(request)
     _check_csrf(request)
+    # #337：申诉入口必须限流（每次申诉都进人工复核队列，无限流可按用户刷爆队列）
+    if not APPEAL_LIMITER.allow(f"appeal:{user_id or _client_key(request)}"):
+        _audit("appeal_rate_limited", request=request, actor_user_id=user_id)
+        raise http_error("rate_limited", "申诉提交过于频繁，稍后再试")
     if req.run_id:
         _authorize_run(request, req.run_id)
         row = _store_call(store.get_run, req.run_id)
@@ -3446,6 +3455,46 @@ def get_shared_report(token: str, request: Request) -> Response:
     )
 
 
+#: #337：每用户并发 SSE 连接上限（每条连接占一个默认 executor 线程，默认 2）。
+MAX_SSE_PER_USER = max(1, int(_env_number("DR_MAX_SSE_PER_USER", 2)))
+_sse_active: dict[str, int] = {}
+_sse_lock = threading.Lock()
+
+
+def _sse_slot_key(owner: Optional[str], request: Request) -> str:
+    """SSE 名额键：登录用户按 user_id；匿名按客户端标识（与限流器同口径）。"""
+    return f"sse-user:{owner}" if owner else f"sse-ip:{_client_key(request)}"
+
+
+def _acquire_stream_slot(key: str) -> bool:
+    """占一个每用户 SSE 名额；超限返回 False（调用方转 429 too_many_streams）。"""
+    with _sse_lock:
+        current = _sse_active.get(key, 0)
+        if current >= MAX_SSE_PER_USER:
+            return False
+        _sse_active[key] = current + 1
+        return True
+
+
+def _release_stream_slot(key: str) -> None:
+    """释放名额（幂等）：生成器 finally 调用，异常 / 客户端断连路径都会走到。"""
+    with _sse_lock:
+        current = _sse_active.get(key, 0)
+        if current <= 1:
+            _sse_active.pop(key, None)
+        else:
+            _sse_active[key] = current - 1
+
+
+async def _stream_with_slot(inner: AsyncIterator[str], key: str) -> AsyncIterator[str]:
+    """把 SSE 生成器的生命周期与每用户并发名额绑定（结束/异常/断连都释放）。"""
+    try:
+        async for frame in inner:
+            yield frame
+    finally:
+        _release_stream_slot(key)
+
+
 @app.get("/api/research/{run_id}/stream")
 async def stream(
     run_id: str,
@@ -3457,8 +3506,9 @@ async def stream(
 
     内存未命中但任务库有该 run（P2-C，进程重启后）⇒ 从任务库回放并实时尾随。
     P4-A：鉴权开启时只允许订阅自己的 run。
+    #337：每用户并发流受 `DR_MAX_SSE_PER_USER` 限制（默认 2），超限 429 `too_many_streams`。
     """
-    _authorize_run(request, run_id)
+    owner = _authorize_run(request, run_id)
     resume_after = last_event_id_header if last_event_id_header is not None else last_event_id
     if not manager.exists(run_id):
         if store is None:
@@ -3466,17 +3516,14 @@ async def stream(
         row = _store_call(store.get_run, run_id)
         if row is None:
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
-        return StreamingResponse(
-            _stored_event_gen(run_id, resume_after),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        generator: AsyncIterator[str] = _stored_event_gen(run_id, resume_after)
+    else:
+        generator = _event_gen(run_id, resume_after)
+    slot_key = _sse_slot_key(owner, request)
+    if not _acquire_stream_slot(slot_key):
+        raise http_error("too_many_streams", "并发事件流过多，请关闭其它页面后再试")
     return StreamingResponse(
-        _event_gen(run_id, resume_after),
+        _stream_with_slot(generator, slot_key),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
