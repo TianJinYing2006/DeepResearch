@@ -72,3 +72,13 @@ def test_production_rejects_plain_http(monkeypatch):
     monkeypatch.setattr(api, "_is_trusted_proxy", lambda host: True)
     trusted = client.get("/api/health/live", headers={"X-Forwarded-Proto": "https"})
     assert trusted.status_code == 200
+
+
+def test_dockerfile_api_defaults_to_non_local_env():
+    """回归：镜像须默认非 local，防裸 docker run 落入鉴权全关 + 0.0.0.0 的匿名全开态。"""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / "Dockerfile.api").read_text(encoding="utf-8")
+    envs = [line.split("=", 1)[1].strip()
+            for line in text.splitlines() if line.strip().startswith("ENV DR_ENV=")]
+    assert envs and envs[-1] in {"staging", "production"}
