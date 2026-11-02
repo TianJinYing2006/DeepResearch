@@ -177,3 +177,17 @@ def test_register_requires_consent_and_records_versions(client: TestClient, stor
     rows = store.list_user_consents(user_id)
     assert {row["doc_type"] for row in rows} == {"terms", "privacy"}
     assert all(len(row["version"]) == 12 for row in rows)
+
+
+def test_login_unknown_user_still_runs_password_hash(client: TestClient, monkeypatch):
+    """防计时枚举：用户不存在也要做一次 Argon2 校验（与密码错误耗时同量级）。"""
+    import web.backend.auth as auth_mod
+    calls: list[str] = []
+    real = auth_mod.verify_password
+    monkeypatch.setattr(auth_mod, "verify_password",
+                        lambda h, p: calls.append(h) or real(h, p))
+    resp = client.post("/api/auth/login",
+                       json={"email": "nobody@example.com", "password": "whatever-123456"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "invalid_credentials"
+    assert len(calls) == 1 and calls[0].startswith("$argon2")
