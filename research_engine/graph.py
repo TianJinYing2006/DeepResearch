@@ -822,6 +822,11 @@ class DeepResearchGraph:
           ``set_error()`` 写成 ``run_status="failed"``，直接污染 W8
           「故障可归因率 100%」这条 A 类验收。
 
+        📌 **消费契约（2026-11 审计 #340a D-17）**：调用方应迭代到 ``terminal=True``
+        的 step。提前 ``break``/``close()`` 时不会产出终局 step（GeneratorExit 中不允许
+        再 yield），但 :meth:`_iter_steps` 的 ``finally`` 会把 ``last_stop_reason`` 记为
+        ``STOP_CANCELLED`` 并落 ``tokens_diff`` —— 不把「消费方提前停止」伪装成正常完成。
+
         Args:
             should_cancel: 取消谓词，在**每个节点 yield 之后**调用
                 （契约 C3：当前节点允许自然结束）。返回 True 则不再启动下一节点（C2/C5）。
@@ -873,56 +878,67 @@ class DeepResearchGraph:
         last_interrupt: Dict[str, Any] | None = None
         clock = time.perf_counter()
         first_chunk = True
+        terminal_emitted = False
         try:
-            for chunk in self.graph.stream(stream_input, cfg, stream_mode="values"):
-                if isinstance(chunk, dict) and "__interrupt__" in chunk:
-                    # 需求 36：图在 interrupt 处挂起。该帧同时携带最新 state，但它
-                    # **不代表完成了新节点**（不得按普通快照计入 RunStep，否则同节点
-                    # 会重复计数）；挂起载荷见 `__interrupt__` 元组里的 Interrupt.value。
-                    interrupts = chunk.get("__interrupt__") or ()
-                    value = getattr(interrupts[0], "value", None) if interrupts else None
-                    last_interrupt = value if isinstance(value, dict) else {"content": value}
-                    stop = STOP_SUSPENDED
-                    break
-                if skip_leading and first_chunk:
-                    # 恢复路径：首帧为恢复点 checkpoint 状态（非新完成节点）——跳过防重复计数
+            try:
+                for chunk in self.graph.stream(stream_input, cfg, stream_mode="values"):
+                    if isinstance(chunk, dict) and "__interrupt__" in chunk:
+                        # 需求 36：图在 interrupt 处挂起。该帧同时携带最新 state，但它
+                        # **不代表完成了新节点**（不得按普通快照计入 RunStep，否则同节点
+                        # 会重复计数）；挂起载荷见 `__interrupt__` 元组里的 Interrupt.value。
+                        interrupts = chunk.get("__interrupt__") or ()
+                        value = getattr(interrupts[0], "value", None) if interrupts else None
+                        last_interrupt = value if isinstance(value, dict) else {"content": value}
+                        stop = STOP_SUSPENDED
+                        break
+                    if skip_leading and first_chunk:
+                        # 恢复路径：首帧为恢复点 checkpoint 状态（非新完成节点）——跳过防重复计数
+                        first_chunk = False
+                        continue
                     first_chunk = False
-                    continue
-                first_chunk = False
-                state = ResearchState(**chunk) if isinstance(chunk, dict) else chunk
-                # ⚠️ 实测（2026-09-20）：values 模式**首帧是初始 state**（progress 为空）
-                #    ⇒ node 为 None，无节点信息，跳过且不计数。
-                node = state.progress[-1].get("stage") if state.progress else None
-                if not node:
-                    clock = time.perf_counter()
-                    continue
-                # 降级增量：degradation_log 是 operator.add reducer ⇒ 切片即可，不必比内容
-                new_deg = tuple(state.degradation_log[seen_degradations:])
-                seen_degradations = len(state.degradation_log)
-                now = time.perf_counter()
-                duration_ms = int((now - clock) * 1000)
-                clock = now
-                yield RunStep(index=index, node=node, state=state,
-                              new_degradations=new_deg, duration_ms=duration_ms)
-                last_state = state
-                index += 1
-                # 检查点在 yield **之后** ⇒ 当前节点已自然结束（C3）；
-                # break ⇒ 不再启动下一节点（C2）、不再产生新 LLM 调用（C5）。
-                if should_cancel is not None and should_cancel():
-                    stop = STOP_CANCELLED
-                    break
-        except Exception as exc:  # noqa: BLE001 —— 与 run() 同口径：转结构化状态，不吞
-            self.last_exception = exc
-            last_state = self._recover_from_exception(exc, cfg, fallback_state)
-            stop = STOP_ERROR
+                    state = ResearchState(**chunk) if isinstance(chunk, dict) else chunk
+                    # ⚠️ 实测（2026-09-20）：values 模式**首帧是初始 state**（progress 为空）
+                    #    ⇒ node 为 None，无节点信息，跳过且不计数。
+                    node = state.progress[-1].get("stage") if state.progress else None
+                    if not node:
+                        clock = time.perf_counter()
+                        continue
+                    # 降级增量：degradation_log 是 operator.add reducer ⇒ 切片即可，不必比内容
+                    new_deg = tuple(state.degradation_log[seen_degradations:])
+                    seen_degradations = len(state.degradation_log)
+                    now = time.perf_counter()
+                    duration_ms = int((now - clock) * 1000)
+                    clock = now
+                    yield RunStep(index=index, node=node, state=state,
+                                  new_degradations=new_deg, duration_ms=duration_ms)
+                    last_state = state
+                    index += 1
+                    # 检查点在 yield **之后** ⇒ 当前节点已自然结束（C3）；
+                    # break ⇒ 不再启动下一节点（C2）、不再产生新 LLM 调用（C5）。
+                    if should_cancel is not None and should_cancel():
+                        stop = STOP_CANCELLED
+                        break
+            except Exception as exc:  # noqa: BLE001 —— 与 run() 同口径：转结构化状态，不吞
+                self.last_exception = exc
+                last_state = self._recover_from_exception(exc, cfg, fallback_state)
+                stop = STOP_ERROR
 
-        # 终局 step：正常结束 / 取消 / 异常 / 挂起 **四种都会产出且仅产出一个**
-        self.last_stop_reason = stop
-        yield RunStep(index=index, node=None, state=last_state,
-                      new_degradations=(), duration_ms=0,
-                      terminal=True, stop_reason=stop, interrupt=last_interrupt)
-        # Q3=D'：与 run() 同一对账口径（异常路径同样走到这里，兜底 state 保证 token_used 有默认值）
-        self.tokens_diff = (LLMClient.tokens_total - token_base) - last_state.token_used
+            # 终局 step：正常结束 / 取消 / 异常 / 挂起 **四种都会产出且仅产出一个**。
+            # Q3=D'：先对账再 yield —— 消费方收到终局 step 后常立即 break（生成器被 close，
+            # yield 之后的语句不会执行），对账放 yield 前保证值一定落库（D-17）。
+            self.last_stop_reason = stop
+            self.tokens_diff = (LLMClient.tokens_total - token_base) - last_state.token_used
+            terminal_emitted = True
+            yield RunStep(index=index, node=None, state=last_state,
+                          new_degradations=(), duration_ms=0,
+                          terminal=True, stop_reason=stop, interrupt=last_interrupt)
+        finally:
+            # 2026-11 审计 #340a（D-17）：消费方提前 break/close（GeneratorExit）时走不到
+            # 上面的终局 yield；GeneratorExit 中不允许再 yield，只能在 finally 落库，
+            # 避免 last_stop_reason / tokens_diff 停留在旧值。提前停止按协作式取消记录。
+            if not terminal_emitted:
+                self.last_stop_reason = STOP_CANCELLED
+                self.tokens_diff = (LLMClient.tokens_total - token_base) - last_state.token_used
 
 
 def create_graph(checkpointer: Any = None) -> DeepResearchGraph:

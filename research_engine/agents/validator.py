@@ -528,6 +528,13 @@ class Validator:
         **同一论断句**的引用组 —— 共享同一 ``claim_start`` / ``claim_end``
         区间，返工按句汇总支持关系，不会再拆出两个不同区间导致半句被删 /
         孤立引用残留。
+
+        ⚠️ 统计分母口径（2026-11 审计 #340a D-14，**仅澄清、不改行为**）：
+        ``filter_enabled`` 时被过滤的非论断句引用**不进入 citations**（因此也不进
+        校验/引用准确率分母），但它们的 ``[来源: N]`` 标记仍留在正文。下游
+        （UI / 评测 / 报表）统计引用覆盖或准确率时不能只用 ``len(citations)`` 当分母，
+        必须用 ``raw_citation_count`` / ``candidate_citation_count``（已随 stats 落库），
+        否则口径会系统性偏高。
         """
         # A Validator instance can be reused by the evaluator; stats must describe
         # this extraction/validation only, not leak counts from a prior report.
@@ -568,6 +575,9 @@ class Validator:
             i = j
         self.last_validation_stats.update({
             "filter_enabled": filter_enabled,
+            # D-14：raw = 报告里全部引用标记；candidate = 实际进入校验的；两者之差 =
+            # 被断言性过滤掉的（仍留在正文）。下游算比例时用 raw/candidate，不要只用
+            # len(citations) 当分母。
             "raw_citation_count": raw_citation_count,
             "candidate_citation_count": len(citations),
             "filtered_citation_count": filtered_citation_count,
@@ -580,13 +590,16 @@ class Validator:
     def _is_assertive(claim: str) -> bool:
         """W7 F3：判断 claim 是否为可校验的论断句（而非元话语/过渡句/表格残片）。
 
-        规则（纯启发式，零 LLM）：
-        - 长度 >= 8（过滤碎片）
+        规则（纯启发式，零 LLM，**与实现逐条一致**）：
         - 不含 markdown 表格列分隔 `|`
-        - 非纯标题/列表项（以 # 开头）
-        - 不是典型元话语开头（本节/本章/综上所述/如图/下面/接下来）
+        - 非纯标题/列表项（以 # 或 - 开头）
+        - 不是典型元话语开头（本节/本章/综上所述/如图/表 /下面/接下来）
         - 设计-2 修复：移除"因此/首先/其次/最后/总之/由此可见"等论断引导词过滤
           ——这些是有效论断的常见开头，不应被静默丢弃
+
+        2026-11 审计 #340a（D-15）：旧 docstring 声称存在「长度过滤（不少于 8 字符）」，
+        但实现**从来没有**长度判断（短 claim 也会进校验）；本次只改文档对齐实现，
+        不改过滤行为（改行为会变更评测口径，需单独评审）。
         """
         if "|" in claim:
             return False
