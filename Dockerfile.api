@@ -54,5 +54,9 @@ COPY docs/help/ ./docs/help/
 COPY --from=frontend /build/dist ./web/frontend/dist
 RUN useradd --create-home --uid 10001 app
 USER app
+# 镜像默认 staging：裸 `docker run`（未显式配置）也走启动硬校验（鉴权/Secure Cookie/CORS/密钥缺失即启动失败），
+# 避免落入 DR_ENV=local 的「鉴权与 CSRF 全关 + 监听 0.0.0.0」匿名全开态。
+# 本地调试需显式 `-e DR_ENV=local`（compose 默认同为 staging，见 docker-compose.staging.yml）。
+ENV DR_ENV=staging
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "web.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
