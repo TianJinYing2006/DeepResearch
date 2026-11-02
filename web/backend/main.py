@@ -80,7 +80,7 @@ from .auth import (
 )
 from .download_names import build_export_filename, content_disposition
 from .egress import build_egress_snapshot
-from .errors import ApiError, error_payload, http_error
+from .errors import ApiError, error_payload, http_error, safe_detail
 from .hitl import (
     ANSWER_EVENT_BY_KIND,
     KIND_BY_STATUS,
@@ -144,12 +144,6 @@ from .upload_guard import (
 from .usage import make_store_sink
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_detail(label: str, exc: BaseException) -> str:
-    """对客户端只给固定文案；异常类型与原文（可能含 DB/Qdrant 内部信息）仅写服务端日志。"""
-    logger.warning("%s: %s: %s", label, type(exc).__name__, exc, exc_info=exc)
-    return label
 
 
 app = FastAPI(title="爱考据 iKaoju", version="0.2.0")
@@ -771,7 +765,7 @@ def _store_call(fn, *args, **kwargs):
     except Exception as exc:  # noqa: BLE001
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("任务库不可用", exc),
+            safe_detail("任务库不可用", exc),
         ) from exc
 
 
@@ -1266,7 +1260,7 @@ def _start_queued(*, topic: str, instructions: str, idempotency_key: Optional[st
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             "persistence_unavailable",
-            _safe_detail("任务创建失败", exc),
+            safe_detail("任务创建失败", exc),
         ) from exc
     if not created:
         return row["run_id"]
@@ -1326,7 +1320,7 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
             raise http_error("email_taken", "该邮箱已注册") from exc
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("注册失败", exc),
+            safe_detail("注册失败", exc),
         ) from exc
     _store_call(store.touch_last_login, user["user_id"])
     _set_session_cookies(response, user["user_id"], request)
@@ -1756,7 +1750,7 @@ def webauthn_register_complete(req: WebAuthnRegisterCompleteRequest,
             raise http_error("passkey_exists", "该 Passkey 已绑定") from exc
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("保存 Passkey 失败", exc),
+            safe_detail("保存 Passkey 失败", exc),
         ) from exc
     _audit("passkey_registered", request=request, actor_user_id=user["user_id"],
            detail={"credential_id": passkeys.credential_id_b64(bytes(verified.credential_id))})
@@ -2095,7 +2089,7 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     except Exception as exc:  # noqa: BLE001 —— 注销登记是硬前提，失败即明确报错
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("注销登记失败", exc),
+            safe_detail("注销登记失败", exc),
         ) from exc
     _audit("account_deletion_requested", request=request, actor_user_id=user_id,
            target_type="deletion_request", target_id=request_id)
@@ -2663,7 +2657,7 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
                 os.remove(path)
                 raise http_error(
                     "persistence_unavailable",
-                    _safe_detail("摄取登记失败", exc),
+                    safe_detail("摄取登记失败", exc),
                 ) from exc
             if created is None:
                 existing = _store_call(store.find_ingestion_by_doc, user_id, doc_id)
@@ -2692,7 +2686,7 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
         except Exception as exc:  # noqa: BLE001
             raise http_error(
                 "rag_ingest_failed",
-                _safe_detail("文档摄取失败", exc),
+                safe_detail("文档摄取失败", exc),
             ) from exc
         if not chunks:
             raise http_error("rag_ingest_failed", "文档未解析出任何内容")
@@ -2759,7 +2753,7 @@ def rag_delete_doc(request: Request, doc_id: str = Query(..., max_length=128)) -
     except Exception as exc:  # noqa: BLE001 —— 删除失败如实报错，用户可重试
         raise http_error(
             "rag_unavailable",
-            _safe_detail("文档删除失败", exc),
+            safe_detail("文档删除失败", exc),
         ) from exc
 
     names = _store_call(store.delete_ingestion_by_doc, user_id, doc_id)
@@ -3083,7 +3077,7 @@ def follow_up(run_id: str, req: FollowupRequest, request: Request) -> dict:
             followup_mod.build_system(), f"{context}\n\n【追问】{question}")
     except Exception as exc:  # noqa: BLE001 —— 追问失败不影响原 run 终态/报告
         raise http_error(
-            "followup_unavailable", _safe_detail("追问调用失败", exc)) from exc
+            "followup_unavailable", safe_detail("追问调用失败", exc)) from exc
     finally:
         pop_usage_sink(usage_token)
     result = followup_mod.validate_response(data, pool)
@@ -3317,7 +3311,7 @@ def create_export_job(run_id: str, req: ExportJobRequest, request: Request) -> d
                         "reused": True}
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("导出作业创建失败", exc)) from exc
+            safe_detail("导出作业创建失败", exc)) from exc
     _push_export_wake()
     _audit("export_job_created", request=request, actor_user_id=owner or None,
            target_type="run", target_id=run_id,
