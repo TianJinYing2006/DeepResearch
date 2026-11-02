@@ -24,6 +24,8 @@ type Props = {
   shareEnabled?: boolean
   /** 需求 20 P1-2：当前域名可用时展示 Passkey 登录 / 管理入口。 */
   passkeyEnabled?: boolean
+  /** 审计 #328：登出/注销成功后的回调 —— 由 App 清空**运行域**（报告/在途流/会话存储键）。 */
+  onSignedOut?: () => void
 }
 
 /**
@@ -34,6 +36,7 @@ type Props = {
  */
 export default function AccountPanel({
   authRequired, activeRunId, running, shareEnabled = false, passkeyEnabled = false,
+  onSignedOut,
 }: Props) {
   // 验收点③ 切片 S1（会话域 state）：会话探测与未登录访客分流已抽到
   // `features/account/useSessionEntry.ts`。解构沿用原名（含 setter 与 `loadSession`），
@@ -146,6 +149,9 @@ export default function AccountPanel({
     }
     setUser(null)
     resetLocalData()
+    // 审计 #328：运行域状态在 App（useResearchStream / topic / 三个 sessionStorage 键），
+    // 必须在**登出成功之后**由 App 统一清空，否则换账号会看到上一账号的报告与在途帧。
+    onSignedOut?.()
   }
 
   // 验收点③ 切片 S7：法律文本域已抽到 `features/account/LegalModal.tsx`。
@@ -168,6 +174,7 @@ export default function AccountPanel({
       const body = (await response.json()) as { rag_cleanup: string }
       setUser(null)
       resetLocalData()
+      onSignedOut?.()
       setAuthNotice(`账号已注销（知识库清理：${body.rag_cleanup}）`)
     } catch {
       setBarMessage('网络错误，请重试')
@@ -511,7 +518,12 @@ export default function AccountPanel({
 
       {securityOpen && user && (
         <SecurityPanel passkeyEnabled={passkeyEnabled}
-                       onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
+                       onSignedOut={() => {
+                         setUser(null)
+                         resetLocalData()
+                         onSignedOut?.()
+                         setAuthNotice('当前设备已退出登录')
+                       }} />
       )}
 
       {legalModal}
