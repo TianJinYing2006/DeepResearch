@@ -4,8 +4,9 @@
 本模块作为**未来 URL 抓取能力的唯一入口**预置，并固定安全契约：
 
 1. scheme 仅 http/https；可选 host allowlist；
-2. DNS 解析后校验**每一个**地址（拒绝私网 / 环回 / link-local / 保留 / 组播 / 未指定，
-   覆盖 169.254.169.254 等云元数据端点）；解析失败即拒绝；
+2. DNS 解析后校验**每一个**地址（拒绝私网 / 环回 / link-local / 保留 / 组播 / 未指定 /
+   **非全局单播**（含 CGNAT 100.64/10）与 IPv4-mapped 变体，覆盖 169.254.169.254 等云
+   元数据端点）；解析失败即拒绝；
 3. **不跟随重定向**（3xx 一律拒绝，避免「合法 URL 跳内网」）；
 4. 连接 **pin 到已校验 IP**（TLS 仍用原 host 做 SNI 与证书校验），关闭 DNS rebinding 窗口；
 5. 连接/读取超时 + 响应体大小上限。
@@ -43,15 +44,35 @@ class FetchResult:
         return self.body.decode("utf-8", errors="replace")
 
 
-def _is_public_ip(ip: str) -> bool:
+def is_public_ip(ip: str) -> bool:
+    """单个 IP 是否公网可直连（SSRF 判定唯一实现；safe_fetch 与 MCP consumer 共用）。
+
+    2026-11 审计 #331 修复：
+    - **IPv4-mapped IPv6**（``::ffff:a.b.c.d``）先取内嵌 IPv4 再判 —— 旧实现按
+      ``::ffff:0:0/96`` 整段判 private，公网映射地址被误杀、内网映射地址的命运
+      取决于该段语义；
+    - **主判据 ``is_global``** —— 覆盖 ``100.64.0.0/10``（RFC6598 CGNAT，Tailscale /
+      AWS CNI 常用段）等「非全局单播」；旧实现对这批地址返回 True（可被当公网 SSRF 目标）；
+    - 仍显式拒绝私网/环回/link-local/保留/组播/未指定 —— ``is_global`` 对组播等个别段
+      不保守（实测 224.0.0.1 ``is_global=True``），保留双保险。
+    """
     try:
         address = ipaddress.ip_address(ip)
     except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
+    if not address.is_global:
         return False
     return not (
         address.is_private or address.is_loopback or address.is_link_local
         or address.is_reserved or address.is_multicast or address.is_unspecified
     )
+
+
+#: 向后兼容别名（旧名是模块私有名，外部 import 不断裂；新代码用 is_public_ip）
+_is_public_ip = is_public_ip
 
 
 def resolve_public_ips(host: str) -> list[str]:
@@ -64,7 +85,7 @@ def resolve_public_ips(host: str) -> list[str]:
     if not addresses:
         raise UnsafeUrlError(f"no addresses for host: {host}")
     for address in addresses:
-        if not _is_public_ip(address):
+        if not is_public_ip(address):
             raise UnsafeUrlError(f"host resolves to non-public address: {host}")
     return addresses
 
