@@ -1,0 +1,4 @@
+# 需求 26 / #337：分享链接 /s/<token> 是 bearer capability（拿到链接即可只读查看），
+# 不得被搜索引擎抓取或收录；API 侧 `/api/share/{token}` 另有 X-Robots-Tag 响应头。
+User-agent: *
+Disallow: /s/

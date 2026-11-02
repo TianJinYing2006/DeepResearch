@@ -141,3 +141,23 @@ def test_runs_list_and_manage_endpoints_expose_share_state(client: TestClient):
     after = next(item for item in client.get("/api/runs").json()["runs"]
                  if item["run_id"] == "run-share-1")
     assert after["shared"] is False
+
+
+def test_share_shell_page_sets_noindex(monkeypatch, tmp_path):
+    """#337：SPA 壳页（/s/<token>）必须带 X-Robots-Tag —— 爬虫只取 HTML，看不到 JSON 响应头。"""
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><html><body><div id=\"root\"></div></body></html>", encoding="utf-8")
+    monkeypatch.setattr(api, "FRONTEND_DIST", tmp_path)
+    response = TestClient(api.app).get("/s/some-share-token-123")
+    assert response.status_code == 200
+    assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+
+
+def test_robots_txt_disallows_share_paths():
+    """#337：前端 `public/robots.txt` 必须禁爬 `/s/`（Vite 会把 public/ 原样复制到 dist）。"""
+    from pathlib import Path
+
+    robots = Path(api.__file__).resolve().parents[1] / "frontend" / "public" / "robots.txt"
+    text = robots.read_text(encoding="utf-8")
+    assert "User-agent: *" in text
+    assert "Disallow: /s/" in text

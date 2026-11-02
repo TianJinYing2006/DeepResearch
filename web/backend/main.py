@@ -681,14 +681,26 @@ def health_live() -> dict:
 
 
 @app.get("/api/health/ready")
-def health_ready(response: Response) -> dict:
+def health_ready(request: Request, response: Response) -> dict:
     """readiness：只对**已配置**的依赖做探针。
 
     - PostgreSQL：配置了任务库（P2-C）时用真实 `SELECT 1` 探针，否则退化为 TCP 连接；
     - Redis：TCP 探针（P3 接队列后升级为 `PING`）；
     - `not_configured` 不判失败 —— 过渡期（还没接库）不会把本地与 CI 全判红；
       一旦设置但探不通即 503，由编排层摘流量。
+
+    #337：该端点**未认证**（LB 探针要能打）⇒ `target` 只对持有合法 `X-Ops-Token`
+    的调用方回内网 host:port / endpoint / 异常类型；匿名调用方只看到
+    `configured` / `unreachable`。`status` 字段语义不变（探针只认它）。
     """
+    verbose = _ops_authorized(request)
+    failed_statuses = {"unreachable", "invalid_url", "unavailable"}
+
+    def target(status: str, detail: str) -> str:
+        if verbose:
+            return detail
+        return "unreachable" if status in failed_statuses else "configured"
+
     checks = {}
     for name, env_key, default_port in (
         ("postgres", "DR_DATABASE_URL", 5432),
@@ -697,33 +709,34 @@ def health_ready(response: Response) -> dict:
         if name == "postgres" and store is not None:
             try:
                 store.ping()
-                checks[name] = {"status": "ok", "target": "dr_database_url"}
+                checks[name] = {"status": "ok", "target": target("ok", "dr_database_url")}
             except Exception as exc:  # noqa: BLE001
                 checks[name] = {
                     "status": "unreachable",
-                    "target": f"ping failed: {type(exc).__name__}",
+                    "target": target("unreachable", f"ping failed: {type(exc).__name__}"),
                 }
             continue
         raw = os.getenv(env_key, "").strip()
         if not raw:
             checks[name] = {"status": "not_configured"}
             continue
-        target = _probe_target(raw, default_port)
-        if target is None:
+        probe = _probe_target(raw, default_port)
+        if probe is None:
             checks[name] = {"status": "invalid_url"}
             continue
-        host, port = target
-        checks[name] = {
-            "status": "ok" if _tcp_reachable(host, port) else "unreachable",
-            "target": f"{host}:{port}",
-        }
+        host, port = probe
+        status = "ok" if _tcp_reachable(host, port) else "unreachable"
+        checks[name] = {"status": status, "target": target(status, f"{host}:{port}")}
     if EXECUTION_MODE == "queue" and store is not None:
         # P1-3：队列模式下「有活跃 worker」是 readiness 的硬条件
         try:
             live = int(store.count_live_workers(
                 within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS))
         except Exception as exc:  # noqa: BLE001
-            checks["worker"] = {"status": "unreachable", "target": f"{type(exc).__name__}"}
+            checks["worker"] = {
+                "status": "unreachable",
+                "target": target("unreachable", f"{type(exc).__name__}"),
+            }
         else:
             checks["worker"] = {
                 "status": "ok" if live else "unavailable",
@@ -736,12 +749,17 @@ def health_ready(response: Response) -> dict:
         try:
             object_store.ping()
         except Exception as exc:  # noqa: BLE001
-            checks["object_storage"] = {"status": "unreachable",
-                                        "target": f"{type(exc).__name__}"}
+            checks["object_storage"] = {
+                "status": "unreachable",
+                "target": target("unreachable", f"{type(exc).__name__}"),
+            }
         else:
-            checks["object_storage"] = {"status": "ok", "target": object_store.endpoint}
+            checks["object_storage"] = {
+                "status": "ok",
+                "target": target("ok", object_store.endpoint),
+            }
     failed = [item for item in checks.values()
-              if item["status"] in {"unreachable", "invalid_url", "unavailable"}]
+              if item["status"] in failed_statuses]
     if failed:
         response.status_code = 503
     return {"ok": not failed, "status": "ready" if not failed else "not_ready", "checks": checks}
@@ -884,6 +902,19 @@ def _require_ops(request: Request) -> None:
         raise http_error("unauthenticated", "运维接口需要有效的 X-Ops-Token")
     if ENV in ("staging", "production"):
         raise http_error("unauthenticated", "运维接口未配置 DR_OPS_TOKEN（fail-closed）")
+
+
+def _ops_authorized(request: Optional[Request]) -> bool:
+    """调用方是否持有合法 ops token（**软判定**，不抛异常）。
+
+    #337：用于「同一端点按身份决定披露粒度」——例如未认证的 readiness 调用只回
+    `configured` / `unreachable`，不得回内网 host:port / endpoint / 异常类型。
+    未配置 `DR_OPS_TOKEN` 时无人可被认证（本地开发也不披露内部端点）。
+    """
+    if not OPS_TOKEN or request is None:
+        return False
+    provided = request.headers.get("x-ops-token", "")
+    return bool(provided) and hmac.compare_digest(provided, OPS_TOKEN)
 
 
 def _check_csrf(request: Request) -> None:
@@ -3602,11 +3633,17 @@ FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 @app.get("/s/{token}")
 def share_page_shell(token: str) -> Response:
-    """SPA 分享页壳（需求 26）：只回 index.html；数据走 /api/share/{token}（统一 404）。"""
+    """SPA 分享页壳（需求 26）：只回 index.html；数据走 /api/share/{token}（统一 404）。
+
+    #337：壳页也必须带 noindex —— 爬虫只取 HTML，看不到 `/api/share` 的响应头；
+    否则分享 URL（bearer capability）可能被搜索引擎收录。robots.txt 另有 `/s/` 禁令。
+    """
     index = FRONTEND_DIST / "index.html"
     if not index.is_file():
         raise http_error("share_not_found", "链接无效或已过期")
-    return FileResponse(index)
+    return FileResponse(index, headers={
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+    })
 
 
 # 需求 37 M2：对外 MCP Server（默认关；开启时挂载 /mcp 并把会话管理器接入 lifespan）
