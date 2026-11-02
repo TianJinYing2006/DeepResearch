@@ -67,6 +67,7 @@ const FEATURES = [
 export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
+  const headingRef = useRef<HTMLHeadingElement | null>(null)
   const stepRefs = useRef<Array<HTMLLIElement | null>>([])
   const [activeStep, setActiveStep] = useState(0)
   const reduced = usePrefersReducedMotion()
@@ -74,6 +75,23 @@ export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props)
 
   useRevealAll(contentRef, scrollerRef)
   const { y, progress } = useScrollState(scrollerRef)
+
+  // 审计 #336：本页是 `#root` 之外的 fixed portal，背景工作台仍挂载且可聚焦 ——
+  // 不隔离时键盘 Tab 会先进入被遮住的控件（可能提交注定 401 的操作），读屏也会读出工作台。
+  // 因此进入时把 `#root` 设为 inert + aria-hidden，并把焦点移到本页标题；卸载时恢复。
+  useEffect(() => {
+    const root = document.getElementById('root')
+    if (!root) return
+    const previousAriaHidden = root.getAttribute('aria-hidden')
+    root.inert = true
+    root.setAttribute('aria-hidden', 'true')
+    headingRef.current?.focus()
+    return () => {
+      root.inert = false
+      if (previousAriaHidden === null) root.removeAttribute('aria-hidden')
+      else root.setAttribute('aria-hidden', previousAriaHidden)
+    }
+  }, [])
 
   // 工作流：滚动经过的步骤逐级激活（IO 中带窗口，跨过中线即激活）
   useEffect(() => {
@@ -132,7 +150,8 @@ export default function LandingPage({ onStart, onOpenLegal, onOpenHelp }: Props)
           <ArchiveWall />
           <div className="relative mx-auto flex max-w-3xl flex-col items-center px-5 pb-24 pt-20 text-center sm:pb-32 sm:pt-28"
                style={heroStyle}>
-            <h1 aria-label="把复杂问题变成可追溯的研究结论"
+            <h1 id="landing-title" ref={headingRef} tabIndex={-1}
+                aria-label="把复杂问题变成可追溯的研究结论"
                 className="archive-serif min-h-[2.75em] max-w-4xl text-center text-[30px] font-semibold leading-[1.32] text-ink sm:min-h-[1.32em] sm:text-[38px] sm:leading-[1.28] lg:text-[46px]">
               <span aria-hidden="true">{typedTitle}</span>
               <span aria-hidden="true"

@@ -176,6 +176,7 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
             <input
               className="w-36 rounded border border-rule bg-rule/40 px-2 py-1 text-[11px] text-ink placeholder:text-ink-muted/70"
               data-testid="history-search"
+              aria-label="搜索历史主题"
               placeholder="搜索主题…"
               value={historyQuery}
               onChange={(event) => setHistoryQuery(event.target.value)}

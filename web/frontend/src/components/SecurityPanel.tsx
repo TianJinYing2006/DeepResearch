@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
 import { deletePasskey, fetchPasskeys, registerPasskey, type PasskeyItem } from '../lib/webauthn'
+import PasswordConfirmModal from './PasswordConfirmModal'
 
 /** 会话条目（后端 `/api/auth/sessions` 形状；需求 20 P0-3）。 */
 export type SessionItem = {
@@ -64,6 +65,33 @@ export default function SecurityPanel({ onSignedOut, passkeyEnabled = false }: P
   const [passkeys, setPasskeys] = useState<PasskeyItem[] | null>(null)
   const [passkeyError, setPasskeyError] = useState('')
   const [passkeyNotice, setPasskeyNotice] = useState('')
+  // 审计 #336：敏感操作统一走密码确认弹窗（替代 `window.prompt` 明文输入）。
+  // run 返回 null = 成功（关闭弹窗）；返回字符串 = 错误文案（就地展示、弹窗保留）。
+  type PasswordAction = {
+    title: string
+    description: string
+    confirmLabel: string
+    run: (password: string) => Promise<string | null>
+  }
+  const [passwordAction, setPasswordAction] = useState<PasswordAction | null>(null)
+  const [passwordBusy, setPasswordBusy] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+
+  async function submitPassword(password: string): Promise<void> {
+    if (!passwordAction) return
+    setPasswordBusy(true)
+    setPasswordError('')
+    try {
+      const message = await passwordAction.run(password)
+      if (message) {
+        setPasswordError(message)
+        return
+      }
+      setPasswordAction(null)
+    } finally {
+      setPasswordBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -102,97 +130,116 @@ export default function SecurityPanel({ onSignedOut, passkeyEnabled = false }: P
     void loadPasskeys()
   }, [loadPasskeys])
 
-  async function addPasskey() {
-    const password = window.prompt('添加 Passkey 需要输入当前密码确认：')
-    if (!password) return
-    const name = window.prompt('为此设备命名（可选）：') ?? ''
-    setBusy(true)
-    setPasskeyNotice('')
-    try {
-      await registerPasskey(name.trim(), password)
-      setPasskeyNotice('Passkey 已添加，下次可直接免密登录')
-      await loadPasskeys()
-    } catch (err) {
-      setPasskeyError(err instanceof Error ? err.message : 'Passkey 添加失败')
-    } finally {
-      setBusy(false)
-    }
+  function addPasskey() {
+    setPasswordError('')
+    setPasswordAction({
+      title: '添加 Passkey',
+      description: '添加通行密钥前需要输入当前密码确认；确认后可为此设备命名。',
+      confirmLabel: '继续',
+      run: async (password) => {
+        const name = window.prompt('为此设备命名（可选）：') ?? ''
+        setPasskeyNotice('')
+        try {
+          await registerPasskey(name.trim(), password)
+          setPasskeyNotice('Passkey 已添加，下次可直接免密登录')
+          await loadPasskeys()
+          return null
+        } catch (err) {
+          return err instanceof Error ? err.message : 'Passkey 添加失败'
+        }
+      },
+    })
   }
 
-  async function removePasskey(item: PasskeyItem) {
-    const password = window.prompt('删除 Passkey 需要输入当前密码确认：')
-    if (!password) return
-    setBusy(true)
-    setPasskeyNotice('')
-    try {
-      const remaining = await deletePasskey(item.credential_id, password)
-      setPasskeyNotice(remaining === 0
-        ? '已删除最后一把 Passkey；仍可使用密码登录'
-        : 'Passkey 已删除')
-      await loadPasskeys()
-    } catch (err) {
-      setPasskeyError(err instanceof Error ? err.message : 'Passkey 删除失败')
-    } finally {
-      setBusy(false)
-    }
+  function removePasskey(item: PasskeyItem) {
+    setPasswordError('')
+    setPasswordAction({
+      title: '删除 Passkey',
+      description: `删除「${item.name}」前需要输入当前密码确认。`,
+      confirmLabel: '删除',
+      run: async (password) => {
+        setPasskeyNotice('')
+        try {
+          const remaining = await deletePasskey(item.credential_id, password)
+          setPasskeyNotice(remaining === 0
+            ? '已删除最后一把 Passkey；仍可使用密码登录'
+            : 'Passkey 已删除')
+          await loadPasskeys()
+          return null
+        } catch (err) {
+          return err instanceof Error ? err.message : 'Passkey 删除失败'
+        }
+      },
+    })
   }
 
-  async function revoke(session: SessionItem) {
-    let password = ''
-    if (session.current) {
-      if (!window.confirm('退出当前设备？将立即退出登录。')) return
-    } else {
-      password = window.prompt('退出该设备需要输入当前密码确认：') ?? ''
-      if (!password) return
-    }
-    setBusy(true)
-    setNotice('')
+  /** 撤销单个会话：返回 null = 成功；返回字符串 = 错误文案。 */
+  async function revokeSession(session: SessionItem, password: string): Promise<string | null> {
     try {
       const response = await fetch(`/api/auth/sessions/${encodeURIComponent(session.session_id)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
         body: JSON.stringify(password ? { password } : {}),
       })
-      if (!response.ok) {
-        setNotice(await readErrorMessage(response))
-        return
-      }
+      if (!response.ok) return await readErrorMessage(response)
       if (session.current) {
         onSignedOut()
-        return
+        return null
       }
       setNotice('该设备已退出')
       await load()
+      return null
     } catch {
-      setNotice('网络错误，请重试')
-    } finally {
-      setBusy(false)
+      return '网络错误，请重试'
     }
   }
 
-  async function revokeOthers() {
-    const password = window.prompt('退出其他所有设备需要输入当前密码确认：')
-    if (!password) return
-    setBusy(true)
-    setNotice('')
-    try {
-      const response = await fetch('/api/auth/sessions', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-        body: JSON.stringify({ password }),
-      })
-      if (!response.ok) {
-        setNotice(await readErrorMessage(response))
-        return
+  async function revoke(session: SessionItem) {
+    if (session.current) {
+      if (!window.confirm('退出当前设备？将立即退出登录。')) return
+      setBusy(true)
+      setNotice('')
+      try {
+        const message = await revokeSession(session, '')
+        if (message) setNotice(message)
+      } finally {
+        setBusy(false)
       }
-      const body = (await response.json()) as { revoked: number }
-      setNotice(`已退出其他设备（${body.revoked} 个）`)
-      await load()
-    } catch {
-      setNotice('网络错误，请重试')
-    } finally {
-      setBusy(false)
+      return
     }
+    setPasswordError('')
+    setPasswordAction({
+      title: '退出该设备',
+      description: '退出其他设备需要输入当前密码确认。',
+      confirmLabel: '退出',
+      run: (password) => revokeSession(session, password),
+    })
+  }
+
+  function revokeOthers() {
+    setPasswordError('')
+    setPasswordAction({
+      title: '退出其他所有设备',
+      description: '该操作会立即终止其他所有设备的会话，需要输入当前密码确认。',
+      confirmLabel: '退出其他设备',
+      run: async (password) => {
+        setNotice('')
+        try {
+          const response = await fetch('/api/auth/sessions', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+            body: JSON.stringify({ password }),
+          })
+          if (!response.ok) return await readErrorMessage(response)
+          const body = (await response.json()) as { revoked: number }
+          setNotice(`已退出其他设备（${body.revoked} 个）`)
+          await load()
+          return null
+        } catch {
+          return '网络错误，请重试'
+        }
+      },
+    })
   }
 
   return (
@@ -305,6 +352,20 @@ export default function SecurityPanel({ onSignedOut, passkeyEnabled = false }: P
       </div>
       {notice && (
         <p role="status" aria-live="polite" className="mt-2 text-ink-muted" data-testid="security-notice">{notice}</p>
+      )}
+
+      {passwordAction && (
+        <PasswordConfirmModal
+          title={passwordAction.title}
+          description={passwordAction.description}
+          confirmLabel={passwordAction.confirmLabel}
+          busy={passwordBusy}
+          error={passwordError}
+          onConfirm={(password) => void submitPassword(password)}
+          onClose={() => {
+            if (!passwordBusy) setPasswordAction(null)
+          }}
+        />
       )}
     </div>
   )
