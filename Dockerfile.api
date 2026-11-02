@@ -53,6 +53,9 @@ COPY docs/legal/ ./docs/legal/
 COPY docs/help/ ./docs/help/
 COPY --from=frontend /build/dist ./web/frontend/dist
 RUN useradd --create-home --uid 10001 app
+# P0-8b：隔离区挂载点预创建并授权 —— named volume 首次初始化会继承镜像目录属主，
+# 否则卷为 root:root 时非 root 进程无法写入（表现为上传 500 / 摄取不登记）
+RUN mkdir -p /var/lib/deepresearch/rag-quarantine && chown -R app:app /var/lib/deepresearch
 USER app
 # 镜像默认 staging：裸 `docker run`（未显式配置）也走启动硬校验（鉴权/Secure Cookie/CORS/密钥缺失即启动失败），
 # 避免落入 DR_ENV=local 的「鉴权与 CSRF 全关 + 监听 0.0.0.0」匿名全开态。
