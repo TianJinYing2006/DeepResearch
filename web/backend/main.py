@@ -114,7 +114,12 @@ from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profil
 from .queue import RunQueue
 from .ratelimit import make_limiter
 from .runner import RunManager, _estimate_cost_cny
-from .security_headers import SecurityHeadersMiddleware
+from .security_headers import (
+    SecurityHeadersMiddleware,
+    StaticCacheMiddleware,
+    dsn_origin,
+    merge_connect_src,
+)
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 from .totp import (
     encode_secret as totp_encode_secret,
@@ -305,8 +310,16 @@ ENV = _parse_env()
 app.add_middleware(
     SecurityHeadersMiddleware,
     env=ENV,
-    connect_src_extra=(os.getenv("DR_CSP_CONNECT_SRC") or "").strip(),
+    # 审计 M-18：DR_CSP_CONNECT_SRC 显式配置 + 前端 Sentry DSN 自动推导 origin
+    # （否则「开了前端错误上报但忘配 CSP」会被浏览器静默拦截，且无任何告警）。
+    connect_src_extra=merge_connect_src(
+        os.getenv("DR_CSP_CONNECT_SRC") or "",
+        dsn_origin(os.getenv("DR_SENTRY_DSN_FRONTEND") or ""),
+    ),
 )
+# 审计 F9：静态资源缓存策略（/assets/* 长缓存、index.html 与 /s/ 壳 no-cache），
+# 避免发版后浏览器沿用旧 index 引用已删除的旧哈希资源导致白屏。
+app.add_middleware(StaticCacheMiddleware)
 
 
 def _validate_runtime_config() -> None:
