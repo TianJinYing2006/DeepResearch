@@ -2599,6 +2599,10 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+#: #324：摄取失败对用户只回固定文案；`last_error` 里的异常类别/原文只留在服务端（日志 + DB）。
+_RAG_FAILED_DETAIL = "文档处理失败"
+
+
 @app.get("/api/rag/ingestions/{ingestion_id}")
 def rag_ingestion_status(ingestion_id: str, request: Request) -> dict:
     """摄取状态（P0-8b）：前端轮询 pending → processing → ready | rejected。"""
@@ -2618,7 +2622,7 @@ def rag_ingestion_status(ingestion_id: str, request: Request) -> dict:
         "attempts": row["attempts"],
         "scan_status": row["scan_status"],
         "active_generation": row.get("active_generation"),
-        "error": row.get("last_error"),
+        "error": _RAG_FAILED_DETAIL if row.get("last_error") else None,
         "created_at": _iso(row.get("created_at")),
         "processed_at": _iso(row.get("processed_at")),
     }
@@ -2714,7 +2718,7 @@ def rag_docs(request: Request) -> dict:
             "chunks": row.get("chunks") or 0,
             "size_bytes": row.get("size_bytes"),
             "created_at": _iso(row.get("created_at")),
-            "error": row.get("last_error"),
+            "error": _RAG_FAILED_DETAIL if row.get("last_error") else None,
             "active_generation": row.get("active_generation"),
         }
         for row in rows
