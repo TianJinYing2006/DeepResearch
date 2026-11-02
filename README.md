@@ -252,8 +252,8 @@ Web UI 支持：提交研究主题与**运行档位**（quick / standard / deep�
 强制收口与终局写入已在同一把锁下原子完成（ADR-0008）：收口一旦发生，后台线程迟到的报告 / 状态 / 事件帧
 会被**完全丢弃**，不会出现「收口后又出报告」「RUN_FINISHED 与 RUN_ERROR 双终局」。
 
-**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，当前 **88 个用例 / 20 个 spec**
-（desktop + mobile 双 project，2026-10-27 `npx playwright test --list`）。覆盖主流程 / **刷新恢复** / **完成后续看** /
+**浏览器 E2E（已接 CI）**：用 `DR_DEMO=1` 的假图跑真实 SSE 管线，当前 **89 个用例 / 21 个 spec**
+（desktop + mobile 双 project，2026-11-03 `npx playwright test --list`）。覆盖主流程 / **刷新恢复** / **完成后续看** /
 降级可见 / 导出 / 取消语义 / 结构化错误 + 重试 + **详情折叠** / 窄屏无横向滚动。
 
 ```bash
@@ -344,8 +344,8 @@ DeepResearch/
 │   ├── migrate.sh / backup.sh / restore.sh
 │   └── loadtest/                 # Locust 压测脚本
 ├── migrations/                   # 27 个前向迁移（NNNN_slug.sql + schema_migrations）
-│   └── checks/                   # 23 个结构断言 SQL（CI infra job 强制执行）
-├── docs/                         # 需求 42 篇（另模板）/ ADR 18 篇 / 评测结论 / 运维 runbook / legal；对外数字见 figures.md
+│   └── checks/                   # 31 个结构断言 SQL（CI infra job 强制执行）
+├── docs/                         # 需求 45 篇（另模板）/ ADR 18 篇 / 评测结论 / 运维 runbook / legal；对外数字见 figures.md
 ├── Dockerfile.api                # API 镜像（node 构建前端 + python 运行时，多阶段）
 ├── docker-compose.staging.yml    # staging：PostgreSQL + Redis + 迁移 + API + worker
 ├── Caddyfile                     # 反向代理样例
@@ -476,7 +476,7 @@ plan → research → critic ──(conditional_edge)──┐
 
 | 指标 | 数值 | 口径说明 |
 |------|------|----------|
-| 单元测试 | **1351 项（收集统计，2026-10-31）** | 本机零依赖 lane 2026-10-31 未复验（全量执行依赖临时目录写入，当前环境不可用）；上次 2026-10-26 口径为 1208 通过 / 74 跳过 / 8 环境相关失败（详见 `docs/figures.md`）；跳过项为真实 PG/Redis 集成用例，由 CI `infra` job 强制执行。CI：3.11/3.12/3.13 + `frontend` + `infra`（迁移幂等 + 结构断言 + 仓储/Worker 集成 + **备份恢复演练**）+ `e2e`。**浏览器 E2E 88 个用例 / 20 个 spec**（desktop + mobile 双 project） |
+| 单元测试 | **1475 项（收集统计，2026-11-03）** | 2026-11-03 本机零依赖 lane 复验：**1387 通过 / 84 跳过 / 5 环境失败**（5 个为 `.deps` 与 lock 漂移导致的 OTel 用例；跳过项为真实 PG/Redis 集成用例，由 CI `infra` job 强制执行）。CI：3.11/3.12/3.13 + `frontend` + `infra`（迁移幂等 + 结构断言 + 仓储/Worker 集成 + **备份恢复演练**）+ `e2e`。**浏览器 E2E 89 个用例 / 21 个 spec**（desktop + mobile 双 project） |
 | 完成率 | 100%（**60/60**） | after 基线：20 题 × 3 轮，**零异常**（before 基线三轮里两轮各有 1 题 failed） |
 | 引用准确率 | **78.3%** | 机器口径（LLM-as-judge）；人工抽检修正区间见 W7 结论文档 |
 | 覆盖度 | **39.8%** | after 基线 3 轮均值（同题配对 n=18）；before 为 44.9%，**差值不可判定**，见下节 |

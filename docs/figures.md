@@ -15,9 +15,9 @@
 | 提交总数 | 363 | 当前分支（dev）历史提交数 | `git rev-list --count HEAD` | 2026-10-27 |
 | dev 领先 master | 0 | master 与 dev 已同步（`v0.2.0` 已合入 master） | `git rev-list --count master..HEAD` | 2026-10-27 |
 | 版本 tag | v0.1.0 / v0.2.0 | 2 个 tag；`v0.2.0` = 2026-10-26 里程碑发布 | `git tag` | 2026-10-27 |
-| 需求文档 | 42 篇 + 1 模板 | `docs/requirements/*.md`，排除 `模板.md` | 目录计数 | 2026-10-26 |
+| 需求文档 | 45 篇 + 1 模板 | `docs/requirements/*.md`，排除 `模板.md` | 目录计数 | 2026-11-03 |
 | ADR | 18 篇 | `docs/decisions/0*.md`（0001–0018，索引完整） | 目录计数 + 索引链接校验 | 2026-10-28 |
-| 数据库迁移 | 27 个 + 23 个结构断言 | `migrations/*.sql` + `migrations/checks/*.sql`；只前向 | 目录计数 | 2026-10-26 |
+| 数据库迁移 | 31 个 + 31 个结构断言 | `migrations/*.sql` + `migrations/checks/*.sql`；只前向 | 目录计数 | 2026-11-03 |
 | 文档体积 | ≈1.7 MB | `docs/` 递归文件大小 | 目录求和 | 2026-10-26 |
 
 ## 2. 代码规模
@@ -29,19 +29,19 @@
 | 测试代码 | 20,758 行 | `tests/**/*.py`，同上 | 同上 | 2026-10-26 |
 | 前端源码 | 8,429 行 | `web/frontend/src/**/*.{ts,tsx}`，同上 | 同上 | 2026-10-26 |
 | E2E 代码 | 1,898 行 | `web/frontend/e2e/**/*.ts`，同上 | 同上 | 2026-10-26 |
-| 测试文件 | 149 个 | `tests/*.py` | 目录计数 | 2026-10-31 |
+| 测试文件 | 155 个 | `tests/*.py` | 目录计数 | 2026-11-03 |
 
 ## 3. 测试与 CI
 
 | 指标 | 当前值 | 口径 / 定义 | 采集命令或来源 | 日期 |
 | --- | --- | --- | --- | --- |
-| pytest 收集/执行 | **1351** 项 | 全量 `tests/`；JUnit `tests=1351` | `pytest tests/ -q --junitxml=...` | 2026-10-31 |
-| 零依赖 lane（本机） | **本机未复验（2026-10-27）** | 全量执行依赖临时目录写入，当前本机环境不可用；**以 CI 三版本矩阵为准**。上次 2026-10-26 口径：1208 通过 / 74 跳过 / 8 环境失败（合计 1290） | 同上 | 2026-10-27 |
+| pytest 收集/执行 | **1475** 项 | 全量 `tests/`；`pytest --collect-only -q`（收集统计） | `pytest tests/ --collect-only -q` | 2026-11-03 |
+| 零依赖 lane（本机） | **1475 收集 / 1387 通过 / 84 跳过 / 5 失败** | 2026-11-03 本机复验（临时目录可写）；5 个失败 = `.deps` 与 lock 漂移导致的 OTel 用例，**以 CI 三版本矩阵为准** | `py -3.13 -m pytest tests/ -q` | 2026-11-03 |
 | 跳过项性质 | 真实 PG/Redis 集成用例 | 由 CI `infra` job 通过 `DR_TEST_DATABASE_URL` / `DR_TEST_REDIS_URL` 强制执行 | `tests/conftest.py` | 2026-10-26 |
 | CI job 数 | 4 个定义 / **6 项检查** | lint-and-test（3.11/3.12/3.13 矩阵）+ infra + frontend + e2e | `.github/workflows/ci.yml` | 2026-10-26 |
 | CI 守卫 | 6 个 | 评测产物白名单 / 前端边界 / 公开仓 IP / 文档漂移 / Tailwind token / UI 反模式 | `tools/check_*.py` | 2026-10-27 |
-| 浏览器 E2E | **88 tests / 20 spec** | desktop 全量 + mobile 3 spec（双 project 执行） | `npx playwright test --list` | 2026-10-27 |
-| 前端单测 | **53 tests / 6 files** | Vitest，纯逻辑（质量判定 / 工作流 / HITL / WebAuthn / 预览 / 进度终局） | `npx vitest run` | 2026-10-31 |
+| 浏览器 E2E | **89 tests / 21 spec** | desktop 全量 + mobile 3 spec（双 project 执行） | `npx playwright test --list` | 2026-11-03 |
+| 前端单测 | **67 tests / 11 files** | Vitest，纯逻辑（质量判定 / 工作流 / HITL / WebAuthn / 预览 / 进度终局 / 会话重置 / 请求代次 / 报告分块 / 登录链接广播） | `npx vitest run` | 2026-11-03 |
 | Python 版本 | 3.11 / 3.12 / 3.13 | 声明区间 `>=3.11,<3.14`；运行时闸在 import 时报错 | `pyproject.toml` + `research_engine/__init__.py` | 2026-10-26 |
 
 ## 4. 质量与评测
@@ -100,6 +100,7 @@
 
 | 日期 | 变更 | 说明 |
 | --- | --- | --- |
+| 2026-11-03 | 2026-11 审计整改批次收口（需求 42 / #344） | 31 个 PR（#345–#375）合并态预演通过：pytest 收集 1351→**1475**、测试文件 149→**155**、E2E 88/20→**89/21**、前端单测 53/6→**67/11**、迁移 27+23→**31+31**、需求文档 42→**45 篇**；本机零依赖 lane 恢复可复验（1387 passed / 84 skipped / 5 个 `.deps` 漂移 OTel 失败，以 CI 为准）；README 同步 |
 | 2026-10-31 | #310 quick 档与重试 | quick 档模型 qwen-turbo→**qwen-flash**（`PROFILE_VERSION` v1→v2）；新增 `tests/test_llm_retry.py`（6 例，有界重试）；pytest 收集 1345→**1351**、测试文件 148→**149**；前端单测不变（53/6）；README 同步 |
 | 2026-10-31 | #308 归因与进度修复回填 | 新增 `tests/test_exception_attribution.py`（llm 归因 + 非工具层契约 + error 规格 + 图异常落点）与 `lib/progress.test.ts`（失败/取消/超时终局）；pytest 收集 1332→**1345**、测试文件 147→**148**、前端单测 47/5→**53/6**；README 同步 |
 | 2026-10-27 | 守卫与数字回填 | 新增文档漂移守卫 `tools/check_doc_consistency.py`（CI 第 6 个守卫）；pytest 收集 1290→**1332**、E2E 92→**88**（删除邀请流程用例）、测试文件 142→**147**；README 同步 |
