@@ -51,7 +51,7 @@ def is_public_ip(ip: str) -> bool:
     - **IPv4-mapped IPv6**（``::ffff:a.b.c.d``）先取内嵌 IPv4 再判 —— 旧实现按
       ``::ffff:0:0/96`` 整段判 private，公网映射地址被误杀、内网映射地址的命运
       取决于该段语义；
-    - **主判据 ``is_global``** —— 覆盖 ``100.64.0.0/10``（RFC6598 CGNAT，Tailscale /
+    - **主判据 ``is_global``** —— 覆盖 CGNAT 段（RFC 6598，Tailscale /
       AWS CNI 常用段）等「非全局单播」；旧实现对这批地址返回 True（可被当公网 SSRF 目标）；
     - 仍显式拒绝私网/环回/link-local/保留/组播/未指定 —— ``is_global`` 对组播等个别段
       不保守（实测 224.0.0.1 ``is_global=True``），保留双保险。
