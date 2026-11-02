@@ -1163,6 +1163,23 @@ def _request_fingerprint(topic: str, instructions: str, profile_name: str) -> st
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _raise_on_fingerprint_conflict(row: dict, fingerprint: str,
+                                   idempotency_key: Optional[str]) -> None:
+    """审计 #338：幂等命中/竞态必须复核 `request_hash`，同键不同 payload 一律 409。
+
+    `created=False` 也可能来自**并发插入**（预检查恰好错过）；与预检查同口径处理：
+    旧行 `request_hash IS NULL` 按遗留口径放行，非 NULL 不一致即冲突——绝不静默复用
+    旧 run（否则同键不同 payload 的并发重试会返回别人的结果）。
+    """
+    stored = row.get("request_hash")
+    if stored is not None and stored != fingerprint:
+        raise http_error(
+            "idempotency_conflict",
+            "该幂等键已用于不同请求",
+            detail=f"idempotency_key={idempotency_key}",
+        )
+
+
 def _idempotent_existing(user_id: Optional[str], idempotency_key: Optional[str],
                          fingerprint: str) -> Optional[dict]:
     """P1-1：同键查询；指纹不一致 ⇒ 409（不得静默复用）。旧行 NULL 指纹按遗留口径放行。"""
@@ -1171,13 +1188,7 @@ def _idempotent_existing(user_id: Optional[str], idempotency_key: Optional[str],
     existing = _store_call(store.get_run_by_idempotency, user_id, idempotency_key)
     if existing is None:
         return None
-    stored = existing.get("request_hash")
-    if stored is not None and stored != fingerprint:
-        raise http_error(
-            "idempotency_conflict",
-            "该幂等键已用于不同请求",
-            detail=f"idempotency_key={idempotency_key}",
-        )
+    _raise_on_fingerprint_conflict(existing, fingerprint, idempotency_key)
     return existing
 
 
@@ -1263,6 +1274,8 @@ def _start_queued(*, topic: str, instructions: str, idempotency_key: Optional[st
             safe_detail("任务创建失败", exc),
         ) from exc
     if not created:
+        # 审计 #338：并发插入的 created=False 与预检查同口径复核指纹（否则静默复用旧 run）
+        _raise_on_fingerprint_conflict(row, fingerprint, idempotency_key)
         return row["run_id"]
     if queue is not None:
         try:

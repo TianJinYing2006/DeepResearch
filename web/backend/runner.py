@@ -240,6 +240,12 @@ class RunManager:
                         safe_detail("任务创建失败", exc),
                     ) from exc
                 if not created:
+                    # 审计 #338：created=False 可能来自并发插入（预检查恰好错过）；
+                    # 与预检查同口径复核 request_hash，同键不同 payload 一律 409。
+                    stored = row.get("request_hash")
+                    if (request_hash is not None and stored is not None
+                            and stored != request_hash):
+                        raise ApiError("idempotency_conflict", "该幂等键已用于不同请求")
                     return row["run_id"]
                 run_id = row["run_id"]
             self._frames[run_id] = []
