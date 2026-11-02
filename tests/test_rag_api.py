@@ -106,7 +106,7 @@ def test_ingest_failure_is_structured(client: TestClient):
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert detail["code"] == "rag_ingest_failed"
-    assert "embedding 500" in detail["message"]
+    assert "embedding 500" not in detail["message"]  # 原文只进服务端日志
 
 
 def test_ingest_requires_auth_and_csrf_when_enabled(monkeypatch):
