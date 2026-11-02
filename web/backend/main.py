@@ -2983,12 +2983,12 @@ def follow_up(run_id: str, req: FollowupRequest, request: Request) -> dict:
         pop_usage_sink(usage_token)
     result = followup_mod.validate_response(data, pool)
     if token_delta > 0:
-        # 追问成本并入本 run 账目（与展示同口径的保守上界；月度预算闸按 runs 表汇总）
-        new_tokens = int(row.get("token_used") or 0) + token_delta
-        new_cost = round(float(row.get("cost_estimate_cny") or 0.0)
-                         + _estimate_cost_cny(token_delta), 6)
-        _store_call(store.update_usage, run_id, token_used=new_tokens,
-                    cost_estimate_cny=new_cost, budget_used_cny=new_cost)
+        # 追问成本并入本 run 账目（与展示同口径的保守上界；月度预算闸按 runs 表汇总）。
+        # 审计 #338：用原子自增（单条 UPDATE），不再「先 get 再 +delta 写回」——
+        # 否则并发追问 / worker 回写会互相覆盖、丢计费。
+        delta_cost = _estimate_cost_cny(token_delta)
+        _store_call(store.increment_usage, run_id, token_delta=token_delta,
+                    cost_delta=delta_cost, budget_delta=delta_cost)
     _store_call(store.append_event, run_id, FOLLOWUP_ANSWERED, {
         "answer": result["answer"][:500],
         "citations": result["citations"][:10],

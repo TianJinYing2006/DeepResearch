@@ -100,6 +100,22 @@ def _configure_connection(conn: psycopg.Connection) -> None:
 #: 终局状态（不得再迁移）；活跃状态见 `persistence.ACTIVE_STATUSES`（单一来源，此处再导出）
 TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
 
+#: 终态过滤（runs 只清终态行）：与 TERMINAL_STATUSES 同源，retention 策略与 purge 白名单共用
+TERMINAL_WHERE_SQL = (
+    "AND status IN (" + ", ".join(f"'{status}'" for status in TERMINAL_STATUSES) + ")"
+)
+#: 网页快照本体清理：仅「无 run 引用」的快照（需求 34 TBD-1；关联级联解除）
+SNAPSHOTS_UNREFERENCED_WHERE = (
+    "AND NOT EXISTS (SELECT 1 FROM run_snapshots rs WHERE rs.sha256 = snapshots.sha256)"
+)
+#: 允许的附加过滤子句白名单（审计 #338：`where_extra` 从设计债改为校验函数）。
+#: 只接受代码内具名常量；自由拼接一律 ValueError。
+PURGE_WHERE_EXTRA_ALLOWED: frozenset[str] = frozenset({
+    "",
+    TERMINAL_WHERE_SQL,
+    SNAPSHOTS_UNREFERENCED_WHERE,
+})
+
 #: SSE 事件唤醒通道（P2-4）：事件写入在**同一事务**内 `pg_notify`（提交后送达），
 #: API 进程的 LISTEN 连接借此即时唤醒尾随循环；仅作延迟优化，正确性仍靠轮询兜底。
 EVENTS_CHANNEL = "dr_run_events"
@@ -569,6 +585,37 @@ class RunStore:
             if owner is not None and cur.fetchone() is None:
                 raise LeaseLostError(
                     f"usage update rejected for run {run_id}: lease lost "
+                    f"(worker={owner.worker_id}, attempt={owner.attempt})")
+
+    def increment_usage(self, run_id: str, *, token_delta: int, cost_delta: float,
+                        budget_delta: float,
+                        owner: Optional[RunOwnership] = None) -> None:
+        """原子追加计量（审计 #338）：单条 `UPDATE … SET x = COALESCE(x,0) + Δ`。
+
+        为什么需要：`update_usage` 是绝对赋值；调用方若「先 get 再 +delta 写回」
+        （如追问路径），并发追加会丢更新（read-modify-write 竞态）。本方法把加法
+        下推到数据库单条语句，并发追加只累加、不互相覆盖。
+
+        F04：传 `owner` 时与 `update_usage` 同口径做租约条件更新；旧执行者抛
+        :class:`LeaseLostError`。
+        """
+        token_delta = max(0, int(token_delta))
+        sql = (
+            "UPDATE runs SET token_used = COALESCE(token_used, 0) + %s, "
+            "cost_estimate_cny = COALESCE(cost_estimate_cny, 0) + %s, "
+            "budget_used_cny = COALESCE(budget_used_cny, 0) + %s "
+            "WHERE run_id = %s"
+        )
+        params: list[Any] = [token_delta, float(cost_delta), float(budget_delta), run_id]
+        if owner is not None:
+            sql += (" AND worker_id = %s AND attempt = %s AND status = ANY(%s) "
+                    "RETURNING run_id")
+            params += [owner.worker_id, owner.attempt, list(_EXECUTING_STATUSES)]
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            if owner is not None and cur.fetchone() is None:
+                raise LeaseLostError(
+                    f"usage increment rejected for run {run_id}: lease lost "
                     f"(worker={owner.worker_id}, attempt={owner.attempt})")
 
     def request_cancel(self, run_id: str) -> Optional[str]:
@@ -3072,11 +3119,17 @@ class RunStore:
         ("moderation_records", "created_at"),
         ("moderation_appeals", "created_at"),
         ("audit_logs", "at"),
+        ("snapshots", "created_at"),
     })
 
     def _check_purge_target(self, table: str, time_column: str) -> None:
         if (table, time_column) not in self.PURGE_TARGETS:
             raise ValueError(f"purge target not allowed: {table}.{time_column}")
+
+    def _check_where_extra(self, where_extra: str) -> None:
+        """`where_extra` 白名单校验（审计 #338）：只允许具名常量，拒绝自由拼接。"""
+        if where_extra not in PURGE_WHERE_EXTRA_ALLOWED:
+            raise ValueError(f"where_extra not allowed: {where_extra!r}")
 
     def count_table(self, table: str) -> int:
         if table not in {name for name, _ in self.PURGE_TARGETS}:
@@ -3088,6 +3141,7 @@ class RunStore:
     def count_before(self, table: str, time_column: str, before: datetime, *,
                      where_extra: str = "") -> int:
         self._check_purge_target(table, time_column)
+        self._check_where_extra(where_extra)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT count(*) AS n FROM {table} "  # noqa: S608 —— 标识符来自白名单
@@ -3100,9 +3154,11 @@ class RunStore:
                      where_extra: str = "", batch: int = 5000) -> int:
         """按时间批量硬删除（`ctid` + `LIMIT`，无需主键假设）；返回删除行数。
 
-        批量循环由调用方控制（避免长事务锁表）；标识符只来自 `PURGE_TARGETS` 白名单。
+        批量循环由调用方控制（避免长事务锁表）；标识符与附加过滤只来自白名单
+        （`PURGE_TARGETS` / `PURGE_WHERE_EXTRA_ALLOWED`）。
         """
         self._check_purge_target(table, time_column)
+        self._check_where_extra(where_extra)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"DELETE FROM {table} WHERE ctid IN ("  # noqa: S608 —— 标识符来自白名单
