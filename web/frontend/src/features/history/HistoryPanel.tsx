@@ -1,5 +1,5 @@
 /** 历史任务面板（R4b：从 AccountPanel 迁出，自带数据加载/筛选/分页/报告预览）。 */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal'
 import { ReportView } from '../../components/ReportView'
 import ShareModal from '../../components/ShareModal'
@@ -7,6 +7,7 @@ import { SkeletonRows } from '../../components/ui'
 import { csrfHeaders, readErrorMessage } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { downloadPdfReport, downloadSyncReport } from '../../lib/reportExport'
+import { createRequestGuard } from '../../lib/requestGuard'
 import type { RunBrief } from '../../types/api'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -47,8 +48,13 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
   const [previewExport, setPreviewExport] = useState<'idle' | 'md' | 'pdf' | 'docx'>('idle')
   // 需求 26：历史报告分享（复用 ShareModal：创建/复制/撤销/永久确认）
   const [shareRunId, setShareRunId] = useState<string | null>(null)
+  // 审计 #341 / U26：请求代次守卫 —— 快速切筛选 / 输入搜索 / 连点「加载更多」时，
+  // 迟到响应不得覆盖新结果（旧 token 在下次 next() 后失效）。
+  const requestGuard = useRef(createRequestGuard())
+  useEffect(() => () => { requestGuard.current.invalidate() }, [])
 
   async function loadHistory(reset: boolean, statusOverride?: string) {
+    const token = requestGuard.current.next()
     const status = statusOverride !== undefined ? statusOverride : historyStatus
     const nextOffset = reset ? 0 : historyOffset
     const params = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE), offset: String(nextOffset) })
@@ -58,24 +64,29 @@ export default function HistoryPanel({ open, shareEnabled = false }: { open: boo
     setHistoryLoadingMore(!reset)
     try {
       const response = await fetch(`/api/runs?${params.toString()}`)
+      if (!requestGuard.current.isCurrent(token)) return
       if (!response.ok) {
         const message = await readErrorMessage(response)
+        if (!requestGuard.current.isCurrent(token)) return
         // R3（审计 U12）：翻页失败只提示，不清掉已加载列表
         if (reset) setHistoryError(message)
         else setHistoryAppendError(message)
         return
       }
       const body = (await response.json()) as { runs: RunBrief[] }
+      if (!requestGuard.current.isCurrent(token)) return
       setHistoryError('')
       setHistoryAppendError('')
       setHistory((previous) => (reset ? body.runs : [...(previous ?? []), ...body.runs]))
       setHistoryOffset(nextOffset + body.runs.length)
       setHistoryHasMore(body.runs.length === HISTORY_PAGE_SIZE)
     } catch {
+      if (!requestGuard.current.isCurrent(token)) return
       if (reset) setHistoryError('网络错误，请重试')
       else setHistoryAppendError('网络错误，请重试')
     } finally {
-      setHistoryLoadingMore(false)
+      // 旧请求完成不得清掉新请求的「加载更多」态
+      if (requestGuard.current.isCurrent(token)) setHistoryLoadingMore(false)
     }
   }
 
