@@ -209,10 +209,14 @@ class Researcher:
             metadata["snapshot_reason"] = outcome.reason
         if outcome.ok and outcome.extracted is not None:
             extracted = outcome.extracted
-            content = f"{r.title}\n\n{extracted.text}" if r.title else extracted.text
+            # 需求 42：外部内容在**入口**统一净化一次 —— finding 正文与落盘快照共用
+            # 同一份净化文本（快照正文会进 fact-check 窗口与 quote 定位；零宽/bidi
+            # 走私字符可影响 faithful 判定或随引文外泄）。
+            title = strip_invisible(r.title or "")
+            text = strip_invisible(extracted.text)
+            content = f"{title}\n\n{text}" if title else text
             # finding 正文取头 N 字符（默认 4000，对齐裁判层既有截断阈值；全文在快照中）
-            finding.content = _truncate_head(
-                strip_invisible(content), config.web_snapshot.finding_max_chars)
+            finding.content = _truncate_head(content, config.web_snapshot.finding_max_chars)
             if ctx.store is not None and ctx.run_id:
                 try:
                     metadata["snapshot_id"] = ctx.store.save_snapshot(
@@ -220,7 +224,7 @@ class Researcher:
                         url=r.url,
                         content_type=outcome.content_type,
                         source_bytes=outcome.source_bytes,
-                        text=extracted.text,
+                        text=text,
                         text_truncated=extracted.truncated,
                         extractor_version=EXTRACTOR_VERSION,
                     )
