@@ -216,3 +216,22 @@ def test_pos_dynamic_import_os_still_usable():
     assert r.ok, r.stderr
     assert "OS_OK= True" in r.stdout
 
+
+def test_pos_non_windows_job_helpers_absent(monkeypatch):
+    """回归（CI Linux 抓到）：非 Windows 上 Job 辅助函数为 None 时，清理逻辑不得崩溃。
+
+    旧实现 `finally: _win_close_handle(h_job)` 在非 Windows 上调用 None ⇒
+    `TypeError: 'NoneType' object is not callable`，会让所有 code_exec 用例在 Linux CI 全红。
+    这里在任意平台上模拟「Job 辅助函数不存在」，锁住判空修复。
+    """
+    from research_engine.tools import code_exec
+
+    monkeypatch.setattr(code_exec, "_win_create_job", None)
+    monkeypatch.setattr(code_exec, "_win_open_process", None)
+    monkeypatch.setattr(code_exec, "_win_assign_job", None)
+    monkeypatch.setattr(code_exec, "_win_close_handle", None)
+    r = code_exec.exec_code("print('plain-ok')")
+    assert r.ok, r.note
+    assert "plain-ok" in r.stdout
+
+

@@ -420,8 +420,10 @@ def _run_process(cwd: str, *, timeout: int, use_job: bool) -> _RunResult:
     finally:
         t_out.join(timeout=5)
         t_err.join(timeout=5)
-        # KILL_ON_JOB_CLOSE：关闭句柄即终止 job 内全部进程（防逃逸孙进程）
-        _win_close_handle(h_job)
+        # KILL_ON_JOB_CLOSE：关闭句柄即终止 job 内全部进程（防逃逸孙进程）。
+        # 非 Windows 上 _win_close_handle 为 None（Job 是 Windows-only 增强），必须判空。
+        if h_job is not None and _win_close_handle is not None:
+            _win_close_handle(h_job)
         if proc.poll() is None:  # pragma: no cover - 兜底
             _kill()
             try:
