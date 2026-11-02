@@ -2432,15 +2432,45 @@ class RunStore:
     def request_account_deletion(self, request_id: str, user_id: str, *,
                                  targets: Iterable[str] = ("qdrant",),
                                  payload: Optional[dict[str, Any]] = None) -> None:
-        """注销登记（P0-7）：**同一事务**写台账 + outbox + 删用户（会话级联、任务匿名）。
+        """注销登记（P0-7）：**同一事务**写台账 + outbox + 清除账号关联 + 删用户。
 
-        外部系统清理（Qdrant）不再同步做：由 `deletion_outbox` 承载，Worker 带退避重试。
+        外部系统清理（Qdrant / 隔离区文件 / RAG 三层数据）不再同步做：由
+        `deletion_outbox` 承载，Worker 带退避重试。
+
+        #320（审计 High）：旧实现只写台账 + outbox + 删用户，账号在本地各表的关联
+        全部残留，其中「所有者创建的活跃分享」在删号后仍可匿名读取（永久链接）。
+        现在把**本地可同步完成的擦除**放进本事务：
+          1) 撤销该用户创建的全部活跃分享（`report_shares.created_by`，无 FK，必须显式）；
+          2) 删除 `user_consents`（含 ip_hash；NOT NULL + 无 FK ⇒ 必须显式删）；
+          3) `rag_ingestions` 置 deleted 并 `user_id = NULL`（台账保留、去关联）；
+          4) `quota_reservations.user_id` / `export_jobs.user_id` 置 NULL（列可空，
+             保留记录用于对账；0016 / 0025 已确认可空）。
+        异步清理目标（隔离区文件名 / RAG doc_id）必须在置 NULL **之前**快照进
+        outbox payload，否则 Worker 之后无法再按 user_id 反查。
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO account_deletions (request_id, user_id) VALUES (%s, %s)",
                 (request_id, user_id),
             )
+            outbox_payload: dict[str, Any] = dict(payload or {})
+            outbox_payload.setdefault("user_id", user_id)
+            if "qdrant" in targets:
+                # 快照时机关键：下面会把 rag_ingestions.user_id 置 NULL
+                cur.execute(
+                    "SELECT stored_name FROM rag_ingestions "
+                    "WHERE user_id = %s AND status <> 'deleted' AND stored_name <> ''",
+                    (user_id,),
+                )
+                outbox_payload.setdefault(
+                    "quarantine_files", [row["stored_name"] for row in cur.fetchall()])
+                cur.execute(
+                    "SELECT DISTINCT doc_id FROM rag_ingestions "
+                    "WHERE user_id = %s AND status <> 'deleted'",
+                    (user_id,),
+                )
+                outbox_payload.setdefault(
+                    "rag_doc_ids", [row["doc_id"] for row in cur.fetchall()])
             for target in targets:
                 cur.execute(
                     """
@@ -2448,8 +2478,24 @@ class RunStore:
                     VALUES (%s, %s, %s)
                     ON CONFLICT (request_id, target) DO NOTHING
                     """,
-                    (request_id, target, Jsonb(payload or {"user_id": user_id})),
+                    (request_id, target, Jsonb(outbox_payload)),
                 )
+            # #320：同事务断开本地关联（必须在 DELETE FROM users 之前）
+            cur.execute(
+                "UPDATE report_shares SET revoked_at = now() "
+                "WHERE created_by = %s AND revoked_at IS NULL",
+                (user_id,),
+            )
+            cur.execute("DELETE FROM user_consents WHERE user_id = %s", (user_id,))
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
+                "source = '(deleted)', user_id = NULL, updated_at = now() "
+                "WHERE user_id = %s AND status <> 'deleted'",
+                (user_id,),
+            )
+            cur.execute(
+                "UPDATE quota_reservations SET user_id = NULL WHERE user_id = %s", (user_id,))
+            cur.execute("UPDATE export_jobs SET user_id = NULL WHERE user_id = %s", (user_id,))
             cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
 
     def claim_deletion_outbox(self, claimed_by: str, lease_seconds: int,
@@ -2749,10 +2795,11 @@ class RunStore:
             return [row["stored_name"] for row in cur.fetchall()]
 
     def mark_ingestions_deleted_for_user(self, user_id: Optional[str]) -> int:
+        # #320：同时清 user_id —— 注销后台账保留但不得再与账号关联（纵深，兼容旧 outbox 行）
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
-                "source = '(deleted)', updated_at = now() "
+                "source = '(deleted)', user_id = NULL, updated_at = now() "
                 "WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' RETURNING ingestion_id",
                 (user_id,),
             )
