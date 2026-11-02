@@ -128,7 +128,7 @@ from .totp import (
     hash_recovery_code,
     new_recovery_codes,
     new_totp_secret,
-    verify_totp,
+    verify_totp_step,
 )
 from .totp import (
     provisioning_uri as totp_provisioning_uri,
@@ -1416,6 +1416,11 @@ def auth_session(request: Request) -> dict:
 #: 认证器 App 中显示的签发方
 MFA_ISSUER = "爱考据 iKaoju"
 
+#: TOTP 校验结果（需求 42：防重放需区分「码不对」与「码已被用过」）
+TOTP_OK = "ok"
+TOTP_INVALID = "invalid"
+TOTP_REPLAY = "replay"
+
 
 class MfaBeginRequest(BaseModel):
     """P0-2c：开始绑定 TOTP 前必须重新输入当前密码（防被劫持会话绑定攻击者因子）。"""
@@ -1451,28 +1456,38 @@ def _iso(value) -> Optional[str]:
     return value.isoformat() if value is not None else None
 
 
-def _verify_totp_factor(factor: dict, code: str) -> bool:
-    """用因子密文校验 TOTP；密钥不可用 / 密文损坏一律 False（fail-closed）。"""
+def _verify_totp_factor(factor: dict, code: str) -> str:
+    """校验 TOTP 并**原子消费**时间步；返回 `TOTP_OK` / `TOTP_INVALID` / `TOTP_REPLAY`。
+
+    密钥不可用 / 密文损坏一律 `TOTP_INVALID`（fail-closed）；命中但该时间步已被
+    消费 ⇒ `TOTP_REPLAY`（RFC 6238 §5.2：同一 OTP 不得二次使用，需求 42）。
+    """
     try:
         secret = secretbox.decrypt(factor["secret_encrypted"])
     except Exception:  # noqa: BLE001
-        return False
-    if verify_totp(secret, code, time.time()):
-        _store_call(store.touch_mfa_factor_used, factor["factor_id"])
-        return True
-    return False
+        return TOTP_INVALID
+    step = verify_totp_step(secret, code, time.time())
+    if step is None:
+        return TOTP_INVALID
+    if not _store_call(store.consume_mfa_factor_step, factor["factor_id"], step):
+        return TOTP_REPLAY
+    return TOTP_OK
 
 
-def _verify_mfa_factor(user_id: str, factor: dict, code: str) -> bool:
-    """TOTP 优先；否则尝试**恢复码**（单次消费成功才算通过）。
+def _verify_mfa_factor(user_id: str, factor: dict, code: str) -> str:
+    """TOTP 优先；否则尝试**恢复码**（单次消费成功才算通过）。返回 TOTP 结果常量。
 
     恢复码不依赖服务端密钥 ⇒ **认证器丢失**时仍可关闭 MFA（防用户自锁）。
     （注意：若服务端密钥丢失，登录会在第一步即 fail-closed，恢复码无法用于登录——
     须由运维恢复 `DR_MFA_SECRET_KEY`。）
     """
-    if _verify_totp_factor(factor, code):
-        return True
-    return bool(_store_call(store.consume_recovery_code, user_id, hash_recovery_code(code)))
+    status = _verify_totp_factor(factor, code)
+    if status in (TOTP_OK, TOTP_REPLAY):
+        # 重放不再回落恢复码：该码已被 TOTP 匹配过，回落只会扩大暴力面
+        return status
+    if _store_call(store.consume_recovery_code, user_id, hash_recovery_code(code)):
+        return TOTP_OK
+    return TOTP_INVALID
 
 
 @app.get("/api/auth/mfa")
@@ -1532,8 +1547,10 @@ def mfa_totp_confirm(req: MfaCodeRequest, request: Request) -> dict:
     pending = _store_call(store.get_mfa_factor, user["user_id"], confirmed=False)
     if pending is None:
         raise http_error("mfa_not_started", "请先开始绑定（未找到待确认的因子）")
-    if not _verify_totp_factor(pending, req.code):
-        _audit("mfa_confirm_failed", request=request, actor_user_id=user["user_id"])
+    status = _verify_totp_factor(pending, req.code)
+    if status != TOTP_OK:
+        _audit("mfa_confirm_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "replay"} if status == TOTP_REPLAY else None)
         raise http_error("mfa_code_invalid", "验证码不正确")
     if not _store_call(store.confirm_mfa_factor, user["user_id"], pending["factor_id"]):
         raise http_error("mfa_not_started", "待确认因子已失效，请重新绑定")
@@ -1557,9 +1574,11 @@ def mfa_disable(req: MfaDisableRequest, request: Request) -> dict:
                detail={"reason": "bad_password"})
         raise http_error("invalid_credentials", "密码不正确")
     factor = _store_call(store.get_mfa_factor, user["user_id"])
-    if factor is not None and not _verify_mfa_factor(user["user_id"], factor, req.code):
+    status = (TOTP_OK if factor is None
+              else _verify_mfa_factor(user["user_id"], factor, req.code))
+    if status != TOTP_OK:
         _audit("mfa_disable_failed", request=request, actor_user_id=user["user_id"],
-               detail={"reason": "bad_code"})
+               detail={"reason": "replay" if status == TOTP_REPLAY else "bad_code"})
         raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
     _store_call(store.delete_mfa_factors, user["user_id"])
     _store_call(store.replace_recovery_codes, user["user_id"], [])
@@ -1589,8 +1608,10 @@ def mfa_verify(req: MfaCodeRequest, request: Request, response: Response) -> dic
     if not MFA_VERIFY_LIMITER.allow(f"mfa-verify:{user['user_id']}"):
         _audit("mfa_verify_rate_limited", request=request, actor_user_id=user["user_id"])
         raise http_error("rate_limited", "验证码尝试过于频繁，稍后再试")
-    if not _verify_mfa_factor(user["user_id"], factor, req.code):
-        _audit("mfa_verify_failed", request=request, actor_user_id=user["user_id"])
+    status = _verify_mfa_factor(user["user_id"], factor, req.code)
+    if status != TOTP_OK:
+        _audit("mfa_verify_replay" if status == TOTP_REPLAY else "mfa_verify_failed",
+               request=request, actor_user_id=user["user_id"])
         raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
     _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
     _audit("mfa_verified", request=request, actor_user_id=user["user_id"])
