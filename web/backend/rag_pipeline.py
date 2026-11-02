@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from typing import Any, Optional
 
 from qdrant_client.models import PointStruct
@@ -151,8 +152,13 @@ def _build_from_blocks(store, ingester, *, doc_id: str, source_name: str,
 def build_from_file(store, ingester, *, doc_id: str, path: str, source_name: str,
                     user_id: Optional[str] = None, tenant_id: Optional[str] = None,
                     visibility: str = "private") -> dict[str, Any]:
-    """ingest：文件 → 快照（落库）→ 分块 v2 → 向量（版本化）。"""
-    blocks = snapshot_file(path)
+    """ingest：文件 → 快照（落库）→ 分块 v2 → 向量（版本化）。
+
+    #325：解析受 `config.rag.parse_timeout_seconds` 墙钟约束（协作式：PDF 逐页 /
+    DOCX 逐段检查），超时抛 `IngestLimitExceeded` → 摄取失败可见、worker 不被拖挂。
+    """
+    deadline = time.monotonic() + float(config.rag.parse_timeout_seconds)
+    blocks = snapshot_file(path, deadline=deadline)
     total_chars = sum(len(block.text) for block in blocks)
     if total_chars > config.rag.max_chars:
         raise IngestLimitExceeded(
