@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import secrets
 import struct
+from typing import Optional
 from urllib.parse import quote
 
 #: RFC 4226 §4 推荐密钥长度（160 bit）
@@ -52,17 +53,30 @@ def totp_at(secret: bytes, at: float, *, step: int = DEFAULT_STEP_SECONDS,
     return _hotp(secret, int(at // step), digits)
 
 
-def verify_totp(secret: bytes, code: str, at: float, *, step: int = DEFAULT_STEP_SECONDS,
-                digits: int = DEFAULT_DIGITS, window: int = DEFAULT_WINDOW) -> bool:
-    """校验 TOTP（接受 ±`window` 个步长）；**常量时间比较**，格式不符即 False。"""
+def verify_totp_step(secret: bytes, code: str, at: float,
+                     *, step: int = DEFAULT_STEP_SECONDS, digits: int = DEFAULT_DIGITS,
+                     window: int = DEFAULT_WINDOW) -> Optional[int]:
+    """校验 TOTP 并返回**匹配的时间步**（步号 = floor(at / step)）；不匹配返回 None。
+
+    调用方拿到步号后必须**原子消费**（`store.consume_mfa_factor_step`），否则同一
+    6 位码在有效窗口内可被重复使用（RFC 6238 §5.2 要求验证方拒绝已用 OTP）。
+    多步同时命中（极小概率）时返回窗口内**最早**命中步；仍是有效步，可正常消费。
+    """
     candidate = (code or "").strip().replace(" ", "")
     if not candidate.isdigit() or len(candidate) != digits:
-        return False
+        return None
     counter = int(at // step)
     for delta in range(-window, window + 1):
         if hmac.compare_digest(_hotp(secret, counter + delta, digits), candidate):
-            return True
-    return False
+            return counter + delta
+    return None
+
+
+def verify_totp(secret: bytes, code: str, at: float, *, step: int = DEFAULT_STEP_SECONDS,
+                digits: int = DEFAULT_DIGITS, window: int = DEFAULT_WINDOW) -> bool:
+    """兼容封装：只判断是否匹配（**不消费**）。服务端认证路径应改用 `verify_totp_step`。"""
+    return verify_totp_step(secret, code, at, step=step, digits=digits,
+                            window=window) is not None
 
 
 def provisioning_uri(encoded_secret: str, *, account: str, issuer: str) -> str:
