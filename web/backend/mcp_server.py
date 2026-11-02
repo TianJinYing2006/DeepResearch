@@ -29,6 +29,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from config import config
 from research_engine.failure_reasons import FailureReason, is_fault_reason
+from research_engine.sanitize import strip_invisible
 from research_engine.search.base import create_search_provider
 from research_engine.usage import UsageRecord, UsageSinkError, emit_usage, pop_usage_sink, push_usage_sink
 
@@ -193,9 +194,11 @@ def quick_search(query: str, max_results: int = 5) -> Dict[str, Any]:
         if sink_token is not None:
             pop_usage_sink(sink_token)
 
-    results = [{"title": (r.title or "")[:MAX_SNIPPET_CHARS],
+    # #340（D-12）：provider 的 title/snippet 是不可信外部内容，返回前必须 strip
+    # 零宽/方向控制等不可见字符（与 researcher.py 的搜索路径同口径）。
+    results = [{"title": strip_invisible(r.title or "")[:MAX_SNIPPET_CHARS],
                 "url": r.url,
-                "snippet": (r.snippet or "")[:MAX_SNIPPET_CHARS]}
+                "snippet": strip_invisible(r.snippet or "")[:MAX_SNIPPET_CHARS]}
                for r in (resp.results or [])]
     failure_reason = getattr(resp, "failure_reason", None)
     decision = failure_reason if is_fault_reason(failure_reason) else "ok"
@@ -347,8 +350,19 @@ class _BearerAuth:
         self._token = token or ""
 
     async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
-        if scope.get("type") != "http":
+        scope_type = scope.get("type")
+        if scope_type == "lifespan":
+            # lifespan 不承载业务请求，必须放行（FastMCP session manager 依赖它）
             await self.app(scope, receive, send)
+            return
+        if scope_type == "websocket":
+            # #340（D-13）：非 HTTP scope 直接透传会绕过 Bearer 鉴权（fail-closed 注释与
+            # 实现矛盾）；websocket 按策略拒绝关闭（1008 = policy violation）。
+            _log.warning("MCP 拒绝 websocket scope（只允许 HTTP + lifespan）")
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        if scope_type != "http":
+            _log.warning("MCP 拒绝非 HTTP scope: %s（只允许 HTTP + lifespan）", scope_type)
             return
         headers = {key.decode("latin-1").lower(): value.decode("latin-1")
                    for key, value in scope.get("headers", [])}
