@@ -217,3 +217,21 @@ def test_create_report_share_locks_run_before_revoke_and_insert(monkeypatch):
     with pytest.raises(LookupError):
         store.create_report_share("sid2", "tokenhash2", "missing", "u1", None)
     assert len(statements) == 1
+def test_share_shell_page_sets_noindex(monkeypatch, tmp_path):
+    """#337：SPA 壳页（/s/<token>）必须带 X-Robots-Tag —— 爬虫只取 HTML，看不到 JSON 响应头。"""
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><html><body><div id=\"root\"></div></body></html>", encoding="utf-8")
+    monkeypatch.setattr(api, "FRONTEND_DIST", tmp_path)
+    response = TestClient(api.app).get("/s/some-share-token-123")
+    assert response.status_code == 200
+    assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+
+
+def test_robots_txt_disallows_share_paths():
+    """#337：前端 `public/robots.txt` 必须禁爬 `/s/`（Vite 会把 public/ 原样复制到 dist）。"""
+    from pathlib import Path
+
+    robots = Path(api.__file__).resolve().parents[1] / "frontend" / "public" / "robots.txt"
+    text = robots.read_text(encoding="utf-8")
+    assert "User-agent: *" in text
+    assert "Disallow: /s/" in text
