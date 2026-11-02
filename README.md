@@ -112,19 +112,25 @@ cp .env.example .env
 
 **代码执行**：查询命中计算/复杂度/数值关键词时触发。**默认不作为事实证据**（`CODE_EXEC_EVIDENCE_ENABLED=false`）：当前脚本是固定模板（n=8192 的 FLOPs 示例），不消费查询的数值 / 单位 / 公式 ⇒「运行成功」≠「回答了问题」（审计 F03）。打开仅用于调试工具链。
 
-**代码执行沙箱**（三层纵深）：
-- subprocess `python -I -E -S -X utf8` 隔离执行（不加载 site-packages = 天然依赖白名单）+ `timeout=15s` + 输出 128KB 截断 + 并发上限 2；
+**代码执行沙箱**（三层纵深 + 2026-11 审计加固）：
+- subprocess `python -I -E -S -X utf8` 隔离执行（不加载 site-packages = 天然依赖白名单）+ **最小化环境变量白名单**（只传 `SYSTEMROOT`/`PATH`/`TEMP` 等启动必需项，父进程密钥/业务变量不再继承）+ `timeout=15s` + **有界输出读取**（单流超 128KB 即截断并终止子进程，父进程内存 ≤ 2×128KB）+ 并发上限 2；
 - AST import 白名单：仅 `{math, statistics, itertools, functools, decimal, fractions, collections, typing, random}`；
-- PEP 578 Audit Hook 运行时拦截（网络 / 进程 / 破坏类事件拒绝；`open` 走沙箱 cwd 白名单判断）。
+- PEP 578 Audit Hook 运行时拦截（**真实事件名 + 前缀匹配**：`socket.*` / `subprocess.*` / `os.exec*` / `os.spawn*` / `os.system` / `os.startfile` / 破坏类事件 / `os.chdir` 拒绝；`import` 拒绝 `_socket`/`_ctypes`/`_winapi` 等危险 C 扩展；`exec`/`compile` 拒绝；`open` 按**构建期固定的沙箱根**判包含，读也拒）；
 - 可选增强（默认关）：`CODE_EXEC_USE_JOB=true` 启用 Windows Job Object `KILL_ON_JOB_CLOSE`（防 ctypes 逃逸孙进程）。
 
-> ⚠️ **已知限制：以上三层当前不构成对恶意代码的隔离**（2026-10-08 实测复核，**尚未修复**）。请勿据此把 LLM 生成的代码直接交给 `exec_code`：
-> 1. **`-E` 不防密钥泄漏** —— 它只忽略 `PYTHON*` 环境变量，子进程仍继承父进程完整环境。实测沙箱内可读出 `DASHSCOPE_API_KEY`（117 字符）等密钥。
-> 2. **cwd 约束可绕** —— hook 以 `os.getcwd()` 判包含，而 `os.chdir` 既未被拒绝也未被审计。实测改目录后可读出仓库 `.env`（1003 字节）。
-> 3. **AST 白名单两向失效** —— 包装脚本自身的 `import os` 使 `os`/`sys` 成为用户代码可直接使用的全局名（整层被绕过）；反向地，白名单内的 `import statistics` 会因 hook 拦截 stdlib 文件读取而**失败**，实际只有 C 扩展（`math`）可用。
-> 4. 拒绝列表是枚举式，缺 `os.startfile`、`os.spawnv` 等事件。
+> ✅ **2026-11 审计整改（#327）**：原「已知限制」中的 1/2/4 类已修复——
+> ① 最小环境 ⇒ `DASHSCOPE_API_KEY` 等父进程密钥在沙箱内不可见（实测 `HAS_KEY=False`）；
+> ② `os.chdir` 被拒 + `open` 判据改为构建期固定根 ⇒ 改目录后读 `.env` 的路径失效；
+> ③ deny 列表改为真实 PEP 578 事件名（旧 `socket.socket` 事件名不存在，网络拒绝实际未生效）并前缀覆盖 `socket.*`/`subprocess.*`；
+> ④ 新增危险 C 扩展 import 拦截（`__import__('_socket')` 实测被拒）、`exec`/`compile` 拒绝、输出超限即杀。
 >
-> **当前风险受控**：唯一调用方 `_search_code` 执行的是硬编码常量脚本（`_default_code_script()`，不含任何查询文本），且 `evidence_enabled` 默认 `false` ⇒ 默认链路根本不调用它。**但一旦接入 LLM 生成的代码，第 1、2 条立即成为真实的密钥泄露路径。** 修法建议：hook 改按固定的沙箱根目录（而非可变的 `os.getcwd()`）判包含、显式拒绝 `os.chdir`、用 `env=` 传最小环境；并轮换已暴露的密钥。
+> ⚠️ **仍存在的限制**（不足以对抗最强恶意代码，接 LLM 生成代码前仍需评审）：
+> 1. **白名单内的纯 Python 模块不可用**：`statistics`/`decimal`/`fractions`/`collections`/`typing`/`random` 在 `-S` 下需读 stdlib `.py`，被 `open` 判据拒绝（实际可用主要是 C 扩展/内建：`math`/`itertools`）。本次不放开 stdlib 读面（放开需单独设计只读白名单）。
+> 2. **无 OS 级/内存隔离**：沙箱以 API 进程同用户执行；内存上限只覆盖输出通道（2×128KB），用户代码自身的内存分配未设限（后续可在 Job 上加 `ProcessMemoryLimit`）。
+> 3. **预加载 C 模块不可撤销**：`winreg`/`nt`/`_io` 等在解释器启动时已在 `sys.modules`，import 拦截管不到（注册表/文件元数据读取不在本层防护内；网络/进程事件仍被拒）。
+> 4. 超时/输出超限只能 kill 直接子进程；进程树级终止依赖可选 Job Object（默认关）。
+>
+> **当前风险受控**：唯一调用方 `_search_code` 执行的是硬编码常量脚本（`_default_code_script()`，不含任何查询文本），且 `evidence_enabled` 默认 `false` ⇒ 默认链路不执行代码。真要把 LLM 生成代码接进来，仍需容器/低权限账户级隔离（超出本仓库当前范围）。
 
 **Semantic Scholar 引用补全**（可选）：设 `SEMANTIC_SCHOLAR_API_KEY` 后，arXiv 论文的 `citationCount` 回填进报告溯源（"只采不决策"——不加权证据排序）；无 key 整条静默跳过。
 
