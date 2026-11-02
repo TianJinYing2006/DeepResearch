@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -24,7 +25,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, File, Header, Query, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Header, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -72,6 +73,7 @@ from .auth import (
     normalize_email,
     token_hash,
     verify_password,
+    verify_password_or_dummy,
 )
 from .auth import (
     SESSION_COOKIE as SESSION_COOKIE_BASE,
@@ -135,6 +137,8 @@ from .upload_guard import (
     stream_to_temp,
 )
 from .usage import make_store_sink
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="爱考据 iKaoju", version="0.2.0")
 
@@ -1305,8 +1309,10 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
     if store is None:
         raise http_error("persistence_unavailable", "账号功能需要任务库（DR_DATABASE_URL）")
     user = _store_call(store.get_user_by_email, email)
-    if (user is None or user["status"] != "active"
-            or not verify_password(user["password_hash"], req.password)):
+    # 无论用户是否存在/是否封禁都做一次 Argon2 校验，避免响应时间泄露邮箱是否注册
+    password_ok = verify_password_or_dummy(
+        user["password_hash"] if user is not None else None, req.password)
+    if user is None or user["status"] != "active" or not password_ok:
         _audit("login_failed", request=request, detail={"email_hash": email_hash})
         raise http_error("invalid_credentials", "邮箱或密码不正确")
     _store_call(store.touch_last_login, user["user_id"])
@@ -1875,8 +1881,31 @@ def auth_reset_password(req: ResetPasswordRequest, request: Request) -> dict:
     return {"ok": True}
 
 
+def _send_password_reset(user: dict, email_hash: str, request: Request, mailer) -> None:
+    """生成重置令牌并发信（后台执行；冷却期内不重发；失败只留审计）。"""
+    try:
+        cooldown = int(config.mail.reset_cooldown_seconds)
+        if _store_call(store.has_recent_password_reset, user["user_id"], cooldown):
+            return
+        token = new_token()
+        expires_at = datetime.now(UTC) + timedelta(minutes=RESET_TOKEN_MINUTES)
+        _store_call(store.create_password_reset, token_hash(token), user["user_id"],
+                    expires_at, created_by="system")
+        link = f"{config.mail.base_url.rstrip('/')}/#reset={token}"
+        subject, text, html = password_reset_email(link, minutes=RESET_TOKEN_MINUTES)
+        try:
+            mailer.send(user["email"], subject, text, html)
+            _audit("forgot_requested", request=request, detail={"email_hash": email_hash})
+        except Exception as exc:  # noqa: BLE001 —— 投递失败不向匿名请求方暴露
+            _audit("mail_send_failed", request=request,
+                   detail={"email_hash": email_hash, "error": type(exc).__name__})
+    except Exception:  # noqa: BLE001 —— 后台任务不得抛出
+        logger.exception("password reset background task failed")
+
+
 @app.post("/api/auth/forgot")
-def auth_forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
+def auth_forgot_password(req: ForgotPasswordRequest, request: Request,
+                         background_tasks: BackgroundTasks) -> dict:
     """自助找回（需求 24）：防枚举恒 200；投递失败留审计但不暴露。
 
     限流双维度（IP + 邮箱哈希）；冷却期内不重发；邮件通道未配置 → 503 结构化降级
@@ -1897,20 +1926,8 @@ def auth_forgot_password(req: ForgotPasswordRequest, request: Request) -> dict:
         raise http_error("mail_unavailable", "邮件通道未配置，请联系管理员重置密码")
     user = _store_call(store.get_user_by_email, email)
     if user is not None and user["status"] == "active":
-        cooldown = int(config.mail.reset_cooldown_seconds)
-        if not _store_call(store.has_recent_password_reset, user["user_id"], cooldown):
-            token = new_token()
-            expires_at = datetime.now(UTC) + timedelta(minutes=RESET_TOKEN_MINUTES)
-            _store_call(store.create_password_reset, token_hash(token), user["user_id"],
-                        expires_at, created_by="system")
-            link = f"{config.mail.base_url.rstrip('/')}/#reset={token}"
-            subject, text, html = password_reset_email(link, minutes=RESET_TOKEN_MINUTES)
-            try:
-                mailer.send(user["email"], subject, text, html)
-                _audit("forgot_requested", request=request, detail={"email_hash": email_hash})
-            except Exception as exc:  # noqa: BLE001 —— 投递失败不向匿名请求方暴露
-                _audit("mail_send_failed", request=request,
-                       detail={"email_hash": email_hash, "error": type(exc).__name__})
+        # 写库 + 发信放后台：存在/不存在两条路径的响应时间一致（防计时枚举）
+        background_tasks.add_task(_send_password_reset, user, email_hash, request, mailer)
     return {"ok": True}
 
 

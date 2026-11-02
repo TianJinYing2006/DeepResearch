@@ -132,6 +132,20 @@ def verify_password(password_hash: str, password: str) -> bool:
         return False
 
 
+_dummy_hash: Optional[str] = None
+
+
+def verify_password_or_dummy(password_hash: Optional[str], password: str) -> bool:
+    """用户不存在时对固定假哈希做一次等价 Argon2 校验（恒返回 False），抹平登录计时差。"""
+    global _dummy_hash
+    if password_hash is None:
+        if _dummy_hash is None:
+            _dummy_hash = _hasher.hash("dummy-password-for-timing-equalization")
+        verify_password(_dummy_hash, password)
+        return False
+    return verify_password(password_hash, password)
+
+
 def new_token() -> str:
     return secrets.token_urlsafe(32)
 
