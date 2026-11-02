@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
-"""W6 Job Object 单测：Windows 路径（skipif 非 win32）+ 沙箱既有覆盖复核。
+"""W6 Job Object 单测 + 沙箱覆盖复核 + 2026-11 审计 #327 负向安全用例。
 
-测试覆盖（DoD 第 0 条）：
-- _run_with_job 正常执行：1+1=2 输出
-- _run_with_job 超时：sleep > timeout → 标 timed_out + note 含"超时"
+测试覆盖（DoD 第 0 条 + 审计 #327）：
+- Job 路径正常执行：1+1=2 输出；超时：sleep > timeout → 标 timed_out + note 含"超时"
 - Job 创建函数健壮性：CreateJobObjectW 返回非空句柄 + SetInformationJobObject 成功
-- 默认关路径：use_job_object=False 时走 _run_plain（不进 Job 分支）
+- 默认关路径：use_job_object=False 时 metadata 无 "job" 字段
+- **负向安全（#327）**：AST 拒 `import os`；`__import__('_socket'/'_ctypes')` 被拒；
+  `os.system`/`os.chdir`/`exec` 被拒；沙箱外 open（读/写）被拒；父进程 env 不继承；
+  输出超限截断并杀进程。
+- 正向回归：`math` 计算、动态 `__import__('os')`、沙箱内写文件仍可用。
 
 设计说明：恶意 ctypes 逃逸进程的端到端"被杀净"验证需要构造复杂的 CreateProcessW
-测试代码（沙箱内 AST 拒 import ctypes），本期以"超时杀进程 + 机制就位 + 注释声明"
-覆盖核心价值，恶意逃逸的端到端验证列入 W6 收尾后再补。
+测试代码；本期已封 `_ctypes`/`ctypes` import（动态路径），Job Object 仍为可选增强，
+端到端杀树验证列入后续（README §3.2 已如实登记该限制）。
 """
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -93,10 +97,238 @@ def test_plain_path_syntax_error_reported():
 
 
 def test_plain_path_timeout(monkeypatch):
-    """默认路径超时（subprocess.run TimeoutExpired）仍正确处理（W4 既有用例回归保护）。"""
+    """默认路径超时（Popen.wait TimeoutExpired）仍正确处理（W4 既有用例回归保护）。"""
     from config import config
     from research_engine.tools import code_exec
     monkeypatch.setattr(config.code_exec, "timeout", 1)
     r = code_exec.exec_code("__import__('time').sleep(30)")
     assert not r.ok
     assert "超时" in r.note
+
+
+# ---------------- 2026-11 审计 #327：负向安全用例（至少 4 条，当前 8 条） ----------------
+
+def test_neg_ast_import_os_rejected():
+    """静态 import 白名单仍生效（AST 层）。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code("import os\nprint(os.getcwd())")
+    assert not r.ok
+    assert "导入被沙箱拒绝" in r.note
+
+
+def test_neg_dynamic_import_dangerous_c_ext_denied():
+    """`__import__` 动态路径被封：_socket/_ctypes 由 import 事件拒绝。"""
+    from research_engine.tools.code_exec import exec_code
+
+    for module in ("_socket", "_ctypes"):
+        r = exec_code(f"m = __import__({module!r})\nprint(m)")
+        blob = r.note + r.stderr
+        assert not r.ok, module
+        assert "not allowed by sandbox: import" in blob, (module, blob[-300:])
+
+
+def test_neg_os_system_denied():
+    """进程创建事件被拒（真实事件名 os.system）。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code("__import__('os').system('echo hacked')")
+    assert not r.ok
+    assert "not allowed by sandbox: os.system" in (r.note + r.stderr)
+
+
+def test_neg_os_chdir_denied():
+    """os.chdir 被拒 → 固定沙箱根判据不可被改目录绕过。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code("__import__('os').chdir('.')")
+    assert not r.ok
+    assert "not allowed by sandbox: os.chdir" in (r.note + r.stderr)
+
+
+def test_neg_exec_builtin_denied():
+    """exec/compile 事件被拒 → 用户代码不能再动态执行字符串。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code("exec('x = 1')\nprint('reached')")
+    assert not r.ok
+    assert "not allowed by sandbox" in (r.note + r.stderr)
+
+
+def test_neg_open_outside_sandbox_read_denied():
+    """沙箱根外的读被拒（防偷读 .env/密钥）。"""
+    from research_engine.tools.code_exec import exec_code
+
+    outside = r"C:/Windows/win.ini" if _WIN32 else "/etc/passwd"
+    r = exec_code(f'open(r"{outside}")')
+    assert not r.ok
+    assert "open outside sandbox cwd" in (r.note + r.stderr)
+
+
+def test_neg_open_outside_sandbox_write_denied():
+    """沙箱根外的写同样被拒，且不会真的落盘。"""
+    from research_engine.tools.code_exec import exec_code
+
+    target = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "_code_exec_escape_probe.txt")
+    if os.path.exists(target):
+        os.remove(target)
+    r = exec_code(f'open(r"{target}", "w").write("x")')
+    assert not r.ok
+    assert "open outside sandbox cwd" in (r.note + r.stderr)
+    assert not os.path.exists(target)
+
+
+def test_neg_parent_env_not_inherited(monkeypatch):
+    """最小环境：父进程密钥不进入沙箱子进程（-E 只忽略 PYTHON*，不够）。"""
+    from research_engine.tools.code_exec import exec_code
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-audit-secret-value")
+    r = exec_code(
+        "e = __import__('os').environ\n"
+        "print('HAS_KEY=', 'DASHSCOPE_API_KEY' in e)\n"
+        "print('SECRET=', 'sk-audit-secret-value' in str(dict(e)))")
+    assert r.ok, r.note
+    assert "HAS_KEY= False" in r.stdout
+    assert "SECRET= False" in r.stdout
+    assert "sk-audit-secret-value" not in r.stdout
+
+
+def test_neg_output_overflow_truncated_and_killed(monkeypatch):
+    """输出超限：截断 + [TRUNCATED] 标记 + 杀进程（父进程内存不被失控输出撑爆）。"""
+    from config import config
+    from research_engine.tools.code_exec import _TRUNC_MARK, exec_code
+
+    monkeypatch.setattr(config.code_exec, "max_output_bytes", 4096)
+    r = exec_code("while True:\n    print('A' * 200)")
+    assert not r.ok
+    assert "[TRUNCATED]" in r.stdout
+    assert len(r.stdout) <= 4096 + len(_TRUNC_MARK)
+    assert "截断" in r.note
+
+
+def test_pos_dynamic_import_os_still_usable():
+    """`__import__('os')` 仍可用（os 由包装脚本预加载，不经 import 事件）——旧行为保持。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code("m = __import__('os')\nprint('OS_OK=', m.name in ('nt', 'posix'))")
+    assert r.ok, r.stderr
+    assert "OS_OK= True" in r.stdout
+
+
+def test_pos_non_windows_job_helpers_absent(monkeypatch):
+    """回归（CI Linux 抓到）：非 Windows 上 Job 辅助函数为 None 时，清理逻辑不得崩溃。
+
+    旧实现 `finally: _win_close_handle(h_job)` 在非 Windows 上调用 None ⇒
+    `TypeError: 'NoneType' object is not callable`，会让所有 code_exec 用例在 Linux CI 全红。
+    这里在任意平台上模拟「Job 辅助函数不存在」，锁住判空修复。
+    """
+    from research_engine.tools import code_exec
+
+    monkeypatch.setattr(code_exec, "_win_create_job", None)
+    monkeypatch.setattr(code_exec, "_win_open_process", None)
+    monkeypatch.setattr(code_exec, "_win_assign_job", None)
+    monkeypatch.setattr(code_exec, "_win_close_handle", None)
+    r = code_exec.exec_code("print('plain-ok')")
+    assert r.ok, r.note
+    assert "plain-ok" in r.stdout
+
+
+# ---------------- 2026-11 独立评审 B1：subinterpreter 绕过 ----------------
+# 机制：PEP 578 audit hook 按解释器注册，子解释器**不继承**父解释器 hooks；
+# `_interpreters`(3.13+)/`_xxsubinterpreters`(≤3.12)/`_testcapi.run_in_subinterp` 是内置模块，
+# 可创建子解释器并在其中恢复 socket/subprocess/_ctypes ⇒ 主解释器的三层防护全部失效。
+# 修复：import 事件按 `_interp*` / `_xx*` / `_test*` 前缀拒绝。
+
+_SUBINTERP_MODULES = (
+    "_interpreters", "_interpchannels", "_interpqueues", "_xxsubinterpreters",
+    "_testcapi", "_testinternalcapi", "_testmultiphase", "_testsinglephase",
+)
+
+
+@pytest.mark.parametrize("module", _SUBINTERP_MODULES)
+def test_neg_subinterpreter_modules_import_denied(module):
+    """B1 回归①：子解释器模块的 `__import__` 动态路径必须被拒（不依赖模块是否存在于本版本）。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code(f"m = __import__({module!r})\nprint(m)")
+    blob = r.note + r.stderr
+    assert not r.ok, module
+    assert f"not allowed by sandbox: import {module}" in blob, (module, blob[-300:])
+
+
+def test_neg_subinterpreter_escape_capability_blocked():
+    """B1 回归②（能力级）：评审 PoC 的关键前置「拿到子解释器模块」必须全部失败。
+
+    3.11/3.12 用 `_xxsubinterpreters`、3.13+ 用 `_interpreters`，另加 `_testcapi`；
+    任一模块可导入即说明子解释器逃逸面恢复（子解释器内 socket/subprocess 不受父 hook 约束）。
+    """
+    from research_engine.tools.code_exec import exec_code
+
+    code = (
+        "mods = ['_xxsubinterpreters', '_interpreters', '_testcapi']\n"
+        "blocked = 0\n"
+        "for name in mods:\n"
+        "    try:\n"
+        "        __import__(name)\n"
+        "    except PermissionError:\n"
+        "        blocked += 1\n"
+        "print('BLOCKED=', blocked)\n")
+    r = exec_code(code)
+    assert r.ok, (r.note, r.stderr[-300:])
+    assert "BLOCKED= 3" in r.stdout
+
+
+@pytest.mark.skipif(not _WIN32, reason="winreg 仅 Windows")
+def test_neg_winreg_audit_events_denied():
+    """评审 NB1：winreg 启动即预加载，import 黑名单拦不到 ⇒ 由 winreg.* 审计事件拒绝。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code(
+        "w = __import__('winreg')\n"
+        "w.OpenKey(w.HKEY_LOCAL_MACHINE, r'SOFTWARE')\n"
+        "print('opened')")
+    assert not r.ok
+    assert "not allowed by sandbox: winreg." in (r.note + r.stderr)
+
+
+@pytest.mark.skipif(not _WIN32, reason="8.3 短路径/盘符大小写仅 Windows")
+def test_pos_cwd_write_when_parent_passes_short_path_cwd():
+    """B2 回归（集成在 Windows 抓到）：父进程用 8.3 短路径当 cwd 时，沙箱内写入不得被误拒。
+
+    旧实现把**父进程**算出的沙箱根内嵌为常量；若父侧是短路径（如 ``ADMINI~1``）而子进程
+    ``abspath`` 得到长路径/不同大小写，``commonpath`` 字符串比较不一致 ⇒
+    ``test_code_exec_audit_hook_allows_cwd_write`` 在 Windows 集成环境回归（CI 是 Linux 未抓到）。
+    修复：根由**子进程启动时** ``normcase(realpath(getcwd()))`` 捕获，open 路径同样
+    ``normcase(realpath(abspath(...)))`` 后比较。
+    """
+    import ctypes
+    import shutil
+    import subprocess
+    import tempfile
+
+    from research_engine.tools.code_exec import _build_wrapper
+
+    d = tempfile.mkdtemp(prefix="dr_short_")
+    try:
+        buf = ctypes.create_unicode_buffer(32_768)
+        n = ctypes.windll.kernel32.GetShortPathNameW(d, buf, len(buf))
+        if not n or not buf.value:
+            pytest.skip("GetShortPathNameW 不可用，无法构造 B2 场景")
+        if os.path.normcase(buf.value) == os.path.normcase(d):
+            pytest.skip("本卷未启用 8.3 短名，无法构造 B2 场景")
+        with open(os.path.join(d, "main.py"), "w", encoding="utf-8") as fh:
+            fh.write(_build_wrapper("open('out.txt', 'w').write('hi')\nprint('WROTE')"))
+        proc = subprocess.run(
+            [sys.executable, "-I", "-E", "-S", "-X", "utf8", "main.py"],
+            cwd=buf.value, capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr[-600:]
+        assert "WROTE" in proc.stdout
+        assert os.path.exists(os.path.join(d, "out.txt"))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+
+
