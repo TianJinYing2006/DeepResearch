@@ -76,6 +76,11 @@ class FetchBudget:
             self.bytes += max(0, int(nbytes))
             self.seconds += max(0.0, float(seconds))
 
+    def remaining_bytes(self) -> int:
+        """剩余字节预算（#340：单次响应上限要按它收紧，避免一次抓取就越过总闸）。"""
+        with self._lock:
+            return max(0, self.max_bytes - self.bytes)
+
     def snapshot(self) -> dict:
         with self._lock:
             return {
@@ -236,12 +241,16 @@ class WebFetcher:
 
     def _single_attempt(self, url: str, attempt: int) -> FetchOutcome:
         started = self._clock()
+        # #340（D-16）：单次响应上限按**剩余预算**收紧 —— 否则一次 2MB 响应就能越过
+        # max_bytes（如 1MB 总预算），重试再叠加最多可到 (max_retries+1) 倍；
+        # 并发下抓到 0 剩余时 min() 为 0，safe_fetch 会按「超出上限」失败（fail-closed）。
+        per_response_cap = min(self._max_response_bytes, self._budget.remaining_bytes())
         try:
             res = self._fetch(
                 url,
                 timeout=self._read_timeout,
                 connect_timeout=self._connect_timeout,
-                max_bytes=self._max_response_bytes,
+                max_bytes=per_response_cap,
             )
         except UnsafeUrlError as exc:
             self._budget.record(0, self._clock() - started)
