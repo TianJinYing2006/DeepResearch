@@ -1042,4 +1042,5 @@ def test_update_password_invalidates_pending_reset_tokens(store: RunStore):
     assert store.has_recent_password_reset(TEST_USER, within_seconds=3600) is False
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("SELECT password_hash FROM users WHERE user_id = %s", (TEST_USER,))
-        assert cur.fetchone()["password_hash"] == "test-store-new-hash"
+        row = cur.fetchone()
+        assert row is not None and row[0] == "test-store-new-hash"
