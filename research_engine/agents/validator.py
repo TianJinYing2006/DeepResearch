@@ -42,6 +42,7 @@ from research_engine.find_in_source import SourceWindow, find_in_source, select_
 from research_engine.llm.client import LLMClient
 from research_engine.quote_locate import extract_quote
 from research_engine.runtime_profile import effective_llm_model
+from research_engine.sanitize import strip_invisible
 from research_engine.snapshots import load_snapshot_text
 from research_engine.state import Citation, DegradationEntry, DegradationSink, ResearchFinding
 from research_engine.usage import UsageSinkError
@@ -360,6 +361,8 @@ class Validator:
             snapshot_text = load_snapshot_text(sid)
             if not snapshot_text:
                 continue
+            # 需求 42：读侧纵深防御 —— 历史快照可能存有入库前未净化的不可见/走私字符
+            snapshot_text = strip_invisible(snapshot_text)
             for claim in claims:
                 windows.extend(find_in_source(claim, snapshot_text))
         if not windows:
@@ -410,6 +413,8 @@ class Validator:
                 snapshot_text = load_snapshot_text(sid)
                 if not snapshot_text:
                     continue
+                # 需求 42：读侧纵深防御 —— quote 不得带走私字符（与窗口同口径）
+                snapshot_text = strip_invisible(snapshot_text)
                 located = extract_quote(c.claim, snapshot_text)
                 if located is not None:
                     located_sid = sid
