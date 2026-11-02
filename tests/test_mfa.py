@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from web.backend import main as api
 from web.backend import secretbox
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
 from web.backend.runner import RunManager
 from web.backend.totp import (
     decode_secret,
@@ -61,6 +61,11 @@ def _register(client: TestClient):
 
 def _login(client: TestClient):
     return client.post("/api/auth/login", json={"email": EMAIL, "password": PASSWORD})
+
+
+def _logout(client: TestClient):
+    """需求 42：登出必须带 CSRF 双提交头。"""
+    return client.post("/api/auth/logout", headers=_csrf(client))
 
 
 def _enable_mfa(client: TestClient) -> tuple[list[str], bytes]:
@@ -123,7 +128,7 @@ def test_enroll_then_step_up_login(client: TestClient, store: FakeStore):
     assert "mfa_enabled" in _actions(store)
 
     # 密码登录只拿到「半程会话」
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _logout(client).json()["ok"] is True
     login = _login(client)
     assert login.status_code == 200 and login.json() == {"mfa_required": True}
     assert client.get("/api/auth/session").status_code == 401     # 半程不得访问
@@ -148,10 +153,40 @@ def test_enroll_then_step_up_login(client: TestClient, store: FakeStore):
     assert fresh.get("/api/auth/session").status_code == 401
 
 
+def test_mfa_step_up_rotates_session_token(client: TestClient, store: FakeStore):
+    """需求 42：第二步成功后轮换会话 token，旧半程 token 立即失效（防会话固定）。
+
+    修复前 step-up 只在原 token 上置 `mfa_verified=true`，预置的半程会话可借受害者
+    的验证码「转正」；现在与登录一致：吊销旧会话 + 重签 Cookie。
+    """
+    assert _register(client).status_code == 200
+    _codes, secret = _enable_mfa(client)
+    assert _logout(client).json()["ok"] is True
+    assert _login(client).json() == {"mfa_required": True}
+
+    old_token = client.cookies.get(SESSION_COOKIE)
+    old_csrf = client.cookies.get(CSRF_COOKIE)
+    assert old_token
+    verified = client.post("/api/auth/mfa/verify",
+                           json={"code": totp_at(secret, time.time() + 30)},
+                           headers=_csrf(client))
+    assert verified.status_code == 200, verified.text
+
+    new_token = client.cookies.get(SESSION_COOKIE)
+    assert new_token and new_token != old_token
+    assert client.cookies.get(CSRF_COOKIE) != old_csrf   # CSRF 同步轮换
+    assert client.get("/api/auth/session").status_code == 200
+
+    # 旧半程 token 已被吊销：单独回放它访问受保护接口 → 401
+    stale = TestClient(api.app)
+    stale.cookies.set(SESSION_COOKIE, old_token)
+    assert stale.get("/api/auth/session").status_code == 401
+
+
 def test_recovery_code_login_is_single_use(client: TestClient, store: FakeStore):
     assert _register(client).status_code == 200
     codes, _secret = _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _logout(client).json()["ok"] is True
 
     assert _login(client).json() == {"mfa_required": True}
     ok = client.post("/api/auth/mfa/verify", json={"code": codes[0]}, headers=_csrf(client))
@@ -159,7 +194,7 @@ def test_recovery_code_login_is_single_use(client: TestClient, store: FakeStore)
     assert client.get("/api/auth/mfa").json()["recovery_codes_remaining"] == 9
 
     # 同一个恢复码不能再用
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _logout(client).json()["ok"] is True
     assert _login(client).json() == {"mfa_required": True}
     dup = client.post("/api/auth/mfa/verify", json={"code": codes[0]}, headers=_csrf(client))
     assert dup.status_code == 401
@@ -183,7 +218,7 @@ def test_disable_requires_password_and_code(client: TestClient, store: FakeStore
     assert status["enabled"] is False and status["recovery_codes_remaining"] == 0
 
     # 关闭后登录不再要求第二步
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _logout(client).json()["ok"] is True
     assert _login(client).status_code == 200
     assert client.get("/api/auth/session").status_code == 200
 
@@ -192,7 +227,7 @@ def test_key_lost_with_factor_fails_closed(monkeypatch, client: TestClient, stor
     """有因子但服务端密钥不可用 ⇒ 拒绝登录（防「删密钥即绕过第二步」）。"""
     assert _register(client).status_code == 200
     _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _logout(client).json()["ok"] is True
 
     monkeypatch.delenv("DR_MFA_SECRET_KEY", raising=False)
     resp = _login(client)
@@ -219,7 +254,7 @@ def test_mfa_verify_rate_limited(client: TestClient, monkeypatch, store: FakeSto
     """P0-2：登录 step-up 的验证码尝试必须限流（含正确验证码也不放行）。"""
     assert _register(client).status_code == 200
     _codes, secret = _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert _logout(client).json()["ok"] is True
     assert _login(client).json() == {"mfa_required": True}
 
     monkeypatch.setattr(api, "MFA_VERIFY_LIMITER", _DenyLimiter())
