@@ -85,15 +85,29 @@ for file in "$MIGRATIONS_DIR"/*.sql; do
     [ -e "$file" ] || continue
     version="$(basename "$file" .sql)"
     checksum="$(hash_file "$file")"
-    row="$(psql -v ON_ERROR_STOP=1 -tA -v version="$version" \
-        -c "SELECT 'row:' || COALESCE(sha256, '') FROM schema_migrations WHERE version = :'version'")"
+    # 审计 #339：psql -c 不做变量插值（:'var' 会原样发给服务端），因此对拼进 SQL 的
+    # 文件名/hash 做字符集白名单（version 只允许 [0-9A-Za-z_]，hash 只允许小写 hex）。
+    case "$version" in
+        *[!0-9A-Za-z_]* | "")
+            echo "FAIL: 非法迁移文件名：$version（只允许 [0-9A-Za-z_]）" >&2
+            exit 1
+            ;;
+    esac
+    case "$checksum" in
+        *[!0-9a-f]* | "")
+            echo "FAIL: 非法的迁移文件 hash：$checksum" >&2
+            exit 1
+            ;;
+    esac
+    row="$(psql -v ON_ERROR_STOP=1 -tA \
+        -c "SELECT 'row:' || COALESCE(sha256, '') FROM schema_migrations WHERE version = '$version'")"
     if [ "${row#row:}" != "$row" ]; then
         stored="${row#row:}"
         if [ -z "$stored" ]; then
             # 历史行（指纹引入前应用）：回填当前文件 hash，后续重跑按 hash 校验
             echo "backfill: $version sha256=$checksum"
-            psql -v ON_ERROR_STOP=1 -q -v version="$version" -v checksum="$checksum" \
-                -c "UPDATE schema_migrations SET sha256 = :'checksum' WHERE version = :'version'"
+            psql -v ON_ERROR_STOP=1 -q \
+                -c "UPDATE schema_migrations SET sha256 = '$checksum' WHERE version = '$version'"
         elif [ "$stored" != "$checksum" ]; then
             echo "FAIL: 已应用迁移文件内容与记录不一致：$version（stored=$stored file=$checksum）" >&2
             echo "只前向铁律：已应用迁移文件不得修改；如确需修复，另写前向迁移并人工裁决记录。" >&2
@@ -106,9 +120,9 @@ for file in "$MIGRATIONS_DIR"/*.sql; do
     # 迁移内容 + 记录写入同一事务（psql --single-transaction 包住 stdin 的全部语句）
     if ! {
         cat "$file"
-        printf "\nINSERT INTO schema_migrations (version, sha256) VALUES (:'version', :'checksum');\n"
-    } | psql -v ON_ERROR_STOP=1 -q --single-transaction \
-            -v version="$version" -v checksum="$checksum" -f -; then
+        printf '\nINSERT INTO schema_migrations (version, sha256) VALUES (%s, %s);\n' \
+            "'$version'" "'$checksum'"
+    } | psql -v ON_ERROR_STOP=1 -q --single-transaction -f -; then
         echo "FAIL: 迁移失败（同一事务整体回滚，无半截）：$version" >&2
         exit 1
     fi

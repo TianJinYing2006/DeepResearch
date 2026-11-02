@@ -103,6 +103,10 @@ def test_migrate_dsn_not_in_argv_and_records_same_transaction() -> None:
     # 重跑 hash 校验与失败口径
     assert "sha256" in text and "内容与记录不一致" in text
     assert "hash_file" in text
+    # psql -c 不做变量插值（:'var' 会原样发给服务端）：SQL 字面量必须由脚本做字符集
+    # 白名单校验后拼接（CI 实测踩过，防回归）
+    assert ":'version'" not in text
+    assert "WHERE version = '$version'" in text
 
 
 def test_migration_0031_and_check_exist() -> None:
