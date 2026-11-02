@@ -50,6 +50,10 @@ x-app-environment: &app-environment
   DR_SENTRY_ENVIRONMENT: "${DR_SENTRY_ENVIRONMENT:-staging}"
   DR_SENTRY_RELEASE: "${DR_SENTRY_RELEASE:-}"
   DR_SENTRY_TRACES_SAMPLE_RATE: "${DR_SENTRY_TRACES_SAMPLE_RATE:-0}"
+  # P0-3（审计 #334）：前端 Sentry 等外部上报的 CSP connect-src 扩展必须透传进容器，
+  # 否则 .env 里配了也会被忽略（compose 不会自动读宿主 .env 的未列变量）。
+  # 说明：应用侧还会从 DR_SENTRY_DSN_FRONTEND 自动推导 origin，双保险。
+  DR_CSP_CONNECT_SRC: "${DR_CSP_CONNECT_SRC:-}"
   DR_SHARE_ENABLED: "${DR_SHARE_ENABLED:-false}"
   DR_SHARE_RATE_PER_MINUTE: "${DR_SHARE_RATE_PER_MINUTE:-30}"
   QDRANT_URL: "${QDRANT_URL:-http://qdrant:6333}"
