@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
 from web.backend import main as api
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, token_hash
 from web.backend.runner import RunManager
 
 PASSWORD = "password-123456"
@@ -267,7 +268,6 @@ def test_reauth_rate_limited(client: TestClient, monkeypatch, store: FakeStore):
     """需求 42：重认证按用户限流（超限 429 + 审批审计；正确密码也不放行）。"""
     assert _register(client, "a@example.com").status_code == 200
     monkeypatch.setattr(api, "REAUTH_LIMITER", _DenyLimiter())
-
     changed = client.post("/api/auth/password",
                           json={"current_password": PASSWORD,
                                 "new_password": "new-password-999"},
@@ -279,3 +279,33 @@ def test_reauth_rate_limited(client: TestClient, monkeypatch, store: FakeStore):
                              json={"password": PASSWORD}, headers=_csrf(client))
     assert revoked.status_code == 429
     assert store.list_audit(action="reauth_rate_limited")
+
+
+# ------------------------------------------------- 需求 42：改密作废旧重置 token
+
+def test_change_password_invalidates_pending_reset_tokens(client: TestClient, store: FakeStore):
+    """需求 42：改密必须作废未使用的重置 token（同事务）。
+
+    修复前 `update_password` 不清理 `password_reset_tokens`（`delete_password_resets`
+    全仓 0 调用），改密前泄露/申请过的 reset 链接在改密后仍可用于重置密码 ——
+    攻击者拿到旧链接即可覆盖新密码，改密的「止损」语义失效。
+    """
+    assert _register(client, "a@example.com").status_code == 200
+    user = store.get_user_by_email("a@example.com")
+    raw_token = "reset-token-before-change-1"
+    store.create_password_reset(token_hash(raw_token), user["user_id"],
+                                datetime.now(UTC) + timedelta(minutes=30))
+    assert token_hash(raw_token) in store.password_resets   # 前置：token 确实待用
+
+    changed = client.post("/api/auth/password",
+                          json={"current_password": PASSWORD,
+                                "new_password": "new-password-999"},
+                          headers=_csrf(client))
+    assert changed.status_code == 200
+    assert store.password_resets == {}                      # 未使用 token 已随之作废
+
+    # 旧 reset 链接不再可用（422 = token 无效/已消费，而非密码强度问题）
+    stale = client.post("/api/auth/reset",
+                        json={"token": raw_token, "new_password": "reset-password-777"})
+    assert stale.status_code == 422
+    assert stale.json()["detail"]["code"] == "invalid_request"
