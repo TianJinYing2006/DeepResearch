@@ -69,7 +69,7 @@ from .agui import (
 from .alerts import collect_alerts, default_thresholds, process_deliveries_once, sync_alerts
 from .checkpoint import get_pg_checkpointer  # 需求 35 R3：PG checkpoint（跨进程恢复）
 from .deletion import process_deletions_once
-from .errors import error_payload
+from .errors import error_payload, safe_detail
 from .hitl import (
     KIND_CLARIFICATION,
     new_interaction_id,
@@ -844,7 +844,8 @@ class Worker:
             return
 
     def _mark_crashed(self, run_id: str, exc: Exception, ownership: RunOwnership) -> None:
-        payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
+        # #324：SSE RUN_ERROR 会随 run_events 落库 30 天 ⇒ 只回固定文案，原文进服务端日志。
+        payload = error_payload("runner_crash", safe_detail("运行线程异常退出", exc))
         try:
             persist_terminal(self._store, run_id, None, RUN_ERROR, payload, owner=ownership)
         except Exception as persist_exc:  # noqa: BLE001 —— 留给 P3-B 租约清扫
