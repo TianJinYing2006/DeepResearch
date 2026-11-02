@@ -1372,6 +1372,12 @@ def auth_session(request: Request) -> dict:
 MFA_ISSUER = "爱考据 iKaoju"
 
 
+class MfaBeginRequest(BaseModel):
+    """P0-2c：开始绑定 TOTP 前必须重新输入当前密码（防被劫持会话绑定攻击者因子）。"""
+
+    current_password: str = Field(..., min_length=1, max_length=200)
+
+
 class MfaCodeRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=32)
 
@@ -1431,14 +1437,22 @@ def mfa_status(request: Request) -> dict:
 
 
 @app.post("/api/auth/mfa/totp/begin")
-def mfa_totp_begin(request: Request) -> dict:
-    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。"""
+def mfa_totp_begin(req: MfaBeginRequest, request: Request) -> dict:
+    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。
+
+    P0-2c：与 Passkey 添加一致，须重新输入当前密码 —— 仅凭会话 Cookie 不得绑定
+    第二因子（否则被盗会话可给账号绑定攻击者的 TOTP 并取走恢复码，受害者自锁）。
+    """
     _check_csrf(request)
     user = _require_session_user(request)
     _require_mfa_ready()
     if not MFA_ENROLL_LIMITER.allow(f"mfa-enroll:{user['user_id']}"):
         _audit("mfa_enroll_rate_limited", request=request, actor_user_id=user["user_id"])
         raise http_error("rate_limited", "MFA 操作过于频繁，稍后再试")
+    if not verify_password(user["password_hash"], req.current_password):
+        _audit("mfa_enroll_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "bad_password"})
+        raise http_error("invalid_credentials", "密码不正确")
     if _store_call(store.get_mfa_factor, user["user_id"]) is not None:
         raise http_error("mfa_already_enabled", "已启用 MFA；如需换绑请先关闭")
     secret = new_totp_secret()
