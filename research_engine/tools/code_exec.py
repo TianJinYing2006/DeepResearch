@@ -54,7 +54,7 @@ AUDIT_DENY_EVENTS = (
     "os.rename", "os.replace", "os.remove", "os.unlink", "os.rmdir",
     "os.mkdir", "os.makedirs", "os.symlink", "os.link",
 )
-# 前缀匹配（PEP 578 事件按族命名，逐条枚举易漏）：网络 / 进程创建 / 执行族。
+# 前缀匹配（PEP 578 事件按族命名，逐条枚举易漏）：网络 / 进程创建 / 执行族 / 注册表。
 AUDIT_DENY_PREFIXES = (
     "socket.",          # socket.__new__ / socket.connect / socket.getaddrinfo / socket.bind ...
     "subprocess.",      # subprocess.Popen / subprocess.run ...
@@ -62,6 +62,8 @@ AUDIT_DENY_PREFIXES = (
     "os.spawn",         # os.spawn / os.spawnv / os.spawnve ...
     "os.posix_spawn",   # Unix：os.posix_spawn
     "pty.",             # pty.spawn / pty.openpty ...
+    "winreg.",          # Windows 注册表（评审 NB1：winreg 启动即预加载，import 黑名单拦不到，
+                        # 但 OpenKey/CreateKey/SetValue/EnumKey... 会触发 winreg.* 审计事件）
 )
 # 动态 import 拦截（`__import__` 绕过 AST 白名单）：顶层模块名黑名单。
 # AST 静态 import 由 _check_imports 拦截；这里封 `__import__`/`importlib` 路径。
@@ -71,6 +73,15 @@ DENY_IMPORT_ROOTS: Set[str] = {
     "_multiprocessing", "_overlapped",
     "ctypes", "multiprocessing", "socket", "ssl", "subprocess", "asyncio",
 }
+# 子解释器 / CPython 测试专用内置模块**前缀**黑名单（2026-11 独立评审 B1）。
+# 机制：PEP 578 audit hook 按解释器注册，**子解释器不继承父解释器 hooks**；而
+# `_interpreters`(3.13+)/`_xxsubinterpreters`(≤3.12)/`_testcapi.run_in_subinterp` 是
+# 内置模块，经 `__import__` 可拿到 ⇒ 在子解释器里恢复 socket/subprocess/_ctypes
+# （评审已在 3.11/3.12/3.13 实测逃逸；本仓库用多版本 PoC 复现并回归）。
+# 按前缀拒绝以覆盖未来版本命名（`_interp*` / `_xx*` / `_test*`）；已确认不误伤
+# whitelist 模块内部导入（实际可用的 math/itertools 无这些前缀；纯 Python whitelist
+# 模块本就被 open 判据挡住）。
+DENY_IMPORT_PREFIXES: tuple[str, ...] = ("_interp", "_xx", "_test")
 # 子进程环境变量白名单（最小集）：解释器启动/临时目录所需；父进程密钥与业务变量一律不传。
 # 2026-11 审计 #327：`-E` 只忽略 PYTHON*，旧实现子进程继承父进程完整 env（DASHSCOPE_API_KEY 可读）。
 _SANDBOX_ENV_KEYS = (
@@ -123,28 +134,36 @@ def _check_imports(code: str) -> List[str]:
 
 # ---- 包装脚本（第三层：Audit Hook）----
 
-def _build_wrapper(user_code: str, sandbox_root: str) -> str:
+def _build_wrapper(user_code: str) -> str:
     """生成包装脚本：PEP 578 Audit Hook（第三层）+ 用户代码。
 
     2026-11 审计 #327 修复：
     - deny 改为**真实事件名 + 前缀匹配**（旧列表的 ``socket.socket`` 不存在）；
-    - ``import`` 事件拒绝 ``_socket``/``_ctypes`` 等危险 C 扩展（`__import__` 动态路径）；
+    - ``import`` 事件拒绝 ``_socket``/``_ctypes`` 等危险 C 扩展（`__import__` 动态路径），
+      并按前缀拒绝子解释器模块（`_interp*`/`_xx*`/`_test*`，评审 B1）；
     - 拒绝 ``exec``/``compile``（用户代码不能再动态执行字符串/代码对象）；
-    - ``open`` 判据用**构建期固定的沙箱根**（不再用可变的 ``os.getcwd()``），并拒绝 ``os.chdir``；
+    - ``open`` 判据用**沙箱子进程自身 cwd 捕获的根**（``realpath+normcase``，评审 B2：
+      父进程内嵌的绝对路径在 Windows 上可能是 8.3 短路径，与子进程长路径不一致 ⇒
+      沙箱内合法读写会被误判为越界），并拒绝 ``os.chdir``；
     - hook 闭包捕获判据所需常量，用户代码无法通过重绑定模块全局名绕过。
     """
     deny_events = ", ".join(repr(e) for e in AUDIT_DENY_EVENTS)
     deny_prefixes = ", ".join(repr(e) for e in AUDIT_DENY_PREFIXES)
     deny_imports = ", ".join(repr(e) for e in sorted(DENY_IMPORT_ROOTS))
+    deny_import_prefixes = ", ".join(repr(e) for e in DENY_IMPORT_PREFIXES)
     return f'''# -*- coding: utf-8 -*-
 """Sandbox wrapper: PEP 578 audit hook (layer 3) + user code."""
 import os as _dr_os
 import sys as _dr_sys
 
-_DR_SANDBOX_ROOT = {sandbox_root!r}
+# 沙箱根在**子进程启动时**从自身 cwd 捕获（realpath+normcase）：
+# 父进程内嵌绝对路径在 Windows 上可能是 8.3 短路径（如 ADMINI~1），与子进程
+# abspath 得到的长路径/大小写形式不一致 ⇒ 沙箱内合法读写被误判越界（评审 B2）。
+_DR_SANDBOX_ROOT = _dr_os.path.normcase(_dr_os.path.realpath(_dr_os.getcwd()))
 _DR_DENY_EVENTS = ({deny_events},)
 _DR_DENY_PREFIXES = ({deny_prefixes},)
 _DR_DENY_IMPORTS = frozenset([{deny_imports}])
+_DR_DENY_IMPORT_PREFIXES = ({deny_import_prefixes},)
 
 
 def _dr_install_audit_hook():
@@ -154,6 +173,7 @@ def _dr_install_audit_hook():
     _deny_events = _DR_DENY_EVENTS
     _deny_prefixes = _DR_DENY_PREFIXES
     _deny_imports = _DR_DENY_IMPORTS
+    _deny_import_prefixes = _DR_DENY_IMPORT_PREFIXES
 
     def _deny(reason):
         raise PermissionError("operation not allowed by sandbox: " + reason)
@@ -166,7 +186,9 @@ def _dr_install_audit_hook():
                 _deny(event)
         if event == "import":
             name = str(args[0]) if args else ""
-            if name.split(".")[0] in _deny_imports:
+            root = name.split(".")[0]
+            # 子解释器模块按前缀拒绝（B1）；其余危险模块按精确名拒绝
+            if root in _deny_imports or root.startswith(_deny_import_prefixes):
                 _deny("import " + name)
             return
         if event in ("exec", "compile"):
@@ -182,8 +204,11 @@ def _dr_install_audit_hook():
             if isinstance(path, bytes):
                 path = path.decode("utf-8", errors="surrogateescape")
             try:
-                abs_path = _os.path.abspath(_os.fspath(path))
-            except TypeError:
+                # realpath 消解 8.3 短名/符号链接；normcase 消解大小写差异
+                # （`_root` 也已是 normcase(realpath(getcwd()))，两侧同口径）。
+                abs_path = _os.path.normcase(
+                    _os.path.realpath(_os.path.abspath(_os.fspath(path))))
+            except (TypeError, OSError):
                 _deny("open path type not allowed")
             try:
                 inside = _os.path.commonpath([abs_path, _root]) == _root
@@ -475,11 +500,9 @@ def exec_code(code: str, query: str = "", params: str = "") -> CodeExecOutput:
     with _semaphore:  # Q2：并发信号量（默认 2）
         try:
             tmp_dir = tempfile.mkdtemp(prefix="dr_sandbox_")
-            # 沙箱根在构建期固定（realpath）；hook 不再用可变的 os.getcwd() 判据。
-            sandbox_root = os.path.realpath(tmp_dir)
             wrapper_path = os.path.join(tmp_dir, "main.py")
             with open(wrapper_path, "w", encoding="utf-8") as f:
-                f.write(_build_wrapper(code, sandbox_root))
+                f.write(_build_wrapper(code))
 
             # Q2 主线 + W6 Job 增强：默认走 plain（subprocess -I -E -S + timeout + 最小 env）；
             # Windows 且 config.code_exec.use_job_object 时额外 AssignProcessToJobObject

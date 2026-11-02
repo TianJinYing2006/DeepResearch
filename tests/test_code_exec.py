@@ -235,3 +235,100 @@ def test_pos_non_windows_job_helpers_absent(monkeypatch):
     assert "plain-ok" in r.stdout
 
 
+# ---------------- 2026-11 独立评审 B1：subinterpreter 绕过 ----------------
+# 机制：PEP 578 audit hook 按解释器注册，子解释器**不继承**父解释器 hooks；
+# `_interpreters`(3.13+)/`_xxsubinterpreters`(≤3.12)/`_testcapi.run_in_subinterp` 是内置模块，
+# 可创建子解释器并在其中恢复 socket/subprocess/_ctypes ⇒ 主解释器的三层防护全部失效。
+# 修复：import 事件按 `_interp*` / `_xx*` / `_test*` 前缀拒绝。
+
+_SUBINTERP_MODULES = (
+    "_interpreters", "_interpchannels", "_interpqueues", "_xxsubinterpreters",
+    "_testcapi", "_testinternalcapi", "_testmultiphase", "_testsinglephase",
+)
+
+
+@pytest.mark.parametrize("module", _SUBINTERP_MODULES)
+def test_neg_subinterpreter_modules_import_denied(module):
+    """B1 回归①：子解释器模块的 `__import__` 动态路径必须被拒（不依赖模块是否存在于本版本）。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code(f"m = __import__({module!r})\nprint(m)")
+    blob = r.note + r.stderr
+    assert not r.ok, module
+    assert f"not allowed by sandbox: import {module}" in blob, (module, blob[-300:])
+
+
+def test_neg_subinterpreter_escape_capability_blocked():
+    """B1 回归②（能力级）：评审 PoC 的关键前置「拿到子解释器模块」必须全部失败。
+
+    3.11/3.12 用 `_xxsubinterpreters`、3.13+ 用 `_interpreters`，另加 `_testcapi`；
+    任一模块可导入即说明子解释器逃逸面恢复（子解释器内 socket/subprocess 不受父 hook 约束）。
+    """
+    from research_engine.tools.code_exec import exec_code
+
+    code = (
+        "mods = ['_xxsubinterpreters', '_interpreters', '_testcapi']\n"
+        "blocked = 0\n"
+        "for name in mods:\n"
+        "    try:\n"
+        "        __import__(name)\n"
+        "    except PermissionError:\n"
+        "        blocked += 1\n"
+        "print('BLOCKED=', blocked)\n")
+    r = exec_code(code)
+    assert r.ok, (r.note, r.stderr[-300:])
+    assert "BLOCKED= 3" in r.stdout
+
+
+@pytest.mark.skipif(not _WIN32, reason="winreg 仅 Windows")
+def test_neg_winreg_audit_events_denied():
+    """评审 NB1：winreg 启动即预加载，import 黑名单拦不到 ⇒ 由 winreg.* 审计事件拒绝。"""
+    from research_engine.tools.code_exec import exec_code
+
+    r = exec_code(
+        "w = __import__('winreg')\n"
+        "w.OpenKey(w.HKEY_LOCAL_MACHINE, r'SOFTWARE')\n"
+        "print('opened')")
+    assert not r.ok
+    assert "not allowed by sandbox: winreg." in (r.note + r.stderr)
+
+
+@pytest.mark.skipif(not _WIN32, reason="8.3 短路径/盘符大小写仅 Windows")
+def test_pos_cwd_write_when_parent_passes_short_path_cwd():
+    """B2 回归（集成在 Windows 抓到）：父进程用 8.3 短路径当 cwd 时，沙箱内写入不得被误拒。
+
+    旧实现把**父进程**算出的沙箱根内嵌为常量；若父侧是短路径（如 ``ADMINI~1``）而子进程
+    ``abspath`` 得到长路径/不同大小写，``commonpath`` 字符串比较不一致 ⇒
+    ``test_code_exec_audit_hook_allows_cwd_write`` 在 Windows 集成环境回归（CI 是 Linux 未抓到）。
+    修复：根由**子进程启动时** ``normcase(realpath(getcwd()))`` 捕获，open 路径同样
+    ``normcase(realpath(abspath(...)))`` 后比较。
+    """
+    import ctypes
+    import shutil
+    import subprocess
+    import tempfile
+
+    from research_engine.tools.code_exec import _build_wrapper
+
+    d = tempfile.mkdtemp(prefix="dr_short_")
+    try:
+        buf = ctypes.create_unicode_buffer(32_768)
+        n = ctypes.windll.kernel32.GetShortPathNameW(d, buf, len(buf))
+        if not n or not buf.value:
+            pytest.skip("GetShortPathNameW 不可用，无法构造 B2 场景")
+        if os.path.normcase(buf.value) == os.path.normcase(d):
+            pytest.skip("本卷未启用 8.3 短名，无法构造 B2 场景")
+        with open(os.path.join(d, "main.py"), "w", encoding="utf-8") as fh:
+            fh.write(_build_wrapper("open('out.txt', 'w').write('hi')\nprint('WROTE')"))
+        proc = subprocess.run(
+            [sys.executable, "-I", "-E", "-S", "-X", "utf8", "main.py"],
+            cwd=buf.value, capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr[-600:]
+        assert "WROTE" in proc.stdout
+        assert os.path.exists(os.path.join(d, "out.txt"))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+
+

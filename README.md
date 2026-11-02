@@ -113,21 +113,22 @@ cp .env.example .env
 **代码执行**：查询命中计算/复杂度/数值关键词时触发。**默认不作为事实证据**（`CODE_EXEC_EVIDENCE_ENABLED=false`）：当前脚本是固定模板（n=8192 的 FLOPs 示例），不消费查询的数值 / 单位 / 公式 ⇒「运行成功」≠「回答了问题」（审计 F03）。打开仅用于调试工具链。
 
 **代码执行沙箱**（三层纵深 + 2026-11 审计加固）：
-- subprocess `python -I -E -S -X utf8` 隔离执行（不加载 site-packages = 天然依赖白名单）+ **最小化环境变量白名单**（只传 `SYSTEMROOT`/`PATH`/`TEMP` 等启动必需项，父进程密钥/业务变量不再继承）+ `timeout=15s` + **有界输出读取**（单流超 128KB 即截断并终止子进程，父进程内存 ≤ 2×128KB）+ 并发上限 2；
+- subprocess `python -I -E -S -X utf8` 隔离执行（不加载 site-packages = 天然依赖白名单）+ **最小化环境变量白名单**（只传 `SYSTEMROOT`/`PATH`/`TEMP` 等启动必需项，父进程密钥/业务变量不再继承）+ `timeout=15s` + **有界输出读取**（单流超 128KB 即截断并终止子进程 ⇒ 返回 `ok=False`；旧实现为截断后 `ok=True`；父进程内存 ≤ 2×128KB）+ 并发上限 2；
 - AST import 白名单：仅 `{math, statistics, itertools, functools, decimal, fractions, collections, typing, random}`；
-- PEP 578 Audit Hook 运行时拦截（**真实事件名 + 前缀匹配**：`socket.*` / `subprocess.*` / `os.exec*` / `os.spawn*` / `os.system` / `os.startfile` / 破坏类事件 / `os.chdir` 拒绝；`import` 拒绝 `_socket`/`_ctypes`/`_winapi` 等危险 C 扩展；`exec`/`compile` 拒绝；`open` 按**构建期固定的沙箱根**判包含，读也拒）；
+- PEP 578 Audit Hook 运行时拦截（**真实事件名 + 前缀匹配**：`socket.*` / `subprocess.*` / `os.exec*` / `os.spawn*` / `os.system` / `os.startfile` / `winreg.*` / 破坏类事件 / `os.chdir` 拒绝；`import` 拒绝 `_socket`/`_ctypes`/`_winapi` 等危险 C 扩展，并按前缀拒绝 `_interp*`/`_xx*`/`_test*`（**子解释器模块**，见下）；`exec`/`compile` 拒绝；`open` 按**构建期固定的沙箱根**（两侧 `normcase`）判包含，读也拒）；
 - 可选增强（默认关）：`CODE_EXEC_USE_JOB=true` 启用 Windows Job Object `KILL_ON_JOB_CLOSE`（防 ctypes 逃逸孙进程）。
 
 > ✅ **2026-11 审计整改（#327）**：原「已知限制」中的 1/2/4 类已修复——
 > ① 最小环境 ⇒ `DASHSCOPE_API_KEY` 等父进程密钥在沙箱内不可见（实测 `HAS_KEY=False`）；
 > ② `os.chdir` 被拒 + `open` 判据改为构建期固定根 ⇒ 改目录后读 `.env` 的路径失效；
 > ③ deny 列表改为真实 PEP 578 事件名（旧 `socket.socket` 事件名不存在，网络拒绝实际未生效）并前缀覆盖 `socket.*`/`subprocess.*`；
-> ④ 新增危险 C 扩展 import 拦截（`__import__('_socket')` 实测被拒）、`exec`/`compile` 拒绝、输出超限即杀。
+> ④ 新增危险 C 扩展 import 拦截（`__import__('_socket')` 实测被拒）、`exec`/`compile` 拒绝、输出超限即杀；
+> ⑤ **已覆盖 subinterpreter 绕过（B1，3.11–3.13 多版本回归）**：PEP 578 hook 按解释器注册、子解释器不继承，而 `_interpreters`(3.13+)/`_xxsubinterpreters`(≤3.12)/`_testcapi.run_in_subinterp` 是内置模块 ⇒ 按 `_interp*`/`_xx*`/`_test*` 前缀拒绝 import；实测 3.11/3.12/3.13（+3.14）子解释器内恢复 socket/subprocess 的 PoC 全部被拒。
 >
 > ⚠️ **仍存在的限制**（不足以对抗最强恶意代码，接 LLM 生成代码前仍需评审）：
 > 1. **白名单内的纯 Python 模块不可用**：`statistics`/`decimal`/`fractions`/`collections`/`typing`/`random` 在 `-S` 下需读 stdlib `.py`，被 `open` 判据拒绝（实际可用主要是 C 扩展/内建：`math`/`itertools`）。本次不放开 stdlib 读面（放开需单独设计只读白名单）。
 > 2. **无 OS 级/内存隔离**：沙箱以 API 进程同用户执行；内存上限只覆盖输出通道（2×128KB），用户代码自身的内存分配未设限（后续可在 Job 上加 `ProcessMemoryLimit`）。
-> 3. **预加载 C 模块不可撤销**：`winreg`/`nt`/`_io` 等在解释器启动时已在 `sys.modules`，import 拦截管不到（注册表/文件元数据读取不在本层防护内；网络/进程事件仍被拒）。
+> 3. **预加载 C 模块不可撤销**：`winreg`/`nt`/`_io` 等在解释器启动时已在 `sys.modules`，import 拦截管不到；`winreg.*` 审计事件已加入 deny（OpenKey/CreateKey/SetValue/EnumKey 等被拒），但**未覆盖审计的非审计路径**（如部分查询/关闭 API）与 `os.listdir`/`os.scandir`/`os.stat` 元数据枚举仍可读到目录/路径信息（文件内容读取被 `open` 判据拒绝）。本层不宣称能完全阻断信息面。
 > 4. 超时/输出超限只能 kill 直接子进程；进程树级终止依赖可选 Job Object（默认关）。
 >
 > **当前风险受控**：唯一调用方 `_search_code` 执行的是硬编码常量脚本（`_default_code_script()`，不含任何查询文本），且 `evidence_enabled` 默认 `false` ⇒ 默认链路不执行代码。真要把 LLM 生成代码接进来，仍需容器/低权限账户级隔离（超出本仓库当前范围）。
