@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AccountPanel from './components/AccountPanel'
 import BeianLink from './components/BeianLink'
 import ShareModal from './components/ShareModal'
@@ -31,6 +31,7 @@ import {
 } from './lib/presentation'
 import { qualityVerdict } from './lib/quality'
 import { downloadPdfReport, downloadSyncReport } from './lib/reportExport'
+import { DRAFT_KEY, LAST_REQUEST_KEY } from './lib/sessionReset'
 import { passkeyAvailableForHost } from './lib/webauthn'
 import { workflowStages } from './lib/workflow'
 import type { LaunchParams } from './types/api'
@@ -41,11 +42,8 @@ import type {
   StateDeltaEvent,
 } from './types/agui'
 
-/** 上次实际发起参数（刷新恢复后「同参数重试」仍可用）。 */
-const LAST_REQUEST_KEY = 'dr.lastRequest'
-
-/** R3（审计 U43）：表单草稿 —— 刷新/误关页面不丢正在写的研究主题。 */
-const DRAFT_KEY = 'dr.draft'
+/** 会话级 storage 键（草稿 / 上次请求）由 `lib/sessionReset` 统一登记（审计 #328）：
+ * 登出时必须与运行域一起清除，避免刷新后把上一账号的草稿/参数填回表单。 */
 
 function readStoredDraft(): { topic: string; instructions: string } | null {
   try {
@@ -88,6 +86,30 @@ function storeLaunchParams(params: LaunchParams): void {
     sessionStorage.setItem(LAST_REQUEST_KEY, JSON.stringify(params))
   } catch {
     /* 隐私模式禁用 storage 时静默降级：只影响刷新后的「同参数重试」 */
+  }
+}
+
+/** 取 sessionStorage；隐私模式/隔离环境不可用时返回 null（登出流程不得中断）。 */
+function sessionStorageOrNull(): Storage | null {
+  try {
+    return sessionStorage
+  } catch {
+    return null
+  }
+}
+
+/** R3（审计 U43）+ #328：草稿落盘；**空草稿 = 删除键**（而不是写回空 JSON）。
+ *
+ * 为什么：登出时 `resetRunState()` 已清空 `dr.draft`，随后由 `setTopic('')` 触发的防抖
+ * 若照旧写回，会把刚清掉的键重新写出来——换账号后仍带着上一账号的「空草稿」痕迹。 */
+function persistDraft(draft: { topic: string; instructions: string }): void {
+  const storage = sessionStorageOrNull()
+  if (!storage) return
+  try {
+    if (!draft.topic && !draft.instructions) storage.removeItem(DRAFT_KEY)
+    else storage.setItem(DRAFT_KEY, JSON.stringify(draft))
+  } catch {
+    /* 只影响「刷新后保留草稿」，不影响本次输入 */
   }
 }
 
@@ -136,6 +158,7 @@ export default function App() {
     followupBusy,
     followupError,
     askFollowup,
+    resetRunState,
     start,
     resume,
     cancel,
@@ -287,24 +310,12 @@ export default function App() {
   const draftRef = useRef({ topic, instructions })
   useEffect(() => {
     draftRef.current = { topic, instructions }
-    const handle = window.setTimeout(() => {
-      try {
-        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draftRef.current))
-      } catch {
-        /* 只影响「刷新后保留草稿」，不影响本次输入 */
-      }
-    }, 500)
+    const handle = window.setTimeout(() => persistDraft(draftRef.current), 500)
     return () => window.clearTimeout(handle)
   }, [topic, instructions])
 
   useEffect(() => {
-    const flush = () => {
-      try {
-        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draftRef.current))
-      } catch {
-        /* 隐私模式禁用 storage 时静默降级 */
-      }
-    }
+    const flush = () => persistDraft(draftRef.current)
     window.addEventListener('pagehide', flush)
     window.addEventListener('beforeunload', flush)
     return () => {
@@ -312,6 +323,29 @@ export default function App() {
       window.removeEventListener('beforeunload', flush)
     }
   }, [])
+
+  /** 审计 #328：登出/注销/本机会话被撤销后，清空 App 级会话状态。
+   *
+   * 运行域（runId/events/result/reportPreview/在途 SSE/三个 sessionStorage 键）由
+   * `resetRunState()` 统一收口；这里负责 App 自己持有的表单、计时与导出态。
+   * 只在**登出成功之后**调用（登出失败仍保持原状态，见 AccountPanel.logout）。 */
+  const handleSignedOut = useCallback(() => {
+    resetRunState()
+    setTopic('')
+    setInstructions('')
+    draftRef.current = { topic: '', instructions: '' }
+    setLastRequest(null)
+    setRunStartedAt(null)
+    stoppedAtRef.current = null
+    setShareRunId(null)
+    setActiveCitation(null)
+    setExportState('idle')
+    setPdfState('idle')
+    setDocxState('idle')
+    setCopyState('idle')
+    setLaunchOpen(true)
+    setAnnouncement('已退出登录')
+  }, [resetRunState])
 
   const launch = (params: LaunchParams) => {
     // 从发起时刻开始计时（不是等第一个节点完成）
@@ -433,6 +467,7 @@ export default function App() {
         </div>
         <div className="mx-auto max-w-[1600px] px-4 pb-3 sm:px-6 lg:px-8">
           <AccountPanel authRequired={authRequired} activeRunId={runId ?? null} running={running}
+                        onSignedOut={handleSignedOut}
                         shareEnabled={Boolean(options?.share_enabled)}
                         passkeyEnabled={passkeyAvailableForHost(
                           Boolean(options?.webauthn?.available), options?.webauthn?.rp_id ?? '')} />
