@@ -115,10 +115,21 @@ docker image tag deepresearch-staging-api:latest "deepresearch-staging-api:rollb
 docker image tag deepresearch-staging-worker:latest "deepresearch-staging-worker:rollback-$PREV_SHA" 2>/dev/null || true
 step_done
 
-step_start "3) 源码快照（含未跟踪文件 → backups/）"
+step_start "3) 源码快照（排除 .env* / 备份公钥：明文密钥不得进 COS）"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-run_timeout 300 sudo -n tar czf "$APP_DIR/backups/src-pre-$STAMP.tar.gz" \
-    --exclude=./backups --exclude=./.git -C "$APP_DIR" . || die "源码快照失败"
+SNAP="$APP_DIR/backups/src-pre-$STAMP.tar.gz"
+# 审计 #326（High）：旧实现只排除 ./backups 与 ./.git，服务器 .env（全部生产密钥）
+# 会被打进 src-pre-*.tar.gz 并随 rclone 同步进 COS。这里显式排除 .env* 与备份公钥。
+run_timeout 300 sudo -n tar czf "$SNAP" \
+    --exclude=./backups --exclude=./.git \
+    --exclude=./.env --exclude='./.env.*' --exclude=./backup-recipient.crt \
+    -C "$APP_DIR" . || die "源码快照失败"
+# 快照旁留一份说明（不含密钥）：部署配置只在服务器 .env，不随快照分发
+printf '%s\n' \
+    "源码快照（$(date -Is)）" \
+    "已排除：./.env、./.env.*、./backup-recipient.crt、./backups、./.git" \
+    "部署配置（含密钥）只存在服务器 $APP_DIR/.env；本快照不得包含或替代它。" \
+    | sudo -n tee "$APP_DIR/backups/src-pre-$STAMP.README.txt" >/dev/null || true
 step_done
 
 step_start "4) git 同步（HTTP/1.1 + 重试；GitHub 自大陆服务器偶发断流）"
