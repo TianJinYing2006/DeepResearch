@@ -61,6 +61,11 @@ def test_share_create_view_revoke_flow(client: TestClient, store: FakeStore):
     assert revoked.status_code == 200 and revoked.json()["revoked"] is True
     assert client.get(f"/api/share/{token}").status_code == 404
     assert store.list_audit(action="share_revoked")
+    # 回归：所有者/审计 actor 必须是 user_id 字符串，而非 _run_owner 的元组
+    (share_row,) = store.report_shares.values()
+    assert share_row["created_by"] == "u1"
+    assert store.list_audit(action="share_created")[0]["actor_user_id"] == "u1"
+    assert store.list_audit(action="share_revoked")[0]["actor_user_id"] == "u1"
 
 
 def test_share_uniform_404_for_unknown_and_expired(client: TestClient, store: FakeStore):

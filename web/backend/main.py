@@ -3313,14 +3313,13 @@ def _share_state(row: dict) -> dict:
 def create_run_share(run_id: str, req: ShareCreateRequest, request: Request) -> dict:
     """创建/重建报告只读分享：一 run 单活跃链接（重建即撤销旧的）；token 明文只回一次。"""
     _share_enabled_or_404()
-    _authorize_run(request, run_id)
+    owner = _authorize_run(request, run_id) or ""
     _check_csrf(request)
     _enforce_output_policy(run_id)
     if store is None:
         raise http_error("persistence_unavailable", "分享需要任务库（DR_DATABASE_URL）")
     if _share_markdown(run_id) is None:
         raise http_error("report_unavailable", "本次运行没有产出报告")
-    owner = _run_owner(run_id) or ""
     token = new_token()
     share_id = uuid.uuid4().hex[:12]
     expires_at = (None if req.expires_days == 0
@@ -3351,13 +3350,13 @@ def get_run_share(run_id: str, request: Request) -> dict:
 def revoke_run_share(run_id: str, request: Request) -> dict:
     """撤销该 run 的活跃分享（立即失效）。"""
     _share_enabled_or_404()
-    _authorize_run(request, run_id)
+    owner = _authorize_run(request, run_id)
     _check_csrf(request)
     if store is None:
         raise http_error("persistence_unavailable", "分享需要任务库（DR_DATABASE_URL）")
     revoked = _store_call(store.revoke_report_share, run_id)
     if revoked:
-        _audit("share_revoked", request=request, actor_user_id=_run_owner(run_id),
+        _audit("share_revoked", request=request, actor_user_id=owner,
                target_id=run_id)
     return {"ok": True, "revoked": revoked}
 

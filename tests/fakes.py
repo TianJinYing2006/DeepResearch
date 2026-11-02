@@ -1742,6 +1742,8 @@ class FakeStore:
         return row["revoked_at"] is None and (row["expires_at"] is None or row["expires_at"] > now)
 
     def create_report_share(self, share_id, token_hash, run_id, created_by, expires_at):
+        # 与真实 Postgres 文本列一致：非 str 会被 psycopg 拒绝（曾因传入元组漏测）
+        assert isinstance(created_by, str), f"created_by 必须是 str，得到 {type(created_by)!r}"
         for row in self.report_shares.values():
             if row["run_id"] == run_id and row["revoked_at"] is None:
                 row["revoked_at"] = datetime.now(UTC)
