@@ -2276,8 +2276,18 @@ class RunStore:
 
     def create_report_share(self, share_id: str, token_hash: str, run_id: str, created_by: str,
                             expires_at: Optional[datetime]) -> None:
-        """创建分享：先撤销该 run 既有活跃链接（兄弟互斥），再插入新链接。"""
+        """创建分享：先锁 run 行，再撤销该 run 既有活跃链接（兄弟互斥），最后插入新链接。
+
+        #330：原实现只有「UPDATE 旧活跃 → INSERT」两条语句，READ COMMITTED 下两个并发
+        创建都能 UPDATE 0 行、再各自 INSERT ⇒ 同一 run 出现 2 条活跃链接。
+        现在先 `SELECT ... FROM runs FOR UPDATE` 串行化同一 run 的创建
+        （锁序与全仓一致：runs → report_shares）；0029 的唯一部分索引
+        `report_shares_run_active_uk` 是数据库级最终兜底（绕过应用锁也会被拒）。
+        """
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM runs WHERE run_id = %s FOR UPDATE", (run_id,))
+            if cur.fetchone() is None:
+                raise LookupError(f"run not found: {run_id}")
             cur.execute(
                 "UPDATE report_shares SET revoked_at = now() "
                 "WHERE run_id = %s AND revoked_at IS NULL",

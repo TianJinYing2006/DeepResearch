@@ -141,3 +141,79 @@ def test_runs_list_and_manage_endpoints_expose_share_state(client: TestClient):
     after = next(item for item in client.get("/api/runs").json()["runs"]
                  if item["run_id"] == "run-share-1")
     assert after["shared"] is False
+
+
+def test_share_recreate_leaves_single_active_link(client: TestClient, store: FakeStore):
+    """#330：连续两次创建 ⇒ 仅一条活跃链接，旧 token 失效（一 run 单活跃不变式）。"""
+    first = _token_of(client.post("/api/runs/run-share-1/share", json={"expires_days": 7}))
+    second = _token_of(client.post("/api/runs/run-share-1/share", json={"expires_days": 7}))
+
+    active = [row for row in store.report_shares.values() if row["revoked_at"] is None]
+    assert len(active) == 1, active
+    assert active[0]["token_hash"] == token_hash(second)
+    assert client.get(f"/api/share/{first}").status_code == 404
+    assert client.get(f"/api/share/{second}").status_code == 200
+
+    # 撤销后重建：仍然收敛为一条活跃链接（不因撤销/重建循环累积）
+    assert client.delete("/api/runs/run-share-1/share").status_code == 200
+    assert not [row for row in store.report_shares.values() if row["revoked_at"] is None]
+    third = _token_of(client.post("/api/runs/run-share-1/share", json={}))
+    assert len([row for row in store.report_shares.values() if row["revoked_at"] is None]) == 1
+    assert client.get(f"/api/share/{third}").status_code == 200
+
+
+def test_create_report_share_locks_run_before_revoke_and_insert(monkeypatch):
+    """#330：真实 RunStore 必须先锁 runs 行，再撤销旧活跃、最后插入（锁序 runs → report_shares）。
+
+    本机零依赖 lane 不连 PostgreSQL，故用假连接断言**语句顺序契约**（并发正确性的关键）；
+    唯一索引的行为兜底由 CI infra 的 `migrations/checks/0029_schema_assert.sql` 验证。
+    """
+    from web.backend.store import RunStore
+
+    statements: list[tuple[str, object]] = []
+
+    class _Cursor:
+        def __init__(self, lock_row: bool) -> None:
+            self._lock_row = lock_row
+
+        def execute(self, sql, params=None):
+            statements.append((sql, params))
+
+        def fetchone(self):
+            return (1,) if self._lock_row else None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class _Conn:
+        def __init__(self, lock_row: bool) -> None:
+            self._lock_row = lock_row
+
+        def cursor(self):
+            return _Cursor(self._lock_row)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    store = object.__new__(RunStore)
+    monkeypatch.setattr(store, "_connect", lambda: _Conn(lock_row=True))
+    store.create_report_share("sid", "tokenhash", "run-1", "u1", None)
+
+    sqls = [sql for sql, _ in statements]
+    assert len(sqls) == 3, sqls
+    assert "FROM runs" in sqls[0] and sqls[0].rstrip().endswith("FOR UPDATE"), sqls[0]
+    assert "UPDATE report_shares" in sqls[1] and "revoked_at = now()" in sqls[1]
+    assert "INSERT INTO report_shares" in sqls[2]
+
+    # run 不存在（锁行返回空）⇒ 明确报错，不再盲目 UPDATE/INSERT
+    statements.clear()
+    monkeypatch.setattr(store, "_connect", lambda: _Conn(lock_row=False))
+    with pytest.raises(LookupError):
+        store.create_report_share("sid2", "tokenhash2", "missing", "u1", None)
+    assert len(statements) == 1
