@@ -148,7 +148,7 @@ def test_enroll_then_step_up_login(client: TestClient, store: FakeStore):
     assert "mfa_enabled" in _actions(store)
 
     # 密码登录只拿到「半程会话」
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     login = _login(client)
     assert login.status_code == 200 and login.json() == {"mfa_required": True}
     assert client.get("/api/auth/session").status_code == 401     # 半程不得访问
@@ -176,7 +176,7 @@ def test_enroll_then_step_up_login(client: TestClient, store: FakeStore):
 def test_recovery_code_login_is_single_use(client: TestClient, store: FakeStore):
     assert _register(client).status_code == 200
     codes, _secret = _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
 
     assert _login(client).json() == {"mfa_required": True}
     ok = client.post("/api/auth/mfa/verify", json={"code": codes[0]}, headers=_csrf(client))
@@ -184,7 +184,7 @@ def test_recovery_code_login_is_single_use(client: TestClient, store: FakeStore)
     assert client.get("/api/auth/mfa").json()["recovery_codes_remaining"] == 9
 
     # 同一个恢复码不能再用
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     assert _login(client).json() == {"mfa_required": True}
     dup = client.post("/api/auth/mfa/verify", json={"code": codes[0]}, headers=_csrf(client))
     assert dup.status_code == 401
@@ -207,7 +207,7 @@ def test_disable_requires_password_and_code(client: TestClient, store: FakeStore
     assert status["enabled"] is False and status["recovery_codes_remaining"] == 0
 
     # 关闭后登录不再要求第二步
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     assert _login(client).status_code == 200
     assert client.get("/api/auth/session").status_code == 200
 
@@ -216,7 +216,7 @@ def test_key_lost_with_factor_fails_closed(monkeypatch, client: TestClient, stor
     """有因子但服务端密钥不可用 ⇒ 拒绝登录（防「删密钥即绕过第二步」）。"""
     assert _register(client).status_code == 200
     _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
 
     monkeypatch.delenv("DR_MFA_SECRET_KEY", raising=False)
     resp = _login(client)
@@ -244,7 +244,7 @@ def test_totp_code_cannot_be_replayed_across_sessions(client: TestClient,
     """
     assert _register(client).status_code == 200
     _codes, secret = _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
 
     # 会话 1：半程会话 → 用「下一步」码完成第二步（成功即原子消费该时间步）
     assert _login(client).json() == {"mfa_required": True}
@@ -269,7 +269,7 @@ def test_totp_code_cannot_be_reused_for_disable(client: TestClient, store: FakeS
     """同一会话内：已用于 step-up 的码不能再用于关闭 MFA（同会话重放也被拒）。"""
     assert _register(client).status_code == 200
     _codes, secret = _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     assert _login(client).json() == {"mfa_required": True}
     code = _fresh_code(secret)
     stepped = client.post("/api/auth/mfa/verify", json={"code": code}, headers=_csrf(client))
@@ -294,7 +294,7 @@ def test_mfa_verify_rate_limited(client: TestClient, monkeypatch, store: FakeSto
     """P0-2：登录 step-up 的验证码尝试必须限流（含正确验证码也不放行）。"""
     assert _register(client).status_code == 200
     _codes, secret = _enable_mfa(client)
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     assert _login(client).json() == {"mfa_required": True}
 
     monkeypatch.setattr(api, "MFA_VERIFY_LIMITER", _DenyLimiter())
