@@ -1701,13 +1701,22 @@ class RunStore:
             return len(cur.fetchall())
 
     def update_password(self, user_id: str, password_hash: str) -> bool:
+        """改密（需求 42）：同一事务内顺带作废该用户所有重置 token。
+
+        否则「改密前泄露/申请过的 reset 链接」在改密后仍可重置密码 —— 攻击者拿到
+        旧链接即可覆盖新密码，改密的「止损」语义失效。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE users SET password_hash = %s, updated_at = now() "
                 "WHERE user_id = %s RETURNING user_id",
                 (password_hash, user_id),
             )
-            return cur.fetchone() is not None
+            updated = cur.fetchone() is not None
+            if updated:
+                cur.execute(
+                    "DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
+            return updated
 
     def purge_expired_sessions(self) -> int:
         with self._connect() as conn, conn.cursor() as cur:

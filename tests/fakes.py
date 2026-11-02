@@ -937,6 +937,8 @@ class FakeStore:
         if row is None:
             return False
         row["password_hash"] = password_hash
+        # 需求 42：改密与作废旧重置 token 同事务（FakeStore 单线程，按原子语义同步）
+        self.delete_password_resets(user_id)
         return True
 
     # ---- 内容安全（P7-A）----

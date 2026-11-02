@@ -6,6 +6,7 @@ TOTP / 恢复码纯函数（漂移窗口、格式、归一化）。
 """
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
@@ -100,6 +101,21 @@ def test_recovery_code_normalization():
     assert normalize_recovery_code(" ab-cd ") == "ABCD"
     # 大小写 / 连字符 / 空格归一后同摘要
     assert hash_recovery_code(codes[0].lower().replace("-", " ")) == hash_recovery_code(codes[0])
+
+
+def test_recovery_codes_are_80_bit_and_unique():
+    """需求 42：恢复码 10 字节（80-bit）⇒ base32 16 字符 / 4 组，且互不重复。
+
+    旧实现 5 字节（40-bit）且只存无盐 SHA-256：库泄露时可离线穷举恢复码。
+    """
+    codes = new_recovery_codes()
+    assert len(codes) == 10 and len(set(codes)) == 10
+    assert all(re.fullmatch(r"(?:[A-Z2-7]{4}-){3}[A-Z2-7]{4}", code) for code in codes)
+    normalized = [normalize_recovery_code(code) for code in codes]
+    assert all(len(code) == 16 for code in normalized)
+    # 摘要仍然是归一化后的 SHA-256（哈希函数不变）
+    assert all(hash_recovery_code(code) == hash_recovery_code(code.replace("-", " "))
+               for code in codes)
 
 
 # ----------------------------------------------------------------- 接口
