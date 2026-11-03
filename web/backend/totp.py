@@ -22,8 +22,9 @@ DEFAULT_DIGITS = 6
 DEFAULT_WINDOW = 1
 
 RECOVERY_CODE_COUNT = 10
-#: 5 字节 → base32 8 字符（展示为 `XXXX-XXXX`）
-RECOVERY_CODE_BYTES = 5
+#: 需求 42：10 字节 → base32 16 字符（80-bit 熵；展示为 `XXXX-XXXX-XXXX-XXXX`）。
+#: 原 5 字节（40-bit）+ 无盐 SHA-256 持久化在库泄露时可离线穷举，故提升熵。
+RECOVERY_CODE_BYTES = 10
 
 
 def new_totp_secret() -> bytes:
@@ -88,11 +89,15 @@ def provisioning_uri(encoded_secret: str, *, account: str, issuer: str) -> str:
 
 
 def new_recovery_codes(count: int = RECOVERY_CODE_COUNT) -> list[str]:
-    """生成一次性恢复码明文（仅在生成响应中出现一次；持久化只存摘要）。"""
+    """生成一次性恢复码明文（仅在生成响应中出现一次；持久化只存摘要）。
+
+    需求 42：每码 10 字节（80-bit）随机 → base32 16 字符，展示为 4 组 4 字符；
+    哈希函数不变（`hash_recovery_code`，无盐 SHA-256 —— 熵足够时无需慢哈希）。
+    """
     codes = []
     for _ in range(count):
         raw = base64.b32encode(secrets.token_bytes(RECOVERY_CODE_BYTES)).decode("ascii")
-        codes.append(f"{raw[:4]}-{raw[4:8]}")
+        codes.append("-".join(raw[index:index + 4] for index in range(0, len(raw), 4)))
     return codes
 
 
