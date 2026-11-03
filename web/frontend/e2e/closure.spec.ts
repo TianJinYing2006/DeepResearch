@@ -28,9 +28,14 @@ test.describe('收口回归（桌面端）', () => {
     await page.goto('/')
     // 分流：未登录访客先看落地页 → CTA 进入登录注册页
     await expect(page.getByTestId('landing-page')).toBeVisible()
+    // 审计 #336：全屏 portal 打开时背景 #root 必须 inert，焦点落在落地页标题（不再 Tab 进被遮住的工作台）
+    expect(await page.evaluate(() => document.getElementById('root')?.hasAttribute('inert') ?? null)).toBe(true)
+    await expect(page.locator('#landing-title')).toBeFocused()
     await page.getByTestId('landing-cta').click()
     const gate = page.getByTestId('auth-gate')
     await expect(gate).toBeVisible()
+    // 落地页卸载后恢复背景可交互（登录门自己负责焦点陷阱）
+    expect(await page.evaluate(() => document.getElementById('root')?.hasAttribute('inert') ?? null)).toBe(false)
     await expect(gate.getByRole('heading', { name: '登录爱考据 iKaoju' })).toBeVisible()
 
     await gate.getByRole('button', { name: '没有账号？去注册' }).click()
@@ -213,11 +218,16 @@ test.describe('收口回归（桌面端）', () => {
     await page.route('**/api/auth/account', (route) =>
       route.fulfill({ json: { ok: true, deletion_request_id: 'del123', rag_cleanup: 'pending' } }),
     )
-    page.on('dialog', (dialog) => void dialog.accept('password1234'))
 
     await page.goto('/')
     await expect(page.getByTestId('account-email')).toHaveText('bye@example.com')
     await page.getByTestId('delete-account').click()
+
+    // 审计 #336：注销密码走确认弹窗（type=password），不再用 window.prompt
+    await expect(page.getByTestId('password-confirm')).toBeVisible()
+    await expect(page.getByTestId('password-confirm-input')).toHaveAttribute('type', 'password')
+    await page.getByTestId('password-confirm-input').fill('password1234')
+    await page.getByTestId('password-confirm-submit').click()
 
     // 注销后回到落地页；进入登录页可见「账号已注销」提示（P0-7 outbox 语义）
     await expect(page.getByTestId('landing-page')).toBeVisible()
@@ -267,10 +277,16 @@ test.describe('收口回归（桌面端）', () => {
     await expect(page.getByTestId('session-current')).toHaveCount(1)
     await expect(page.getByTestId('security-panel')).toContainText('iPhone')
 
-    // 退出其他设备需重认证（密码确认）→ 列表刷新为仅剩当前设备
-    page.once('dialog', (dialog) => void dialog.accept('password1234'))
+    // 退出其他设备需重认证（密码确认弹窗）→ 列表刷新为仅剩当前设备
     await page.getByTestId('session-revoke-others').click()
+    await expect(page.getByTestId('password-confirm')).toBeVisible()
+    await page.getByTestId('password-confirm-input').fill('password1234')
+    await page.getByTestId('password-confirm-submit').click()
     await expect(page.getByTestId('security-notice')).toContainText('已退出其他设备（1 个）')
     await expect(page.getByTestId('session-item')).toHaveCount(1)
+
+    // 审计 #336：历史搜索框必须有可访问名称（不能只靠 placeholder）
+    await page.getByTestId('history-toggle').click()
+    await expect(page.getByTestId('history-search')).toHaveAttribute('aria-label', '搜索历史主题')
   })
 })
