@@ -15,9 +15,11 @@ INSERT INTO runs (run_id, topic) VALUES ('__assert_0021_run__', 't');
 INSERT INTO report_shares (share_id, token_hash, run_id, created_by)
 VALUES ('__assert_0021_share__', '__assert_0021_token__', '__assert_0021_run__', '__assert_0021_user__');
 
-INSERT INTO report_shares (share_id, token_hash, run_id, created_by, expires_at)
+INSERT INTO report_shares (share_id, token_hash, run_id, created_by, expires_at, revoked_at)
 VALUES ('__assert_0021_share2__', '__assert_0021_token2__', '__assert_0021_run__',
-        '__assert_0021_user__', now() + interval '30 days');
+        '__assert_0021_user__', now() + interval '30 days', now());
+-- ↑ 设为已撤销：迁移 0029 起「一 run 一条活跃链接」（report_shares_run_active_uk 唯一部分索引），
+--   本行仅验证 expires_at 可赋非空值，不应再制造第二条活跃链接（合并态兼容，见需求 42 #329）。
 
 DO $$
 DECLARE
@@ -34,25 +36,25 @@ END $$;
 DO $$
 BEGIN
     BEGIN
-        INSERT INTO report_shares (share_id, token_hash, run_id, created_by)
+        INSERT INTO report_shares (share_id, token_hash, run_id, created_by, revoked_at)
         VALUES ('__assert_0021_share_dup_token__', '__assert_0021_token__',
-                '__assert_0021_run__', '__assert_0021_user__');
+                '__assert_0021_run__', '__assert_0021_user__', now());
         RAISE EXCEPTION 'schema assert: report_shares accepted duplicate token_hash';
     EXCEPTION WHEN unique_violation THEN
         NULL;
     END;
     BEGIN
-        INSERT INTO report_shares (share_id, token_hash, run_id, created_by)
+        INSERT INTO report_shares (share_id, token_hash, run_id, created_by, revoked_at)
         VALUES ('__assert_0021_share_null_token__', NULL,
-                '__assert_0021_run__', '__assert_0021_user__');
+                '__assert_0021_run__', '__assert_0021_user__', now());
         RAISE EXCEPTION 'schema assert: report_shares.token_hash accepted NULL';
     EXCEPTION WHEN not_null_violation THEN
         NULL;
     END;
     BEGIN
-        INSERT INTO report_shares (share_id, token_hash, run_id, created_by)
+        INSERT INTO report_shares (share_id, token_hash, run_id, created_by, revoked_at)
         VALUES ('__assert_0021_share__', '__assert_0021_token3__',
-                '__assert_0021_run__', '__assert_0021_user__');
+                '__assert_0021_run__', '__assert_0021_user__', now());
         RAISE EXCEPTION 'schema assert: report_shares accepted duplicate share_id';
     EXCEPTION WHEN unique_violation THEN
         NULL;
