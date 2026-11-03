@@ -200,6 +200,8 @@ class FakeStore:
         self.user_consents: dict[tuple, dict] = {}
         # 需求 26：报告只读分享（token_hash → 行）
         self.report_shares: dict[str, dict] = {}
+        # 需求 38：异步导出作业（#320 注销时 user_id 置 NULL 的镜像）
+        self.export_jobs: dict[str, dict] = {}
         # 需求 34 E1：网页快照本体（sha256 → 行）与 run 关联（run_id → {sha256}）
         self.snapshots: dict[str, dict] = {}
         self.run_snapshots: dict[str, set] = {}
@@ -1086,7 +1088,19 @@ class FakeStore:
 
     def request_account_deletion(self, request_id, user_id, *,
                                  targets=("qdrant",), payload=None):
-        """与 RunStore.request_account_deletion 同语义（同事务：台账 + outbox + 删用户）。"""
+        """与 RunStore.request_account_deletion 同语义（#320：同事务清关联 + 快照清理目标）。"""
+        outbox_payload = dict(payload or {})
+        outbox_payload.setdefault("user_id", user_id)
+        if "qdrant" in targets:
+            outbox_payload.setdefault(
+                "quarantine_files",
+                [row["stored_name"] for row in self.ingestions.values()
+                 if row["user_id"] == user_id and row["status"] != "deleted"
+                 and row["stored_name"]])
+            outbox_payload.setdefault(
+                "rag_doc_ids",
+                [row["doc_id"] for row in self.ingestions.values()
+                 if row["user_id"] == user_id and row["status"] != "deleted"])
         self.deletions[request_id] = {
             "request_id": request_id, "user_id": user_id, "status": "pending",
             "attempts": 0, "last_error": None, "requested_at": datetime.now(UTC),
@@ -1099,10 +1113,26 @@ class FakeStore:
             self._deletion_outbox_seq += 1
             self.deletion_outbox[key] = {
                 "id": self._deletion_outbox_seq, "request_id": request_id, "target": target,
-                "payload": dict(payload or {"user_id": user_id}), "status": "pending",
+                "payload": dict(outbox_payload), "status": "pending",
                 "attempts": 0, "next_attempt_at": datetime.now(UTC),
                 "lease_expires_at": None, "claimed_by": None, "last_error": None,
             }
+        # #320：同事务断开本地关联（与真实 RunStore 的 SQL 顺序一致）
+        now = datetime.now(UTC)
+        for row in self.report_shares.values():
+            if row["created_by"] == user_id and row["revoked_at"] is None:
+                row["revoked_at"] = now
+        self.user_consents = {key: value for key, value in self.user_consents.items()
+                              if key[0] != user_id}
+        for row in self.ingestions.values():
+            if row["user_id"] == user_id and row["status"] != "deleted":
+                row.update(status="deleted", stored_name="", source="(deleted)", user_id=None)
+        for reservation in self.quota_reservations.values():
+            if reservation.get("user_id") == user_id:
+                reservation["user_id"] = None
+        for job in self.export_jobs.values():
+            if job.get("user_id") == user_id:
+                job["user_id"] = None
         self.delete_user(user_id)
 
     def claim_deletion_outbox(self, claimed_by, lease_seconds, limit=5):
@@ -1283,7 +1313,7 @@ class FakeStore:
         count = 0
         for row in self.ingestions.values():
             if row["user_id"] == user_id and row["status"] != "deleted":
-                row.update(status="deleted", stored_name="", source="(deleted)")
+                row.update(status="deleted", stored_name="", source="(deleted)", user_id=None)
                 count += 1
         return count
 

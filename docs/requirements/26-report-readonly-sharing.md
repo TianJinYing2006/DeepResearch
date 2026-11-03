@@ -107,7 +107,10 @@ access_count int NOT NULL DEFAULT 0
 - `store.py`：`create_report_share`（事务：撤销旧活跃 → 插入）、`get_active_share(run_id)`、`resolve_share(token_hash)`（含 run 存在性/报告可用性判定）、`revoke_report_share(run_id)`、`touch_share_access(token_hash)`（访问计数 + 时间）、`purge_expired_shares`（存储卫生，保留撤销/过期 30 天供审计）、`list_report_shares`；
 - `main.py`：三个所有者端点（登录 + CSRF + 归属校验 `_authorize_run`）+ 免登录 `GET /api/share/{token}`（限流 → resolve → 审核闸 → 返回 `{topic, markdown, generated_at, expires_at}`，响应头按 D3）；
 - 错误码：`share_disabled`（功能关闭 404 或 403？——用 404 不泄露功能存在；实施时选 404 + 文案「未找到」）、`share_not_found`（统一 404）；
-- `deletion.py`：账号注销连带删除其创建的分享（随 runs CASCADE 已覆盖 run；created_by 线索保留在审计）。
+- 账号注销擦除（#320）：`store.request_account_deletion` 在**同一事务**内执行
+  `UPDATE report_shares SET revoked_at = now() WHERE created_by = %s AND revoked_at IS NULL`
+  —— `created_by` 无外键、不随删用户级联，旧实现漏了这一步（永久链接在注销后仍匿名可读）；
+  撤销行保留供审计，run 删除仍由 FK CASCADE 兜底。
 
 ### 5.3 前端
 

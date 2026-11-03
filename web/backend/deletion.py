@@ -84,7 +84,8 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
     target = item["target"]
     if target != "qdrant":
         raise RuntimeError(f"unknown deletion target: {target}")
-    user_id = (item.get("payload") or {}).get("user_id")
+    payload = item.get("payload") or {}
+    user_id = payload.get("user_id")
     if not user_id:
         raise RuntimeError("outbox payload missing user_id")
 
@@ -104,7 +105,12 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
     # P0-8b：隔离区原文清理（失败同样进入退避重试）
     from .ingestion import quarantine_path
 
-    for name in store.list_ingestion_files_for_user(user_id):
+    # #320：注销事务已把 rag_ingestions 的账号关联置 NULL，清理目标由 payload 快照提供；
+    # 旧 outbox 行（本次改动前入队、无快照）仍按 user_id 回查，保持向后兼容。
+    files = payload.get("quarantine_files")
+    if files is None:
+        files = store.list_ingestion_files_for_user(user_id)
+    for name in files:
         if not name:
             continue
         try:
@@ -112,7 +118,10 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
         except FileNotFoundError:
             pass
     # 需求 23：三层数据随账号注销删除（快照 / 分块 / 版本行；向量已按用户删除）
-    for doc_id in store.list_rag_doc_ids_for_user(user_id):
+    doc_ids = payload.get("rag_doc_ids")
+    if doc_ids is None:
+        doc_ids = store.list_rag_doc_ids_for_user(user_id)
+    for doc_id in doc_ids:
         store.delete_rag_layers(doc_id)
     store.mark_ingestions_deleted_for_user(user_id)
     store.bump_rag_revision()
