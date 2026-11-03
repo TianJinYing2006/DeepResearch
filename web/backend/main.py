@@ -114,7 +114,12 @@ from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profil
 from .queue import RunQueue
 from .ratelimit import make_limiter
 from .runner import RunManager, _estimate_cost_cny
-from .security_headers import SecurityHeadersMiddleware
+from .security_headers import (
+    SecurityHeadersMiddleware,
+    StaticCacheMiddleware,
+    dsn_origin,
+    merge_connect_src,
+)
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 from .totp import (
     encode_secret as totp_encode_secret,
@@ -305,8 +310,16 @@ ENV = _parse_env()
 app.add_middleware(
     SecurityHeadersMiddleware,
     env=ENV,
-    connect_src_extra=(os.getenv("DR_CSP_CONNECT_SRC") or "").strip(),
+    # 审计 M-18：DR_CSP_CONNECT_SRC 显式配置 + 前端 Sentry DSN 自动推导 origin
+    # （否则「开了前端错误上报但忘配 CSP」会被浏览器静默拦截，且无任何告警）。
+    connect_src_extra=merge_connect_src(
+        os.getenv("DR_CSP_CONNECT_SRC") or "",
+        dsn_origin(os.getenv("DR_SENTRY_DSN_FRONTEND") or ""),
+    ),
 )
+# 审计 F9：静态资源缓存策略（/assets/* 长缓存、index.html 与 /s/ 壳 no-cache），
+# 避免发版后浏览器沿用旧 index 引用已删除的旧哈希资源导致白屏。
+app.add_middleware(StaticCacheMiddleware)
 
 
 def _validate_runtime_config() -> None:
@@ -1404,6 +1417,12 @@ def auth_session(request: Request) -> dict:
 MFA_ISSUER = "爱考据 iKaoju"
 
 
+class MfaBeginRequest(BaseModel):
+    """P0-2c：开始绑定 TOTP 前必须重新输入当前密码（防被劫持会话绑定攻击者因子）。"""
+
+    current_password: str = Field(..., min_length=1, max_length=200)
+
+
 class MfaCodeRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=32)
 
@@ -1472,14 +1491,22 @@ def mfa_status(request: Request) -> dict:
 
 
 @app.post("/api/auth/mfa/totp/begin")
-def mfa_totp_begin(request: Request) -> dict:
-    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。"""
+def mfa_totp_begin(req: MfaBeginRequest, request: Request) -> dict:
+    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。
+
+    P0-2c：与 Passkey 添加一致，须重新输入当前密码 —— 仅凭会话 Cookie 不得绑定
+    第二因子（否则被盗会话可给账号绑定攻击者的 TOTP 并取走恢复码，受害者自锁）。
+    """
     _check_csrf(request)
     user = _require_session_user(request)
     _require_mfa_ready()
     if not MFA_ENROLL_LIMITER.allow(f"mfa-enroll:{user['user_id']}"):
         _audit("mfa_enroll_rate_limited", request=request, actor_user_id=user["user_id"])
         raise http_error("rate_limited", "MFA 操作过于频繁，稍后再试")
+    if not verify_password(user["password_hash"], req.current_password):
+        _audit("mfa_enroll_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "bad_password"})
+        raise http_error("invalid_credentials", "密码不正确")
     if _store_call(store.get_mfa_factor, user["user_id"]) is not None:
         raise http_error("mfa_already_enabled", "已启用 MFA；如需换绑请先关闭")
     secret = new_totp_secret()

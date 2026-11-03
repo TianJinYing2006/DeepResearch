@@ -66,10 +66,14 @@ def _login(client: TestClient):
 def _logout(client: TestClient):
     """需求 42：登出必须带 CSRF 双提交头。"""
     return client.post("/api/auth/logout", headers=_csrf(client))
+def _begin_mfa(client: TestClient, password: str = PASSWORD):
+    """开始绑定 TOTP：P0-2c 起必须携带当前密码。"""
+    return client.post("/api/auth/mfa/totp/begin",
+                       json={"current_password": password}, headers=_csrf(client))
 
 
 def _enable_mfa(client: TestClient) -> tuple[list[str], bytes]:
-    started = client.post("/api/auth/mfa/totp/begin", headers=_csrf(client))
+    started = _begin_mfa(client)
     assert started.status_code == 200, started.text
     assert started.json()["otpauth_uri"].startswith("otpauth://totp/")
     secret = decode_secret(started.json()["secret"])
@@ -114,7 +118,7 @@ def test_unconfigured_key_is_explicit(monkeypatch, client: TestClient):
     assert _register(client).status_code == 200
     status = client.get("/api/auth/mfa").json()
     assert status["available"] is False and status["enabled"] is False
-    resp = client.post("/api/auth/mfa/totp/begin", headers=_csrf(client))
+    resp = _begin_mfa(client)
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "mfa_unconfigured"
 
@@ -271,7 +275,39 @@ def test_mfa_enroll_rate_limited(client: TestClient, monkeypatch, store: FakeSto
     """P0-2：MFA 绑定/关闭接口同样限流。"""
     assert _register(client).status_code == 200
     monkeypatch.setattr(api, "MFA_ENROLL_LIMITER", _DenyLimiter())
-    resp = client.post("/api/auth/mfa/totp/begin", headers=_csrf(client))
+    resp = _begin_mfa(client)
     assert resp.status_code == 429
     assert resp.json()["detail"]["code"] == "rate_limited"
     assert "mfa_enroll_rate_limited" in _actions(store)
+
+
+def test_totp_begin_requires_current_password(client: TestClient, store: FakeStore) -> None:
+    """P0-2c：绑定第二因子必须重新输入当前密码，且失败不得产生待确认因子。
+
+    攻击前提：会话 Cookie 被窃（恶意软件 / 备份泄漏）。若 begin 只凭会话即可调用，
+    攻击者可拿到新 secret → 绑定自己的 TOTP → 取走 10 枚恢复码；受害者仅凭密码
+    既登不进去（半程会话被拒）也关不掉（需 code），账号自锁且攻击者获得持久因子。
+    """
+    assert _register(client).status_code == 200
+    user_id = client.get("/api/auth/session").json()["user"]["user_id"]
+
+    # 缺 current_password ⇒ 请求层 422（连业务逻辑都进不去）
+    missing = client.post("/api/auth/mfa/totp/begin", headers=_csrf(client))
+    assert missing.status_code == 422
+
+    # 错误密码 ⇒ 401 invalid_credentials；**不产生 pending 因子**（拿不到 secret）
+    wrong = _begin_mfa(client, "wrong-password-123456")
+    assert wrong.status_code == 401
+    assert wrong.json()["detail"]["code"] == "invalid_credentials"
+    assert store.get_mfa_factor(user_id, confirmed=False) is None
+    assert client.get("/api/auth/mfa").json()["enabled"] is False
+    failed = [row for row in store.audits if row["action"] == "mfa_enroll_failed"]
+    assert failed and failed[-1]["detail"] == {"reason": "bad_password"}
+    assert failed[-1]["actor_user_id"] == user_id
+
+    # 正确密码 ⇒ 200 且暂存待确认因子（既有绑定路径不回归，随后可 confirm）
+    ok = _begin_mfa(client)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["secret"]
+    pending = store.get_mfa_factor(user_id, confirmed=False)
+    assert pending is not None
