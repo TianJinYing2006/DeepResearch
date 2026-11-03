@@ -9,7 +9,14 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from web.backend.security_headers import SecurityHeadersMiddleware, build_security_headers
+from web.backend.security_headers import (
+    SecurityHeadersMiddleware,
+    StaticCacheMiddleware,
+    build_cache_control,
+    build_security_headers,
+    dsn_origin,
+    merge_connect_src,
+)
 
 
 def test_local_env_has_csp_but_no_hsts() -> None:
@@ -67,3 +74,86 @@ def test_fastapi_app_has_security_headers() -> None:
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
     assert "Strict-Transport-Security" not in response.headers
+
+
+# ---------------------------------------------------------------------------
+# 审计 #334：CSP ↔ 前端 Sentry 自动推导 + 静态资源缓存策略
+# ---------------------------------------------------------------------------
+
+
+def test_dsn_origin_extracts_ingest_origin() -> None:
+    assert dsn_origin("https://abc123@errors.example.cn/2") == "https://errors.example.cn"
+    assert dsn_origin("http://key@127.0.0.1:8080/1") == "http://127.0.0.1:8080"
+    assert dsn_origin("") == ""
+    assert dsn_origin("not-a-dsn") == ""
+    assert dsn_origin("ftp://example.com/1") == ""
+
+
+def test_merge_connect_src_dedupes_and_keeps_order() -> None:
+    merged = merge_connect_src(
+        "", "https://errors.example.cn https://cdn.example.cn", "https://errors.example.cn"
+    )
+    assert merged == "https://errors.example.cn https://cdn.example.cn"
+    assert merge_connect_src("", "") == ""
+
+
+def test_frontend_sentry_dsn_auto_extends_csp_connect_src(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """配置 DR_SENTRY_DSN_FRONTEND 而未配 DR_CSP_CONNECT_SRC 时，CSP 也必须放行上报域。"""
+    import importlib
+
+    retried = False
+    while True:
+        monkeypatch.setenv("DR_SENTRY_DSN_FRONTEND", "https://key@errors.example.cn/2")
+        monkeypatch.delenv("DR_CSP_CONNECT_SRC", raising=False)
+        monkeypatch.delenv("DR_ENV", raising=False)
+        try:
+            module = importlib.import_module("web.backend.main")
+            module = importlib.reload(module)
+            break
+        except Exception:  # noqa: BLE001 - 仅用于在异常状态下重试一次导入
+            if retried:
+                raise
+            retried = True
+    csp = module.app.user_middleware
+    # 从中间件构造参数里取 env/connect_src_extra（Starlette 以 Middleware(**kwargs) 存储）
+    kwargs = next(m.kwargs for m in csp if m.cls is SecurityHeadersMiddleware)
+    assert "https://errors.example.cn" in kwargs["connect_src_extra"]
+
+
+def test_build_cache_control_policy() -> None:
+    assert build_cache_control("/assets/index-abc123.js") == "public, max-age=31536000, immutable"
+    assert build_cache_control("/") == "no-cache"
+    assert build_cache_control("/index.html") == "no-cache"
+    assert build_cache_control("/s/share-token") == "no-cache"
+    assert build_cache_control("/api/health/live") is None
+    assert build_cache_control("/api/research/abc/stream") is None
+
+
+def test_static_cache_middleware_sets_headers_and_preserves_existing() -> None:
+    async def asset(request):  # noqa: ANN001
+        return PlainTextResponse("js")
+
+    async def shell(request):  # noqa: ANN001
+        return PlainTextResponse("<html/>")
+
+    async def api(request):  # noqa: ANN001
+        return PlainTextResponse("ok", headers={"Cache-Control": "no-store"})
+
+    app = Starlette(
+        routes=[
+            Route("/assets/index-abc.js", asset),
+            Route("/", shell),
+            Route("/api/thing", api),
+        ]
+    )
+    app.add_middleware(StaticCacheMiddleware)
+    client = TestClient(app)
+
+    assert client.get("/assets/index-abc.js").headers["cache-control"] == (
+        "public, max-age=31536000, immutable"
+    )
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    # 应用自己设置的 Cache-Control 不被覆盖（API 仍是 no-store）
+    assert client.get("/api/thing").headers["cache-control"] == "no-store"
