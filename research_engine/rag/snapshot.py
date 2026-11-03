@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 _HEADING_MD = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _FENCE = re.compile(r"^\s*```")
@@ -25,6 +26,19 @@ _TABLE_ROW = re.compile(r"^\s*\|(.+)\|\s*$")
 _TABLE_SEP = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 _PDF_NUM_HEADING = re.compile(
     r"^\s*(?:第[一二三四五六七八九十百\d]+[章节篇]|[一二三四五六七八九十]+、|\d+(?:\.\d+)*[、.．]?\s+\S)")
+
+
+def _check_deadline(deadline: Optional[float]) -> None:
+    """协作式解析墙钟（#325）：越过 monotonic 截止点即抛 `IngestLimitExceeded`。
+
+    只在**协作点**检查（PDF 逐页 / DOCX 逐段逐表），不抢占式 kill 线程——
+    与旧 `research_engine.rag.ingest` 管线同口径；单次 `get_text()` 内部挂死仍无法中断
+    （Python 线程边界，如实写进 PR 局限，不假装是硬超时）。
+    """
+    if deadline is not None and time.monotonic() > deadline:
+        from research_engine.rag.ingest import IngestLimitExceeded  # 懒加载：避免模块级重依赖
+
+        raise IngestLimitExceeded("解析超时（超过 parse_timeout_seconds 上限）")
 
 
 @dataclass(frozen=True)
@@ -124,13 +138,15 @@ def parse_markdown_blocks(text: str) -> List[SnapshotBlock]:
 # ------------------------------------------------------------------ DOCX
 
 
-def parse_docx_blocks(path: str) -> List[SnapshotBlock]:
+def parse_docx_blocks(path: str, *, deadline: Optional[float] = None) -> List[SnapshotBlock]:
     import docx  # 懒加载
 
+    _check_deadline(deadline)
     doc = docx.Document(path)
     blocks: List[SnapshotBlock] = []
     path_stack: List[str] = []
     for paragraph in doc.paragraphs:
+        _check_deadline(deadline)
         text = (paragraph.text or "").strip()
         if not text:
             continue
@@ -145,6 +161,7 @@ def parse_docx_blocks(path: str) -> List[SnapshotBlock]:
             blocks.append(SnapshotBlock(kind="paragraph", text=text,
                                         title_path=tuple(path_stack)))
     for table in getattr(doc, "tables", []):
+        _check_deadline(deadline)
         rows = [[(cell.text or "").strip() for cell in row.cells] for row in table.rows]
         if rows:
             blocks.append(SnapshotBlock(kind="table", text=_table_text(rows),
@@ -156,10 +173,11 @@ def parse_docx_blocks(path: str) -> List[SnapshotBlock]:
 # ------------------------------------------------------------------ PDF
 
 
-def parse_pdf_blocks(path: str) -> List[SnapshotBlock]:
+def parse_pdf_blocks(path: str, *, deadline: Optional[float] = None) -> List[SnapshotBlock]:
     """PDF：按页抽取，保守识别编号标题；locator 记录页码（1-based）。"""
     from pypdf import PdfReader  # 懒加载
 
+    _check_deadline(deadline)
     reader = PdfReader(path)
     from config import config as _config  # 懒加载（保持模块可独立测试）
 
@@ -168,6 +186,7 @@ def parse_pdf_blocks(path: str) -> List[SnapshotBlock]:
     blocks: List[SnapshotBlock] = []
     path_stack: List[str] = []
     for page_number, page in enumerate(reader.pages, start=1):
+        _check_deadline(deadline)
         text = page.extract_text() or ""
         para: List[str] = []
 
@@ -303,13 +322,17 @@ def parse_xlsx_blocks(path: str, *, max_rows: int = 5000) -> List[SnapshotBlock]
 # ------------------------------------------------------------------ Dispatcher
 
 
-def snapshot_file(path: str) -> List[SnapshotBlock]:
-    """按扩展名解析为结构快照（与 upload_guard 白名单一致）。"""
+def snapshot_file(path: str, *, deadline: Optional[float] = None) -> List[SnapshotBlock]:
+    """按扩展名解析为结构快照（与 upload_guard 白名单一致）。
+
+    `deadline` 是 monotonic 截止点（#325）：仅 PDF / DOCX 的解析循环协作检查；
+    MD / TXT / HTML / PPTX / XLSX 为内存态快速路径，不单独限墙钟。
+    """
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
-        return parse_pdf_blocks(path)
+        return parse_pdf_blocks(path, deadline=deadline)
     if ext == ".docx":
-        return parse_docx_blocks(path)
+        return parse_docx_blocks(path, deadline=deadline)
     if ext in (".md", ".markdown", ".txt", ".text"):
         with open(path, encoding="utf-8", errors="ignore") as handle:
             return parse_markdown_blocks(handle.read())

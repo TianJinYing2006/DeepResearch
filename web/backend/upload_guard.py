@@ -21,6 +21,23 @@ MAX_FILENAME_CHARS = 120
 DOCX_MAX_ENTRIES = 2000
 DOCX_MAX_EXPANSION_RATIO = 50  # 解压后总大小 / 压缩包大小 上限（zip bomb 防护）
 
+
+def _max_expanded_bytes() -> int:
+    """OOXML 解压后**绝对**上限（字节）；`DR_UPLOAD_MAX_EXPANDED_MB` 默认 64MB。
+
+    #325：只有比值闸时，攻击者可用高压缩 padding 条目把「解压比」稀释到 50 以下
+    （实测 275KB packed / 4.45MB expanded 可通过），10MiB 上传仍可膨胀到数百 MiB；
+    绝对值闸（单成员 + 全包总量）才真正封住 worker 内存上限。
+    """
+    try:
+        megabytes = float(os.getenv("DR_UPLOAD_MAX_EXPANDED_MB", "64") or 64)
+    except ValueError:
+        megabytes = 64.0
+    return int(max(megabytes, 1.0) * 1024 * 1024)
+
+
+MAX_EXPANDED_BYTES = _max_expanded_bytes()
+
 ALLOWED_EXT = {".pdf", ".docx", ".pptx", ".xlsx", ".md", ".markdown",
                ".txt", ".text", ".html", ".htm"}
 
@@ -111,7 +128,7 @@ _OOXML_MARKERS = {".docx": "word/", ".pptx": "ppt/", ".xlsx": "xl/"}
 
 
 def _validate_ooxml_zip(path: str, ext: str) -> None:
-    """OOXML 结构校验（需求 23 扩展 pptx/xlsx）：内部标记 + 解压比（zip bomb 防护）。"""
+    """OOXML 结构校验（需求 23 扩展 pptx/xlsx）：内部标记 + 绝对/比值解压上限。"""
     marker = _OOXML_MARKERS.get(ext, "word/")
     label = ext.lstrip(".").upper()
     try:
@@ -127,6 +144,18 @@ def _validate_ooxml_zip(path: str, ext: str) -> None:
                                      f"{label} 结构校验失败（缺少 {marker} 内容）")
             packed = os.path.getsize(path)
             expanded = sum(info.file_size for info in infos)
+            # #325：绝对上限优先于比值——padding 条目可把比值稀释到阈值以下。
+            for info in infos:
+                if info.file_size > MAX_EXPANDED_BYTES:
+                    raise UploadRejected(
+                        "unsupported_file_type",
+                        f"{label} 内部单个条目解压后过大（疑似压缩炸弹）",
+                        detail=f"member={info.filename[:64]};size>{MAX_EXPANDED_BYTES}")
+            if expanded > MAX_EXPANDED_BYTES:
+                raise UploadRejected(
+                    "unsupported_file_type",
+                    f"{label} 解压后总规模超限（疑似压缩炸弹）",
+                    detail=f"expanded>{MAX_EXPANDED_BYTES}")
             if packed > 0 and expanded > packed * DOCX_MAX_EXPANSION_RATIO:
                 raise UploadRejected("unsupported_file_type",
                                      f"{label} 解压比例异常（疑似压缩炸弹）")
