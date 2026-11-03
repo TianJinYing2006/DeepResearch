@@ -307,3 +307,49 @@ def test_audit_records_hash_not_raw_text(monkeypatch):
     assert seen[0][1]["detail"]["request_hash"]
     assert seen[0][1]["actor_user_id"] == "mcp:ikaoju"
     assert seen[1][1]["detail"]["run_id"] == "run-xyz"
+
+
+# ---- #340（D-12 / D-13）：外部内容净化 + 非 HTTP scope fail-closed ----
+
+
+def test_quick_search_strips_invisible_chars_from_results(monkeypatch):
+    """#340（D-12）：provider 的 title/snippet 是不可信外部内容，返回前必须 strip 不可见字符。"""
+    provider = FakeProvider(_resp([
+        SearchResult(title="标题\u200b\u202e", url="https://e.com/a",
+                     snippet="摘要\u2060\ufeff"),
+    ]))
+    monkeypatch.setattr(mcp_server, "create_search_provider", lambda name: provider)
+
+    out = mcp_server.quick_search("q")
+    assert out["results"][0]["title"] == "标题"
+    assert out["results"][0]["snippet"] == "摘要"
+
+
+def test_non_http_scope_is_not_passed_through(mcp_token):
+    """#340（D-13）：websocket / 未知 scope 不得直接透传（否则绕过 Bearer 鉴权）。
+
+    仅 lifespan 放行（FastMCP session manager 依赖）；websocket 按 1008 关闭。
+    """
+    calls = []
+
+    async def downstream(scope, receive, send):
+        calls.append(scope["type"])
+
+    async def receive():
+        return {"type": "websocket.disconnect"}
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    auth = mcp_server._BearerAuth(downstream, TOKEN)
+    asyncio.run(auth({"type": "websocket", "headers": []}, receive, send))
+    assert calls == []  # 内层 app 未被调用 ⇒ 没有绕过鉴权
+    assert sent == [{"type": "websocket.close", "code": 1008}]
+
+    asyncio.run(auth({"type": "custom-transport", "headers": []}, receive, send))
+    assert calls == []
+
+    asyncio.run(auth({"type": "lifespan"}, receive, send))
+    assert calls == ["lifespan"]  # lifespan 必须放行

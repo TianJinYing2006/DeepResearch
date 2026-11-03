@@ -1,6 +1,7 @@
 """P0-8b 异步摄取管线单测（FakeStore + 假摄取器/向量库，零 Qdrant / LLM）。"""
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -125,8 +126,23 @@ def test_limit_exceeded_rejects_without_retry(quarantine):
     summary = process_ingestions_once(store, ingester_factory=lambda: ingester)
     assert summary["rejected"] == 1 and summary["retried"] == 0
     row = store.get_ingestion(ingestion_id)
-    assert row["status"] == "rejected" and "页数超限" in row["last_error"]
+    # #324：last_error 对文档所有者可见 ⇒ 只存错误类别，不存异常原文。
+    assert row["status"] == "rejected" and row["last_error"] == "IngestLimitExceeded"
     assert not os.path.exists(ingestion_module.quarantine_path("f.md"))
+
+
+def test_rejected_row_stores_error_category_not_exception_text(quarantine):
+    """#324 负向：`last_error` 不得出现 DB/向量库内部原文（轮询接口会透出）。"""
+    store = FakeStore()
+    ingestion_id = _create(store)
+    boom = RuntimeError("secret-host:5432 password authentication failed for user dr_prod")
+    ingester = _FakeIngester(error=boom)
+    summary = process_ingestions_once(store, ingester_factory=lambda: ingester, max_attempts=1)
+    assert summary["rejected"] == 1
+    row = store.get_ingestion(ingestion_id)
+    assert row["status"] == "rejected"
+    assert row["last_error"] == "RuntimeError"
+    assert "secret-host" not in row["last_error"]
 
 
 def test_transient_failure_retries_with_backoff_then_rejected(quarantine):
@@ -230,6 +246,29 @@ def test_status_endpoint_and_ownership(monkeypatch, quarantine):
     store.create_session(token_hash("tok2"), "u2", datetime.now(UTC) + timedelta(hours=1))
     client.cookies.set("dr_session", "tok2")
     assert client.get("/api/rag/ingestions/ing000000001").status_code == 404
+
+
+def test_polling_endpoints_return_fixed_text_not_exception_detail(monkeypatch, quarantine):
+    """#324 负向：状态轮询 / 文档清单只回固定文案，异常原文（含 DB 主机）不得出站。"""
+    store = FakeStore()
+    ingestion_id = _create(store, doc_id="local:abc", user_id=None)
+    boom = RuntimeError("password authentication failed for user dr_prod host=10.0.0.5")
+    ingester = _FakeIngester(error=boom)
+    process_ingestions_once(store, ingester_factory=lambda: ingester, max_attempts=1)
+
+    monkeypatch.setattr(api, "store", store)
+    monkeypatch.setattr(api, "AUTH_REQUIRED", False)
+    client = TestClient(api.app)
+
+    status_body = client.get(f"/api/rag/ingestions/{ingestion_id}").json()
+    assert status_body["status"] == "rejected"
+    assert status_body["error"] == "文档处理失败"
+    assert "10.0.0.5" not in json.dumps(status_body, ensure_ascii=False)
+
+    docs_body = client.get("/api/rag/docs").json()
+    doc = next(row for row in docs_body["docs"] if row["doc_id"] == "local:abc")
+    assert doc["error"] == "文档处理失败"
+    assert "10.0.0.5" not in json.dumps(docs_body, ensure_ascii=False)
 
 
 def test_delete_doc_endpoint_verifies_and_cleans(monkeypatch, quarantine):

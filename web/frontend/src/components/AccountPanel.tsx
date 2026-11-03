@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthGate from '../features/auth/AuthGate'
 import LandingPage from '../features/landing/LandingPage'
 import HistoryPanel from '../features/history/HistoryPanel'
@@ -14,6 +14,7 @@ import { isSessionEpochEvent, notifySessionChanged } from '../lib/sessionBroadca
 import { useSideData } from '../hooks/useSideData'
 import { formatBytes, formatCny } from '../lib/format'
 import HelpModal from './HelpModal'
+import PasswordConfirmModal from './PasswordConfirmModal'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
 
@@ -37,6 +38,7 @@ type Props = {
   /** 需求 20 P1-2：当前域名可用时展示 Passkey 登录 / 管理入口。 */
   passkeyEnabled?: boolean
   /** 审计 #341b：会话变为未登录（含其他标签页登出）时通知 App 清理运行域状态。 */
+  /** 审计 #328：登出/注销成功后的回调 —— 由 App 清空**运行域**（报告/在途流/会话存储键）。 */
   onSignedOut?: () => void
 }
 
@@ -178,7 +180,11 @@ export default function AccountPanel({
 
   async function logout() {
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      // 需求 42：登出补齐 CSRF 双提交头（后端已要求，缺头会 403）
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { ...csrfHeaders() },
+      })
       if (!response.ok) {
         setBarMessage('退出失败，请重试')
         return
@@ -191,6 +197,8 @@ export default function AccountPanel({
     broadcastSessionChanged()
     setUser(null)
     resetLocalData()
+    // 审计 #328：运行域状态在 App（useResearchStream / topic / 三个 sessionStorage 键），
+    // 必须在**登出成功之后**由 App 统一清空，否则换账号会看到上一账号的报告与在途帧。
     onSignedOut?.()
   }
 
@@ -198,9 +206,20 @@ export default function AccountPanel({
   // 三个挂载点（落地页 / 登录门 / 账号条）仍保持互斥，理由见该文件顶部的拆分纪律。
   const legalDoc = useLegalDoc()
 
+  // 审计 #336：注销账号的密码确认弹窗状态。
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
   async function deleteAccount() {
-    const password = window.prompt('注销将删除账号与会话、并尽力清理知识库向量（历史任务匿名保留）。请输入密码确认：')
-    if (!password) return
+    setDeleteError('')
+    setDeleteOpen(true)
+  }
+
+  // 审计 #336：注销密码改走统一确认弹窗（原 `window.prompt` 明文输入）。
+  async function confirmDeleteAccount(password: string) {
+    setDeleteBusy(true)
+    setDeleteError('')
     try {
       const response = await fetch('/api/auth/account', {
         method: 'DELETE',
@@ -208,18 +227,21 @@ export default function AccountPanel({
         body: JSON.stringify({ password }),
       })
       if (!response.ok) {
-        setBarMessage(await readErrorMessage(response))
+        setDeleteError(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { rag_cleanup: string }
       locallySignedOutRef.current = true
       broadcastSessionChanged()
+      setDeleteOpen(false)
       setUser(null)
       resetLocalData()
       onSignedOut?.()
       setAuthNotice(`账号已注销（知识库清理：${body.rag_cleanup}）`)
     } catch {
-      setBarMessage('网络错误，请重试')
+      setDeleteError('网络错误，请重试')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -557,6 +579,20 @@ export default function AccountPanel({
       )}
 
       <ChunkPreviewModal preview={preview} />
+
+      {deleteOpen && (
+        <PasswordConfirmModal
+          title="注销账号"
+          description="注销将删除账号与会话，并尽力清理知识库向量（历史任务匿名保留）。请输入密码确认。"
+          confirmLabel="注销账号"
+          busy={deleteBusy}
+          error={deleteError}
+          onConfirm={(password) => void confirmDeleteAccount(password)}
+          onClose={() => {
+            if (!deleteBusy) setDeleteOpen(false)
+          }}
+        />
+      )}
 
       {securityOpen && user && (
         <SecurityPanel passkeyEnabled={passkeyEnabled}

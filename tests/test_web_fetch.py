@@ -209,3 +209,23 @@ def test_same_domain_interval_uses_injected_sleep():
     fetcher.fetch("https://e.com/1")
     fetcher.fetch("https://e.com/2")
     assert len(slept) == 1 and abs(slept[0] - 0.2) < 1e-6
+
+
+# ---- #340（D-16）：单次响应上限按剩余预算收紧 ----
+
+def test_single_response_cap_follows_remaining_budget():
+    """单次响应上限 = min(max_response_bytes, 剩余预算)，否则一次抓取就能越过总闸。"""
+    caps = []
+    body = b"<html><body><p>" + b"x" * 400 + b"</p></body></html>"
+
+    def fake_fetch(url, **kw):
+        caps.append(kw["max_bytes"])
+        return _ok(url=url, body=body)
+
+    fetcher = _fetcher(fake_fetch, budget=_budget(nbytes=1000))
+    assert fetcher.fetch("https://e.com/a").status == STATUS_OK
+    assert caps[0] == 1000  # 剩余 1000 < 默认单次上限（2MB）⇒ 按剩余收紧
+
+    assert fetcher.fetch("https://e.com/b").status == STATUS_OK
+    assert caps[1] == 1000 - len(body)  # 已用 len(body) 字节 ⇒ 第二次只剩这些
+    assert caps[1] < caps[0]

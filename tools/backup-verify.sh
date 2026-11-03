@@ -14,11 +14,13 @@
 #   2. 新鲜度：mtime 不超过 MAX_AGE_HOURS（默认 26 —— 容忍每日 cron 加一次延迟）；
 #   3. 可读性：`pg_restore -l` 能列出目录。
 #      - 明文 .dump：直接校验；
-#      - .enc / .pem：**需提供口令 / 私钥**；未提供时只做结构校验并显式输出
-#        `structure-only`（可解性由「带离线私钥的恢复演练」保证，见 release-runbook §10）。
+#      - .enc / .pem：**必须提供口令 / 私钥**才做解密后可读性校验；未提供时
+#        **exit 5（无法校验）**，输出 `verify skipped: encrypted backup requires key`
+#        —— 绝不再把「什么都没校验」报成 ok（审计 #339）。
+#        可解性由「带离线私钥的恢复演练」保证，见 release-runbook §10。
 #   4. 输出产物 md5（无 md5sum 时回退 sha256sum）—— 供与 COS 侧双向核对（§10.1 第 6 项）。
 #
-# 退出码：0 通过（含 structure-only）；2 找不到备份；3 空文件；4 过期；5 解密失败；6 不可读。
+# 退出码：0 通过；2 找不到备份；3 空文件；4 过期；5 无法校验（加密产物缺口令/私钥或解密失败）；6 不可读。
 set -eu
 
 checksum() {
@@ -63,7 +65,6 @@ case "$TARGET" in
         cp "$TARGET" "$TMP"
         ;;
     *.dump.enc)
-        MODE="structure-only"
         if [ -n "${BACKUP_PASSPHRASE:-}" ] && ! command -v openssl >/dev/null 2>&1; then
             echo "FAIL: 需要 openssl 才能解密 .enc（当前镜像/环境未安装；可改用 postgres:16 或宿主机执行）" >&2
             exit 6
@@ -76,7 +77,6 @@ case "$TARGET" in
         fi
         ;;
     *.dump.pem)
-        MODE="structure-only"
         if [ -n "${BACKUP_RECIPIENT_KEY:-}" ] && ! command -v openssl >/dev/null 2>&1; then
             echo "FAIL: 需要 openssl 才能解密 .pem（当前镜像/环境未安装；可改用 postgres:16 或宿主机执行）" >&2
             exit 6
@@ -94,8 +94,12 @@ case "$TARGET" in
 esac
 
 if [ ! -s "$TMP" ]; then
-    echo "verify structure-only ok: $TARGET（$(checksum "$TARGET")；加密产物未提供口令/私钥；可解性请在恢复演练中用离线密钥验证）"
-    exit 0
+    # 审计 #339：加密产物未提供口令/私钥时，本脚本没有做任何结构校验 ——
+    # 旧实现打印 structure-only ok 且 exit 0（假绿）；现在必须显式失败。
+    echo "verify skipped: encrypted backup requires key: $TARGET（$(checksum "$TARGET")）" >&2
+    echo "  未做任何结构校验；请提供 BACKUP_PASSPHRASE（.dump.enc）或 BACKUP_RECIPIENT_KEY（.dump.pem）后重试" >&2
+    echo "  可解性由「带离线私钥的恢复演练」（runbook §10）保证" >&2
+    exit 5
 fi
 
 if ! pg_restore -l "$TMP" > /tmp/dr-verify.list.$$ 2>/dev/null; then

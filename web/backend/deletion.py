@@ -48,6 +48,8 @@ def process_deletions_once(
     claimed = store.claim_deletion_outbox(claimed_by, lease_seconds, batch)
     summary = {"claimed": len(claimed), "done": 0, "retried": 0, "abandoned": 0}
     for item in claimed:
+        # 审计 #335（F05）：claim 时写入本行的租约凭据；迟到写入必须被条件更新拒绝
+        attempts = int(item["attempts"])
         try:
             # P1-8：后台任务独立根 span（未启用 OTel 时 no-op）
             with run_span("dr.deletion", **{"dr.outbox_id": int(item["id"]),
@@ -60,8 +62,11 @@ def process_deletions_once(
                 DEFAULT_BACKOFF_CAP_SECONDS,
             )
             new_status = store.mark_deletion_retry(
-                item["id"], error, backoff_seconds=backoff, max_attempts=max_attempts)
-            if new_status == "abandoned":
+                item["id"], error, claimed_by=claimed_by, attempts=attempts,
+                backoff_seconds=backoff, max_attempts=max_attempts)
+            if new_status == "missing":
+                _log(f"lease lost outbox={item['id']} attempt={attempts}: skip retry write")
+            elif new_status == "abandoned":
                 summary["abandoned"] += 1
                 _log(f"ABANDONED outbox={item['id']} request={item['request_id']} "
                      f"target={item['target']}: {error}")
@@ -69,7 +74,11 @@ def process_deletions_once(
                 summary["retried"] += 1
                 _log(f"retry outbox={item['id']} attempt={item['attempts']}: {error}")
             continue
-        store.mark_deletion_done(item["id"])
+        if not store.mark_deletion_done(item["id"], claimed_by=claimed_by,
+                                        attempts=attempts):
+            # 租约已易主：新执行者会重新执行并收口；本执行者不得覆盖其状态
+            _log(f"lease lost outbox={item['id']} attempt={attempts}: skip done write")
+            continue
         summary["done"] += 1
     return summary
 
@@ -84,7 +93,8 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
     target = item["target"]
     if target != "qdrant":
         raise RuntimeError(f"unknown deletion target: {target}")
-    user_id = (item.get("payload") or {}).get("user_id")
+    payload = item.get("payload") or {}
+    user_id = payload.get("user_id")
     if not user_id:
         raise RuntimeError("outbox payload missing user_id")
 
@@ -104,7 +114,12 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
     # P0-8b：隔离区原文清理（失败同样进入退避重试）
     from .ingestion import quarantine_path
 
-    for name in store.list_ingestion_files_for_user(user_id):
+    # #320：注销事务已把 rag_ingestions 的账号关联置 NULL，清理目标由 payload 快照提供；
+    # 旧 outbox 行（本次改动前入队、无快照）仍按 user_id 回查，保持向后兼容。
+    files = payload.get("quarantine_files")
+    if files is None:
+        files = store.list_ingestion_files_for_user(user_id)
+    for name in files:
         if not name:
             continue
         try:
@@ -112,7 +127,10 @@ def _execute_target(item: dict[str, Any], vector_store: Optional[Any],
         except FileNotFoundError:
             pass
     # 需求 23：三层数据随账号注销删除（快照 / 分块 / 版本行；向量已按用户删除）
-    for doc_id in store.list_rag_doc_ids_for_user(user_id):
+    doc_ids = payload.get("rag_doc_ids")
+    if doc_ids is None:
+        doc_ids = store.list_rag_doc_ids_for_user(user_id)
+    for doc_id in doc_ids:
         store.delete_rag_layers(doc_id)
     store.mark_ingestions_deleted_for_user(user_id)
     store.bump_rag_revision()

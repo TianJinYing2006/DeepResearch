@@ -8,6 +8,7 @@ import {
 } from '../lib/hitl'
 import { applyEvent, computeProgress, emptySummary, type ProgressSummary } from '../lib/progress'
 import { applyReportEvent } from '../lib/reportPreview'
+import { ACTIVE_RUN_KEY, clearSignedOutStorage, IDLE_RUN_STATE } from '../lib/sessionReset'
 import {
   AGUI_EVENT_TYPES,
   isAguiEvent,
@@ -33,12 +34,10 @@ export type StreamStatus =
   | 'error'
 export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
-/** 本标签页最近一次 run 的会话存储键（`sessionStorage`：只在本标签页存活，新标签页不串台）。
+/** 本标签页最近一次 run 的会话存储键由 `lib/sessionReset` 统一登记（审计 #328）。
 
 语义是「最近一次」而不是「活跃中」：**终局后保留** ⇒ 刷新页面仍可回看最终报告或错误卡；
-进程重启后快照 404 时清空；手动发起新研究会覆盖。 */
-const ACTIVE_RUN_KEY = 'dr.lastRunId'
-
+进程重启后快照 404 时清空；手动发起新研究会覆盖；登出/切换账号时由 `resetRunState()` 一并清除。 */
 function readStoredRun(): string | null {
   try {
     return sessionStorage.getItem(ACTIVE_RUN_KEY)
@@ -363,6 +362,43 @@ export function useResearchStream() {
     }
   }, [runId])
 
+  /** 审计 #328：登出/切换账号时把运行域恢复为空闲态 —— 含在途 SSE 与三个会话存储键。
+   *
+   * ⚠️ 必须覆盖**全部**运行域状态：只清 `result` 不清流，下一帧 `REPORT_DELTA`/`RUN_FINISHED`
+   * 仍会把上一账号的报告写回屏幕；只清状态不清 sessionStorage，刷新后 `dr.draft` 会把
+   * 上一账号的主题/附加要求填回表单。 */
+  const resetRunState = useCallback(() => {
+    closeSource()
+    manualStartRef.current = false
+    terminalRef.current = false
+    awaitingRef.current = false
+    interactionRef.current = null
+    seenEventIdsRef.current.clear()
+    summaryRef.current = emptySummary()
+    setRunId(IDLE_RUN_STATE.runId)
+    setEvents([])
+    setStatus(IDLE_RUN_STATE.status)
+    setConnectionStatus(IDLE_RUN_STATE.connectionStatus)
+    setError(IDLE_RUN_STATE.error)
+    setResult(IDLE_RUN_STATE.result)
+    setReportPreview(IDLE_RUN_STATE.reportPreview)
+    setInteraction(null)
+    setInteractionBusy(false)
+    setInteractionError(null)
+    setFollowups([])
+    setFollowupBusy(false)
+    setFollowupError(null)
+    setSummary(summaryRef.current)
+    let storage: Storage | null = null
+    try {
+      storage = sessionStorage
+    } catch {
+      /* 隐私模式禁用 storage：状态已经清空，只是键清不掉 */
+      storage = null
+    }
+    clearSignedOutStorage(storage)
+  }, [closeSource])
+
   const progress = useMemo(() => computeProgress(summary), [summary])
 
   return {
@@ -382,6 +418,7 @@ export function useResearchStream() {
     followupBusy,
     followupError,
     askFollowup,
+    resetRunState,
     start,
     resume,
     cancel,

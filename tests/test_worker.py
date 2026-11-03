@@ -210,3 +210,30 @@ def test_worker_budget_gate_stops_run_at_node_boundary():
     assert row["stop_reason"] == "budget_exceeded"
     assert row["budget_used_cny"] > 0
     assert event_types(store, run_id).count("STEP_FINISHED") < 10
+
+
+def test_daily_maintenance_wires_share_and_worker_purges(monkeypatch):
+    """审计 #338：每日清理必须接入分享/worker 注册表 purge，且单项失败不影响其余。"""
+    store = FakeStore()
+    calls: list[tuple] = []
+    monkeypatch.setattr(store, "purge_expired_report_shares",
+                        lambda keep_days=30: calls.append(("shares", keep_days)) or 2)
+    monkeypatch.setattr(store, "purge_stale_workers",
+                        lambda days=7: calls.append(("workers", days)) or 1)
+    worker = _worker(store, TinyGraph())
+
+    summary = worker.run_daily_maintenance()
+
+    assert ("shares", 30) in calls and ("workers", 7) in calls
+    assert summary["report_shares"] == 2 and summary["workers"] == 1
+
+    # 失败隔离：分享 purge 抛错不得阻止 worker 注册表 purge（异常不打断主循环）
+    calls.clear()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(store, "purge_expired_report_shares", _boom)
+    summary = worker.run_daily_maintenance()
+    assert ("workers", 7) in calls
+    assert "report_shares" not in summary

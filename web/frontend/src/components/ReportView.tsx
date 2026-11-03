@@ -1,6 +1,8 @@
-import { cloneElement, Fragment, isValidElement, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { cloneElement, Fragment, isValidElement, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+
+import { shouldResetChunks } from '../lib/reportChunks'
 
 /** 单段渲染的字符上限。
 
@@ -126,9 +128,16 @@ function decorateCitationNodes(
 
 export function ReportView({ report, onCitationClick, citationCount }: ReportViewProps) {
   const [chunks, setChunks] = useState(1)
+  const previousReportRef = useRef(report)
 
-  // 换了一份报告（重试 / 新研究）⇒ 分段必须重置，否则新报告会沿用旧的展开量
-  useEffect(() => setChunks(1), [report])
+  // 换了一份报告（重试 / 新研究 / REPORT_RESET 清空）才重置分段；
+  // 流式增量（新 report 是旧文本的前缀扩展）不重置 —— 否则用户点开的
+  // 「继续渲染剩余 N 字符」会被下一帧 REPORT_DELTA 打回第一段（审计 #341 / F7）。
+  useEffect(() => {
+    const previous = previousReportRef.current
+    previousReportRef.current = report
+    if (shouldResetChunks(previous, report)) setChunks(1)
+  }, [report])
 
   const { visible, remaining } = useMemo(() => {
     if (report.length <= CHUNK_CHARS) return { visible: report, remaining: 0 }

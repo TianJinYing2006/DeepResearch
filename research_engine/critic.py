@@ -26,7 +26,8 @@ Signal = str  # "continue" | "revise" | "stop"
 # W7 Arm1 TBD-1b：gap 反思轮次专用封顶（不复用 max_total_hops=20）
 MAX_GAP_REFLECTIONS = 6
 
-_CRITIC_SYSTEM_BASE = (
+#: Critic 系统提示的**稳定前缀**（单一来源：输出泄漏标记从这里派生；审计 #333）
+CRITIC_SYSTEM_BASE = (
     "你是深度研究 Agent 的质量 critic。基于已有发现判断研究是否充分，"
     "或是否需要换角度重新检索，或方向是否彻底跑偏需要重分解。"
     "W7 新增：若判为充分但仍有未补上的知识缺口，请在 knowledge_gap 中说明，"
@@ -59,7 +60,7 @@ def build_critic_system(cfg=None) -> str:
     """
     c = cfg if cfg is not None else config
     gap_extra = _CRITIC_GAP_EXTRA if c.experiment.critic_gap_enabled else ""
-    return _CRITIC_SYSTEM_BASE + gap_extra + _CRITIC_SYSTEM_TAIL
+    return CRITIC_SYSTEM_BASE + gap_extra + _CRITIC_SYSTEM_TAIL
 
 
 #: Critic 治理事件（与 Planner 的 PLANNER_EVENT_* 同构）：ID 归一化改写，非 FailureReason。

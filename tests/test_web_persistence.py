@@ -141,7 +141,9 @@ def test_persistence_failure_is_recorded_not_fatal():
     manager = _manager(store, report="# 仍然完成")
     run_id = manager.start("故障降级")
     snap = _wait_finished(manager, run_id)
-    assert snap["persistence_error"].startswith("RuntimeError")
+    # #324：画像对客户端可见 ⇒ 只留异常类型名，原文（"db down"）只进服务端日志。
+    assert snap["persistence_error"] == "RuntimeError"
+    assert "db down" not in json.dumps(snap, ensure_ascii=False)
     assert snap["has_report"] is True
 
 

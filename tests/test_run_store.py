@@ -689,15 +689,18 @@ def test_account_deletion_outbox_contract(store: RunStore):
     assert len(claimed) == 1 and claimed[0]["attempts"] == 1
     assert store.claim_deletion_outbox("w2", 60, limit=1) == []  # 租约未过期
 
-    assert store.mark_deletion_retry(claimed[0]["id"], "boom",
-                                     backoff_seconds=60, max_attempts=5) == "pending"
+    assert store.mark_deletion_retry(
+        claimed[0]["id"], "boom", claimed_by=claimed[0]["claimed_by"],
+        attempts=claimed[0]["attempts"], backoff_seconds=60,
+        max_attempts=5) == "pending"
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
         cur.execute("UPDATE deletion_outbox SET next_attempt_at = now() WHERE id = %s",
                     (claimed[0]["id"],))
     again = store.claim_deletion_outbox("w2", 60, limit=1)
     assert len(again) == 1 and again[0]["attempts"] == 2
 
-    store.mark_deletion_done(again[0]["id"])
+    assert store.mark_deletion_done(
+        again[0]["id"], claimed_by="w2", attempts=again[0]["attempts"]) is True
     record = store.deletion_status(request_id)
     assert record["status"] == "completed" and record["completed_at"] is not None
 
@@ -718,7 +721,8 @@ def test_rag_ingestion_contract(store: RunStore):
     assert row is not None and row["ingestion_id"] == ingestion_id and row["attempts"] == 1
     assert store.claim_next_ingestion("w2", 60) is None  # 租约未过期
 
-    store.mark_ingestion_ready(ingestion_id, 2)
+    store.mark_ingestion_ready(ingestion_id, 2, claimed_by="w1",
+                               attempts=row["attempts"])
     assert store.get_ingestion(ingestion_id)["status"] == "ready"
 
     with psycopg.connect(DSN) as conn, conn.cursor() as cur:
@@ -982,7 +986,11 @@ def test_rag_meta_usage_and_requeue(store: RunStore):
     assert store.rag_usage_bytes(TEST_USER) >= 100
     assert doc_id in store.list_rag_doc_ids_for_user(TEST_USER)
 
-    store.mark_ingestion_ready(ingestion_id, 1)
+    claimed_ing = store.claim_next_ingestion("w1", 60)
+    assert claimed_ing is not None and claimed_ing["ingestion_id"] == ingestion_id
+    assert store.mark_ingestion_ready(
+        ingestion_id, 1, claimed_by="w1",
+        attempts=claimed_ing["attempts"]) is True
     assert store.requeue_ingestion_for_task(ingestion_id, "rechunk") is True
     requeued = store.get_ingestion(ingestion_id)
     assert requeued["task"] == "rechunk" and requeued["status"] == "pending"
@@ -1021,3 +1029,26 @@ def test_webauthn_challenge_and_credential_roundtrip(store: RunStore):
     assert store.delete_webauthn_credential(OTHER_USER, credential_id) is False
     assert store.delete_webauthn_credential(TEST_USER, credential_id) is True
     assert store.get_webauthn_credential(credential_id) is None
+
+
+def test_update_password_invalidates_pending_reset_tokens(store: RunStore):
+    """需求 42：改密必须同事务作废未使用的重置 token（真实 PG 契约）。
+
+    CI `infra` job 在 compose 的 PostgreSQL 上执行（`DR_TEST_DATABASE_URL` 已设置）；
+    本地无该变量时整个文件按 pytestmark skip —— 语义等价路径另由
+    `tests/test_auth_api.py::test_change_password_invalidates_pending_reset_tokens`
+    （FakeStore）覆盖。
+    """
+    reset_hash = token_hash("test-store-reset-after-change")
+    store.create_password_reset(reset_hash, TEST_USER, _now() + timedelta(minutes=30))
+    assert store.has_recent_password_reset(TEST_USER, within_seconds=3600) is True
+
+    assert store.update_password(TEST_USER, "test-store-new-hash") is True
+
+    # 未使用 token 已作废：不可再消费，也不再触发冷却
+    assert store.consume_password_reset(reset_hash) is None
+    assert store.has_recent_password_reset(TEST_USER, within_seconds=3600) is False
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT password_hash FROM users WHERE user_id = %s", (TEST_USER,))
+        row = cur.fetchone()
+        assert row is not None and row[0] == "test-store-new-hash"
