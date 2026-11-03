@@ -31,6 +31,7 @@ from urllib.parse import urlsplit
 
 from config import config
 from research_engine.failure_reasons import FailureReason
+from research_engine.net.safe_fetch import is_public_ip
 from research_engine.sanitize import strip_invisible
 
 _log = logging.getLogger("deepresearch.mcp")
@@ -100,13 +101,12 @@ def _resolve_addresses(host: str) -> List[str]:
 
 
 def _is_public(ip: str) -> bool:
-    """与 `safe_fetch._is_public_ip` 同源判定（SSRF 校验一致性）。"""
-    try:
-        address = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    return not (address.is_private or address.is_loopback or address.is_link_local
-                or address.is_reserved or address.is_multicast or address.is_unspecified)
+    """与 `safe_fetch.is_public_ip` 同源判定（2026-11 审计 #331：收敛为单一实现）。
+
+    旧实现是复制粘贴的第二份判据，缺 `is_global`/IPv4-mapped 处理 ⇒ CGNAT 段
+    （100.64/10）被当公网、公网映射地址被误杀；统一后两处语义不会再漂移。
+    """
+    return is_public_ip(ip)
 
 
 def validate_mcp_url(url: str, *, allow_private: bool = False, reason: str = "",
@@ -239,12 +239,50 @@ def classify_mcp_exception(exc: BaseException) -> str:
 # ---- 默认 caller：官方 mcp SDK（Streamable HTTP）----
 
 
+def _mcp_httpx_client_factory():
+    """构造 MCP SDK 的 httpx 客户端工厂：**禁重定向 + 不读代理环境变量**（2026-11 审计 #331）。
+
+    官方 `mcp 1.9.4` 的 `create_mcp_http_client` 固定 `follow_redirects=True`，且 httpx
+    默认 `trust_env=True` ⇒ 公网 MCP server 的 301/302/307 会被跟随到内网 / 云元数据地址
+    （配置期 `allow_private` 校验在重定向后不再生效）。SDK 1.9.4 支持
+    ``httpx_client_factory``，故用自定义工厂覆盖这两个默认值。
+
+    残余风险：DNS 在「调用期校验」与 SDK 实际连接之间仍可能 rebinding（本层不做 IP pin）；
+    生产环境应同时以出口网络策略兜底（需求 37 TBD-11）。
+    """
+    def factory(headers=None, timeout=None, auth=None):  # noqa: ANN001 - SDK 协议签名
+        import httpx
+
+        return httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout if timeout is not None else httpx.Timeout(30.0),
+            auth=auth,
+            follow_redirects=False,
+            trust_env=False,
+        )
+
+    return factory
+
+
 def _sdk_call_tool(server: McpServerConfig, tool: str, query: str) -> McpToolCallResult:
     """官方 mcp SDK 调用；SDK 不可用按 `not_configured` 归类（fail-safe，不 crash）。
 
     在工具线程内同步执行：SDK 为异步接口，`asyncio.run` 桥接（每次调用独立事件循环，
     调用间无共享状态）；除 SDK 超时参数外再套 `wait_for` 硬期限（防对端半开挂死线程）。
+
+    2026-11 审计 #331：**每次调用前**重做 URL 全地址校验（配置期校验只管启动时点，
+    DNS 可在两次之间变化 = rebinding 窗口）；并给 SDK 传禁重定向 / 不读代理 env 的
+    httpx 客户端工厂。
     """
+    # 调用期重校验（DNS 全解析 + 逐地址公网判定；allow_private 语义与配置期一致）
+    try:
+        validate_mcp_url(server.url, allow_private=server.allow_private,
+                         reason=server.private_reason)
+    except McpConfigError as exc:
+        return McpToolCallResult(
+            failure_reason=FailureReason.PROVIDER_ERROR.value,
+            detail=f"url validation failed: {exc}"[:200])
+
     try:
         import asyncio
 
@@ -258,7 +296,8 @@ def _sdk_call_tool(server: McpServerConfig, tool: str, query: str) -> McpToolCal
     async def _call() -> McpToolCallResult:
         async with streamablehttp_client(
                 server.url, timeout=server.timeout,
-                sse_read_timeout=server.timeout) as (read, write, _):
+                sse_read_timeout=server.timeout,
+                httpx_client_factory=_mcp_httpx_client_factory()) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool, {_QUERY_ARG: query})
