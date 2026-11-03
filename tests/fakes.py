@@ -12,7 +12,12 @@ from typing import Optional
 
 from research_engine.state import ResearchState
 from research_engine.streaming import STOP_CANCELLED, STOP_COMPLETED, STOP_SUSPENDED, RunStep
-from web.backend.store import LeaseLostError, QuotaExceeded
+from web.backend.store import (
+    PURGE_WHERE_EXTRA_ALLOWED,
+    SNAPSHOTS_UNREFERENCED_WHERE,
+    LeaseLostError,
+    QuotaExceeded,
+)
 
 ACTIVE = ("CREATED", "QUEUED", "RUNNING", "CANCEL_REQUESTED")
 AWAITING = ("AWAITING_CLARIFICATION", "AWAITING_PLAN_APPROVAL")
@@ -195,6 +200,9 @@ class FakeStore:
         self.user_consents: dict[tuple, dict] = {}
         # 需求 26：报告只读分享（token_hash → 行）
         self.report_shares: dict[str, dict] = {}
+        # 需求 34 E1：网页快照本体（sha256 → 行）与 run 关联（run_id → {sha256}）
+        self.snapshots: dict[str, dict] = {}
+        self.run_snapshots: dict[str, set] = {}
 
     def ping(self) -> None:
         return None
@@ -512,6 +520,16 @@ class FakeStore:
         row["cost_estimate_cny"] = cost_estimate_cny
         row["budget_used_cny"] = budget_used_cny
 
+    def increment_usage(self, run_id, *, token_delta, cost_delta, budget_delta, owner=None):
+        """审计 #338：与 RunStore.increment_usage 同语义（原子累加；串行模拟并发追加）。"""
+        row = self.runs.get(run_id)
+        if row is None:
+            return
+        self._check_owner(row, owner)
+        row["token_used"] = int(row.get("token_used") or 0) + max(0, int(token_delta))
+        row["cost_estimate_cny"] = float(row.get("cost_estimate_cny") or 0.0) + float(cost_delta)
+        row["budget_used_cny"] = float(row.get("budget_used_cny") or 0.0) + float(budget_delta)
+
     def request_cancel(self, run_id):
         row = self.runs.get(run_id)
         if row is None:
@@ -796,6 +814,7 @@ class FakeStore:
             "factor_id": factor_id, "user_id": user_id, "type": "totp",
             "secret_encrypted": secret_encrypted, "name": name,
             "created_at": datetime.now(UTC), "confirmed_at": None, "last_used_at": None,
+            "last_used_step": None,
         }
 
     def get_mfa_factor(self, user_id, *, confirmed=True):
@@ -814,10 +833,17 @@ class FakeStore:
         row["confirmed_at"] = datetime.now(UTC)
         return True
 
-    def touch_mfa_factor_used(self, factor_id):
+    def consume_mfa_factor_step(self, factor_id, step):
+        """原子消费 TOTP 时间步（语义同 RunStore.consume_mfa_factor_step）。"""
         row = self.mfa_factors.get(factor_id)
-        if row is not None:
-            row["last_used_at"] = datetime.now(UTC)
+        if row is None:
+            return False
+        used = row.get("last_used_step")
+        if used is not None and used >= step:
+            return False
+        row["last_used_step"] = step
+        row["last_used_at"] = datetime.now(UTC)
+        return True
 
     def delete_mfa_factors(self, user_id):
         keys = [key for key, row in self.mfa_factors.items() if row["user_id"] == user_id]
@@ -937,6 +963,8 @@ class FakeStore:
         if row is None:
             return False
         row["password_hash"] = password_hash
+        # 需求 42：改密与作废旧重置 token 同事务（FakeStore 单线程，按原子语义同步）
+        self.delete_password_resets(user_id)
         return True
 
     # ---- 内容安全（P7-A）----
@@ -1539,6 +1567,7 @@ class FakeStore:
         ("moderation_records", "created_at"),
         ("moderation_appeals", "created_at"),
         ("audit_logs", "at"),
+        ("snapshots", "created_at"),
     })
 
     def _purge_rows(self, table):
@@ -1554,15 +1583,26 @@ class FakeStore:
             return list(self.appeals.values())
         if table == "audit_logs":
             return list(self.audits)
+        if table == "snapshots":
+            return list(self.snapshots.values())
         raise ValueError(f"purge target not allowed: {table}")
 
-    def _purge_eligible(self, table, row, time_column, before):
+    def _purge_eligible(self, table, row, time_column, before, where_extra=""):
         stamp = row.get(time_column)
         if stamp is None or stamp >= before:
             return False
         if table == "runs" and row["status"] not in TERMINAL:
             return False
+        if where_extra == SNAPSHOTS_UNREFERENCED_WHERE:
+            # 审计 #338：只清「无 run 引用」的快照（真实库为 NOT EXISTS run_snapshots）
+            sha = row.get("sha256")
+            if any(sha in shas for shas in self.run_snapshots.values()):
+                return False
         return True
+
+    def _check_where_extra(self, where_extra):
+        if where_extra not in PURGE_WHERE_EXTRA_ALLOWED:
+            raise ValueError(f"where_extra not allowed: {where_extra!r}")
 
     def count_table(self, table):
         if table not in {name for name, _ in self._PURGE_TARGETS}:
@@ -1572,20 +1612,23 @@ class FakeStore:
     def count_before(self, table, time_column, before, *, where_extra=""):
         if (table, time_column) not in self._PURGE_TARGETS:
             raise ValueError(f"purge target not allowed: {table}.{time_column}")
+        self._check_where_extra(where_extra)
         return sum(1 for row in self._purge_rows(table)
-                   if self._purge_eligible(table, row, time_column, before))
+                   if self._purge_eligible(table, row, time_column, before, where_extra))
 
     def purge_before(self, table, time_column, before, *, where_extra="", batch=5000):
         if (table, time_column) not in self._PURGE_TARGETS:
             raise ValueError(f"purge target not allowed: {table}.{time_column}")
+        self._check_where_extra(where_extra)
         eligible = [row for row in self._purge_rows(table)
-                    if self._purge_eligible(table, row, time_column, before)][:batch]
+                    if self._purge_eligible(table, row, time_column, before, where_extra)][:batch]
         for row in eligible:
             if table == "runs":
                 run_id = row["run_id"]
                 self.runs.pop(run_id, None)
                 self.events.pop(run_id, None)
                 self.artifacts.pop(run_id, None)  # 级联语义（真实库为 FK CASCADE）
+                self.run_snapshots.pop(run_id, None)  # 关联级联解除（0022）
             elif table == "run_events":
                 self.events[row["run_id"]].remove(row)
             elif table == "usage_ledger":
@@ -1596,6 +1639,8 @@ class FakeStore:
                 self.appeals.pop(row["appeal_id"], None)
             elif table == "audit_logs":
                 self.audits.remove(row)
+            elif table == "snapshots":
+                self.snapshots.pop(row["sha256"], None)
         return len(eligible)
 
     # ---- Worker 注册表（P1-3）----

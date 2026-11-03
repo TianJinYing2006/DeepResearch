@@ -8,14 +8,21 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
+import time
 import zipfile
 
 import pytest
+from fakes import FakeStore
 from fastapi.testclient import TestClient
 
 import research_engine.rag.ingest as ingest_module
 from config import config
+from research_engine.rag.ingest import IngestLimitExceeded
+from research_engine.rag.snapshot import parse_docx_blocks, parse_pdf_blocks
 from web.backend import main as api
+from web.backend import upload_guard
+from web.backend.rag_pipeline import build_from_file
 from web.backend.ratelimit import FixedWindowLimiter
 from web.backend.upload_guard import sanitize_filename
 
@@ -111,3 +118,96 @@ def test_parse_limit_exceeded_is_structured(monkeypatch):
     response = _upload(client, "long.txt", b"x" * 100)
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "document_limit_exceeded"
+
+
+# ---------------------------------------------------------------- #325：上传链路加固
+
+
+def _ooxml_with_padding(*, zero_entries: int, zeros_mb: int, noise_bytes: int) -> bytes:
+    """构造「高展开 + 低比值」伪 DOCX：零填充条目压缩率极高，噪声条目抬高 packed 体积。"""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", "<w:document/>")
+        for index in range(zero_entries):
+            archive.writestr(f"word/pad{index}.bin", b"\0" * (zeros_mb * 1024 * 1024))
+        archive.writestr("word/noise.bin", os.urandom(noise_bytes),
+                         compress_type=zipfile.ZIP_STORED)
+    return buffer.getvalue()
+
+
+def test_ooxml_absolute_expanded_cap_rejects_low_ratio_bomb(client: TestClient, monkeypatch):
+    """#325：绝对展开上限独立于比值闸（padding 可把解压比稀释到 50 以下）。"""
+    monkeypatch.setattr(upload_guard, "MAX_EXPANDED_BYTES", 2 * 1024 * 1024)
+    payload = _ooxml_with_padding(zero_entries=2, zeros_mb=1, noise_bytes=100 * 1024)
+    # 展开 ≈ 2.1MB、packed ≈ 100KB ⇒ 比值 ≈ 20（< 50，旧逻辑放行）；绝对上限 2MB 触发。
+    response = _upload(client, "bomb.docx", payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "unsupported_file_type"
+    assert "expanded" in response.json()["detail"]["detail"]
+
+
+def test_ooxml_single_member_cap_rejects_bomb(client: TestClient, monkeypatch):
+    """#325：单成员解压上限（不能靠拆成员绕过总量闸）。"""
+    monkeypatch.setattr(upload_guard, "MAX_EXPANDED_BYTES", 2 * 1024 * 1024)
+    payload = _ooxml_with_padding(zero_entries=1, zeros_mb=3, noise_bytes=8 * 1024)
+    response = _upload(client, "bomb2.docx", payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "unsupported_file_type"
+    assert "member" in response.json()["detail"]["detail"]
+
+
+def test_rejected_upload_cleans_quarantine_orphans(monkeypatch, tmp_path):
+    """#325：400/413 拒绝后隔离区不得残留无 DB 记录的孤儿；成功登记的文件必须保留。"""
+    monkeypatch.setattr(api, "store", FakeStore())
+    monkeypatch.setattr(api, "AUTH_REQUIRED", False)
+    monkeypatch.setattr(api, "RAG_UPLOAD_LIMITER", FixedWindowLimiter(1000))
+    monkeypatch.setenv("DR_RAG_QUARANTINE_DIR", str(tmp_path))
+    client = TestClient(api.app)
+
+    ok = _upload(client, "good.md", b"# ok")
+    assert ok.status_code == 202
+    kept = list(tmp_path.iterdir())
+    assert len(kept) == 1  # 成功登记后文件留给 worker 读
+
+    bad = _upload(client, "fake.pdf", b"not a pdf")
+    assert bad.status_code == 400
+    disguised = _upload(client, "x.txt", b"hello\x00world")  # 二进制伪装文本 ⇒ 400
+    assert disguised.status_code == 400
+    monkeypatch.setattr(api, "RAG_MAX_UPLOAD_MB", 0.001)
+    over = _upload(client, "big.txt", b"x" * 4096)
+    assert over.status_code == 413
+    assert list(tmp_path.iterdir()) == kept  # 拒绝路径没有新增孤儿
+
+
+def test_docx_parse_deadline_raises_ingest_limit(tmp_path):
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    document.add_paragraph("正文段落")
+    path = tmp_path / "deadline.docx"
+    document.save(str(path))
+    with pytest.raises(IngestLimitExceeded):
+        parse_docx_blocks(str(path), deadline=time.monotonic() - 1.0)
+
+
+def test_pdf_parse_deadline_raises_ingest_limit(tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    path = tmp_path / "deadline.pdf"
+    with open(path, "wb") as handle:
+        writer.write(handle)
+    with pytest.raises(IngestLimitExceeded):
+        parse_pdf_blocks(str(path), deadline=time.monotonic() - 1.0)
+
+
+def test_v2_pipeline_enforces_parse_wall_clock(monkeypatch, tmp_path):
+    """#325：生产 v2 管线（worker 经 build_from_file）必须把解析墙钟传进解析器。"""
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    document.add_paragraph("正文段落")
+    path = tmp_path / "pipeline.docx"
+    document.save(str(path))
+    monkeypatch.setattr(config.rag, "parse_timeout_seconds", -1.0)
+    with pytest.raises(IngestLimitExceeded):
+        build_from_file(FakeStore(), _FakeIngester(), doc_id="local:deadline",
+                        path=str(path), source_name="pipeline.docx")

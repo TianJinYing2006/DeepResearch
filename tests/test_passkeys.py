@@ -128,7 +128,7 @@ def test_registration_challenge_is_single_use(monkeypatch, client: TestClient):
 def test_passkey_login_creates_session_and_updates_sign_count(monkeypatch, client: TestClient,
                                                               store: FakeStore):
     _register_passkey(monkeypatch, client)
-    assert client.post("/api/auth/logout").status_code == 200
+    assert client.post("/api/auth/logout", headers=_csrf(client)).status_code == 200
     begun = client.post("/api/auth/webauthn/authenticate/begin", json={"email": EMAIL})
     assert begun.status_code == 200
     assert begun.json()["options"]["allowCredentials"][0]["id"] == CREDENTIAL_ID_B64
@@ -151,7 +151,7 @@ def test_passkey_login_rejects_non_increasing_sign_count(monkeypatch, client: Te
                                                          store: FakeStore):
     _register_passkey(monkeypatch, client)
     store.bump_webauthn_sign_count(CREDENTIAL_ID, 0, 5)
-    client.post("/api/auth/logout")
+    client.post("/api/auth/logout", headers=_csrf(client))
     begun = client.post("/api/auth/webauthn/authenticate/begin", json={"email": EMAIL}).json()
     monkeypatch.setattr(passkeys, "verify_authentication",
                         lambda *_a, **_k: SimpleNamespace(credential_id=CREDENTIAL_ID,

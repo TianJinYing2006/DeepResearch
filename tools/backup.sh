@@ -21,27 +21,58 @@
 #      - AES-256-CBC + PBKDF2(200k)；产物 `deepresearch_*.dump.enc`；解密回验后删除明文。
 set -eu
 
+# 审计 #326：备份产物（含加密前的明文 dump 与对称回验临时文件）只允许属主读写，
+# 且任何失败/中断路径都由 trap 兜底删除明文——不允许在 backups/ 留下可读的整库明文。
+umask 077
+
 OUT_DIR="${BACKUP_DIR:-/backups}"
 KEEP="${BACKUP_KEEP:-14}"
 REQUIRE_ENCRYPT="${BACKUP_REQUIRE_ENCRYPTION:-0}"
 
+# 临时明文与回验文件：先初始化再挂 trap（set -u 下不能引用未定义变量）
+plain=""
+verify=""
+cleanup() {
+    if [ -n "$plain" ]; then rm -f "$plain"; fi
+    if [ -n "$verify" ]; then rm -f "$verify"; fi
+    return 0
+}
+trap cleanup EXIT HUP INT TERM
+
 # 连接参数：优先 PG* 环境变量；兼容 DATABASE_URL 时只在脚本内解析成环境变量，
 # 避免口令进入 pg_dump 的 argv（ps 可见）。
+# 审计 #326（L9）：URL 中的保留字符必须 percent-decode（如 %40 → @），并剥掉
+# `?sslmode=...` 查询串——旧实现会把 `deepresearch?sslmode=require` 当库名、
+# 把 `%40` 当字面量。这里用 POSIX sed 做标准 percent-decode；口令里的 @ : / %
+# 必须按 URL 编码（本脚本不支持 IPv6 字面量主机，生产用容器名/域名）。
+_url_decode() {
+    printf '%s' "$1" | sed \
+        -e 's/%40/@/g' -e 's/%3A/:/g' -e 's/%3a/:/g' \
+        -e 's/%2F/\//g' -e 's/%2f/\//g' -e 's/%25/%/g' \
+        -e 's/%2B/+/g' -e 's/%20/ /g'
+}
 if [ -z "${PGHOST:-}" ] && [ -n "${DATABASE_URL:-}" ]; then
     _url="${DATABASE_URL#*://}"
     _creds="${_url%%@*}"
-    _hostpart="${_url#*@}"
+    _rest="${_url#*@}"
     case "$_creds" in
-        *:*) PGUSER="${PGUSER:-${_creds%%:*}}"; PGPASSWORD="${PGPASSWORD:-${_creds#*:}}" ;;
-        *)   PGUSER="${PGUSER:-$_creds}" ;;
+        *:*)
+            PGUSER="${PGUSER:-$(_url_decode "${_creds%%:*}")}"
+            PGPASSWORD="${PGPASSWORD:-$(_url_decode "${_creds#*:}")}"
+            ;;
+        *) PGUSER="${PGUSER:-$(_url_decode "$_creds")}" ;;
     esac
-    case "$_hostpart" in
-        */*) PGDATABASE="${PGDATABASE:-${_hostpart#*/}}" ;;
+    case "$_rest" in
+        */*)
+            _hostport="${_rest%%/*}"
+            _dbpart="$(_url_decode "${_rest#*/}")"
+            PGDATABASE="${PGDATABASE:-${_dbpart%%\?*}}"
+            ;;
+        *) _hostport="$_rest" ;;
     esac
-    _hostport="${_hostpart%%/*}"
-    PGHOST="${PGHOST:-${_hostport%%:*}}"
+    PGHOST="${PGHOST:-$(_url_decode "${_hostport%%:*}")}"
     case "$_hostport" in
-        *:*) PGPORT="${PGPORT:-${_hostport##*:}}" ;;
+        *:*) PGPORT="${PGPORT:-$(_url_decode "${_hostport##*:}")}" ;;
     esac
 fi
 : "${PGHOST:?需要 PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE，或兼容的 DATABASE_URL}"
@@ -69,6 +100,7 @@ if [ -n "${BACKUP_RECIPIENT_CERT:-}" ]; then
     enc="$plain.pem"
     openssl smime -encrypt -aes256 -binary -in "$plain" -out "$enc" "$BACKUP_RECIPIENT_CERT"
     rm -f "$plain"
+    plain=""  # 明文已删除：trap 不再需要（也避免误删其它路径）
     final="$enc"
 elif [ "${BACKUP_ENCRYPT:-0}" = "1" ]; then
     : "${BACKUP_PASSPHRASE:?BACKUP_ENCRYPT=1 时需要 BACKUP_PASSPHRASE（仅从环境变量注入）}"
@@ -80,9 +112,12 @@ elif [ "${BACKUP_ENCRYPT:-0}" = "1" ]; then
         -pass env:BACKUP_PASSPHRASE -in "$enc" -out "$verify"
     pg_restore -l "$verify" > /dev/null
     rm -f "$verify" "$plain"
+    verify=""
+    plain=""
     final="$enc"
 else
     final="$plain"
+    plain=""  # 未加密模式：plain 即最终产物，trap 不得删除（仅清理失败路径）
 fi
 
 if [ "$KEEP" -gt 0 ]; then

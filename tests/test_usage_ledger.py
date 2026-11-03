@@ -27,6 +27,32 @@ def test_emit_without_sink_is_noop():
     emit_usage(UsageRecord(kind="llm", provider="x"))  # 不抛即通过
 
 
+def test_increment_usage_is_additive_and_owner_fenced():
+    """审计 #338：并发追加只累加不覆盖（原子自增），旧 owner 写入被租约围栏拒绝。"""
+    from web.backend.store import LeaseLostError, RunOwnership
+
+    store = FakeStore()
+    row, _ = store.create_run("usage-inc-1", "t", {})
+    row.update(status="RUNNING", worker_id="w1", attempt=1)
+    row["token_used"] = 10
+
+    store.increment_usage("usage-inc-1", token_delta=5, cost_delta=0.05,
+                          budget_delta=0.05)
+    store.increment_usage("usage-inc-1", token_delta=7, cost_delta=0.07,
+                          budget_delta=0.07)
+    fresh = store.get_run("usage-inc-1")
+    assert fresh["token_used"] == 22, "两次追加后总量必须等于两次之和"
+    assert abs(fresh["cost_estimate_cny"] - 0.12) < 1e-9
+
+    store.increment_usage("usage-inc-1", token_delta=1, cost_delta=0.01,
+                          budget_delta=0.01, owner=RunOwnership("w1", 1))
+    assert store.get_run("usage-inc-1")["token_used"] == 23
+    with pytest.raises(LeaseLostError):
+        store.increment_usage("usage-inc-1", token_delta=1, cost_delta=0.01,
+                              budget_delta=0.01, owner=RunOwnership("w1", 2))
+    assert store.get_run("usage-inc-1")["token_used"] == 23, "旧 owner 不得覆盖"
+
+
 def test_llm_client_emits_usage_record():
     class _Usage:
         total_tokens = 120

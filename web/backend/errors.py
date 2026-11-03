@@ -12,10 +12,23 @@ HTTP 响应体与 SSE 的 `RUN_ERROR` 帧共用同一份 payload 结构。
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
+
+
+def safe_detail(label: str, exc: BaseException) -> str:
+    """客户端只给固定文案；异常类型与原文（可能含 DB / 向量库内部信息）只写服务端日志。
+
+    #324：`runner` / `worker` / `main` 的客户端可见错误一律经此函数生成 message，
+    禁止把 `f"{type(exc).__name__}: {exc}"` 之类的原文回显给用户（#317 的同类残留）。
+    """
+    logger.warning("%s: %s: %s", label, type(exc).__name__, exc, exc_info=exc)
+    return label
 
 
 @dataclass(frozen=True)
@@ -258,7 +271,8 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         "后台线程可能仍在收尾，进程重启才会彻底释放。",
         component="runner"),
     "runner_crash": ErrorSpec(
-        None, True, "运行线程异常退出。可原样重试；若稳定复现请看 message 里的异常类型。",
+        None, True,
+        "运行线程异常退出。可原样重试；若稳定复现请联系管理员（服务端日志保留异常类型）。",
         component="runner"),
     "graph_error": ErrorSpec(
         None, True, "研究链路报错并被结构化捕获，run_status 已按 W8 口径写入 state。",

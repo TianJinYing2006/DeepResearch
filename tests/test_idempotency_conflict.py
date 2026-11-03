@@ -81,3 +81,61 @@ def test_different_keys_create_distinct_runs(client: TestClient):
     first = _start(client, topic="A", idempotency_key="k6")
     second = _start(client, topic="A", idempotency_key="k7")
     assert first.json()["run_id"] != second.json()["run_id"]
+
+
+# ---------------------------------------------------- 审计 #338：created=False 竞态窗口
+
+
+def _miss_next_lookups(monkeypatch, store, times: int) -> None:
+    """让前 `times` 次 get_run_by_idempotency 返回 None（模拟预检查错过并发插入）。
+
+    `create_run` 内部的回查走 FakeStore 行扫描（不经过该方法），因此下一次真实调用
+    仍能找到既有行 ⇒ `created=False`——这正是审计发现的 `main._start_queued` /
+    `runner.start` 直接 `return row["run_id"]` 的窗口。
+    """
+    original = store.get_run_by_idempotency
+    remaining = {"n": times}
+
+    def flaky(*args, **kwargs):
+        if remaining["n"] > 0:
+            remaining["n"] -= 1
+            return None
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(store, "get_run_by_idempotency", flaky)
+
+
+def test_race_created_false_same_payload_replays(client: TestClient, monkeypatch):
+    """竞态窗口里同 key 同 payload 仍必须复用既有 run（负向对照：守卫不得误伤）。"""
+    first = _start(client, topic="A", idempotency_key="k8")
+    assert first.status_code == 200
+
+    _miss_next_lookups(monkeypatch, api.store, 2)  # 预检查 + runner 预检查都错过
+    replay = _start(client, topic="A", idempotency_key="k8")
+
+    assert replay.status_code == 200
+    assert replay.json()["run_id"] == first.json()["run_id"]
+
+
+def test_race_created_false_different_payload_conflicts(client: TestClient, monkeypatch):
+    """审计 #338：created=False 且 request_hash 不同 ⇒ 409，不得静默复用旧 run。"""
+    assert _start(client, topic="A", idempotency_key="k9").status_code == 200
+
+    _miss_next_lookups(monkeypatch, api.store, 2)
+    conflict = _start(client, topic="B", idempotency_key="k9")
+
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "idempotency_conflict"
+
+
+def test_race_created_false_queue_mode_conflicts(client: TestClient, monkeypatch):
+    """队列模式（`main._start_queued` 的 created=False 分支）同口径 409。"""
+    monkeypatch.setattr(api, "EXECUTION_MODE", "queue")
+    assert _start(client, topic="A", idempotency_key="k10").status_code == 200
+
+    # 绕过 _start_queued 的预检查，模拟「预检查与插入之间被并发插入」的窗口
+    monkeypatch.setattr(api, "_idempotent_existing", lambda *args, **kwargs: None)
+    conflict = _start(client, topic="B", idempotency_key="k10")
+
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "idempotency_conflict"

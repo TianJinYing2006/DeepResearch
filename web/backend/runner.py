@@ -64,7 +64,7 @@ from .agui import (
     sse_frame,
 )
 from .egress import build_egress_snapshot
-from .errors import ApiError, error_payload
+from .errors import ApiError, error_payload, safe_detail
 from .export import build_export_payload, document_from_payload, render_markdown
 from .moderation import ModerationDecision, apply_output_gate, evaluate_output
 from .persistence import persist_forced, persist_terminal
@@ -237,9 +237,15 @@ class RunManager:
                 except Exception as exc:  # noqa: BLE001 —— 持久化是硬前提，失败即明确报错
                     raise ApiError(
                         "persistence_unavailable",
-                        f"任务创建失败：{type(exc).__name__}: {exc}"[:300],
+                        safe_detail("任务创建失败", exc),
                     ) from exc
                 if not created:
+                    # 审计 #338：created=False 可能来自并发插入（预检查恰好错过）；
+                    # 与预检查同口径复核 request_hash，同键不同 payload 一律 409。
+                    stored = row.get("request_hash")
+                    if (request_hash is not None and stored is not None
+                            and stored != request_hash):
+                        raise ApiError("idempotency_conflict", "该幂等键已用于不同请求")
                     return row["run_id"]
                 run_id = row["run_id"]
             self._frames[run_id] = []
@@ -278,8 +284,7 @@ class RunManager:
                         started_at=datetime.now(UTC),
                     )
                 except Exception as exc:  # noqa: BLE001 —— 不打断研究，画像里留痕
-                    self._status[run_id]["persistence_error"] = (
-                        f"{type(exc).__name__}: {exc}"[:300])
+                    self._set_persistence_error(run_id, exc)
             t = threading.Thread(
                 target=self._worker,
                 args=(run_id, topic, instructions, profile),
@@ -511,11 +516,15 @@ class RunManager:
     # ------------------------------------------------------------------ 持久化（P2-C）
 
     def _set_persistence_error(self, run_id: str, exc: Exception) -> None:
-        """持久化失败只留痕（运行画像 `persistence_error`），绝不打断研究本身。"""
+        """持久化失败只留痕（运行画像 `persistence_error`），绝不打断研究本身。
+
+        #324：画像经 `snapshot()` 对客户端可见 ⇒ 只存异常**类型名**，原文只进服务端日志。
+        """
+        safe_detail("持久化失败", exc)
         with self._lock:
             st = self._status.get(run_id)
             if st is not None:
-                st["persistence_error"] = f"{type(exc).__name__}: {exc}"[:300]
+                st["persistence_error"] = type(exc).__name__
 
     def _persist_call(self, run_id: str, method: str, *args: Any, **kwargs: Any) -> Any:
         if self._store is None:
@@ -720,7 +729,7 @@ class RunManager:
                         "fallback_action": d.fallback_action,
                     })
         except Exception as exc:  # noqa: BLE001 —— 兜底：不得让工作线程静默死掉
-            payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
+            payload = error_payload("runner_crash", safe_detail("运行线程异常退出", exc))
             seq = self._emit_terminal_frame(run_id, RUN_ERROR, payload, status_fields={})
             if seq is not None:
                 self._persist_terminal(run_id, seq, RUN_ERROR, payload)
