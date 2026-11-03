@@ -2,7 +2,8 @@
 
 覆盖：密钥未配置 ⇒ 显式 503；绑定（begin/confirm）与恢复码一次性；登录 step-up
 （半程会话不得访问受保护接口）；恢复码登录与单次消费；关闭 MFA；**密钥丢失 fail-closed**；
-TOTP / 恢复码纯函数（漂移窗口、格式、归一化）。
+TOTP / 恢复码纯函数（漂移窗口、格式、归一化）；**需求 42：TOTP 码防重放**（同一时间步
+只能消费一次，跨会话/同会话重放一律 401）。
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from web.backend.totp import (
     normalize_recovery_code,
     totp_at,
     verify_totp,
+    verify_totp_step,
 )
 
 PASSWORD = "password-123456"
@@ -88,6 +90,15 @@ def _actions(store: FakeStore) -> list[str]:
     return [row["action"] for row in store.audits]
 
 
+def _fresh_code(secret: bytes) -> str:
+    """取**尚未消费**的 TOTP 码（下一个时间步）。
+
+    `_enable_mfa` 的 confirm 已消费当前步；登录 step-up / 关闭 MFA 需换一步，
+    否则会命中重放拒绝（这正是需求 42 的预期行为）。
+    """
+    return totp_at(secret, time.time() + 30)
+
+
 # ----------------------------------------------------------------- 纯函数
 
 def test_totp_verify_window_and_format():
@@ -101,6 +112,20 @@ def test_totp_verify_window_and_format():
     assert not verify_totp(secret, "abcdef", now)      # 非数字
     assert not verify_totp(secret, "12345", now)       # 位数不符
     assert not verify_totp(new_totp_secret(), code, now)  # 别的 secret
+
+
+def test_totp_verify_step_returns_matched_step():
+    """需求 42：`verify_totp_step` 返回匹配的时间步（供原子消费），不是布尔。"""
+    secret = new_totp_secret()
+    now = time.time()
+    code = totp_at(secret, now)
+    step = int(now // 30)
+    assert verify_totp_step(secret, code, now) == step
+    # 时钟漂移：码仍指向生成它的那一步（不是当前步），消费语义才正确
+    assert verify_totp_step(secret, code, now + 30) == step
+    assert verify_totp_step(secret, code, now + 120) is None
+    assert verify_totp_step(secret, "abcdef", now) is None
+    assert verify_totp(secret, code, now) is True      # 兼容封装仍可用
 
 
 def test_recovery_code_normalization():
@@ -137,9 +162,9 @@ def test_enroll_then_step_up_login(client: TestClient, store: FakeStore):
     assert login.status_code == 200 and login.json() == {"mfa_required": True}
     assert client.get("/api/auth/session").status_code == 401     # 半程不得访问
 
-    # 第二步：TOTP
+    # 第二步：TOTP（confirm 已消费当前步，这里用下一步的码）
     verified = client.post("/api/auth/mfa/verify",
-                           json={"code": totp_at(secret, time.time())},
+                           json={"code": _fresh_code(secret)},
                            headers=_csrf(client))
     assert verified.status_code == 200, verified.text
     assert verified.json()["user"]["email"] == EMAIL
@@ -214,8 +239,7 @@ def test_disable_requires_password_and_code(client: TestClient, store: FakeStore
     assert bad.status_code == 401
 
     done = client.post("/api/auth/mfa/disable",
-                       json={"password": PASSWORD,
-                             "code": totp_at(secret, time.time())},
+                       json={"password": PASSWORD, "code": _fresh_code(secret)},
                        headers=_csrf(client))
     assert done.status_code == 200 and done.json()["ok"] is True
     status = client.get("/api/auth/mfa").json()
@@ -247,6 +271,57 @@ def test_recovery_code_hash_is_stored_not_plaintext(client: TestClient, store: F
     stored = {row["code_hash"] for row in store.recovery_codes}
     assert stored and all(code not in stored for code in codes)
     assert hash_recovery_code(codes[0]) in stored
+
+
+# --------------------------------------------------- 需求 42：TOTP 码防重放
+
+def test_totp_code_cannot_be_replayed_across_sessions(client: TestClient,
+                                                      store: FakeStore) -> None:
+    """同一 6 位码在两个半程会话里先后使用：第二次必须 401。
+
+    修复前审计实测 200/200（RFC 6238 §5.2：验证方**必须拒绝已用 OTP**）。
+    """
+    assert _register(client).status_code == 200
+    _codes, secret = _enable_mfa(client)
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
+
+    # 会话 1：半程会话 → 用「下一步」码完成第二步（成功即原子消费该时间步）
+    assert _login(client).json() == {"mfa_required": True}
+    code = _fresh_code(secret)
+    ok = client.post("/api/auth/mfa/verify", json={"code": code}, headers=_csrf(client))
+    assert ok.status_code == 200, ok.text
+    assert client.get("/api/auth/session").status_code == 200
+
+    # 会话 2：另一个半程会话用**同一个码** → 401 mfa_code_invalid，仍停留半程
+    fresh = TestClient(api.app)
+    assert fresh.post("/api/auth/login", json={"email": EMAIL, "password": PASSWORD}
+                      ).json() == {"mfa_required": True}
+    replay = fresh.post("/api/auth/mfa/verify", json={"code": code},
+                        headers={CSRF_HEADER: fresh.cookies.get(CSRF_COOKIE)})
+    assert replay.status_code == 401
+    assert replay.json()["detail"]["code"] == "mfa_code_invalid"
+    assert fresh.get("/api/auth/session").status_code == 401
+    assert "mfa_verify_replay" in _actions(store)
+
+
+def test_totp_code_cannot_be_reused_for_disable(client: TestClient, store: FakeStore) -> None:
+    """同一会话内：已用于 step-up 的码不能再用于关闭 MFA（同会话重放也被拒）。"""
+    assert _register(client).status_code == 200
+    _codes, secret = _enable_mfa(client)
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
+    assert _login(client).json() == {"mfa_required": True}
+    code = _fresh_code(secret)
+    stepped = client.post("/api/auth/mfa/verify", json={"code": code}, headers=_csrf(client))
+    assert stepped.status_code == 200, stepped.text
+
+    replay = client.post("/api/auth/mfa/disable",
+                         json={"password": PASSWORD, "code": code},
+                         headers=_csrf(client))
+    assert replay.status_code == 401
+    assert replay.json()["detail"]["code"] == "mfa_code_invalid"
+    assert client.get("/api/auth/mfa").json()["enabled"] is True   # 因子未被关闭
+    failed = [row for row in store.audits if row["action"] == "mfa_disable_failed"]
+    assert failed and failed[-1]["detail"] == {"reason": "replay"}
 
 
 class _DenyLimiter:

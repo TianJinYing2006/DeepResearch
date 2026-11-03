@@ -1757,10 +1757,22 @@ class RunStore:
             )
             return cur.fetchone() is not None
 
-    def touch_mfa_factor_used(self, factor_id: str) -> None:
+    def consume_mfa_factor_step(self, factor_id: str, step: int) -> bool:
+        """原子消费一个 TOTP 时间步（RFC 6238 §5.2 防重放）。
+
+        仅当本次步**严格晚于**已消费步（或从未消费）时推进并返回 True；并发下
+        同一 code 只有一个请求能成功（单条 UPDATE … RETURNING 的原子性）。
+        与 `migrations/checks/0028_schema_assert.sql` 的谓词保持一致。
+        """
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mfa_factors SET last_used_at = now() WHERE factor_id = %s",
-                        (factor_id,))
+            cur.execute(
+                "UPDATE mfa_factors SET last_used_step = %s, last_used_at = now() "
+                "WHERE factor_id = %s "
+                "AND (last_used_step IS NULL OR last_used_step < %s) "
+                "RETURNING factor_id",
+                (step, factor_id, step),
+            )
+            return cur.fetchone() is not None
 
     def delete_mfa_factors(self, user_id: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:

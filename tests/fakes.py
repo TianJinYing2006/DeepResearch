@@ -796,6 +796,7 @@ class FakeStore:
             "factor_id": factor_id, "user_id": user_id, "type": "totp",
             "secret_encrypted": secret_encrypted, "name": name,
             "created_at": datetime.now(UTC), "confirmed_at": None, "last_used_at": None,
+            "last_used_step": None,
         }
 
     def get_mfa_factor(self, user_id, *, confirmed=True):
@@ -814,10 +815,17 @@ class FakeStore:
         row["confirmed_at"] = datetime.now(UTC)
         return True
 
-    def touch_mfa_factor_used(self, factor_id):
+    def consume_mfa_factor_step(self, factor_id, step):
+        """原子消费 TOTP 时间步（语义同 RunStore.consume_mfa_factor_step）。"""
         row = self.mfa_factors.get(factor_id)
-        if row is not None:
-            row["last_used_at"] = datetime.now(UTC)
+        if row is None:
+            return False
+        used = row.get("last_used_step")
+        if used is not None and used >= step:
+            return False
+        row["last_used_step"] = step
+        row["last_used_at"] = datetime.now(UTC)
+        return True
 
     def delete_mfa_factors(self, user_id):
         keys = [key for key, row in self.mfa_factors.items() if row["user_id"] == user_id]
