@@ -378,6 +378,10 @@ MFA_ENROLL_LIMITER = make_limiter(
 PASSKEY_MANAGE_LIMITER = make_limiter(
     "passkey_manage", int(_env_number("DR_PASSKEY_MANAGE_RATE_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
+# 需求 42：重认证（改密 / 注销账号 / 终止他人会话）的密码爆破防护（按用户）。
+REAUTH_LIMITER = make_limiter(
+    "reauth", int(_env_number("DR_REAUTH_RATE_PER_MINUTE", 5)),
+    redis_url=_LIMITER_REDIS_URL)
 # P1-2 / P0-10：可信反向代理。生产口径：显式配置代理 CIDR（反向代理必须清理
 # 外部传入的 X-Forwarded-* 头），应用只信任来自可信 hop 的 XFF / X-Forwarded-Proto。
 # `DR_TRUST_PROXY=true` 是历史布尔开关（信任任意来源的 XFF 首跳），仅在未配置
@@ -1009,6 +1013,33 @@ def _set_session_cookies(response: Response, user_id: str, request: Optional[Req
                         samesite="lax", secure=COOKIE_SECURE, path="/")
 
 
+def _clear_session_cookies(response: Response) -> None:
+    """删除会话 / CSRF Cookie；删除属性必须与写入时一致（需求 42）。
+
+    Secure 模式 Cookie 名带 `__Host-` 前缀，RFC 6265bis 要求删除时**也必须带
+    `Secure`**（且 Path=/、无 Domain），否则浏览器会忽略删除 —— 登出后会话
+    Cookie 仍会留在磁盘上。
+    """
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=COOKIE_SECURE,
+                           httponly=True, samesite="lax")
+    response.delete_cookie(CSRF_COOKIE, path="/", secure=COOKIE_SECURE,
+                           httponly=False, samesite="lax")
+
+
+def _reauth_rate_limit(user: dict, request: Request, action: str) -> None:
+    """需求 42：重认证接口（改密 / 注销 / 终止他人会话）按用户限流。"""
+    if not REAUTH_LIMITER.allow(f"reauth:{user['user_id']}"):
+        _audit("reauth_rate_limited", request=request, actor_user_id=user["user_id"],
+               detail={"action": action})
+        raise http_error("rate_limited", "操作过于频繁，请稍后再试")
+
+
+def _reauth_failed(user: dict, request: Request, action: str) -> None:
+    """需求 42：重认证密码错误必须留审计（只记动作与原因，**不记密码**）。"""
+    _audit("reauth_failed", request=request, actor_user_id=user["user_id"],
+           detail={"action": action, "reason": "bad_password"})
+
+
 def _notify_new_login(user: dict, request: Request) -> None:
     """需求 20 P1-1b：新设备登录提醒（best-effort，**绝不**影响登录本身）。
 
@@ -1360,14 +1391,15 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response) -> dict:
+    # 需求 42：登出是唯一「有会话却无 CSRF」的写路由，补齐双提交校验（防强制登出）。
+    _check_csrf(request)
     user = _session_user(request)
     token = request.cookies.get(SESSION_COOKIE)
     if token and store is not None:
         _store_call(store.revoke_session, token_hash(token))
     if user is not None:
         _audit("logout", request=request, actor_user_id=user["user_id"])
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    _clear_session_cookies(response)
     return {"ok": True}
 
 
@@ -1398,6 +1430,15 @@ class MfaCodeRequest(BaseModel):
 class MfaDisableRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=200)
     code: str = Field("", max_length=32)
+
+
+def _rotate_session_after_step_up(user: dict, request: Request, response: Response) -> None:
+    """需求 42：第二步验证成功后轮换会话 token（吊销旧半程会话并重签 Cookie）。
+
+    登录本身已轮换 token；step-up 沿用同一纪律，避免预置的半程会话在验证后继续有效。
+    """
+    _store_call(store.revoke_session, user["session_token_hash"])
+    _set_session_cookies(response, user["user_id"], request)
 
 
 def _require_mfa_ready() -> None:
@@ -1527,8 +1568,12 @@ def mfa_disable(req: MfaDisableRequest, request: Request) -> dict:
 
 
 @app.post("/api/auth/mfa/verify")
-def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
-    """登录第二步（step-up）：半程会话 + TOTP/恢复码 ⇒ 标记该会话已完成第二步。"""
+def mfa_verify(req: MfaCodeRequest, request: Request, response: Response) -> dict:
+    """登录第二步（step-up）：半程会话 + TOTP/恢复码 ⇒ 标记该会话已完成第二步。
+
+    需求 42：第二步成功后**轮换会话 token**（与登录一致），旧半程 token 立即失效，
+    防会话固定（攻击者预置的半程 token 不能借受害者的验证码「转正」）。
+    """
     _check_csrf(request)
     user = _pending_session_user(request)
     if user is None:
@@ -1539,6 +1584,7 @@ def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
     if factor is None:
         # 因子已在别处移除（如已关闭 MFA）：直接完成，避免把自己锁死
         _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
+        _rotate_session_after_step_up(user, request, response)
         return {"user": _public_user(user)}
     if not MFA_VERIFY_LIMITER.allow(f"mfa-verify:{user['user_id']}"):
         _audit("mfa_verify_rate_limited", request=request, actor_user_id=user["user_id"])
@@ -1554,6 +1600,8 @@ def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
     if is_new_device([device_key(row.get("user_agent"), row.get("ip")) for row in rows],
                      request.headers.get("user-agent"), _client_key(request)):
         _notify_new_login(user, request)
+    # 需求 42：轮换 token 放在新设备判定**之后**（否则新会话会把自己算进已知设备）
+    _rotate_session_after_step_up(user, request, response)
     return {"user": _public_user(user)}
 
 
@@ -1864,18 +1912,19 @@ def auth_revoke_session(session_id: str, req: RevokeSessionRequest, request: Req
     user = _require_session_user(request)
     _check_csrf(request)
     is_current = user.get("session_id") == session_id
-    if not is_current and (not req.password
-                           or not verify_password(user["password_hash"], req.password)):
-        _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
-               target_id=session_id)
-        raise http_error("invalid_credentials", "终止其他会话需要输入当前密码")
+    if not is_current:
+        # 需求 42：重认证（终止他人会话）按用户限流，密码错误留审计
+        _reauth_rate_limit(user, request, "session_revoke")
+        if not req.password or not verify_password(user["password_hash"], req.password):
+            _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
+                   target_id=session_id, detail={"reason": "bad_password"})
+            raise http_error("invalid_credentials", "终止其他会话需要输入当前密码")
     if not _store_call(store.revoke_session_by_id, user["user_id"], session_id):
         raise http_error("invalid_request", "会话不存在")
     _audit("session_revoked", request=request, actor_user_id=user["user_id"],
            target_id=session_id, detail={"current": is_current})
     if is_current:
-        response.delete_cookie(SESSION_COOKIE, path="/")
-        response.delete_cookie(CSRF_COOKIE, path="/")
+        _clear_session_cookies(response)
     return {"ok": True}
 
 
@@ -1884,9 +1933,11 @@ def auth_revoke_other_sessions(req: RevokeSessionRequest, request: Request) -> d
     """退出其他所有设备（P1-10）：需重认证；当前会话保留。"""
     user = _require_session_user(request)
     _check_csrf(request)
+    # 需求 42：重认证（退出其他所有设备）按用户限流，密码错误留审计
+    _reauth_rate_limit(user, request, "sessions_revoke_others")
     if not req.password or not verify_password(user["password_hash"], req.password):
         _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
-               detail={"scope": "others"})
+               detail={"scope": "others", "reason": "bad_password"})
         raise http_error("invalid_credentials", "退出其他设备需要输入当前密码")
     revoked = _store_call(store.revoke_other_sessions, user["user_id"],
                           user["session_token_hash"])
@@ -1977,11 +2028,15 @@ def auth_change_password(req: ChangePasswordRequest, request: Request, response:
     if user is None:
         raise http_error("unauthenticated", "请先登录")
     _check_csrf(request)
+    # 需求 42：重认证按用户限流 + 密码错误写审计（此前直接 401 无审计）
+    _reauth_rate_limit(user, request, "password_change")
     if not verify_password(user["password_hash"], req.current_password):
+        _reauth_failed(user, request, "password_change")
         raise http_error("invalid_credentials", "当前密码不正确")
     _reject_weak_password(req.new_password, email=user.get("email", ""))
     _store_call(store.update_password, user["user_id"], hash_password(req.new_password))
     revoked = _store_call(store.revoke_user_sessions, user["user_id"])
+    _clear_session_cookies(response)
     _set_session_cookies(response, user["user_id"], request)
     _audit("password_changed", request=request, actor_user_id=user["user_id"],
            detail={"revoked_sessions": revoked})
@@ -2006,7 +2061,10 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     if user is None:
         raise http_error("unauthenticated", "请先登录")
     _check_csrf(request)
+    # 需求 42：注销账号同属重认证，按用户限流 + 密码错误写审计
+    _reauth_rate_limit(user, request, "account_delete")
     if not verify_password(user["password_hash"], req.password):
+        _reauth_failed(user, request, "account_delete")
         raise http_error("invalid_credentials", "密码不正确")
     user_id = user["user_id"]
     request_id = uuid.uuid4().hex[:12]
@@ -2021,8 +2079,7 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     _audit("account_deletion_requested", request=request, actor_user_id=user_id,
            target_type="deletion_request", target_id=request_id)
 
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    _clear_session_cookies(response)
     return {"ok": True, "deletion_request_id": request_id, "rag_cleanup": "pending"}
 
 

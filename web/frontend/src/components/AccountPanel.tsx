@@ -135,7 +135,11 @@ export default function AccountPanel({
 
   async function logout() {
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      // 需求 42：登出补齐 CSRF 双提交头（后端已要求，缺头会 403）
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { ...csrfHeaders() },
+      })
       if (!response.ok) {
         setBarMessage('退出失败，请重试')
         return
