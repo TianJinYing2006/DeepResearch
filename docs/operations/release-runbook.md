@@ -42,6 +42,9 @@ PGHOST=... PGPASSWORD=... PGDATABASE=... bash tools/backup.sh   # pg_dump -Fc + 
 #   → 产出 deepresearch_*.dump.pem（openssl smime -aes256；服务器只存公钥，私钥离线保管）
 # 对称备选：BACKUP_ENCRYPT=1 BACKUP_PASSPHRASE=...（口令仅环境变量注入、异地托管）
 # 每日自动：tools/backup-cron.sh（备份 + rclone 同步 COS），cron 03:30，见脚本头注释
+# 明文边界（审计 #326）：backup.sh 用 umask 077 + trap 兜底清理明文（失败/中断也不留
+#   可读整库 dump）；deploy.sh 源码快照排除 .env* 与 backup-recipient.crt；
+#   COS 只接收加密 DB 备份（*.dump.pem / *.dump.enc）与源码快照（src-pre-*.tar.gz）。
 # 独立校验（不必重新备份）：tools/backup-verify.sh —— 新鲜度 + pg_restore -l；
 #   .enc/.pem 提供口令/私钥时做解密校验，未提供则显式输出 structure-only
 # 云上一次性安装与恢复演练检查单：见 §10（需求 1，2026-10-07）
