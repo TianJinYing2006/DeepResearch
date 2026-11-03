@@ -156,18 +156,25 @@ class HybridRetriever:
             )
         return self._client
 
-    def _effective_revision(self, scope: RagScope) -> int | None:
+    def _effective_revision(self, scope: RagScope) -> int:
         """缓存修订号：作用域 revision 为 0（默认未指定）时读库当前值（写路径递增即失效）。
 
-        修复：runner/worker 的 set_scope 只带 user_id/tenant_id（revision 取默认 0），
-        长驻进程会永久缓存「摄取前的空语料」→ 运行期检索恒零命中。
+        2026-11 审计 #340a（D-07）：``self.store`` 是 :class:`VectorStore`，**没有**
+        ``get_rag_revision``（该方法在 ``web/backend/store.py`` 的 RunStore）——旧实现直接
+        调用会每次抛 AttributeError 并被 ``except Exception`` 静默吞掉，属死代码（长驻进程
+        "缓存随写路径失效"的修复实际不生效）。现显式探测：无该方法 / 读取失败都退化为
+        revision=0（不按修订失效，与旧行为等价但不再依赖异常路径）；runner/worker 会显式
+        把任务库的真实 revision 放进 scope（见 ``set_scope``），主链路不依赖此回退。
         """
         if scope.revision:
             return scope.revision
+        getter = getattr(self.store, "get_rag_revision", None)
+        if getter is None:
+            return 0
         try:
-            return self.store.get_rag_revision()
+            return int(getter())
         except Exception:  # noqa: BLE001 —— 读不到时退化为不按修订失效（原行为）
-            return scope.revision
+            return 0
 
     def _load_all(self, scope: RagScope) -> tuple[List[dict], BM25Okapi | None]:
         """按 (作用域, 修订号) 加载 BM25 语料（含身份/定位元数据），结果缓存。"""

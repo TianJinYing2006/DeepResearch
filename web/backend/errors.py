@@ -12,10 +12,23 @@ HTTP 响应体与 SSE 的 `RUN_ERROR` 帧共用同一份 payload 结构。
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
+
+
+def safe_detail(label: str, exc: BaseException) -> str:
+    """客户端只给固定文案；异常类型与原文（可能含 DB / 向量库内部信息）只写服务端日志。
+
+    #324：`runner` / `worker` / `main` 的客户端可见错误一律经此函数生成 message，
+    禁止把 `f"{type(exc).__name__}: {exc}"` 之类的原文回显给用户（#317 的同类残留）。
+    """
+    logger.warning("%s: %s: %s", label, type(exc).__name__, exc, exc_info=exc)
+    return label
 
 
 @dataclass(frozen=True)
@@ -141,6 +154,11 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         component="web"),
     "rate_limited": ErrorSpec(
         429, True, "请求过于频繁（登录 / 提交限流）：稍后再试。", component="web"),
+    # #337：每用户并发 SSE 连接配额（每条连接占一个默认 executor 线程）。
+    "too_many_streams": ErrorSpec(
+        429, True,
+        "同一账号的并发事件流过多：关闭其它标签页/页面后再试（上限见 DR_MAX_SSE_PER_USER）。",
+        component="web"),
     "mail_unavailable": ErrorSpec(
         503, True,
         "邮件通道未配置或不可用：联系管理员用 create-reset-token 兜底，或稍后再试。",
@@ -258,7 +276,8 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         "后台线程可能仍在收尾，进程重启才会彻底释放。",
         component="runner"),
     "runner_crash": ErrorSpec(
-        None, True, "运行线程异常退出。可原样重试；若稳定复现请看 message 里的异常类型。",
+        None, True,
+        "运行线程异常退出。可原样重试；若稳定复现请联系管理员（服务端日志保留异常类型）。",
         component="runner"),
     "graph_error": ErrorSpec(
         None, True, "研究链路报错并被结构化捕获，run_status 已按 W8 口径写入 state。",

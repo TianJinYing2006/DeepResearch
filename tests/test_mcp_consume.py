@@ -12,12 +12,14 @@
 from __future__ import annotations
 
 import json
+import socket
 
 import pytest
 
 from config import config
 from research_engine.agents.researcher import Researcher, format_tool_detail, pool_and_trim
 from research_engine.failure_reasons import FailureReason
+from research_engine.mcp import consumer as mcp_consumer
 from research_engine.mcp.consumer import (
     McpConfigError,
     McpConsumer,
@@ -320,3 +322,93 @@ def test_provenance_snapshot_has_mcp_switches_and_fingerprint(monkeypatch):
 
     monkeypatch.setattr(config.mcp, "servers_json", "{bad")
     assert server_fingerprint() == [] and server_hosts() == []  # 旁路容错
+
+
+# ---- 2026-11 审计 #331：调用期重校验 + 禁重定向/禁代理 env ----
+
+
+def test_is_public_shared_with_safe_fetch():
+    """MCP 侧判定与 safe_fetch 收敛为单一实现（CGNAT/IPv4-mapped 语义一致）。"""
+    assert mcp_consumer._is_public("100.64.0.1") is False
+    assert mcp_consumer._is_public("::ffff:100.64.0.1") is False
+    assert mcp_consumer._is_public("93.184.216.34") is True
+
+
+def test_call_time_url_validation_rejects_private_resolution(monkeypatch):
+    """配置期之后 DNS 变化（rebinding）⇒ 调用期校验拦下，且不进入 SDK 调用。"""
+    monkeypatch.setattr(
+        mcp_consumer.socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                          "", ("10.0.0.5", 0))])
+    out = mcp_consumer._sdk_call_tool(
+        _server(url="https://mcp.internal.example/mcp"), "search", "q")
+    assert out.failure_reason == FailureReason.PROVIDER_ERROR.value
+    assert "non-public" in out.detail
+
+
+def test_call_time_validation_allow_private_semantics(monkeypatch):
+    """allow_private=True + reason 时私网放行；缺 reason / 环回仍拒（与配置期同语义）。"""
+    from research_engine.mcp.consumer import validate_mcp_url
+
+    monkeypatch.setattr(
+        mcp_consumer.socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                          "", ("10.0.0.5", 0))])
+    scheme, _host, addrs = validate_mcp_url(
+        "https://10.0.0.5/mcp", allow_private=True, reason="内部灰度（审计留痕）")
+    assert scheme == "https" and addrs == ["10.0.0.5"]
+    with pytest.raises(McpConfigError):
+        validate_mcp_url("https://10.0.0.5/mcp", allow_private=True, reason="")
+
+    monkeypatch.setattr(
+        mcp_consumer.socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP,
+                          "", ("127.0.0.1", 0))])
+    with pytest.raises(McpConfigError):
+        validate_mcp_url("https://127.0.0.1/mcp", allow_private=True, reason="r")
+
+
+def test_httpx_factory_disables_redirect_and_proxy_env():
+    """SDK 默认 follow_redirects=True / trust_env=True；自定义工厂必须两个都关掉。"""
+    import asyncio
+
+    client = mcp_consumer._mcp_httpx_client_factory()()
+    try:
+        assert client.follow_redirects is False
+        assert client.trust_env is False
+    finally:
+        asyncio.run(client.aclose())
+
+
+def test_sdk_call_passes_safe_factory_to_streamablehttp(monkeypatch):
+    """集成断言：`_sdk_call_tool` 创建 SDK 传输时必须传自定义 factory（禁重定向客户端）。"""
+    import asyncio
+
+    import mcp.client.streamable_http as sh
+
+    captured: dict = {}
+
+    class _FakeStream:
+        async def __aenter__(self):
+            return (object(), object(), None)
+
+        async def __aexit__(self, *exc):  # noqa: ANN002
+            return False
+
+    def fake_client(url, **kwargs):  # noqa: ANN001, ANN003
+        captured["url"] = url
+        captured.update(kwargs)
+        return _FakeStream()
+
+    monkeypatch.setattr(sh, "streamablehttp_client", fake_client)
+    out = mcp_consumer._sdk_call_tool(_server(), "search", "q")
+    # ClientSession 在假 stream 上会失败 ⇒ 映射 provider_error，但 kwargs 已捕获
+    assert out.failure_reason == FailureReason.PROVIDER_ERROR.value
+    factory = captured.get("httpx_client_factory")
+    assert factory is not None
+    client = factory()
+    try:
+        assert client.follow_redirects is False and client.trust_env is False
+    finally:
+        asyncio.run(client.aclose())
+

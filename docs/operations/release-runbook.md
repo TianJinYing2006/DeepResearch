@@ -42,6 +42,9 @@ PGHOST=... PGPASSWORD=... PGDATABASE=... bash tools/backup.sh   # pg_dump -Fc + 
 #   → 产出 deepresearch_*.dump.pem（openssl smime -aes256；服务器只存公钥，私钥离线保管）
 # 对称备选：BACKUP_ENCRYPT=1 BACKUP_PASSPHRASE=...（口令仅环境变量注入、异地托管）
 # 每日自动：tools/backup-cron.sh（备份 + rclone 同步 COS），cron 03:30，见脚本头注释
+# 明文边界（审计 #326）：backup.sh 用 umask 077 + trap 兜底清理明文（失败/中断也不留
+#   可读整库 dump）；deploy.sh 源码快照排除 .env* 与 backup-recipient.crt；
+#   COS 只接收加密 DB 备份（*.dump.pem / *.dump.enc）与源码快照（src-pre-*.tar.gz）。
 # 独立校验（不必重新备份）：tools/backup-verify.sh —— 新鲜度 + pg_restore -l；
 #   .enc/.pem 提供口令/私钥时做解密校验，未提供则显式输出 structure-only
 # 云上一次性安装与恢复演练检查单：见 §10（需求 1，2026-10-07）
@@ -488,7 +491,8 @@ API 侧端点：`POST /api/research/{run_id}/export-jobs`（202 + `export_id`；
 - [x] 3. 安装 cron：`30 3 * * * /opt/deepresearch/tools/backup-cron.sh >> /var/log/dr-backup.log 2>&1`
 - [x] 4. 手动首跑：`bash /opt/deepresearch/tools/backup-cron.sh` → 日志出现 `backup + COS sync ok`
 - [x] 5. 校验：`BACKUP_DIR=/opt/deepresearch/backups bash /opt/deepresearch/tools/backup-verify.sh`
-      （默认 structure-only；持有离线私钥的机器可做 decrypted 校验）—— 2026-10-11 结构校验通过（新鲜度 + md5 输出）
+      （明文 dump：新鲜度 + `pg_restore -l` + md5；加密产物必须提供口令/私钥，否则
+      **exit 5「无法校验」**，不再把「什么都没校验」报成 ok——审计 #339）—— 2026-10-11 结构校验通过（新鲜度 + md5 输出）
 - [x] 6. COS 侧核对：对象存在、大小与本地一致；md5 一致（`rclone md5sum cos:<bucket>/backups/<文件>` 与 `backup-verify.sh` 输出的 md5 比对；对象为分片上传无 md5 时，回退记录本地 md5 供抽验）—— 2026-10-11 **三方一致**
 - [x] 7. 失败可见：`/var/log/dr-backup.log` 可查；webhook 未配置时在告警登记中备注（P2-6）
 

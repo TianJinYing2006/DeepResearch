@@ -17,6 +17,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -80,7 +81,7 @@ from .auth import (
 )
 from .download_names import build_export_filename, content_disposition
 from .egress import build_egress_snapshot
-from .errors import ApiError, error_payload, http_error
+from .errors import ApiError, error_payload, http_error, safe_detail
 from .hitl import (
     ANSWER_EVENT_BY_KIND,
     KIND_BY_STATUS,
@@ -114,7 +115,12 @@ from .profiles import DEFAULT_PROFILE, PROFILES, profile_options, resolve_profil
 from .queue import RunQueue
 from .ratelimit import make_limiter
 from .runner import RunManager, _estimate_cost_cny
-from .security_headers import SecurityHeadersMiddleware
+from .security_headers import (
+    SecurityHeadersMiddleware,
+    StaticCacheMiddleware,
+    dsn_origin,
+    merge_connect_src,
+)
 from .store import ACTIVE_STATUSES, QuotaExceeded, RunStore
 from .totp import (
     encode_secret as totp_encode_secret,
@@ -123,7 +129,7 @@ from .totp import (
     hash_recovery_code,
     new_recovery_codes,
     new_totp_secret,
-    verify_totp,
+    verify_totp_step,
 )
 from .totp import (
     provisioning_uri as totp_provisioning_uri,
@@ -139,12 +145,6 @@ from .upload_guard import (
 from .usage import make_store_sink
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_detail(label: str, exc: BaseException) -> str:
-    """对客户端只给固定文案；异常类型与原文（可能含 DB/Qdrant 内部信息）仅写服务端日志。"""
-    logger.warning("%s: %s: %s", label, type(exc).__name__, exc, exc_info=exc)
-    return label
 
 
 app = FastAPI(title="爱考据 iKaoju", version="0.2.0")
@@ -305,8 +305,16 @@ ENV = _parse_env()
 app.add_middleware(
     SecurityHeadersMiddleware,
     env=ENV,
-    connect_src_extra=(os.getenv("DR_CSP_CONNECT_SRC") or "").strip(),
+    # 审计 M-18：DR_CSP_CONNECT_SRC 显式配置 + 前端 Sentry DSN 自动推导 origin
+    # （否则「开了前端错误上报但忘配 CSP」会被浏览器静默拦截，且无任何告警）。
+    connect_src_extra=merge_connect_src(
+        os.getenv("DR_CSP_CONNECT_SRC") or "",
+        dsn_origin(os.getenv("DR_SENTRY_DSN_FRONTEND") or ""),
+    ),
 )
+# 审计 F9：静态资源缓存策略（/assets/* 长缓存、index.html 与 /s/ 壳 no-cache），
+# 避免发版后浏览器沿用旧 index 引用已删除的旧哈希资源导致白屏。
+app.add_middleware(StaticCacheMiddleware)
 
 
 def _validate_runtime_config() -> None:
@@ -351,6 +359,10 @@ LOGIN_ACCOUNT_LIMITER = make_limiter(
 SUBMIT_LIMITER = make_limiter(
     "submit", int(_env_number("DR_SUBMIT_RATE_PER_MINUTE", 10)),
     redis_url=_LIMITER_REDIS_URL)
+# #337：申诉入口此前无限流（feedback 有 SUBMIT_LIMITER）⇒ 可按用户刷申诉/占复核队列。
+APPEAL_LIMITER = make_limiter(
+    "appeal", int(_env_number("DR_APPEAL_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
 # 需求 36 H3：追问按用户限流（每次追问都是真实 LLM 调用）
 FOLLOWUP_LIMITER = make_limiter(
     "followup", int(_env_number("DR_FOLLOWUP_RATE_PER_MINUTE", 10)),
@@ -364,6 +376,10 @@ MFA_ENROLL_LIMITER = make_limiter(
     redis_url=_LIMITER_REDIS_URL)
 PASSKEY_MANAGE_LIMITER = make_limiter(
     "passkey_manage", int(_env_number("DR_PASSKEY_MANAGE_RATE_PER_MINUTE", 10)),
+    redis_url=_LIMITER_REDIS_URL)
+# 需求 42：重认证（改密 / 注销账号 / 终止他人会话）的密码爆破防护（按用户）。
+REAUTH_LIMITER = make_limiter(
+    "reauth", int(_env_number("DR_REAUTH_RATE_PER_MINUTE", 5)),
     redis_url=_LIMITER_REDIS_URL)
 # P1-2 / P0-10：可信反向代理。生产口径：显式配置代理 CIDR（反向代理必须清理
 # 外部传入的 X-Forwarded-* 头），应用只信任来自可信 hop 的 XFF / X-Forwarded-Proto。
@@ -681,14 +697,26 @@ def health_live() -> dict:
 
 
 @app.get("/api/health/ready")
-def health_ready(response: Response) -> dict:
+def health_ready(request: Request, response: Response) -> dict:
     """readiness：只对**已配置**的依赖做探针。
 
     - PostgreSQL：配置了任务库（P2-C）时用真实 `SELECT 1` 探针，否则退化为 TCP 连接；
     - Redis：TCP 探针（P3 接队列后升级为 `PING`）；
     - `not_configured` 不判失败 —— 过渡期（还没接库）不会把本地与 CI 全判红；
       一旦设置但探不通即 503，由编排层摘流量。
+
+    #337：该端点**未认证**（LB 探针要能打）⇒ `target` 只对持有合法 `X-Ops-Token`
+    的调用方回内网 host:port / endpoint / 异常类型；匿名调用方只看到
+    `configured` / `unreachable`。`status` 字段语义不变（探针只认它）。
     """
+    verbose = _ops_authorized(request)
+    failed_statuses = {"unreachable", "invalid_url", "unavailable"}
+
+    def target(status: str, detail: str) -> str:
+        if verbose:
+            return detail
+        return "unreachable" if status in failed_statuses else "configured"
+
     checks = {}
     for name, env_key, default_port in (
         ("postgres", "DR_DATABASE_URL", 5432),
@@ -697,33 +725,34 @@ def health_ready(response: Response) -> dict:
         if name == "postgres" and store is not None:
             try:
                 store.ping()
-                checks[name] = {"status": "ok", "target": "dr_database_url"}
+                checks[name] = {"status": "ok", "target": target("ok", "dr_database_url")}
             except Exception as exc:  # noqa: BLE001
                 checks[name] = {
                     "status": "unreachable",
-                    "target": f"ping failed: {type(exc).__name__}",
+                    "target": target("unreachable", f"ping failed: {type(exc).__name__}"),
                 }
             continue
         raw = os.getenv(env_key, "").strip()
         if not raw:
             checks[name] = {"status": "not_configured"}
             continue
-        target = _probe_target(raw, default_port)
-        if target is None:
+        probe = _probe_target(raw, default_port)
+        if probe is None:
             checks[name] = {"status": "invalid_url"}
             continue
-        host, port = target
-        checks[name] = {
-            "status": "ok" if _tcp_reachable(host, port) else "unreachable",
-            "target": f"{host}:{port}",
-        }
+        host, port = probe
+        status = "ok" if _tcp_reachable(host, port) else "unreachable"
+        checks[name] = {"status": status, "target": target(status, f"{host}:{port}")}
     if EXECUTION_MODE == "queue" and store is not None:
         # P1-3：队列模式下「有活跃 worker」是 readiness 的硬条件
         try:
             live = int(store.count_live_workers(
                 within_seconds=WORKER_HEARTBEAT_MAX_AGE_SECONDS))
         except Exception as exc:  # noqa: BLE001
-            checks["worker"] = {"status": "unreachable", "target": f"{type(exc).__name__}"}
+            checks["worker"] = {
+                "status": "unreachable",
+                "target": target("unreachable", f"{type(exc).__name__}"),
+            }
         else:
             checks["worker"] = {
                 "status": "ok" if live else "unavailable",
@@ -736,12 +765,17 @@ def health_ready(response: Response) -> dict:
         try:
             object_store.ping()
         except Exception as exc:  # noqa: BLE001
-            checks["object_storage"] = {"status": "unreachable",
-                                        "target": f"{type(exc).__name__}"}
+            checks["object_storage"] = {
+                "status": "unreachable",
+                "target": target("unreachable", f"{type(exc).__name__}"),
+            }
         else:
-            checks["object_storage"] = {"status": "ok", "target": object_store.endpoint}
+            checks["object_storage"] = {
+                "status": "ok",
+                "target": target("ok", object_store.endpoint),
+            }
     failed = [item for item in checks.values()
-              if item["status"] in {"unreachable", "invalid_url", "unavailable"}]
+              if item["status"] in failed_statuses]
     if failed:
         response.status_code = 503
     return {"ok": not failed, "status": "ready" if not failed else "not_ready", "checks": checks}
@@ -754,7 +788,7 @@ def _store_call(fn, *args, **kwargs):
     except Exception as exc:  # noqa: BLE001
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("任务库不可用", exc),
+            safe_detail("任务库不可用", exc),
         ) from exc
 
 
@@ -886,6 +920,19 @@ def _require_ops(request: Request) -> None:
         raise http_error("unauthenticated", "运维接口未配置 DR_OPS_TOKEN（fail-closed）")
 
 
+def _ops_authorized(request: Optional[Request]) -> bool:
+    """调用方是否持有合法 ops token（**软判定**，不抛异常）。
+
+    #337：用于「同一端点按身份决定披露粒度」——例如未认证的 readiness 调用只回
+    `configured` / `unreachable`，不得回内网 host:port / endpoint / 异常类型。
+    未配置 `DR_OPS_TOKEN` 时无人可被认证（本地开发也不披露内部端点）。
+    """
+    if not OPS_TOKEN or request is None:
+        return False
+    provided = request.headers.get("x-ops-token", "")
+    return bool(provided) and hmac.compare_digest(provided, OPS_TOKEN)
+
+
 def _check_csrf(request: Request) -> None:
     """双提交 Cookie 校验（仅在启用鉴权后生效；登录/注册除外）。"""
     if not AUTH_REQUIRED:
@@ -994,6 +1041,33 @@ def _set_session_cookies(response: Response, user_id: str, request: Optional[Req
                         samesite="lax", secure=COOKIE_SECURE, path="/")
     response.set_cookie(CSRF_COOKIE, new_token(), max_age=SESSION_TTL_SECONDS, httponly=False,
                         samesite="lax", secure=COOKIE_SECURE, path="/")
+
+
+def _clear_session_cookies(response: Response) -> None:
+    """删除会话 / CSRF Cookie；删除属性必须与写入时一致（需求 42）。
+
+    Secure 模式 Cookie 名带 `__Host-` 前缀，RFC 6265bis 要求删除时**也必须带
+    `Secure`**（且 Path=/、无 Domain），否则浏览器会忽略删除 —— 登出后会话
+    Cookie 仍会留在磁盘上。
+    """
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=COOKIE_SECURE,
+                           httponly=True, samesite="lax")
+    response.delete_cookie(CSRF_COOKIE, path="/", secure=COOKIE_SECURE,
+                           httponly=False, samesite="lax")
+
+
+def _reauth_rate_limit(user: dict, request: Request, action: str) -> None:
+    """需求 42：重认证接口（改密 / 注销 / 终止他人会话）按用户限流。"""
+    if not REAUTH_LIMITER.allow(f"reauth:{user['user_id']}"):
+        _audit("reauth_rate_limited", request=request, actor_user_id=user["user_id"],
+               detail={"action": action})
+        raise http_error("rate_limited", "操作过于频繁，请稍后再试")
+
+
+def _reauth_failed(user: dict, request: Request, action: str) -> None:
+    """需求 42：重认证密码错误必须留审计（只记动作与原因，**不记密码**）。"""
+    _audit("reauth_failed", request=request, actor_user_id=user["user_id"],
+           detail={"action": action, "reason": "bad_password"})
 
 
 def _notify_new_login(user: dict, request: Request) -> None:
@@ -1125,6 +1199,23 @@ def _request_fingerprint(topic: str, instructions: str, profile_name: str) -> st
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _raise_on_fingerprint_conflict(row: dict, fingerprint: str,
+                                   idempotency_key: Optional[str]) -> None:
+    """审计 #338：幂等命中/竞态必须复核 `request_hash`，同键不同 payload 一律 409。
+
+    `created=False` 也可能来自**并发插入**（预检查恰好错过）；与预检查同口径处理：
+    旧行 `request_hash IS NULL` 按遗留口径放行，非 NULL 不一致即冲突——绝不静默复用
+    旧 run（否则同键不同 payload 的并发重试会返回别人的结果）。
+    """
+    stored = row.get("request_hash")
+    if stored is not None and stored != fingerprint:
+        raise http_error(
+            "idempotency_conflict",
+            "该幂等键已用于不同请求",
+            detail=f"idempotency_key={idempotency_key}",
+        )
+
+
 def _idempotent_existing(user_id: Optional[str], idempotency_key: Optional[str],
                          fingerprint: str) -> Optional[dict]:
     """P1-1：同键查询；指纹不一致 ⇒ 409（不得静默复用）。旧行 NULL 指纹按遗留口径放行。"""
@@ -1133,13 +1224,7 @@ def _idempotent_existing(user_id: Optional[str], idempotency_key: Optional[str],
     existing = _store_call(store.get_run_by_idempotency, user_id, idempotency_key)
     if existing is None:
         return None
-    stored = existing.get("request_hash")
-    if stored is not None and stored != fingerprint:
-        raise http_error(
-            "idempotency_conflict",
-            "该幂等键已用于不同请求",
-            detail=f"idempotency_key={idempotency_key}",
-        )
+    _raise_on_fingerprint_conflict(existing, fingerprint, idempotency_key)
     return existing
 
 
@@ -1222,9 +1307,11 @@ def _start_queued(*, topic: str, instructions: str, idempotency_key: Optional[st
     except Exception as exc:  # noqa: BLE001
         raise ApiError(
             "persistence_unavailable",
-            _safe_detail("任务创建失败", exc),
+            safe_detail("任务创建失败", exc),
         ) from exc
     if not created:
+        # 审计 #338：并发插入的 created=False 与预检查同口径复核指纹（否则静默复用旧 run）
+        _raise_on_fingerprint_conflict(row, fingerprint, idempotency_key)
         return row["run_id"]
     if queue is not None:
         try:
@@ -1282,7 +1369,7 @@ def auth_register(req: RegisterRequest, request: Request, response: Response) ->
             raise http_error("email_taken", "该邮箱已注册") from exc
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("注册失败", exc),
+            safe_detail("注册失败", exc),
         ) from exc
     _store_call(store.touch_last_login, user["user_id"])
     _set_session_cookies(response, user["user_id"], request)
@@ -1347,14 +1434,15 @@ def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response) -> dict:
+    # 需求 42：登出是唯一「有会话却无 CSRF」的写路由，补齐双提交校验（防强制登出）。
+    _check_csrf(request)
     user = _session_user(request)
     token = request.cookies.get(SESSION_COOKIE)
     if token and store is not None:
         _store_call(store.revoke_session, token_hash(token))
     if user is not None:
         _audit("logout", request=request, actor_user_id=user["user_id"])
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    _clear_session_cookies(response)
     return {"ok": True}
 
 
@@ -1371,6 +1459,17 @@ def auth_session(request: Request) -> dict:
 #: 认证器 App 中显示的签发方
 MFA_ISSUER = "爱考据 iKaoju"
 
+#: TOTP 校验结果（需求 42：防重放需区分「码不对」与「码已被用过」）
+TOTP_OK = "ok"
+TOTP_INVALID = "invalid"
+TOTP_REPLAY = "replay"
+
+
+class MfaBeginRequest(BaseModel):
+    """P0-2c：开始绑定 TOTP 前必须重新输入当前密码（防被劫持会话绑定攻击者因子）。"""
+
+    current_password: str = Field(..., min_length=1, max_length=200)
+
 
 class MfaCodeRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=32)
@@ -1379,6 +1478,15 @@ class MfaCodeRequest(BaseModel):
 class MfaDisableRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=200)
     code: str = Field("", max_length=32)
+
+
+def _rotate_session_after_step_up(user: dict, request: Request, response: Response) -> None:
+    """需求 42：第二步验证成功后轮换会话 token（吊销旧半程会话并重签 Cookie）。
+
+    登录本身已轮换 token；step-up 沿用同一纪律，避免预置的半程会话在验证后继续有效。
+    """
+    _store_call(store.revoke_session, user["session_token_hash"])
+    _set_session_cookies(response, user["user_id"], request)
 
 
 def _require_mfa_ready() -> None:
@@ -1391,28 +1499,38 @@ def _iso(value) -> Optional[str]:
     return value.isoformat() if value is not None else None
 
 
-def _verify_totp_factor(factor: dict, code: str) -> bool:
-    """用因子密文校验 TOTP；密钥不可用 / 密文损坏一律 False（fail-closed）。"""
+def _verify_totp_factor(factor: dict, code: str) -> str:
+    """校验 TOTP 并**原子消费**时间步；返回 `TOTP_OK` / `TOTP_INVALID` / `TOTP_REPLAY`。
+
+    密钥不可用 / 密文损坏一律 `TOTP_INVALID`（fail-closed）；命中但该时间步已被
+    消费 ⇒ `TOTP_REPLAY`（RFC 6238 §5.2：同一 OTP 不得二次使用，需求 42）。
+    """
     try:
         secret = secretbox.decrypt(factor["secret_encrypted"])
     except Exception:  # noqa: BLE001
-        return False
-    if verify_totp(secret, code, time.time()):
-        _store_call(store.touch_mfa_factor_used, factor["factor_id"])
-        return True
-    return False
+        return TOTP_INVALID
+    step = verify_totp_step(secret, code, time.time())
+    if step is None:
+        return TOTP_INVALID
+    if not _store_call(store.consume_mfa_factor_step, factor["factor_id"], step):
+        return TOTP_REPLAY
+    return TOTP_OK
 
 
-def _verify_mfa_factor(user_id: str, factor: dict, code: str) -> bool:
-    """TOTP 优先；否则尝试**恢复码**（单次消费成功才算通过）。
+def _verify_mfa_factor(user_id: str, factor: dict, code: str) -> str:
+    """TOTP 优先；否则尝试**恢复码**（单次消费成功才算通过）。返回 TOTP 结果常量。
 
     恢复码不依赖服务端密钥 ⇒ **认证器丢失**时仍可关闭 MFA（防用户自锁）。
     （注意：若服务端密钥丢失，登录会在第一步即 fail-closed，恢复码无法用于登录——
     须由运维恢复 `DR_MFA_SECRET_KEY`。）
     """
-    if _verify_totp_factor(factor, code):
-        return True
-    return bool(_store_call(store.consume_recovery_code, user_id, hash_recovery_code(code)))
+    status = _verify_totp_factor(factor, code)
+    if status in (TOTP_OK, TOTP_REPLAY):
+        # 重放不再回落恢复码：该码已被 TOTP 匹配过，回落只会扩大暴力面
+        return status
+    if _store_call(store.consume_recovery_code, user_id, hash_recovery_code(code)):
+        return TOTP_OK
+    return TOTP_INVALID
 
 
 @app.get("/api/auth/mfa")
@@ -1431,14 +1549,22 @@ def mfa_status(request: Request) -> dict:
 
 
 @app.post("/api/auth/mfa/totp/begin")
-def mfa_totp_begin(request: Request) -> dict:
-    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。"""
+def mfa_totp_begin(req: MfaBeginRequest, request: Request) -> dict:
+    """开始绑定：生成新 secret（**仅本响应出现一次**）并暂存为未确认因子。
+
+    P0-2c：与 Passkey 添加一致，须重新输入当前密码 —— 仅凭会话 Cookie 不得绑定
+    第二因子（否则被盗会话可给账号绑定攻击者的 TOTP 并取走恢复码，受害者自锁）。
+    """
     _check_csrf(request)
     user = _require_session_user(request)
     _require_mfa_ready()
     if not MFA_ENROLL_LIMITER.allow(f"mfa-enroll:{user['user_id']}"):
         _audit("mfa_enroll_rate_limited", request=request, actor_user_id=user["user_id"])
         raise http_error("rate_limited", "MFA 操作过于频繁，稍后再试")
+    if not verify_password(user["password_hash"], req.current_password):
+        _audit("mfa_enroll_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "bad_password"})
+        raise http_error("invalid_credentials", "密码不正确")
     if _store_call(store.get_mfa_factor, user["user_id"]) is not None:
         raise http_error("mfa_already_enabled", "已启用 MFA；如需换绑请先关闭")
     secret = new_totp_secret()
@@ -1464,8 +1590,10 @@ def mfa_totp_confirm(req: MfaCodeRequest, request: Request) -> dict:
     pending = _store_call(store.get_mfa_factor, user["user_id"], confirmed=False)
     if pending is None:
         raise http_error("mfa_not_started", "请先开始绑定（未找到待确认的因子）")
-    if not _verify_totp_factor(pending, req.code):
-        _audit("mfa_confirm_failed", request=request, actor_user_id=user["user_id"])
+    status = _verify_totp_factor(pending, req.code)
+    if status != TOTP_OK:
+        _audit("mfa_confirm_failed", request=request, actor_user_id=user["user_id"],
+               detail={"reason": "replay"} if status == TOTP_REPLAY else None)
         raise http_error("mfa_code_invalid", "验证码不正确")
     if not _store_call(store.confirm_mfa_factor, user["user_id"], pending["factor_id"]):
         raise http_error("mfa_not_started", "待确认因子已失效，请重新绑定")
@@ -1489,9 +1617,11 @@ def mfa_disable(req: MfaDisableRequest, request: Request) -> dict:
                detail={"reason": "bad_password"})
         raise http_error("invalid_credentials", "密码不正确")
     factor = _store_call(store.get_mfa_factor, user["user_id"])
-    if factor is not None and not _verify_mfa_factor(user["user_id"], factor, req.code):
+    status = (TOTP_OK if factor is None
+              else _verify_mfa_factor(user["user_id"], factor, req.code))
+    if status != TOTP_OK:
         _audit("mfa_disable_failed", request=request, actor_user_id=user["user_id"],
-               detail={"reason": "bad_code"})
+               detail={"reason": "replay" if status == TOTP_REPLAY else "bad_code"})
         raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
     _store_call(store.delete_mfa_factors, user["user_id"])
     _store_call(store.replace_recovery_codes, user["user_id"], [])
@@ -1500,8 +1630,12 @@ def mfa_disable(req: MfaDisableRequest, request: Request) -> dict:
 
 
 @app.post("/api/auth/mfa/verify")
-def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
-    """登录第二步（step-up）：半程会话 + TOTP/恢复码 ⇒ 标记该会话已完成第二步。"""
+def mfa_verify(req: MfaCodeRequest, request: Request, response: Response) -> dict:
+    """登录第二步（step-up）：半程会话 + TOTP/恢复码 ⇒ 标记该会话已完成第二步。
+
+    需求 42：第二步成功后**轮换会话 token**（与登录一致），旧半程 token 立即失效，
+    防会话固定（攻击者预置的半程 token 不能借受害者的验证码「转正」）。
+    """
     _check_csrf(request)
     user = _pending_session_user(request)
     if user is None:
@@ -1512,12 +1646,15 @@ def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
     if factor is None:
         # 因子已在别处移除（如已关闭 MFA）：直接完成，避免把自己锁死
         _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
+        _rotate_session_after_step_up(user, request, response)
         return {"user": _public_user(user)}
     if not MFA_VERIFY_LIMITER.allow(f"mfa-verify:{user['user_id']}"):
         _audit("mfa_verify_rate_limited", request=request, actor_user_id=user["user_id"])
         raise http_error("rate_limited", "验证码尝试过于频繁，稍后再试")
-    if not _verify_mfa_factor(user["user_id"], factor, req.code):
-        _audit("mfa_verify_failed", request=request, actor_user_id=user["user_id"])
+    status = _verify_mfa_factor(user["user_id"], factor, req.code)
+    if status != TOTP_OK:
+        _audit("mfa_verify_replay" if status == TOTP_REPLAY else "mfa_verify_failed",
+               request=request, actor_user_id=user["user_id"])
         raise http_error("mfa_code_invalid", "验证码或恢复码不正确")
     _store_call(store.set_session_mfa_verified, user["session_token_hash"], True)
     _audit("mfa_verified", request=request, actor_user_id=user["user_id"])
@@ -1527,6 +1664,8 @@ def mfa_verify(req: MfaCodeRequest, request: Request) -> dict:
     if is_new_device([device_key(row.get("user_agent"), row.get("ip")) for row in rows],
                      request.headers.get("user-agent"), _client_key(request)):
         _notify_new_login(user, request)
+    # 需求 42：轮换 token 放在新设备判定**之后**（否则新会话会把自己算进已知设备）
+    _rotate_session_after_step_up(user, request, response)
     return {"user": _public_user(user)}
 
 
@@ -1660,7 +1799,7 @@ def webauthn_register_complete(req: WebAuthnRegisterCompleteRequest,
             raise http_error("passkey_exists", "该 Passkey 已绑定") from exc
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("保存 Passkey 失败", exc),
+            safe_detail("保存 Passkey 失败", exc),
         ) from exc
     _audit("passkey_registered", request=request, actor_user_id=user["user_id"],
            detail={"credential_id": passkeys.credential_id_b64(bytes(verified.credential_id))})
@@ -1837,18 +1976,19 @@ def auth_revoke_session(session_id: str, req: RevokeSessionRequest, request: Req
     user = _require_session_user(request)
     _check_csrf(request)
     is_current = user.get("session_id") == session_id
-    if not is_current and (not req.password
-                           or not verify_password(user["password_hash"], req.password)):
-        _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
-               target_id=session_id)
-        raise http_error("invalid_credentials", "终止其他会话需要输入当前密码")
+    if not is_current:
+        # 需求 42：重认证（终止他人会话）按用户限流，密码错误留审计
+        _reauth_rate_limit(user, request, "session_revoke")
+        if not req.password or not verify_password(user["password_hash"], req.password):
+            _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
+                   target_id=session_id, detail={"reason": "bad_password"})
+            raise http_error("invalid_credentials", "终止其他会话需要输入当前密码")
     if not _store_call(store.revoke_session_by_id, user["user_id"], session_id):
         raise http_error("invalid_request", "会话不存在")
     _audit("session_revoked", request=request, actor_user_id=user["user_id"],
            target_id=session_id, detail={"current": is_current})
     if is_current:
-        response.delete_cookie(SESSION_COOKIE, path="/")
-        response.delete_cookie(CSRF_COOKIE, path="/")
+        _clear_session_cookies(response)
     return {"ok": True}
 
 
@@ -1857,9 +1997,11 @@ def auth_revoke_other_sessions(req: RevokeSessionRequest, request: Request) -> d
     """退出其他所有设备（P1-10）：需重认证；当前会话保留。"""
     user = _require_session_user(request)
     _check_csrf(request)
+    # 需求 42：重认证（退出其他所有设备）按用户限流，密码错误留审计
+    _reauth_rate_limit(user, request, "sessions_revoke_others")
     if not req.password or not verify_password(user["password_hash"], req.password):
         _audit("session_revoke_denied", request=request, actor_user_id=user["user_id"],
-               detail={"scope": "others"})
+               detail={"scope": "others", "reason": "bad_password"})
         raise http_error("invalid_credentials", "退出其他设备需要输入当前密码")
     revoked = _store_call(store.revoke_other_sessions, user["user_id"],
                           user["session_token_hash"])
@@ -1950,11 +2092,15 @@ def auth_change_password(req: ChangePasswordRequest, request: Request, response:
     if user is None:
         raise http_error("unauthenticated", "请先登录")
     _check_csrf(request)
+    # 需求 42：重认证按用户限流 + 密码错误写审计（此前直接 401 无审计）
+    _reauth_rate_limit(user, request, "password_change")
     if not verify_password(user["password_hash"], req.current_password):
+        _reauth_failed(user, request, "password_change")
         raise http_error("invalid_credentials", "当前密码不正确")
     _reject_weak_password(req.new_password, email=user.get("email", ""))
     _store_call(store.update_password, user["user_id"], hash_password(req.new_password))
     revoked = _store_call(store.revoke_user_sessions, user["user_id"])
+    _clear_session_cookies(response)
     _set_session_cookies(response, user["user_id"], request)
     _audit("password_changed", request=request, actor_user_id=user["user_id"],
            detail={"revoked_sessions": revoked})
@@ -1979,7 +2125,10 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     if user is None:
         raise http_error("unauthenticated", "请先登录")
     _check_csrf(request)
+    # 需求 42：注销账号同属重认证，按用户限流 + 密码错误写审计
+    _reauth_rate_limit(user, request, "account_delete")
     if not verify_password(user["password_hash"], req.password):
+        _reauth_failed(user, request, "account_delete")
         raise http_error("invalid_credentials", "密码不正确")
     user_id = user["user_id"]
     request_id = uuid.uuid4().hex[:12]
@@ -1989,13 +2138,12 @@ def auth_delete_account(req: DeleteAccountRequest, request: Request, response: R
     except Exception as exc:  # noqa: BLE001 —— 注销登记是硬前提，失败即明确报错
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("注销登记失败", exc),
+            safe_detail("注销登记失败", exc),
         ) from exc
     _audit("account_deletion_requested", request=request, actor_user_id=user_id,
            target_type="deletion_request", target_id=request_id)
 
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    _clear_session_cookies(response)
     return {"ok": True, "deletion_request_id": request_id, "rag_cleanup": "pending"}
 
 
@@ -2403,6 +2551,10 @@ def moderation_appeal(req: AppealRequest, request: Request) -> dict:
         raise http_error("persistence_unavailable", "申诉需要任务库（DR_DATABASE_URL）")
     user_id = _require_user(request)
     _check_csrf(request)
+    # #337：申诉入口必须限流（每次申诉都进人工复核队列，无限流可按用户刷爆队列）
+    if not APPEAL_LIMITER.allow(f"appeal:{user_id or _client_key(request)}"):
+        _audit("appeal_rate_limited", request=request, actor_user_id=user_id)
+        raise http_error("rate_limited", "申诉提交过于频繁，稍后再试")
     if req.run_id:
         _authorize_run(request, req.run_id)
         row = _store_call(store.get_run, req.run_id)
@@ -2532,6 +2684,9 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
         tmp_dir = tempfile.mkdtemp(prefix="dr-rag-")
         path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}{extension}")
 
+    #: #325：只有真正登记成功（202/200）后隔离区文件才交给 worker，不得删；
+    #: 写盘后的任何拒绝路径（400/413/500）都必须清掉，否则留下无 DB 记录的孤儿文件。
+    registered = False
     try:
         try:
             size, digest, head = await stream_to_temp(file, path, max_bytes)
@@ -2558,17 +2713,19 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
                 os.remove(path)
                 raise http_error(
                     "persistence_unavailable",
-                    _safe_detail("摄取登记失败", exc),
+                    safe_detail("摄取登记失败", exc),
                 ) from exc
             if created is None:
                 existing = _store_call(store.find_ingestion_by_doc, user_id, doc_id)
                 os.remove(path)
+                registered = True  # 去重命中：本文件已删，别让 finally 重复处理
                 if existing is None:
                     raise http_error("persistence_unavailable", "摄取登记冲突，请重试")
                 return JSONResponse(status_code=202, content={
                     "ingestion_id": existing["ingestion_id"], "doc_id": doc_id,
                     "source": existing["source"], "status": existing["status"],
                 })
+            registered = True
             return JSONResponse(status_code=202, content={
                 "ingestion_id": ingestion_id, "doc_id": doc_id,
                 "source": filename, "status": "pending",
@@ -2587,7 +2744,7 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
         except Exception as exc:  # noqa: BLE001
             raise http_error(
                 "rag_ingest_failed",
-                _safe_detail("文档摄取失败", exc),
+                safe_detail("文档摄取失败", exc),
             ) from exc
         if not chunks:
             raise http_error("rag_ingest_failed", "文档未解析出任何内容")
@@ -2597,6 +2754,12 @@ async def rag_ingest(request: Request, file: UploadFile = File(...)) -> Response
     finally:
         if store is None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+        elif not registered and os.path.exists(path):
+            os.remove(path)  # #325：拒绝路径不留在隔离区（无 DB 记录 = 永久孤儿）
+
+
+#: #324：摄取失败对用户只回固定文案；`last_error` 里的异常类别/原文只留在服务端（日志 + DB）。
+_RAG_FAILED_DETAIL = "文档处理失败"
 
 
 @app.get("/api/rag/ingestions/{ingestion_id}")
@@ -2618,7 +2781,7 @@ def rag_ingestion_status(ingestion_id: str, request: Request) -> dict:
         "attempts": row["attempts"],
         "scan_status": row["scan_status"],
         "active_generation": row.get("active_generation"),
-        "error": row.get("last_error"),
+        "error": _RAG_FAILED_DETAIL if row.get("last_error") else None,
         "created_at": _iso(row.get("created_at")),
         "processed_at": _iso(row.get("processed_at")),
     }
@@ -2654,7 +2817,7 @@ def rag_delete_doc(request: Request, doc_id: str = Query(..., max_length=128)) -
     except Exception as exc:  # noqa: BLE001 —— 删除失败如实报错，用户可重试
         raise http_error(
             "rag_unavailable",
-            _safe_detail("文档删除失败", exc),
+            safe_detail("文档删除失败", exc),
         ) from exc
 
     names = _store_call(store.delete_ingestion_by_doc, user_id, doc_id)
@@ -2714,7 +2877,7 @@ def rag_docs(request: Request) -> dict:
             "chunks": row.get("chunks") or 0,
             "size_bytes": row.get("size_bytes"),
             "created_at": _iso(row.get("created_at")),
-            "error": row.get("last_error"),
+            "error": _RAG_FAILED_DETAIL if row.get("last_error") else None,
             "active_generation": row.get("active_generation"),
         }
         for row in rows
@@ -2978,17 +3141,17 @@ def follow_up(run_id: str, req: FollowupRequest, request: Request) -> dict:
             followup_mod.build_system(), f"{context}\n\n【追问】{question}")
     except Exception as exc:  # noqa: BLE001 —— 追问失败不影响原 run 终态/报告
         raise http_error(
-            "followup_unavailable", _safe_detail("追问调用失败", exc)) from exc
+            "followup_unavailable", safe_detail("追问调用失败", exc)) from exc
     finally:
         pop_usage_sink(usage_token)
     result = followup_mod.validate_response(data, pool)
     if token_delta > 0:
-        # 追问成本并入本 run 账目（与展示同口径的保守上界；月度预算闸按 runs 表汇总）
-        new_tokens = int(row.get("token_used") or 0) + token_delta
-        new_cost = round(float(row.get("cost_estimate_cny") or 0.0)
-                         + _estimate_cost_cny(token_delta), 6)
-        _store_call(store.update_usage, run_id, token_used=new_tokens,
-                    cost_estimate_cny=new_cost, budget_used_cny=new_cost)
+        # 追问成本并入本 run 账目（与展示同口径的保守上界；月度预算闸按 runs 表汇总）。
+        # 审计 #338：用原子自增（单条 UPDATE），不再「先 get 再 +delta 写回」——
+        # 否则并发追问 / worker 回写会互相覆盖、丢计费。
+        delta_cost = _estimate_cost_cny(token_delta)
+        _store_call(store.increment_usage, run_id, token_delta=token_delta,
+                    cost_delta=delta_cost, budget_delta=delta_cost)
     _store_call(store.append_event, run_id, FOLLOWUP_ANSWERED, {
         "answer": result["answer"][:500],
         "citations": result["citations"][:10],
@@ -3212,7 +3375,7 @@ def create_export_job(run_id: str, req: ExportJobRequest, request: Request) -> d
                         "reused": True}
         raise http_error(
             "persistence_unavailable",
-            _safe_detail("导出作业创建失败", exc)) from exc
+            safe_detail("导出作业创建失败", exc)) from exc
     _push_export_wake()
     _audit("export_job_created", request=request, actor_user_id=owner or None,
            target_type="run", target_id=run_id,
@@ -3446,6 +3609,46 @@ def get_shared_report(token: str, request: Request) -> Response:
     )
 
 
+#: #337：每用户并发 SSE 连接上限（每条连接占一个默认 executor 线程，默认 2）。
+MAX_SSE_PER_USER = max(1, int(_env_number("DR_MAX_SSE_PER_USER", 2)))
+_sse_active: dict[str, int] = {}
+_sse_lock = threading.Lock()
+
+
+def _sse_slot_key(owner: Optional[str], request: Request) -> str:
+    """SSE 名额键：登录用户按 user_id；匿名按客户端标识（与限流器同口径）。"""
+    return f"sse-user:{owner}" if owner else f"sse-ip:{_client_key(request)}"
+
+
+def _acquire_stream_slot(key: str) -> bool:
+    """占一个每用户 SSE 名额；超限返回 False（调用方转 429 too_many_streams）。"""
+    with _sse_lock:
+        current = _sse_active.get(key, 0)
+        if current >= MAX_SSE_PER_USER:
+            return False
+        _sse_active[key] = current + 1
+        return True
+
+
+def _release_stream_slot(key: str) -> None:
+    """释放名额（幂等）：生成器 finally 调用，异常 / 客户端断连路径都会走到。"""
+    with _sse_lock:
+        current = _sse_active.get(key, 0)
+        if current <= 1:
+            _sse_active.pop(key, None)
+        else:
+            _sse_active[key] = current - 1
+
+
+async def _stream_with_slot(inner: AsyncIterator[str], key: str) -> AsyncIterator[str]:
+    """把 SSE 生成器的生命周期与每用户并发名额绑定（结束/异常/断连都释放）。"""
+    try:
+        async for frame in inner:
+            yield frame
+    finally:
+        _release_stream_slot(key)
+
+
 @app.get("/api/research/{run_id}/stream")
 async def stream(
     run_id: str,
@@ -3457,8 +3660,9 @@ async def stream(
 
     内存未命中但任务库有该 run（P2-C，进程重启后）⇒ 从任务库回放并实时尾随。
     P4-A：鉴权开启时只允许订阅自己的 run。
+    #337：每用户并发流受 `DR_MAX_SSE_PER_USER` 限制（默认 2），超限 429 `too_many_streams`。
     """
-    _authorize_run(request, run_id)
+    owner = _authorize_run(request, run_id)
     resume_after = last_event_id_header if last_event_id_header is not None else last_event_id
     if not manager.exists(run_id):
         if store is None:
@@ -3466,17 +3670,14 @@ async def stream(
         row = _store_call(store.get_run, run_id)
         if row is None:
             raise http_error("run_id_not_found", f"run_id 不存在：{run_id}")
-        return StreamingResponse(
-            _stored_event_gen(run_id, resume_after),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        generator: AsyncIterator[str] = _stored_event_gen(run_id, resume_after)
+    else:
+        generator = _event_gen(run_id, resume_after)
+    slot_key = _sse_slot_key(owner, request)
+    if not _acquire_stream_slot(slot_key):
+        raise http_error("too_many_streams", "并发事件流过多，请关闭其它页面后再试")
     return StreamingResponse(
-        _event_gen(run_id, resume_after),
+        _stream_with_slot(generator, slot_key),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -3602,11 +3803,17 @@ FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 @app.get("/s/{token}")
 def share_page_shell(token: str) -> Response:
-    """SPA 分享页壳（需求 26）：只回 index.html；数据走 /api/share/{token}（统一 404）。"""
+    """SPA 分享页壳（需求 26）：只回 index.html；数据走 /api/share/{token}（统一 404）。
+
+    #337：壳页也必须带 noindex —— 爬虫只取 HTML，看不到 `/api/share` 的响应头；
+    否则分享 URL（bearer capability）可能被搜索引擎收录。robots.txt 另有 `/s/` 禁令。
+    """
     index = FRONTEND_DIST / "index.html"
     if not index.is_file():
         raise http_error("share_not_found", "链接无效或已过期")
-    return FileResponse(index)
+    return FileResponse(index, headers={
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+    })
 
 
 # 需求 37 M2：对外 MCP Server（默认关；开启时挂载 /mcp 并把会话管理器接入 lifespan）

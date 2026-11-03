@@ -140,7 +140,16 @@ class LLMClient:
                     kwargs["timeout"] = resolved_timeout
                 # ⚠️ 不变量：预算准入 / 时限检查**先于** SDK 客户端获取——
                 # 预算耗尽或 deadline 过期时不得初始化 SDK（既有单测锁死）。
-                client = self._get_client()
+                # 2026-11 审计 #340a（D-09）：预占已在上方发生；`_get_client` 失败
+                # （如未配置 API key）时若直接冒泡，reserved_tokens 会永久留在
+                # state.token_used（多计）。这里失败即按预占口径结算后再抛。
+                try:
+                    client = self._get_client()
+                except BaseException:
+                    # 客户端初始化失败发生在任何网络调用之前 ⇒ 真实用量 0，全额释放预占
+                    # （与「调用中途失败按预占保守计入」不同；否则每次配置缺失都会虚增预算）。
+                    settle_call(reservation, 0)
+                    raise
                 if has_deadline:
                     client = client.with_options(max_retries=0)
                 try:

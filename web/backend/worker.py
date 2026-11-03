@@ -69,7 +69,7 @@ from .agui import (
 from .alerts import collect_alerts, default_thresholds, process_deliveries_once, sync_alerts
 from .checkpoint import get_pg_checkpointer  # 需求 35 R3：PG checkpoint（跨进程恢复）
 from .deletion import process_deletions_once
-from .errors import error_payload
+from .errors import error_payload, safe_detail
 from .hitl import (
     KIND_CLARIFICATION,
     new_interaction_id,
@@ -352,6 +352,50 @@ class Worker:
         except Exception as exc:  # noqa: BLE001
             _log(f"mark_worker_status({status}) failed: {type(exc).__name__}: {exc}")
 
+    def run_daily_maintenance(self) -> dict[str, Any]:
+        """每日清理周期（需求 23/34/42）：逐项异常隔离，绝不打断主循环。
+
+        审计 #338：此前只有 `purge_expired_documents` + `run_retention`；
+        `purge_expired_report_shares` / `purge_stale_workers` 全仓无生产调用——
+        撤销/过期的分享记录与退役 worker 注册表会永久残留。本方法补齐并统一异常隔离。
+        """
+        summary: dict[str, Any] = {}
+        try:
+            purged = purge_expired_documents(self._store)
+            summary["documents"] = purged
+            if purged["expired"]:
+                _log(f"retention: {purged}")
+        except Exception as exc:  # noqa: BLE001 —— 单项失败不打断其余清理
+            _log(f"retention purge failed: {type(exc).__name__}: {exc}")
+        try:
+            # P2-2：数据保留期清理（事件 30d / 运行 90d / 快照 180d / 审计等 180d）
+            retention = run_retention(self._store)
+            summary["retention"] = retention
+            if retention["deleted_total"]:
+                _log(f"retention purge: deleted={retention['deleted_total']}")
+            aborted = [r["table"] for r in retention["results"] if r["aborted"]]
+            if aborted:
+                _log(f"retention guardrail aborted tables: {aborted}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"data retention failed: {type(exc).__name__}: {exc}")
+        try:
+            # 审计 #338：撤销/过期超过 30 天的分享记录（审计保留窗口后清理）
+            shares = self._store.purge_expired_report_shares(30)
+            summary["report_shares"] = shares
+            if shares:
+                _log(f"report shares purged: {shares}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"report share purge failed: {type(exc).__name__}: {exc}")
+        try:
+            # 审计 #338：退役 worker 注册表（stopped/draining 且心跳超过 7 天）
+            workers = self._store.purge_stale_workers(days=7)
+            summary["workers"] = workers
+            if workers:
+                _log(f"stale workers purged: {workers}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"worker registry purge failed: {type(exc).__name__}: {exc}")
+        return summary
+
     def run_forever(self) -> None:
         self.register()
         registry_stop = threading.Event()
@@ -401,22 +445,8 @@ class Worker:
                     except Exception as exc:  # noqa: BLE001
                         _log(f"rag generation cleanup failed: {type(exc).__name__}: {exc}")
                     if time.monotonic() >= next_retention:
-                        try:
-                            purged = purge_expired_documents(self._store)
-                            if purged["expired"]:
-                                _log(f"retention: {purged}")
-                        except Exception as exc:  # noqa: BLE001
-                            _log(f"retention purge failed: {type(exc).__name__}: {exc}")
-                        try:
-                            # P2-2：数据保留期清理（事件 30d / 运行 90d / 审计等 180d）
-                            summary = run_retention(self._store)
-                            if summary["deleted_total"]:
-                                _log(f"retention purge: deleted={summary['deleted_total']}")
-                            aborted = [r["table"] for r in summary["results"] if r["aborted"]]
-                            if aborted:
-                                _log(f"retention guardrail aborted tables: {aborted}")
-                        except Exception as exc:  # noqa: BLE001
-                            _log(f"data retention failed: {type(exc).__name__}: {exc}")
+                        # 需求 23/34/42：每日清理（文档/事件/运行/快照/分享/worker 注册表）
+                        self.run_daily_maintenance()
                         next_retention = time.monotonic() + 24 * 3600
                     if time.monotonic() >= next_alerts:
                         try:
@@ -939,7 +969,8 @@ class Worker:
             return
 
     def _mark_crashed(self, run_id: str, exc: Exception, ownership: RunOwnership) -> None:
-        payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
+        # #324：SSE RUN_ERROR 会随 run_events 落库 30 天 ⇒ 只回固定文案，原文进服务端日志。
+        payload = error_payload("runner_crash", safe_detail("运行线程异常退出", exc))
         try:
             persist_terminal(self._store, run_id, None, RUN_ERROR, payload, owner=ownership)
         except Exception as persist_exc:  # noqa: BLE001 —— 留给 P3-B 租约清扫

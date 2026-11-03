@@ -38,6 +38,16 @@ def _log(message: str) -> None:
     print(f"[ingestion] {message}", file=sys.stderr, flush=True)
 
 
+def _error_category(exc: BaseException) -> str:
+    """#324：会被文档所有者轮询到的 `last_error` 只存错误**类别**，不存异常原文。
+
+    `last_error` 经 `GET /api/rag/ingestions/{id}` 与 `GET /api/rag/docs` 对用户可见，
+    不得包含 DB / 向量库 / 解析器的内部原文（#317 同类残留）；原文由各失败分支
+    `_log(...)` 写服务端日志。
+    """
+    return type(exc).__name__
+
+
 def quarantine_dir() -> str:
     configured = (os.getenv("DR_RAG_QUARANTINE_DIR") or "").strip()
     if configured:
@@ -189,23 +199,23 @@ def _process_item(store: RunStore, item: dict[str, Any],
         summary["ready"] += 1
     except (NoSnapshotError, NoActiveChunksError) as exc:
         # 前置缺失（无快照 / 无活动分块）：重试无意义，如实拒绝
-        if mark_rejected(f"{type(exc).__name__}: {exc}"):
+        if mark_rejected(_error_category(exc)):
             _remove(path)
             summary["rejected"] += 1
             _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except IngestLimitExceeded as exc:
-        if mark_rejected(str(exc)):
+        if mark_rejected(_error_category(exc)):
             _remove(path)
             summary["rejected"] += 1
             _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except ValueError as exc:
         # 解析/格式类错误：重试无意义，直接 rejected
-        if mark_rejected(f"{type(exc).__name__}: {exc}"):
+        if mark_rejected(_error_category(exc)):
             _remove(path)
             summary["rejected"] += 1
             _log(f"REJECTED ingestion={ingestion_id}: {exc}")
     except Exception as exc:  # noqa: BLE001 —— 供应商/IO 类失败进入退避
-        error = f"{type(exc).__name__}: {exc}"[:300]
+        error = _error_category(exc)
         backoff = min(30 * (2 ** max(0, int(item["attempts"]) - 1)), DEFAULT_BACKOFF_CAP_SECONDS)
         new_status = store.mark_ingestion_retry(
             ingestion_id, error, claimed_by=claimed_by, attempts=attempts,
@@ -215,10 +225,12 @@ def _process_item(store: RunStore, item: dict[str, Any],
         elif new_status == "rejected":
             summary["rejected"] += 1
             _remove(path)
-            _log(f"REJECTED ingestion={ingestion_id} after retries: {error}")
+            _log(f"REJECTED ingestion={ingestion_id} after retries: "
+                 f"{type(exc).__name__}: {exc}")
         else:
             summary["retried"] += 1
-            _log(f"retry ingestion={ingestion_id} attempt={item['attempts']}: {error}")
+            _log(f"retry ingestion={ingestion_id} attempt={item['attempts']}: "
+                 f"{type(exc).__name__}: {exc}")
 
 
 def purge_expired_documents(store: RunStore, *, vector_store: Optional[Any] = None,

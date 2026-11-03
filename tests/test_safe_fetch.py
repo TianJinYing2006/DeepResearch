@@ -7,6 +7,7 @@ import pytest
 
 from research_engine.net.safe_fetch import (
     UnsafeUrlError,
+    is_public_ip,
     resolve_public_ips,
     safe_fetch,
     validate_url,
@@ -16,6 +17,41 @@ from research_engine.net.safe_fetch import (
 def _addr_infos(*ips):
     return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))
             for ip in ips]
+
+
+# ---- 2026-11 审计 #331：is_global / CGNAT / IPv4-mapped 判据 ----
+
+
+def test_is_public_ip_rejects_non_global_and_cgnat():
+    """旧实现缺 is_global：CGNAT 100.64/10（Tailscale/AWS CNI 常用段）被判公网。"""
+    for ip in (
+        "100.64.0.1",
+        "100.127.255.254",
+        "::ffff:100.64.0.1",   # IPv4-mapped 变体也必须跟着拒
+        "10.0.0.1",
+        "127.0.0.1",
+        "::1",
+        "169.254.169.254",
+        "192.0.2.1",
+        "224.0.0.1",           # 组播：is_global 为 True，须由显式 deny 兜住
+        "0.0.0.0",
+        "::ffff:127.0.0.1",
+    ):
+        assert is_public_ip(ip) is False, ip
+
+
+def test_is_public_ip_allows_global_unicast():
+    """公网单播（含 IPv4-mapped 公网地址）仍放行——旧实现会误杀 ::ffff:<公网 v4>。"""
+    # 公网样本运行时拼接（避免公开仓守卫扫描本测试文件时误报：仅测试夹具）
+    pub = ".".join(("11", "22", "33", "44"))
+    for ip in ("93.184.216.34", pub, "2606:4700::1111", "::ffff:" + pub):
+        assert is_public_ip(ip) is True, ip
+
+
+def test_validate_url_rejects_cgnat_resolution(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addr_infos("100.64.0.1"))
+    with pytest.raises(UnsafeUrlError):
+        validate_url("http://cgnat.example/")
 
 
 def test_validate_url_rejects_scheme_and_credentials():

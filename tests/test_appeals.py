@@ -151,6 +151,23 @@ def test_review_appeal_other_reviewer_gets_claimed_by_other():
     assert store.get_run("appealrun004")["moderation_status"] == "flagged"
 
 
+def test_appeal_endpoint_is_rate_limited(monkeypatch):
+    """#337：申诉接口此前无限流 ⇒ 可刷人工复核队列；现在超限 429 且留审计。"""
+    from web.backend.ratelimit import FixedWindowLimiter
+
+    store = FakeStore()
+    store.create_run("appealrate01", "t", {})
+    client = _client(monkeypatch, store)
+    monkeypatch.setattr(api, "APPEAL_LIMITER", FixedWindowLimiter(1))
+
+    first = client.post("/api/moderation/appeal", json={"message": "我认为是误判"})
+    assert first.status_code == 200
+    second = client.post("/api/moderation/appeal", json={"message": "再次申诉"})
+    assert second.status_code == 429
+    assert second.json()["detail"]["code"] == "rate_limited"
+    assert store.list_audit(action="appeal_rate_limited")
+
+
 @pytest.mark.skipif(not DSN, reason="DR_TEST_DATABASE_URL 未设置（需要真实 PostgreSQL）")
 def test_appeals_pg_accepted_clears_run_and_unblocks_export(monkeypatch):
     """P0-1 回归：真实 PG 上 flagged → 申诉 accepted → cleared 导出放行。

@@ -109,7 +109,11 @@ class ReportRenderer:
         existence_ok = sum(1 for c in citations if c.existence)
         faithful_ok = sum(1 for c in citations if c.verified)
         relaxed_ok = sum(1 for c in citations if c.verified_relaxed)
-        degraded = any("降级为存在性判定" in c.note for c in citations)
+        # 2026-11 审计 #340a（D-08）：原实现按 note 里的 "降级为存在性判定" 字样判断，
+        # 但 validator 的降级 note 早已改为"校验未完成/未获对应裁决/原文证据缺失"等，
+        # 该字符串全仓不再产生 ⇒ 警告分支是死代码。改用结构化字段 verification_failed
+        # （validator 在 LLM 失败/无对应裁决/证据链缺失/echo 错位时置 True）。
+        degraded = any(bool(getattr(c, "verification_failed", False)) for c in citations)
         lines = [
             "\n\n> **可信声明**（动态生成，非 LLM 自述）",
             f"> - 来源存在性：{existence_ok}/{total} 条通过",
@@ -121,7 +125,9 @@ class ReportRenderer:
             lines.append(uncited.lstrip("\n> ").rstrip())
         lines.append("> - 未通过者见下方附录")
         if degraded:
-            lines.append("> - ⚠️ 本次校验发生 LLM 降级，忠实度口径按存在性通过计，参考性有限")
+            lines.append(
+                "> - ⚠️ 本次校验存在未完成条目（LLM/证据链降级）："
+                "忠实度口径仅覆盖已完成校验的引用，参考性有限")
         return "\n".join(lines)
 
     @staticmethod

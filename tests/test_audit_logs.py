@@ -43,7 +43,7 @@ def test_auth_lifecycle_is_audited(monkeypatch, store: FakeStore):
     client = _client(monkeypatch, store)
     _register(client, "audit@example.com")
 
-    client.post("/api/auth/logout")
+    client.post("/api/auth/logout", headers=_csrf(client))
     bad = client.post("/api/auth/login", json={"email": "audit@example.com", "password": "wrong-pass-xyz"})
     assert bad.status_code == 401
     ok = client.post("/api/auth/login", json={"email": "audit@example.com", "password": PASSWORD})
