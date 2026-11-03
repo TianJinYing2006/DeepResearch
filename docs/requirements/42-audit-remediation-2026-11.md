@@ -75,6 +75,8 @@ R06–R09 引擎评测项（需求 27 挂账）；`/metrics` Prometheus mount �
 - [x] 每个 PR CI 6 项全绿（lint-and-test 3.11/3.12/3.13 + infra + frontend + e2e）。
 - [x] 中/高风险 PR 有三目标证据（旧行为未回归 / 新行为行为级断言 / mutation 能抓住）。
 - [x] 集成分支 `integration/audit-remediation` 依序合并全部 31 个 PR 后：`ruff` 全过；全量 pytest 仅剩 5 个已知 `.deps` 漂移 OTel 环境失败（1475 收集 / 1387 通过 / 84 跳过）；6 个仓库守卫全 PASS；前端 `tsc --noEmit` + `vitest`（67 passed / 11 files）+ `vite build` 全过；`docker compose config` 通过；5 处跨 PR 冲突由 Lead 解析（集成记录见本 PR 描述）。
+- [x] **合并态 GitHub Actions 真实 CI**：经 draft PR #377（`integration/audit-remediation` → `dev`，仅验证不合并）跑完整 6 项，最终 `run 41563062131` **全绿**（e2e 4m21s / infra 2m39s / lint 矩阵 1m35s~2m0s / frontend 25s）。
+  预演期间抓到并修复 1 个**只在合并态出现**的不兼容（单 PR CI 各自全绿的盲区）：#329 的 `checks/0021` 造了同 run 两条活跃分享，而 #330 的迁移 `0029` 新增「一 run 一活跃链接」唯一部分索引 `report_shares_run_active_uk` ⇒ infra 的「迁移结构断言」步骤失败；**修复 = #349 补 commit `f333a18`**（辅助行显式 `revoked_at=now()`，不弱化断言；单 PR 与合并态双兼容），合并顺序不受影响。本地 31 个 checks 在合并态 schema 下已复跑 **0 失败**。
 - [x] 不修项在 §6 登记理由；文档口径漂移（README §3.2、runbook 备份章节、production-readiness 解析限额、需求 26 注销撤销分享）与代码同步。
 - [x] 对外数字（README/figures 的测试数、E2E 数、需求/ADR/迁移数）已在本收口 PR 回填。
 - [ ] 合并：31 个 PR 按 §4/§7 合并顺序由主理人确认后 squash 合入 `dev`（本批次不自动合并）。
@@ -105,6 +107,7 @@ R06–R09 引擎评测项（需求 27 挂账）；`/metrics` Prometheus mount �
 **建议合并顺序（已按此顺序在集成分支验证可干净合并）**：
 `#345（总文档）→ #346 → #349 → #350 → #348 → #363 → #354 → #366 → #347 → #352 → #357 → #358 → #361 → #365 → #368 → #370 → #364 → #367 → #369 → #371 → #373 → #372 → #375 → #374 → #355 → #359 → #351 → #353 → #356 → #360 → #362 → 本收口 PR（stacked 在 #345 之上）`。
 其中 #350（0028 迁移）必须先于 #363/#354；#355 与 #324b/#325 在 `ingestion.py` 邻接。
+合并态预演另发现 1 处非冲突类不兼容（#349 的 checks/0021 × #330 的迁移 0029），已在 #349 分支修复（commit `f333a18`，`Refs #329, #330`）；合并 #349 时自动带上，顺序不变。draft PR #377 仅用于合并态 CI 验证，**请勿合并**。
 
 ## 8. 测试策略
 
@@ -120,3 +123,4 @@ R06–R09 引擎评测项（需求 27 挂账）；`/metrics` Prometheus mount �
 |---|---|---|---|---|
 | 2026-11-02 | 文档 | 2026-11-02 全仓审计（0 Critical/3 High/16 Medium/~30 Low） | 建立批次总文档与 Issue/PR 索引、DoD、不修项 | #345 |
 | 2026-11-03 | 文档 | 31 个整改 PR 全部开完（CI 绿）+ 集成分支全量验证通过 | 回填 §4 索引（Issue→分支→PR）、DoD 勾选、不修项补全（L5/devDeps/SSE/#326 运维处置）、拆分说明、集成冲突与建议合并顺序 | 本 PR |
+| 2026-11-03 | 修复 | 合并态 GitHub Actions 真实 CI 预演（draft PR #377）发现 #329 `checks/0021` 与 #330 迁移 `0029` 的唯一索引不兼容 | #349 补 commit `f333a18`（辅助行 `revoked_at=now()`，单 PR/合并态双兼容，不弱化断言）；合并态 CI `run 41563062131` 6/6 绿；本地 31 checks 复跑 0 失败 | #349 / #377 |
