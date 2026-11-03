@@ -491,7 +491,8 @@ API 侧端点：`POST /api/research/{run_id}/export-jobs`（202 + `export_id`；
 - [x] 3. 安装 cron：`30 3 * * * /opt/deepresearch/tools/backup-cron.sh >> /var/log/dr-backup.log 2>&1`
 - [x] 4. 手动首跑：`bash /opt/deepresearch/tools/backup-cron.sh` → 日志出现 `backup + COS sync ok`
 - [x] 5. 校验：`BACKUP_DIR=/opt/deepresearch/backups bash /opt/deepresearch/tools/backup-verify.sh`
-      （默认 structure-only；持有离线私钥的机器可做 decrypted 校验）—— 2026-10-11 结构校验通过（新鲜度 + md5 输出）
+      （明文 dump：新鲜度 + `pg_restore -l` + md5；加密产物必须提供口令/私钥，否则
+      **exit 5「无法校验」**，不再把「什么都没校验」报成 ok——审计 #339）—— 2026-10-11 结构校验通过（新鲜度 + md5 输出）
 - [x] 6. COS 侧核对：对象存在、大小与本地一致；md5 一致（`rclone md5sum cos:<bucket>/backups/<文件>` 与 `backup-verify.sh` 输出的 md5 比对；对象为分片上传无 md5 时，回退记录本地 md5 供抽验）—— 2026-10-11 **三方一致**
 - [x] 7. 失败可见：`/var/log/dr-backup.log` 可查；webhook 未配置时在告警登记中备注（P2-6）
 
