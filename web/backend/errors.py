@@ -154,6 +154,11 @@ ERROR_SPECS: Dict[str, ErrorSpec] = {
         component="web"),
     "rate_limited": ErrorSpec(
         429, True, "请求过于频繁（登录 / 提交限流）：稍后再试。", component="web"),
+    # #337：每用户并发 SSE 连接配额（每条连接占一个默认 executor 线程）。
+    "too_many_streams": ErrorSpec(
+        429, True,
+        "同一账号的并发事件流过多：关闭其它标签页/页面后再试（上限见 DR_MAX_SSE_PER_USER）。",
+        component="web"),
     "mail_unavailable": ErrorSpec(
         503, True,
         "邮件通道未配置或不可用：联系管理员用 create-reset-token 兜底，或稍后再试。",
