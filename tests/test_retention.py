@@ -105,6 +105,47 @@ def test_purge_targets_are_whitelisted():
         store.purge_before("runs; DROP TABLE users", "finished_at", datetime.now(UTC))
 
 
+def test_retention_purges_only_unreferenced_snapshots():
+    """审计 #338（需求 34 TBD-1）：网页正文快照本体必须有清理路径，且只清无引用者。"""
+    store = FakeStore()
+    old = datetime.now(UTC) - timedelta(days=200)
+    recent = datetime.now(UTC) - timedelta(days=1)
+    store.snapshots = {
+        "old_unref": {"sha256": "old_unref", "created_at": old},
+        "old_ref": {"sha256": "old_ref", "created_at": old},
+        "recent_unref": {"sha256": "recent_unref", "created_at": recent},
+    }
+    store.run_snapshots = {"run-x": {"old_ref"}}  # 仍被 run 引用 ⇒ 不得删
+
+    summary = run_retention(store)
+
+    assert "old_unref" not in store.snapshots
+    assert "old_ref" in store.snapshots, "仍被 run 引用的快照不得删除"
+    assert "recent_unref" in store.snapshots, "未超期快照不得删除"
+    snapshot_result = next(r for r in summary["results"] if r["table"] == "snapshots")
+    assert snapshot_result["deleted"] >= 1
+
+
+def test_where_extra_is_whitelisted():
+    """审计 #338：`where_extra` 从自由拼接改为白名单校验（注入面收敛）。"""
+    store = FakeStore()
+    with pytest.raises(ValueError):
+        store.count_before("runs", "finished_at", datetime.now(UTC),
+                           where_extra="AND 1=1")
+    with pytest.raises(ValueError):
+        store.purge_before("snapshots", "created_at", datetime.now(UTC),
+                           where_extra="; DROP TABLE snapshots")
+
+    # 真实 RunStore 的校验在连接 DB 之前完成（无需 PG 即可断言）
+    from web.backend.store import RunStore
+
+    pg_store = RunStore("postgresql://invalid:1/none")
+    with pytest.raises(ValueError):
+        pg_store.count_before("runs", "finished_at", datetime.now(UTC),
+                              where_extra="AND 1=1")
+    pg_store.close()
+
+
 @pytest.mark.skipif(not DSN, reason="DR_TEST_DATABASE_URL 未设置（需要真实 PostgreSQL）")
 def test_purge_before_pg_batches_cascades_and_keeps_recent():
     import psycopg

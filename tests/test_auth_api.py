@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fakes import FakeStore, TinyGraph
 from fastapi.testclient import TestClient
 
 from web.backend import main as api
-from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
+from web.backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, token_hash
 from web.backend.runner import RunManager
 
 PASSWORD = "password-123456"
@@ -61,7 +62,7 @@ def test_register_is_open_without_invite(client: TestClient):
 
 def test_login_logout_and_session(client: TestClient):
     assert _register(client, "a@example.com").status_code == 200
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     assert client.get("/api/auth/session").status_code == 401
 
     bad = client.post("/api/auth/login",
@@ -74,7 +75,7 @@ def test_login_logout_and_session(client: TestClient):
     session = client.get("/api/auth/session").json()["user"]
     assert session["email"] == "a@example.com"
 
-    assert client.post("/api/auth/logout").json()["ok"] is True
+    assert client.post("/api/auth/logout", headers=_csrf(client)).json()["ok"] is True
     assert client.get("/api/auth/session").status_code == 401
 
 
@@ -206,3 +207,106 @@ def test_store_failure_does_not_leak_exception_text(client: TestClient, monkeypa
     body = resp.text
     assert resp.status_code >= 500 or resp.status_code == 503
     assert "dr_prod" not in body and "10.0.0.5" not in body and "RuntimeError" not in body
+
+
+# ------------------------------------------------- 需求 42：会话与重认证加固
+
+class _DenyLimiter:
+    def allow(self, _key: str) -> bool:
+        return False
+
+
+def test_logout_requires_csrf(client: TestClient):
+    """需求 42：登出是写路由，必须带 CSRF 双提交头（防强制登出）。"""
+    assert _register(client, "a@example.com").status_code == 200
+    denied = client.post("/api/auth/logout")                     # 无 CSRF 头
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "csrf_failed"
+    assert client.get("/api/auth/session").status_code == 200    # 未被登出
+
+    ok = client.post("/api/auth/logout", headers=_csrf(client))
+    assert ok.json()["ok"] is True
+    assert client.get("/api/auth/session").status_code == 401
+
+
+def test_logout_deletes_cookies_with_matching_attributes(client: TestClient, monkeypatch):
+    """需求 42：Secure 模式删除 `__Host-` Cookie 必须带 Secure，否则浏览器忽略删除。"""
+    assert _register(client, "a@example.com").status_code == 200
+    monkeypatch.setattr(api, "COOKIE_SECURE", True)
+    response = client.post("/api/auth/logout", headers=_csrf(client))
+    assert response.status_code == 200
+    set_cookies = response.headers.get_list("set-cookie")
+    session_cookie = next(c for c in set_cookies if c.startswith(f"{api.SESSION_COOKIE}="))
+    csrf_cookie = next(c for c in set_cookies if c.startswith(f"{api.CSRF_COOKIE}="))
+    for header in (session_cookie, csrf_cookie):
+        assert "Secure" in header and "Path=/" in header and "Max-Age=0" in header
+    assert "HttpOnly" in session_cookie        # 会话 Cookie 仍 httpOnly
+    assert "HttpOnly" not in csrf_cookie       # CSRF 需前端可读
+
+
+def test_reauth_password_failure_is_audited(client: TestClient, store: FakeStore):
+    """需求 42：改密 / 注销账号的密码错误必须留审计（修复前直接 401、无审计）。"""
+    assert _register(client, "a@example.com").status_code == 200
+
+    changed = client.post("/api/auth/password",
+                          json={"current_password": "wrong-password",
+                                "new_password": "new-password-999"},
+                          headers=_csrf(client))
+    assert changed.status_code == 401
+    deleted = client.request("DELETE", "/api/auth/account",
+                             json={"password": "wrong-password"}, headers=_csrf(client))
+    assert deleted.status_code == 401
+
+    rows = store.list_audit(action="reauth_failed")
+    actions = [row["detail"]["action"] for row in rows]
+    assert "password_change" in actions and "account_delete" in actions
+    assert all(row["detail"]["reason"] == "bad_password" for row in rows)
+    assert "wrong-password" not in str(store.audits)   # 审计不落密码原文
+
+
+def test_reauth_rate_limited(client: TestClient, monkeypatch, store: FakeStore):
+    """需求 42：重认证按用户限流（超限 429 + 审批审计；正确密码也不放行）。"""
+    assert _register(client, "a@example.com").status_code == 200
+    monkeypatch.setattr(api, "REAUTH_LIMITER", _DenyLimiter())
+
+    changed = client.post("/api/auth/password",
+                          json={"current_password": PASSWORD,
+                                "new_password": "new-password-999"},
+                          headers=_csrf(client))
+    assert changed.status_code == 429
+    assert changed.json()["detail"]["code"] == "rate_limited"
+
+    revoked = client.request("DELETE", "/api/auth/sessions",
+                             json={"password": PASSWORD}, headers=_csrf(client))
+    assert revoked.status_code == 429
+    assert store.list_audit(action="reauth_rate_limited")
+
+
+# ------------------------------------------------- 需求 42：改密作废旧重置 token
+
+def test_change_password_invalidates_pending_reset_tokens(client: TestClient, store: FakeStore):
+    """需求 42：改密必须作废未使用的重置 token（同事务）。
+
+    修复前 `update_password` 不清理 `password_reset_tokens`（`delete_password_resets`
+    全仓 0 调用），改密前泄露/申请过的 reset 链接在改密后仍可用于重置密码 ——
+    攻击者拿到旧链接即可覆盖新密码，改密的「止损」语义失效。
+    """
+    assert _register(client, "a@example.com").status_code == 200
+    user = store.get_user_by_email("a@example.com")
+    raw_token = "reset-token-before-change-1"
+    store.create_password_reset(token_hash(raw_token), user["user_id"],
+                                datetime.now(UTC) + timedelta(minutes=30))
+    assert token_hash(raw_token) in store.password_resets   # 前置：token 确实待用
+
+    changed = client.post("/api/auth/password",
+                          json={"current_password": PASSWORD,
+                                "new_password": "new-password-999"},
+                          headers=_csrf(client))
+    assert changed.status_code == 200
+    assert store.password_resets == {}                      # 未使用 token 已随之作废
+
+    # 旧 reset 链接不再可用（422 = token 无效/已消费，而非密码强度问题）
+    stale = client.post("/api/auth/reset",
+                        json={"token": raw_token, "new_password": "reset-password-777"})
+    assert stale.status_code == 422
+    assert stale.json()["detail"]["code"] == "invalid_request"

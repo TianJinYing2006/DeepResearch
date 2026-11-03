@@ -28,3 +28,12 @@ def test_deploy_reloads_exact_compose_caddy_and_fails_hard() -> None:
 def test_deploy_smoke_has_curl_timeouts() -> None:
     text = (ROOT / "tools" / "deploy.sh").read_text(encoding="utf-8")
     assert text.count("--max-time 15") >= 3
+
+
+def test_deploy_source_snapshot_excludes_secrets() -> None:
+    """审计 #326（High）：源码快照不得包含 .env* / 备份公钥（否则随 COS 外泄）。"""
+    text = (ROOT / "tools" / "deploy.sh").read_text(encoding="utf-8")
+    assert "--exclude=./.env" in text
+    assert "--exclude='./.env.*'" in text
+    assert "--exclude=./backup-recipient.crt" in text
+    assert "src-pre-" in text and ".README.txt" in text
