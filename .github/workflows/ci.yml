@@ -254,6 +254,13 @@ jobs:
         working-directory: web/frontend
         run: npm ci
 
+      # 需求 42 / #342：依赖审计门禁。只对**生产依赖**设闸（--omit=dev + high）：
+      # 生产依赖实测 0 漏洞；devDependencies 的已知漏洞不会进入前端产物（仅构建机），
+      # 已在审计登记，升级需单独议题，故不阻塞 CI。
+      - name: Dependency audit (production only)
+        working-directory: web/frontend
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Type check (tsc --noEmit)
         working-directory: web/frontend
         run: npx tsc --noEmit

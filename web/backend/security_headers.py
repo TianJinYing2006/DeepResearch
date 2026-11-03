@@ -17,9 +17,88 @@ CSP 口径（按实际前端资产）：
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 SECURE_ENVS = {"staging", "production"}
+
+
+def dsn_origin(dsn: str) -> str:
+    """从 Sentry DSN 提取上报 origin（``scheme://host[:port]``）；空/非法返回空串。
+
+    DSN 形如 ``https://<key>@errors.example.cn/2`` ⇒ ``https://errors.example.cn``。
+    用途：自动并入 CSP ``connect-src``，避免「前端开了 Sentry 却忘配 DR_CSP_CONNECT_SRC
+    被 CSP 静默拦截」的配置耦合（审计 M-18）。
+    """
+    raw = (dsn or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+        port = parts.port  # 非法端口会抛 ValueError，一并视为非法 DSN
+    except ValueError:
+        return ""
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return ""
+    host = parts.hostname
+    if ":" in host and not host.startswith("["):  # IPv6 字面量需加回方括号
+        host = f"[{host}]"
+    netloc = host if port is None else f"{host}:{port}"
+    return f"{parts.scheme}://{netloc}"
+
+
+def merge_connect_src(*candidates: str) -> str:
+    """空格分隔去重合并多个 connect-src 扩展串（顺序稳定，便于测试）。"""
+    seen: list[str] = []
+    for candidate in candidates:
+        for token in (candidate or "").split():
+            if token and token not in seen:
+                seen.append(token)
+    return " ".join(seen)
+
+
+def build_cache_control(path: str) -> str | None:
+    """静态资源缓存策略（返回 None = 不干预）。
+
+    - 带内容哈希的 ``/assets/*``：一年 immutable（发版换哈希，天然失效）；
+    - ``index.html`` / ``/`` 与分享壳 ``/s/<token>``：``no-cache``（必须每次回源，
+      否则发版后旧 index 引用已删除的旧哈希资源 ⇒ 白屏）；
+    - 其它路径不干预（API/SSE/下载各自已有头）。
+    """
+    path = path or ""
+    if path.startswith("/assets/"):
+        return "public, max-age=31536000, immutable"
+    if path in ("/", "/index.html") or path.startswith("/s/"):
+        return "no-cache"
+    return None
+
+
+class StaticCacheMiddleware:
+    """纯 ASGI：给静态资源与 SPA 壳补缓存头；应用已设 Cache-Control 时不覆盖。"""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        cache = build_cache_control(scope.get("path", ""))
+        if cache is None:
+            await self.app(scope, receive, send)
+            return
+        value = cache.encode("latin-1")
+
+        async def send_with_cache(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                if not any(key.lower() == b"cache-control" for key, _ in headers):
+                    headers.append((b"cache-control", value))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cache)
 
 
 def build_security_headers(env: str, connect_src_extra: str = "") -> dict[str, str]:

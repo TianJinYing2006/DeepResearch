@@ -146,3 +146,36 @@ def test_cancel_unknown_run_returns_404():
 def test_stream_unknown_run_returns_404():
     client = _setup()
     assert client.get("/api/research/does-not-exist/stream").status_code == 404
+
+
+def test_sse_per_user_cap_rejects_excess_streams(monkeypatch):
+    """#337：每用户并发 SSE 连接超限 ⇒ 429 too_many_streams；流结束须释放名额。"""
+    client = _setup(steps=2)
+    monkeypatch.setattr(api, "MAX_SSE_PER_USER", 2)
+    monkeypatch.setattr(api, "_sse_slot_key", lambda owner, request: "sse-cap-test")
+    rid = client.post("/api/research", json={"topic": "SSE 上限"}).json()["run_id"]
+    url = f"/api/research/{rid}/stream"
+
+    with client.stream("GET", url) as resp:  # 串行消费完一整个流 ⇒ 名额应已释放
+        assert resp.status_code == 200
+        for _ in resp.iter_lines():
+            pass
+    assert api._sse_active.get("sse-cap-test") is None
+
+    # 模拟已有两条并发流占满名额 ⇒ 第三条必须 429
+    assert api._acquire_stream_slot("sse-cap-test") is True
+    assert api._acquire_stream_slot("sse-cap-test") is True
+    try:
+        limited = client.get(url)
+    finally:
+        api._release_stream_slot("sse-cap-test")
+        api._release_stream_slot("sse-cap-test")
+    assert limited.status_code == 429
+    assert limited.json()["detail"]["code"] == "too_many_streams"
+
+    # 名额释放后可以重新开流（且再次结束时仍清零，释放幂等）
+    with client.stream("GET", url) as resp:
+        assert resp.status_code == 200
+        for _ in resp.iter_lines():
+            pass
+    assert api._sse_active.get("sse-cap-test") is None

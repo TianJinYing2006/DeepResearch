@@ -22,7 +22,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from .store import TERMINAL_STATUSES
+from .store import SNAPSHOTS_UNREFERENCED_WHERE, TERMINAL_WHERE_SQL
 
 
 def _env_days(name: str, default: int) -> int:
@@ -34,11 +34,6 @@ def _env_days(name: str, default: int) -> int:
     except ValueError:
         return default
     return value if value >= 1 else default
-
-
-def _terminal_where() -> str:
-    quoted = ", ".join(f"'{status}'" for status in TERMINAL_STATUSES)
-    return f"AND status IN ({quoted})"
 
 
 @dataclass(frozen=True)
@@ -58,7 +53,7 @@ def policies() -> list[RetentionPolicy]:
         ),
         RetentionPolicy(
             "runs", "finished_at", _env_days("DR_RETENTION_RUNS_DAYS", 90),
-            where_extra=_terminal_where(),
+            where_extra=TERMINAL_WHERE_SQL,
             note="仅终态运行；事件/产物级联删除（隐私政策 90 天）",
         ),
         RetentionPolicy(
@@ -76,6 +71,13 @@ def policies() -> list[RetentionPolicy]:
         RetentionPolicy(
             "audit_logs", "at", _env_days("DR_RETENTION_AUDIT_DAYS", 180),
             note="安全审计 180 天",
+        ),
+        # 需求 34 TBD-1（审计 #338）：网页正文快照本体必须有清理路径——
+        # 只清「无 run 引用」的快照；run 90 天级联解除关联后自然满足。
+        RetentionPolicy(
+            "snapshots", "created_at", _env_days("DR_RETENTION_SNAPSHOTS_DAYS", 180),
+            where_extra=SNAPSHOTS_UNREFERENCED_WHERE,
+            note="网页正文快照 180 天且无 run 引用（内容寻址去重；无引用才删本体）",
         ),
     ]
 

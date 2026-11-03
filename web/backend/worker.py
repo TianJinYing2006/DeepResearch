@@ -69,7 +69,7 @@ from .agui import (
 from .alerts import collect_alerts, default_thresholds, process_deliveries_once, sync_alerts
 from .checkpoint import get_pg_checkpointer  # 需求 35 R3：PG checkpoint（跨进程恢复）
 from .deletion import process_deletions_once
-from .errors import error_payload
+from .errors import error_payload, safe_detail
 from .hitl import (
     KIND_CLARIFICATION,
     new_interaction_id,
@@ -105,6 +105,73 @@ def _log(message: str) -> None:
 
 def _env_flag(name: str, default: str = "false") -> bool:
     return (os.getenv(name) or default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def should_persist_checkpoint(*, lease_lost: bool, ownership_ok: bool) -> bool:
+    """审计 #335（F05）：本次执行是否允许写 checkpoint。
+
+    纯逻辑，便于单测：**失租或归属不符 ⇒ 拒绝**。checkpoint 以
+    ``thread_id=run_id`` 共享，旧 attempt 失租后的写入会污染新执行者的恢复语义
+    （恢复出旧分支 / token 记账断点错位），必须在写前拦截。
+    """
+    return not lease_lost and ownership_ok
+
+
+class CheckpointWriteFence:
+    """一次执行的 checkpoint 写入门闩（只拦写路径，读路径不受影响）。
+
+    ``PostgresSaver`` 是进程级单例（按 ``thread_id`` 服务所有 run），而 checkpoint
+    写入发生在 ``graph.iter_run`` 内部，Worker 无法逐次拦截；因此每次执行开始时把
+    本 run 的「归属校验」绑到门闩上，由 :func:`install_checkpoint_fence` 包装的
+    ``put`` / ``put_writes`` 在写入前调用（见审计 #335）。
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._check: Optional[Callable[[], bool]] = None
+
+    def bind(self, check: Callable[[], bool]) -> None:
+        with self._lock:
+            self._check = check
+
+    def clear(self) -> None:
+        with self._lock:
+            self._check = None
+
+    def should_persist(self) -> bool:
+        with self._lock:
+            check = self._check
+        return True if check is None else bool(check())
+
+
+def install_checkpoint_fence(saver: Any, fence: CheckpointWriteFence) -> Any:
+    """给 saver **实例**挂上写入门闩（不改对象类型）。
+
+    为什么用实例方法覆盖而不是包一层代理：``langgraph`` 用
+    ``isinstance(checkpointer, BaseCheckpointSaver)`` 校验（``ensure_valid_checkpointer``
+    对非 saver 直接抛 TypeError）；实例属性遮蔽类方法既保持类型不变，也让所有
+    ``checkpointer.put`` / ``put_writes`` 调用命中门闩。
+
+    门闩判定为否时抛 :class:`LeaseLostError`：与事件/用量/终局的 F04 收口同口径，
+    由 ``Worker._run_claimed`` 放弃本次执行（旧 attempt 不再写 checkpoint）。
+    """
+    original_put = saver.put
+    original_put_writes = saver.put_writes
+
+    def put(config: Any, checkpoint: Any, metadata: Any, new_versions: Any) -> Any:
+        if not fence.should_persist():
+            raise LeaseLostError("checkpoint write rejected: lease lost")
+        return original_put(config, checkpoint, metadata, new_versions)
+
+    def put_writes(config: Any, writes: Any, task_id: str,
+                   task_path: str = "") -> Any:
+        if not fence.should_persist():
+            raise LeaseLostError("checkpoint write rejected: lease lost")
+        return original_put_writes(config, writes, task_id, task_path)
+
+    saver.put = put
+    saver.put_writes = put_writes
+    return saver
 
 
 def make_graph_factory(checkpointer: Any = None) -> Callable[[], Any]:
@@ -204,10 +271,13 @@ class Worker:
         poll_seconds: float = DEFAULT_POLL_SECONDS,
         sweep_seconds: Optional[int] = None,
         max_attempts: Optional[int] = None,
+        checkpoint_fence: Optional[CheckpointWriteFence] = None,
     ):
         self._store = store
         self._queue = queue
         self._graph_factory = graph_factory
+        # 审计 #335（F05）：checkpoint 写入门闩（main 装配；测试/替身路径可为 None）
+        self._checkpoint_fence = checkpoint_fence
         # 需求 35 R3：本次执行的模式与预算对账信息（fresh/resumed/replayed；终局 payload 用）
         self._execution_info: dict[str, Any] = {}
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
@@ -282,6 +352,50 @@ class Worker:
         except Exception as exc:  # noqa: BLE001
             _log(f"mark_worker_status({status}) failed: {type(exc).__name__}: {exc}")
 
+    def run_daily_maintenance(self) -> dict[str, Any]:
+        """每日清理周期（需求 23/34/42）：逐项异常隔离，绝不打断主循环。
+
+        审计 #338：此前只有 `purge_expired_documents` + `run_retention`；
+        `purge_expired_report_shares` / `purge_stale_workers` 全仓无生产调用——
+        撤销/过期的分享记录与退役 worker 注册表会永久残留。本方法补齐并统一异常隔离。
+        """
+        summary: dict[str, Any] = {}
+        try:
+            purged = purge_expired_documents(self._store)
+            summary["documents"] = purged
+            if purged["expired"]:
+                _log(f"retention: {purged}")
+        except Exception as exc:  # noqa: BLE001 —— 单项失败不打断其余清理
+            _log(f"retention purge failed: {type(exc).__name__}: {exc}")
+        try:
+            # P2-2：数据保留期清理（事件 30d / 运行 90d / 快照 180d / 审计等 180d）
+            retention = run_retention(self._store)
+            summary["retention"] = retention
+            if retention["deleted_total"]:
+                _log(f"retention purge: deleted={retention['deleted_total']}")
+            aborted = [r["table"] for r in retention["results"] if r["aborted"]]
+            if aborted:
+                _log(f"retention guardrail aborted tables: {aborted}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"data retention failed: {type(exc).__name__}: {exc}")
+        try:
+            # 审计 #338：撤销/过期超过 30 天的分享记录（审计保留窗口后清理）
+            shares = self._store.purge_expired_report_shares(30)
+            summary["report_shares"] = shares
+            if shares:
+                _log(f"report shares purged: {shares}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"report share purge failed: {type(exc).__name__}: {exc}")
+        try:
+            # 审计 #338：退役 worker 注册表（stopped/draining 且心跳超过 7 天）
+            workers = self._store.purge_stale_workers(days=7)
+            summary["workers"] = workers
+            if workers:
+                _log(f"stale workers purged: {workers}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"worker registry purge failed: {type(exc).__name__}: {exc}")
+        return summary
+
     def run_forever(self) -> None:
         self.register()
         registry_stop = threading.Event()
@@ -331,22 +445,8 @@ class Worker:
                     except Exception as exc:  # noqa: BLE001
                         _log(f"rag generation cleanup failed: {type(exc).__name__}: {exc}")
                     if time.monotonic() >= next_retention:
-                        try:
-                            purged = purge_expired_documents(self._store)
-                            if purged["expired"]:
-                                _log(f"retention: {purged}")
-                        except Exception as exc:  # noqa: BLE001
-                            _log(f"retention purge failed: {type(exc).__name__}: {exc}")
-                        try:
-                            # P2-2：数据保留期清理（事件 30d / 运行 90d / 审计等 180d）
-                            summary = run_retention(self._store)
-                            if summary["deleted_total"]:
-                                _log(f"retention purge: deleted={summary['deleted_total']}")
-                            aborted = [r["table"] for r in summary["results"] if r["aborted"]]
-                            if aborted:
-                                _log(f"retention guardrail aborted tables: {aborted}")
-                        except Exception as exc:  # noqa: BLE001
-                            _log(f"data retention failed: {type(exc).__name__}: {exc}")
+                        # 需求 23/34/42：每日清理（文档/事件/运行/快照/分享/worker 注册表）
+                        self.run_daily_maintenance()
                         next_retention = time.monotonic() + 24 * 3600
                     if time.monotonic() >= next_alerts:
                         try:
@@ -467,6 +567,10 @@ class Worker:
         attempt = int(row.get("attempt") or 1)
         ownership = RunOwnership(self.worker_id, attempt)
         lease_lost = threading.Event()
+        if self._checkpoint_fence is not None:
+            # 审计 #335（F05）：绑定本次执行的 checkpoint 写入门闩；失租/归属不符 ⇒ 拒写
+            self._checkpoint_fence.bind(
+                lambda: self._checkpoint_write_allowed(run_id, ownership, lease_lost))
         # F13（审计）：任务剩余时限注入运行作用域（LLM 调用按剩余时间收窄超时；
         # 时限已过则拒绝新调用——节点最大耗时因此可证有界）
         timeout_at = row.get("timeout_at")
@@ -526,6 +630,8 @@ class Worker:
             if report_token is not None:
                 pop_report_sink(report_token)
             pop_usage_sink(usage_token)
+            if self._checkpoint_fence is not None:
+                self._checkpoint_fence.clear()
             hb_stop.set()
             heartbeat.join(timeout=1.0)
             self._current_run_id = None
@@ -555,6 +661,25 @@ class Worker:
                     lease_lost.set()
                     return
                 _log(f"renew_lease({run_id}) failed: {type(exc).__name__}: {exc}")
+
+    def _checkpoint_write_allowed(self, run_id: str, ownership: RunOwnership,
+                                  lease_lost: threading.Event) -> bool:
+        """checkpoint 写入门闩判定：失租 / 归属不符 ⇒ False（旧 attempt 不得写）。
+
+        ``owns_lease`` 查询失败时按既有心跳语义放行：无法确认归属的瞬时 DB 抖动
+        不应中止执行（真失租时写库本身也会失败），但本地已置 ``lease_lost`` 时
+        永远拒绝。
+        """
+        if lease_lost.is_set():
+            return should_persist_checkpoint(lease_lost=True, ownership_ok=False)
+        try:
+            ownership_ok = bool(self._store.owns_lease(
+                run_id, ownership.worker_id, ownership.attempt))
+        except Exception as exc:  # noqa: BLE001 —— 无法确认归属：交给心跳语义
+            _log(f"checkpoint fence {run_id}: owns_lease failed: "
+                 f"{type(exc).__name__}: {exc}")
+            ownership_ok = True
+        return should_persist_checkpoint(lease_lost=False, ownership_ok=ownership_ok)
 
     # ------------------------------------------------------------------ 执行
 
@@ -844,7 +969,8 @@ class Worker:
             return
 
     def _mark_crashed(self, run_id: str, exc: Exception, ownership: RunOwnership) -> None:
-        payload = error_payload("runner_crash", f"{type(exc).__name__}: {exc}"[:500])
+        # #324：SSE RUN_ERROR 会随 run_events 落库 30 天 ⇒ 只回固定文案，原文进服务端日志。
+        payload = error_payload("runner_crash", safe_detail("运行线程异常退出", exc))
         try:
             persist_terminal(self._store, run_id, None, RUN_ERROR, payload, owner=ownership)
         except Exception as persist_exc:  # noqa: BLE001 —— 留给 P3-B 租约清扫
@@ -877,8 +1003,16 @@ def main() -> int:
     queue = RunQueue(redis_url) if redis_url else None
     setup_otel("deepresearch-worker")  # P1-8：默认关闭，配置导出端点才启用
     # 需求 35 R3（TBD-5）：PG checkpoint（不可用 ⇒ None，回落 MemorySaver/重跑语义）
+    # 审计 #335（F05）：写路径加租约围栏——旧 attempt 不得写 checkpoint 污染恢复语义
+    checkpointer = get_pg_checkpointer(dsn)
+    checkpoint_fence: Optional[CheckpointWriteFence] = None
+    if checkpointer is not None:
+        checkpoint_fence = CheckpointWriteFence()
+        install_checkpoint_fence(checkpointer, checkpoint_fence)
+        _log("PG checkpoint 已启用租约围栏（写前校验 worker_id + attempt）")
     worker = Worker(RunStore(dsn), queue,
-                    graph_factory=make_graph_factory(get_pg_checkpointer(dsn)))
+                    graph_factory=make_graph_factory(checkpointer),
+                    checkpoint_fence=checkpoint_fence)
     if queue is None:
         _log("未配置 DR_REDIS_URL：仅按任务库轮询领取（唤醒信号降级）")
 

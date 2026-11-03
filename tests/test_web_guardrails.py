@@ -528,7 +528,43 @@ def test_runner_crash_payload_is_structured():
     assert err["type"] == "RUN_ERROR"
     assert err["code"] == "runner_crash"
     assert err["component"] == "runner"
-    assert "boom" in err["message"]
+    # #324：客户端只看到固定文案；异常原文（可能含 DB/Qdrant 内网信息）只进服务端日志。
+    assert err["message"] == "运行线程异常退出"
+    assert "boom" not in json.dumps(err, ensure_ascii=False)
+
+
+def test_runner_crash_hides_internal_exception_text_from_sse():
+    """#324 负向：RUN_ERROR 随 run_events 落库 30 天 ⇒ 原文绝不出现在 SSE payload。"""
+    class LeakyBoom:
+        def iter_run(self, topic, user_instructions="", thread_id=None, should_cancel=None,
+                 resume=False):
+            raise RuntimeError("secret-host:5432 password authentication failed for user dr_prod")
+
+    mgr = RunManager(graph_factory=LeakyBoom)
+    err = _drain(mgr.start("t"), mgr)[-1]
+    assert err["type"] == "RUN_ERROR" and err["code"] == "runner_crash"
+    assert err["message"] == "运行线程异常退出"
+    assert "secret-host" not in json.dumps(err, ensure_ascii=False)
+    assert "dr_prod" not in json.dumps(err, ensure_ascii=False)
+
+
+def test_create_run_failure_hides_internal_exception_text():
+    """#324 负向：POST /api/research 的 503 message 不得回显 DB 主机/账号原文。"""
+    from fakes import FakeStore
+
+    store = FakeStore()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("password authentication failed for user dr_prod host=10.0.0.5")
+
+    store.create_run = _boom  # type: ignore[method-assign]
+    mgr = RunManager(graph_factory=lambda: ReportGraph(), store=store, max_concurrent_runs=1)
+    with pytest.raises(ApiError) as excinfo:
+        mgr.start("泄密检查")
+    assert excinfo.value.code == "persistence_unavailable"
+    assert excinfo.value.message == "任务创建失败"
+    assert "10.0.0.5" not in excinfo.value.message
+    assert "dr_prod" not in excinfo.value.message
 
 
 def test_graph_error_terminal_is_structured_and_releases_slot():

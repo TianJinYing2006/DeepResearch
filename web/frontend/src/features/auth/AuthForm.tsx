@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { readErrorMessage } from '../../lib/api'
+import { extractResetToken, RESET_HASH_RE } from '../../lib/authLinks'
 import { loginWithPasskey } from '../../lib/webauthn'
 import type { SessionUser } from '../../types/api'
 
@@ -21,14 +22,21 @@ type Props = {
 }
 
 /** 登录 / 注册 / 自助找回 / 重置密码表单（自包含状态与提交逻辑）。 */
-const RESET_HASH_RE = /^#reset=([A-Za-z0-9_-]{10,256})$/
 const RESET_COOLDOWN_SECONDS = 60
 const RESET_RULES_ADVISORY = '避免常见口令与邮箱账号名（提交时校验）'
 
+/** 读取并**立即**从地址栏移除重置 token（审计 #341b / F11）。
+ *
+ * 为什么立即清：token 是一次性凭据（30 分钟），此前只在「提交成功 / 422」后才清 hash，
+ * 用户放弃重置或中途离开时 token 会长期留在地址栏与浏览器历史里。
+ * 读取后即快照进组件 state，后续提交/重试都用内存 token；代价是重置过程中刷新页面会
+ * 丢失 token（需重新申请）——优于凭据长期留在 URL/历史。
+ */
 function readResetToken(idPrefix: string): string {
   if (idPrefix !== 'auth') return ''
-  const match = window.location.hash.match(RESET_HASH_RE)
-  return match ? match[1] : ''
+  const token = extractResetToken(window.location.hash) ?? ''
+  if (token) clearResetHash()
+  return token
 }
 
 function clearResetHash(): void {

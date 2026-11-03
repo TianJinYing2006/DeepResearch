@@ -9,6 +9,12 @@
 #   - rclone 配置 /root/.config/rclone/rclone.conf（remote 默认 cos）。
 #
 # 可覆盖：DR_BACKUP_APP_DIR / DR_BACKUP_DIR / DR_BACKUP_REMOTE / DR_BACKUP_BUCKET / BACKUP_KEEP
+#
+# 同步口径（审计 #326，High）：COS 只接收
+#   - 加密 DB 备份：deepresearch_*.dump.pem（非对称）/ deepresearch_*.dump.enc（对称）；
+#   - 源码快照：src-pre-*.tar.gz（deploy.sh 打快照时已排除 .env* 与备份公钥）。
+# 明文 deepresearch_*.dump / 回验临时文件（.verify* / .to_delete*）绝不同步——
+# rclone 用 include 允许清单（未命中即不同步），即使脚本回归留下明文也不会外泄。
 set -eu
 APP_DIR="${DR_BACKUP_APP_DIR:-/opt/deepresearch}"
 cd "$APP_DIR"
@@ -53,5 +59,11 @@ docker run --rm --network "$NET" \
     -e BACKUP_REQUIRE_ENCRYPTION=1 \
     postgres:16 sh /b.sh
 
-rclone --config "$RCLONE_CONF" copy --immutable "$OUT" "${REMOTE}:${BUCKET}/backups/"
+# 审计 #326：允许清单同步——只上传加密 DB 备份与源码快照（源码快照已排除 .env*）；
+# 明文 dump / 临时文件一律不进 COS（--include 未命中即被排除）。
+rclone --config "$RCLONE_CONF" copy --immutable \
+    --include 'deepresearch_*.dump.pem' \
+    --include 'deepresearch_*.dump.enc' \
+    --include 'src-pre-*.tar.gz' \
+    "$OUT" "${REMOTE}:${BUCKET}/backups/"
 echo "[$(date -Is)] backup + COS sync ok"

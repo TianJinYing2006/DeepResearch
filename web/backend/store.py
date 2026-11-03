@@ -100,6 +100,22 @@ def _configure_connection(conn: psycopg.Connection) -> None:
 #: 终局状态（不得再迁移）；活跃状态见 `persistence.ACTIVE_STATUSES`（单一来源，此处再导出）
 TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "LOST")
 
+#: 终态过滤（runs 只清终态行）：与 TERMINAL_STATUSES 同源，retention 策略与 purge 白名单共用
+TERMINAL_WHERE_SQL = (
+    "AND status IN (" + ", ".join(f"'{status}'" for status in TERMINAL_STATUSES) + ")"
+)
+#: 网页快照本体清理：仅「无 run 引用」的快照（需求 34 TBD-1；关联级联解除）
+SNAPSHOTS_UNREFERENCED_WHERE = (
+    "AND NOT EXISTS (SELECT 1 FROM run_snapshots rs WHERE rs.sha256 = snapshots.sha256)"
+)
+#: 允许的附加过滤子句白名单（审计 #338：`where_extra` 从设计债改为校验函数）。
+#: 只接受代码内具名常量；自由拼接一律 ValueError。
+PURGE_WHERE_EXTRA_ALLOWED: frozenset[str] = frozenset({
+    "",
+    TERMINAL_WHERE_SQL,
+    SNAPSHOTS_UNREFERENCED_WHERE,
+})
+
 #: SSE 事件唤醒通道（P2-4）：事件写入在**同一事务**内 `pg_notify`（提交后送达），
 #: API 进程的 LISTEN 连接借此即时唤醒尾随循环；仅作延迟优化，正确性仍靠轮询兜底。
 EVENTS_CHANNEL = "dr_run_events"
@@ -571,6 +587,37 @@ class RunStore:
                     f"usage update rejected for run {run_id}: lease lost "
                     f"(worker={owner.worker_id}, attempt={owner.attempt})")
 
+    def increment_usage(self, run_id: str, *, token_delta: int, cost_delta: float,
+                        budget_delta: float,
+                        owner: Optional[RunOwnership] = None) -> None:
+        """原子追加计量（审计 #338）：单条 `UPDATE … SET x = COALESCE(x,0) + Δ`。
+
+        为什么需要：`update_usage` 是绝对赋值；调用方若「先 get 再 +delta 写回」
+        （如追问路径），并发追加会丢更新（read-modify-write 竞态）。本方法把加法
+        下推到数据库单条语句，并发追加只累加、不互相覆盖。
+
+        F04：传 `owner` 时与 `update_usage` 同口径做租约条件更新；旧执行者抛
+        :class:`LeaseLostError`。
+        """
+        token_delta = max(0, int(token_delta))
+        sql = (
+            "UPDATE runs SET token_used = COALESCE(token_used, 0) + %s, "
+            "cost_estimate_cny = COALESCE(cost_estimate_cny, 0) + %s, "
+            "budget_used_cny = COALESCE(budget_used_cny, 0) + %s "
+            "WHERE run_id = %s"
+        )
+        params: list[Any] = [token_delta, float(cost_delta), float(budget_delta), run_id]
+        if owner is not None:
+            sql += (" AND worker_id = %s AND attempt = %s AND status = ANY(%s) "
+                    "RETURNING run_id")
+            params += [owner.worker_id, owner.attempt, list(_EXECUTING_STATUSES)]
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            if owner is not None and cur.fetchone() is None:
+                raise LeaseLostError(
+                    f"usage increment rejected for run {run_id}: lease lost "
+                    f"(worker={owner.worker_id}, attempt={owner.attempt})")
+
     def request_cancel(self, run_id: str) -> Optional[str]:
         """幂等取消请求，返回 run 的当前状态；run 不存在返回 `None`。
 
@@ -969,6 +1016,21 @@ class RunStore:
         sql += " RETURNING run_id"
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
+            return cur.fetchone() is not None
+
+    def owns_lease(self, run_id: str, worker_id: str, attempt: int) -> bool:
+        """轻量归属校验：该 run 是否仍由 `worker_id + attempt` 持有执行租约。
+
+        审计 #335（checkpoint fence）：checkpoint 以 ``thread_id=run_id`` 共享，
+        旧 attempt 失租后仍可能继续执行并写 checkpoint；写前用本查询确认归属
+        （只读、无副作用，比续租轻量）。
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM runs WHERE run_id = %s AND worker_id = %s AND attempt = %s "
+                "AND status IN ('RUNNING','CANCEL_REQUESTED')",
+                (run_id, worker_id, attempt),
+            )
             return cur.fetchone() is not None
 
     def count_active(self, user_id: Optional[str] = None) -> int:
@@ -1701,13 +1763,22 @@ class RunStore:
             return len(cur.fetchall())
 
     def update_password(self, user_id: str, password_hash: str) -> bool:
+        """改密（需求 42）：同一事务内顺带作废该用户所有重置 token。
+
+        否则「改密前泄露/申请过的 reset 链接」在改密后仍可重置密码 —— 攻击者拿到
+        旧链接即可覆盖新密码，改密的「止损」语义失效。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE users SET password_hash = %s, updated_at = now() "
                 "WHERE user_id = %s RETURNING user_id",
                 (password_hash, user_id),
             )
-            return cur.fetchone() is not None
+            updated = cur.fetchone() is not None
+            if updated:
+                cur.execute(
+                    "DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,))
+            return updated
 
     def purge_expired_sessions(self) -> int:
         with self._connect() as conn, conn.cursor() as cur:
@@ -1757,10 +1828,22 @@ class RunStore:
             )
             return cur.fetchone() is not None
 
-    def touch_mfa_factor_used(self, factor_id: str) -> None:
+    def consume_mfa_factor_step(self, factor_id: str, step: int) -> bool:
+        """原子消费一个 TOTP 时间步（RFC 6238 §5.2 防重放）。
+
+        仅当本次步**严格晚于**已消费步（或从未消费）时推进并返回 True；并发下
+        同一 code 只有一个请求能成功（单条 UPDATE … RETURNING 的原子性）。
+        与 `migrations/checks/0028_schema_assert.sql` 的谓词保持一致。
+        """
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE mfa_factors SET last_used_at = now() WHERE factor_id = %s",
-                        (factor_id,))
+            cur.execute(
+                "UPDATE mfa_factors SET last_used_step = %s, last_used_at = now() "
+                "WHERE factor_id = %s "
+                "AND (last_used_step IS NULL OR last_used_step < %s) "
+                "RETURNING factor_id",
+                (step, factor_id, step),
+            )
+            return cur.fetchone() is not None
 
     def delete_mfa_factors(self, user_id: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:
@@ -2255,8 +2338,18 @@ class RunStore:
 
     def create_report_share(self, share_id: str, token_hash: str, run_id: str, created_by: str,
                             expires_at: Optional[datetime]) -> None:
-        """创建分享：先撤销该 run 既有活跃链接（兄弟互斥），再插入新链接。"""
+        """创建分享：先锁 run 行，再撤销该 run 既有活跃链接（兄弟互斥），最后插入新链接。
+
+        #330：原实现只有「UPDATE 旧活跃 → INSERT」两条语句，READ COMMITTED 下两个并发
+        创建都能 UPDATE 0 行、再各自 INSERT ⇒ 同一 run 出现 2 条活跃链接。
+        现在先 `SELECT ... FROM runs FOR UPDATE` 串行化同一 run 的创建
+        （锁序与全仓一致：runs → report_shares）；0029 的唯一部分索引
+        `report_shares_run_active_uk` 是数据库级最终兜底（绕过应用锁也会被拒）。
+        """
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM runs WHERE run_id = %s FOR UPDATE", (run_id,))
+            if cur.fetchone() is None:
+                raise LookupError(f"run not found: {run_id}")
             cur.execute(
                 "UPDATE report_shares SET revoked_at = now() "
                 "WHERE run_id = %s AND revoked_at IS NULL",
@@ -2432,15 +2525,45 @@ class RunStore:
     def request_account_deletion(self, request_id: str, user_id: str, *,
                                  targets: Iterable[str] = ("qdrant",),
                                  payload: Optional[dict[str, Any]] = None) -> None:
-        """注销登记（P0-7）：**同一事务**写台账 + outbox + 删用户（会话级联、任务匿名）。
+        """注销登记（P0-7）：**同一事务**写台账 + outbox + 清除账号关联 + 删用户。
 
-        外部系统清理（Qdrant）不再同步做：由 `deletion_outbox` 承载，Worker 带退避重试。
+        外部系统清理（Qdrant / 隔离区文件 / RAG 三层数据）不再同步做：由
+        `deletion_outbox` 承载，Worker 带退避重试。
+
+        #320（审计 High）：旧实现只写台账 + outbox + 删用户，账号在本地各表的关联
+        全部残留，其中「所有者创建的活跃分享」在删号后仍可匿名读取（永久链接）。
+        现在把**本地可同步完成的擦除**放进本事务：
+          1) 撤销该用户创建的全部活跃分享（`report_shares.created_by`，无 FK，必须显式）；
+          2) 删除 `user_consents`（含 ip_hash；NOT NULL + 无 FK ⇒ 必须显式删）；
+          3) `rag_ingestions` 置 deleted 并 `user_id = NULL`（台账保留、去关联）；
+          4) `quota_reservations.user_id` / `export_jobs.user_id` 置 NULL（列可空，
+             保留记录用于对账；0016 / 0025 已确认可空）。
+        异步清理目标（隔离区文件名 / RAG doc_id）必须在置 NULL **之前**快照进
+        outbox payload，否则 Worker 之后无法再按 user_id 反查。
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO account_deletions (request_id, user_id) VALUES (%s, %s)",
                 (request_id, user_id),
             )
+            outbox_payload: dict[str, Any] = dict(payload or {})
+            outbox_payload.setdefault("user_id", user_id)
+            if "qdrant" in targets:
+                # 快照时机关键：下面会把 rag_ingestions.user_id 置 NULL
+                cur.execute(
+                    "SELECT stored_name FROM rag_ingestions "
+                    "WHERE user_id = %s AND status <> 'deleted' AND stored_name <> ''",
+                    (user_id,),
+                )
+                outbox_payload.setdefault(
+                    "quarantine_files", [row["stored_name"] for row in cur.fetchall()])
+                cur.execute(
+                    "SELECT DISTINCT doc_id FROM rag_ingestions "
+                    "WHERE user_id = %s AND status <> 'deleted'",
+                    (user_id,),
+                )
+                outbox_payload.setdefault(
+                    "rag_doc_ids", [row["doc_id"] for row in cur.fetchall()])
             for target in targets:
                 cur.execute(
                     """
@@ -2448,8 +2571,24 @@ class RunStore:
                     VALUES (%s, %s, %s)
                     ON CONFLICT (request_id, target) DO NOTHING
                     """,
-                    (request_id, target, Jsonb(payload or {"user_id": user_id})),
+                    (request_id, target, Jsonb(outbox_payload)),
                 )
+            # #320：同事务断开本地关联（必须在 DELETE FROM users 之前）
+            cur.execute(
+                "UPDATE report_shares SET revoked_at = now() "
+                "WHERE created_by = %s AND revoked_at IS NULL",
+                (user_id,),
+            )
+            cur.execute("DELETE FROM user_consents WHERE user_id = %s", (user_id,))
+            cur.execute(
+                "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
+                "source = '(deleted)', user_id = NULL, updated_at = now() "
+                "WHERE user_id = %s AND status <> 'deleted'",
+                (user_id,),
+            )
+            cur.execute(
+                "UPDATE quota_reservations SET user_id = NULL WHERE user_id = %s", (user_id,))
+            cur.execute("UPDATE export_jobs SET user_id = NULL WHERE user_id = %s", (user_id,))
             cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
 
     def claim_deletion_outbox(self, claimed_by: str, lease_seconds: int,
@@ -2486,18 +2625,25 @@ class RunStore:
                 )
             return rows
 
-    def mark_deletion_done(self, outbox_id: int) -> None:
-        """outbox 成功：置 `done`；该请求全部 target `done` ⇒ 台账 `completed`。"""
+    def mark_deletion_done(self, outbox_id: int, *, claimed_by: str,
+                           attempts: int) -> bool:
+        """outbox 成功：置 `done`；该请求全部 target `done` ⇒ 台账 `completed`。
+
+        审计 #335（F05）：写入必须仍持有租约（`claimed_by + attempts` 条件更新）。
+        旧执行者失租后的迟到 `done` 返回 ``False`` 且不改任何状态——否则会把新执行者
+        正在进行的 `in_progress` 直接改成 `done`，掩盖未完成的清理。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE deletion_outbox SET status = 'done', lease_expires_at = NULL, "
                 "claimed_by = NULL, last_error = NULL, updated_at = now() "
-                "WHERE id = %s RETURNING request_id",
-                (outbox_id,),
+                "WHERE id = %s AND claimed_by = %s AND attempts = %s "
+                "RETURNING request_id",
+                (outbox_id, claimed_by, attempts),
             )
             row = cur.fetchone()
             if row is None:
-                return
+                return False
             cur.execute(
                 """
                 UPDATE account_deletions
@@ -2517,33 +2663,37 @@ class RunStore:
                 """,
                 (row["request_id"], row["request_id"], row["request_id"]),
             )
+            return True
 
-    def mark_deletion_retry(self, outbox_id: int, error: str, *,
-                            backoff_seconds: int, max_attempts: int) -> str:
+    def mark_deletion_retry(self, outbox_id: int, error: str, *, claimed_by: str,
+                            attempts: int, backoff_seconds: int,
+                            max_attempts: int) -> str:
         """outbox 失败：未耗尽 ⇒ `pending` + 退避；耗尽 ⇒ `abandoned` + 台账 `abandoned`。
 
         返回新状态（`pending` / `abandoned` / `missing`）。绝不静默丢弃。
+
+        审计 #335（F05）：失败写入同样带 `claimed_by + attempts` 围栏；``missing`` =
+        行不存在或租约已易主——旧执行者的迟到失败不得把新执行者的 `in_progress`
+        改回 `pending`/`abandoned`，也不得替新执行者累计放弃次数。
         """
+        exhausted = attempts >= max_attempts
+        new_status = "abandoned" if exhausted else "pending"
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT request_id, attempts FROM deletion_outbox WHERE id = %s",
-                (outbox_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return "missing"
-            exhausted = row["attempts"] >= max_attempts
-            new_status = "abandoned" if exhausted else "pending"
             cur.execute(
                 """
                 UPDATE deletion_outbox
                    SET status = %s, lease_expires_at = NULL, claimed_by = NULL,
                        next_attempt_at = now() + make_interval(secs => %s),
                        last_error = %s, updated_at = now()
-                 WHERE id = %s
+                 WHERE id = %s AND claimed_by = %s AND attempts = %s
+                RETURNING request_id
                 """,
-                (new_status, max(1, backoff_seconds), error[:500], outbox_id),
+                (new_status, max(1, backoff_seconds), error[:500], outbox_id,
+                 claimed_by, attempts),
             )
+            row = cur.fetchone()
+            if row is None:
+                return "missing"
             if exhausted:
                 cur.execute(
                     "UPDATE account_deletions SET status = 'abandoned', last_error = %s, "
@@ -2670,53 +2820,72 @@ class RunStore:
             )
             return cur.fetchone()
 
-    def mark_ingestion_ready(self, ingestion_id: str, chunks: int,
-                             scan_status: str = "skipped") -> None:
+    def mark_ingestion_ready(self, ingestion_id: str, chunks: int, *,
+                             claimed_by: str, attempts: int,
+                             scan_status: str = "skipped") -> bool:
+        """摄取成功：置 `ready`。返回 ``False`` = 行不存在或租约已易主。
+
+        审计 #335（F05）：终态写入带 `claimed_by + attempts` 条件；旧执行者失租后的
+        迟到 `ready` 不得覆盖新执行者正在处理的记录（否则重复计费且状态互踩）。
+        """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE rag_ingestions SET status = 'ready', chunks = %s, scan_status = %s, "
-                "lease_expires_at = NULL, claimed_by = NULL, last_error = NULL, "
-                "processed_at = now(), updated_at = now() WHERE ingestion_id = %s",
-                (chunks, scan_status, ingestion_id),
+                "UPDATE rag_ingestions SET status = 'ready', chunks = %s, "
+                "scan_status = %s, lease_expires_at = NULL, claimed_by = NULL, "
+                "last_error = NULL, processed_at = now(), updated_at = now() "
+                "WHERE ingestion_id = %s AND claimed_by = %s AND attempts = %s "
+                "RETURNING ingestion_id",
+                (chunks, scan_status, ingestion_id, claimed_by, attempts),
             )
+            return cur.fetchone() is not None
 
     def mark_ingestion_rejected(self, ingestion_id: str, error: str, *,
-                                scan_status: Optional[str] = None) -> None:
+                                claimed_by: str, attempts: int,
+                                scan_status: Optional[str] = None) -> bool:
+        """摄取终态拒绝（解析类错误）。返回 ``False`` = 行不存在或租约已易主。"""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE rag_ingestions SET status = 'rejected', last_error = %s, "
                 "scan_status = COALESCE(%s, scan_status), lease_expires_at = NULL, "
                 "claimed_by = NULL, processed_at = now(), updated_at = now() "
-                "WHERE ingestion_id = %s",
-                (error[:500], scan_status, ingestion_id),
+                "WHERE ingestion_id = %s AND claimed_by = %s AND attempts = %s "
+                "RETURNING ingestion_id",
+                (error[:500], scan_status, ingestion_id, claimed_by, attempts),
             )
+            return cur.fetchone() is not None
 
-    def mark_ingestion_retry(self, ingestion_id: str, error: str, *,
-                             backoff_seconds: int, max_attempts: int) -> str:
-        """供应商类失败：未耗尽 ⇒ pending + 退避；耗尽 ⇒ rejected。返回新状态。"""
+    def mark_ingestion_retry(self, ingestion_id: str, error: str, *, claimed_by: str,
+                             attempts: int, backoff_seconds: int,
+                             max_attempts: int) -> str:
+        """供应商类失败：未耗尽 ⇒ pending + 退避；耗尽 ⇒ rejected。返回新状态。
+
+        审计 #335（F05）：失败写入同样带 `claimed_by + attempts` 围栏；``missing`` =
+        行不存在或租约已易主——旧 attempt 不得把新执行者的 processing 改回
+        pending/rejected（重复 embedding 计费与状态互踩的同源缺口）。
+        """
+        exhausted = attempts >= max_attempts
+        new_status = "rejected" if exhausted else "pending"
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT attempts FROM rag_ingestions WHERE ingestion_id = %s",
-                        (ingestion_id,))
-            row = cur.fetchone()
-            if row is None:
-                return "missing"
-            exhausted = row["attempts"] >= max_attempts
             if exhausted:
                 cur.execute(
                     "UPDATE rag_ingestions SET status = 'rejected', last_error = %s, "
                     "lease_expires_at = NULL, claimed_by = NULL, processed_at = now(), "
-                    "updated_at = now() WHERE ingestion_id = %s",
-                    (error[:500], ingestion_id),
+                    "updated_at = now() "
+                    "WHERE ingestion_id = %s AND claimed_by = %s AND attempts = %s "
+                    "RETURNING ingestion_id",
+                    (error[:500], ingestion_id, claimed_by, attempts),
                 )
-                return "rejected"
-            cur.execute(
-                "UPDATE rag_ingestions SET status = 'pending', last_error = %s, "
-                "next_attempt_at = now() + make_interval(secs => %s), "
-                "lease_expires_at = NULL, claimed_by = NULL, updated_at = now() "
-                "WHERE ingestion_id = %s",
-                (error[:500], max(1, backoff_seconds), ingestion_id),
-            )
-            return "pending"
+            else:
+                cur.execute(
+                    "UPDATE rag_ingestions SET status = 'pending', last_error = %s, "
+                    "next_attempt_at = now() + make_interval(secs => %s), "
+                    "lease_expires_at = NULL, claimed_by = NULL, updated_at = now() "
+                    "WHERE ingestion_id = %s AND claimed_by = %s AND attempts = %s "
+                    "RETURNING ingestion_id",
+                    (error[:500], max(1, backoff_seconds), ingestion_id,
+                     claimed_by, attempts),
+                )
+            return new_status if cur.fetchone() is not None else "missing"
 
     def list_ingestions(self, *, user_id: Optional[str] = None, status: Optional[str] = None,
                         limit: int = 50) -> list[dict[str, Any]]:
@@ -2749,10 +2918,11 @@ class RunStore:
             return [row["stored_name"] for row in cur.fetchall()]
 
     def mark_ingestions_deleted_for_user(self, user_id: Optional[str]) -> int:
+        # #320：同时清 user_id —— 注销后台账保留但不得再与账号关联（纵深，兼容旧 outbox 行）
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 "UPDATE rag_ingestions SET status = 'deleted', stored_name = '', "
-                "source = '(deleted)', updated_at = now() "
+                "source = '(deleted)', user_id = NULL, updated_at = now() "
                 "WHERE user_id IS NOT DISTINCT FROM %s AND status <> 'deleted' RETURNING ingestion_id",
                 (user_id,),
             )
@@ -3072,11 +3242,17 @@ class RunStore:
         ("moderation_records", "created_at"),
         ("moderation_appeals", "created_at"),
         ("audit_logs", "at"),
+        ("snapshots", "created_at"),
     })
 
     def _check_purge_target(self, table: str, time_column: str) -> None:
         if (table, time_column) not in self.PURGE_TARGETS:
             raise ValueError(f"purge target not allowed: {table}.{time_column}")
+
+    def _check_where_extra(self, where_extra: str) -> None:
+        """`where_extra` 白名单校验（审计 #338）：只允许具名常量，拒绝自由拼接。"""
+        if where_extra not in PURGE_WHERE_EXTRA_ALLOWED:
+            raise ValueError(f"where_extra not allowed: {where_extra!r}")
 
     def count_table(self, table: str) -> int:
         if table not in {name for name, _ in self.PURGE_TARGETS}:
@@ -3088,6 +3264,7 @@ class RunStore:
     def count_before(self, table: str, time_column: str, before: datetime, *,
                      where_extra: str = "") -> int:
         self._check_purge_target(table, time_column)
+        self._check_where_extra(where_extra)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT count(*) AS n FROM {table} "  # noqa: S608 —— 标识符来自白名单
@@ -3100,9 +3277,11 @@ class RunStore:
                      where_extra: str = "", batch: int = 5000) -> int:
         """按时间批量硬删除（`ctid` + `LIMIT`，无需主键假设）；返回删除行数。
 
-        批量循环由调用方控制（避免长事务锁表）；标识符只来自 `PURGE_TARGETS` 白名单。
+        批量循环由调用方控制（避免长事务锁表）；标识符与附加过滤只来自白名单
+        （`PURGE_TARGETS` / `PURGE_WHERE_EXTRA_ALLOWED`）。
         """
         self._check_purge_target(table, time_column)
+        self._check_where_extra(where_extra)
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"DELETE FROM {table} WHERE ctid IN ("  # noqa: S608 —— 标识符来自白名单

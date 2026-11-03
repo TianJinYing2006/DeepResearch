@@ -109,3 +109,18 @@ def test_sse_gauge_balanced_after_stream(monkeypatch, client: TestClient):
         for _ in response.iter_lines():
             pass
     assert METRICS.snapshot()["sse_connections"] == 0
+
+
+def test_admin_cli_audit_actor_is_not_target_user(monkeypatch):
+    """#337：admin CLI 审计 actor 不得误记成被操作用户（应为 None + detail.target_user）。"""
+    from web.backend import admin
+
+    store = FakeStore()
+    store.create_user("targetu1", "target@example.com", "hash")
+    monkeypatch.setattr(admin, "_store", lambda: store)
+
+    assert admin.main(["reset-password", "--email", "target@example.com"]) == 0
+    row = store.list_audit(action="admin_reset_password")[0]
+    assert row["actor_user_id"] is None
+    assert row["detail"]["via"] == "cli"
+    assert row["detail"]["target_user"] == "targetu1"

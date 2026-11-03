@@ -52,10 +52,19 @@ def _store() -> RunStore:
     return RunStore(dsn)
 
 
-def _audit(store: RunStore, action: str, **detail) -> None:
-    """P1-5：管理动作审计（best-effort，不打断 CLI 主流程）。"""
+def _audit(store: RunStore, action: str, *, actor_user_id: str | None = None,
+           target_type: str | None = None, target_id: str | None = None,
+           detail: dict | None = None) -> None:
+    """P1-5：管理动作审计（best-effort，不打断 CLI 主流程）。
+
+    #337：`actor_user_id` 是**操作者**（CLI 无登录身份 ⇒ None），被操作用户只进
+    `detail.target_user`。旧实现把全部关键字塞进 JSON detail，actor / target 列永远为空，
+    且会把被操作用户误当操作者 —— 现在显式落 `audit_logs.actor_user_id` / `target_id`。
+    """
     try:
-        store.record_audit(action, detail={"via": "cli", **detail})
+        store.record_audit(action, actor_user_id=actor_user_id,
+                           target_type=target_type, target_id=target_id,
+                           detail={"via": "cli", **(detail or {})})
     except Exception:  # noqa: BLE001
         pass
 
@@ -206,8 +215,9 @@ def main(argv: list[str] | None = None) -> int:
             password = secrets.token_urlsafe(12)
         store.update_password(user["user_id"], hash_password(password))
         revoked = store.revoke_user_sessions(user["user_id"])
-        _audit(store, "admin_reset_password", actor_user_id=user["user_id"],
-               detail={"revoked_sessions": revoked})
+        # #337：CLI 操作者不是被操作用户 ⇒ actor 留空，被操作用户只进 detail.target_user
+        _audit(store, "admin_reset_password", actor_user_id=None,
+               detail={"target_user": user["user_id"], "revoked_sessions": revoked})
         print(f"已重置 {user['email']}；吊销 {revoked} 个会话")
         if args.password:
             print("密码已按指定值更新")
@@ -289,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         if not store.revoke_report_share_by_id(args.share_id):
             print(f"share not found or already revoked: {args.share_id}", file=sys.stderr)
             return 1
-        _audit(store, "admin_revoke_share", share_id=args.share_id)
+        _audit(store, "admin_revoke_share", target_id=args.share_id)
         print(f"revoked {args.share_id}")
         return 0
 
@@ -340,7 +350,9 @@ def main(argv: list[str] | None = None) -> int:
         store.create_password_reset(
             token_hash(token), user["user_id"],
             datetime.now(UTC) + timedelta(minutes=args.expires_minutes))
-        _audit(store, "admin_create_reset_token", actor_user_id=user["user_id"])
+        # #337：CLI 无登录身份 ⇒ actor 留空，被操作用户进 detail.target_user
+        _audit(store, "admin_create_reset_token", actor_user_id=None,
+               detail={"target_user": user["user_id"]})
         print(f"重置 token（仅本次打印，{args.expires_minutes} 分钟内有效）：{token}")
         print("用户调用 POST /api/auth/reset {token, new_password} 完成重置（将吊销全部会话）")
         return 0
@@ -432,8 +444,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         request_id = uuid.uuid4().hex[:12]
         store.request_account_deletion(request_id, user["user_id"])
-        _audit(store, "admin_delete_user", actor_user_id=user["user_id"],
-               target_id=request_id)
+        # #337：CLI 无登录身份 ⇒ actor 留空，被操作用户进 detail.target_user
+        _audit(store, "admin_delete_user", actor_user_id=None, target_id=request_id,
+               detail={"target_user": user["user_id"]})
         print(f"deleted {args.email}（deletion_request_id={request_id}；"
               f"任务与审核记录匿名保留；RAG 清理由 Worker 重试执行，`deletion-list` 查看）")
         return 0
@@ -446,7 +459,9 @@ def main(argv: list[str] | None = None) -> int:
         status = "banned" if args.command == "ban-user" else "active"
         ok = store.set_user_status(user["user_id"], status)
         if ok:
-            _audit(store, f"admin_{args.command}", actor_user_id=user["user_id"])
+            # #337：CLI 无登录身份 ⇒ actor 留空，被操作用户进 detail.target_user
+            _audit(store, f"admin_{args.command}", actor_user_id=None,
+                   detail={"target_user": user["user_id"]})
         print(f"{status} {user['user_id']}" if ok else "failed")
         return 0 if ok else 1
 

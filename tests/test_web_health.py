@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import socket
 
 from fastapi.testclient import TestClient
@@ -38,7 +39,8 @@ def test_readiness_without_configured_dependencies_is_ready(monkeypatch):
 
 
 def test_readiness_reports_unreachable_dependency(monkeypatch):
-    monkeypatch.setenv("DR_DATABASE_URL", f"postgresql://u:p@127.0.0.1:{_free_port()}/db")
+    port = _free_port()
+    monkeypatch.setenv("DR_DATABASE_URL", f"postgresql://u:p@127.0.0.1:{port}/db")
     monkeypatch.delenv("DR_REDIS_URL", raising=False)
     r = TestClient(api.app).get("/api/health/ready")
     assert r.status_code == 503
@@ -46,6 +48,9 @@ def test_readiness_reports_unreachable_dependency(monkeypatch):
     assert body["ok"] is False
     assert body["status"] == "not_ready"
     assert body["checks"]["postgres"]["status"] == "unreachable"
+    # #337：未认证调用只看可达性，不泄露内网 host:port
+    assert body["checks"]["postgres"]["target"] == "unreachable"
+    assert str(port) not in json.dumps(body)
 
 
 def test_readiness_reports_invalid_url(monkeypatch):
@@ -68,7 +73,31 @@ def test_readiness_marks_dependency_ok_when_port_open(monkeypatch):
     finally:
         server.close()
     assert r.status_code == 200
-    assert r.json()["checks"]["redis"] == {"status": "ok", "target": f"127.0.0.1:{port}"}
+    # #337：匿名探针只看到 configured，不回内网 host:port
+    assert r.json()["checks"]["redis"] == {"status": "ok", "target": "configured"}
+    assert str(port) not in json.dumps(r.json())
+
+
+def test_readiness_exposes_probe_target_only_to_ops_token(monkeypatch):
+    """#337：只有持合法 X-Ops-Token 的调用方能看到真实 host:port（运维排障用）。"""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(8)  # 本用例会连 3 次（匿名 / 错误 token / 正确 token）
+    port = server.getsockname()[1]
+    monkeypatch.setenv("DR_REDIS_URL", f"redis://127.0.0.1:{port}/0")
+    monkeypatch.delenv("DR_DATABASE_URL", raising=False)
+    monkeypatch.setattr(api, "OPS_TOKEN", "ops-secret")
+    try:
+        client = TestClient(api.app)
+        anonymous = client.get("/api/health/ready")
+        wrong = client.get("/api/health/ready", headers={"X-Ops-Token": "wrong"})
+        ops = client.get("/api/health/ready", headers={"X-Ops-Token": "ops-secret"})
+    finally:
+        server.close()
+    assert anonymous.json()["checks"]["redis"]["target"] == "configured"
+    assert wrong.json()["checks"]["redis"]["target"] == "configured"
+    assert ops.status_code == 200
+    assert ops.json()["checks"]["redis"]["target"] == f"127.0.0.1:{port}"
 
 
 def test_cors_origins_default_and_env_override(monkeypatch):

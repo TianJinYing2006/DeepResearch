@@ -165,7 +165,7 @@
 - [x] 备份脚本化（P8-A：`tools/backup.sh`，pg_dump + `pg_restore -l` 可读校验 + 保留 N 份）
 - [x] 恢复演练脚本化并**已跑通**（P8-A：`tools/restore.sh`；CI `infra` job 每次提 PR 真实执行「备份→清库→恢复」，
       并用种子数据 before/after 相等 + 恢复后结构断言双向验证）
-- [x] 云上 **staging** 定期备份调度与保留策略（P8-B：`tools/backup-cron.sh` 每日 03:30 加密 + rclone 同步 COS + `backup-verify` 新鲜度/md5 校验，2026-10-11 核实；**生产**随阶段 1）
+- [x] 云上 **staging** 定期备份调度与保留策略（P8-B：`tools/backup-cron.sh` 每日 03:30 加密 + rclone 同步 COS + `backup-verify` 新鲜度/md5 校验，2026-10-11 核实；**生产**随阶段 1）。明文边界（审计 #326）：备份产物 `umask 077` + trap 清理明文（失败/中断不留可读 dump）；源码快照排除 `.env*` 与备份公钥；COS 只接收加密 DB 备份与源码快照（明文 dump 永不上传）
 - [x] 演练记录按 §5 模板落档（**已回填 2026-10-11 云上恢复演练**；CI 日志为离线路径证据）
 
 ### 3.9 发布与回滚

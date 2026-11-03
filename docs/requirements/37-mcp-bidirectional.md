@@ -167,7 +167,7 @@
 - **背景**：当前 researcher 是确定性 fan-out，并无通用工具选择器；MCP 首版更适合作为显式配置的只读检索源，而非授予模型任意工具调用权。远程工具返回值属于不可信外部内容，会进入研究上下文，因此需要与网页/RAG 一样的归一化、长度限制和注入防御。
 - 配置应有版本化 schema：server 唯一名称、URL、允许工具名、固定参数映射、连接/调用超时、最大响应字节数、最大 finding 数、密钥引用名、私网例外及其理由。配置错误应在启动时 fail-fast；配置指纹进入 provenance，但不得写入 token、header 或 URL 凭据。
 - 对每个 server 建立独立客户端/连接池与并发信号量；调用超时、连接错误、协议错误分别归入现有五值。响应解析之后再执行文本清洗、截断、内容安全和 prompt-injection 防御；finding 保留 `server_id/tool_name/call_id/retrieval_time`，manifest 诚实标为 MCP retrieval，不伪装成网页快照或逐字引文。
-- `safe_fetch` 的 URL 校验语义可复用，但 MCP SDK 自己发起的连接必须确保同样的 DNS 解析/IP 拒绝策略、重定向逐跳重验、TLS 校验和连接目标绑定，防 DNS rebinding。默认只准 HTTPS；私网放行应是受审计的按 server 配置，不接受普通 URL 字符串自行覆盖。生产环境还应通过网络出口策略限制 worker 可达网段。
+- `safe_fetch` 的 URL 校验语义可复用，但 MCP SDK 自己发起的连接必须确保同样的 DNS 解析/IP 拒绝策略、重定向逐跳重验、TLS 校验和连接目标绑定，防 DNS rebinding。默认只准 HTTPS；私网放行应是受审计的按 server 配置，不接受普通 URL 字符串自行覆盖。生产环境还应通过网络出口策略限制 worker 可达网段。**代码层现状（2026-11 #331）**：`consumer._sdk_call_tool` 在**每次调用前**重做 URL 全地址解析校验（复用 `safe_fetch.is_public_ip` 单一实现，含 CGNAT 100.64/10 与 IPv4-mapped 处理），并给 SDK 传 `follow_redirects=False` / `trust_env=False` 的自定义 httpx 客户端（**重定向不跟随、不读代理环境变量**）；**DNS pin 未实现**——「调用期校验 → SDK 实际连接」之间仍有 rebinding 窗口，由部署出口网络策略兜底（不宣称代码层已完全关闭）。
 - 工具调用的账单事件至少记录 server/tool、耗时、结果字节/条目数和失败类别；不记录完整响应正文。工具计次与货币成本是不同维度，只有服务端能提供可信价格时才写金额，避免把 `per_call/0 元` 误读为免费成本。
 
 ### 12.3 对外 Server 身份与准入

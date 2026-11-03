@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthGate from '../features/auth/AuthGate'
 import LandingPage from '../features/landing/LandingPage'
 import HistoryPanel from '../features/history/HistoryPanel'
@@ -10,11 +10,24 @@ import { useAccountBarUi } from '../features/account/useAccountBarUi'
 import { SupportModals, useSupportModals } from '../features/support/SupportModals'
 import { LegalModal, useLegalDoc } from '../features/account/LegalModal'
 import { csrfHeaders, readErrorMessage } from '../lib/api'
+import { isSessionEpochEvent, notifySessionChanged } from '../lib/sessionBroadcast'
 import { useSideData } from '../hooks/useSideData'
 import { formatBytes, formatCny } from '../lib/format'
 import HelpModal from './HelpModal'
+import PasswordConfirmModal from './PasswordConfirmModal'
 import SecurityPanel from './SecurityPanel'
 import { SkeletonRows } from './ui'
+
+/** 写跨标签页会话变更标记；localStorage 不可用（隐私模式）时静默降级。 */
+function broadcastSessionChanged(): void {
+  let storage: Storage | null = null
+  try {
+    storage = localStorage
+  } catch {
+    storage = null
+  }
+  notifySessionChanged(storage)
+}
 
 type Props = {
   authRequired: boolean
@@ -24,6 +37,9 @@ type Props = {
   shareEnabled?: boolean
   /** 需求 20 P1-2：当前域名可用时展示 Passkey 登录 / 管理入口。 */
   passkeyEnabled?: boolean
+  /** 审计 #341b：会话变为未登录（含其他标签页登出）时通知 App 清理运行域状态。 */
+  /** 审计 #328：登出/注销成功后的回调 —— 由 App 清空**运行域**（报告/在途流/会话存储键）。 */
+  onSignedOut?: () => void
 }
 
 /**
@@ -34,6 +50,7 @@ type Props = {
  */
 export default function AccountPanel({
   authRequired, activeRunId, running, shareEnabled = false, passkeyEnabled = false,
+  onSignedOut,
 }: Props) {
   // 验收点③ 切片 S1（会话域 state）：会话探测与未登录访客分流已抽到
   // `features/account/useSessionEntry.ts`。解构沿用原名（含 setter 与 `loadSession`），
@@ -133,9 +150,41 @@ export default function AccountPanel({
     if (checked && !user) void refreshSideData()
   }, [checked, user, refreshSideData, activeRunId, running])
 
+  // 审计 #341b（F6）：跨标签页会话联动 —— 其它标签页登出/注销后写 localStorage 标记，
+  // 本页收到 storage 事件后重新探测会话；探测到「已登出」再清理本地状态。
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (!isSessionEpochEvent(event.key)) return
+      void loadSession()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [loadSession])
+
+  // 会话从「已登录」变为「未登录」时清理：本地主动登出已自行清理（locallySignedOutRef），
+  // 这里只处理跨标签页 / 服务端会话失效导致的被动登出。
+  const previousUserRef = useRef(user)
+  const locallySignedOutRef = useRef(false)
+  useEffect(() => {
+    const wasSignedIn = previousUserRef.current !== null
+    previousUserRef.current = user
+    if (!wasSignedIn || !checked || user !== null) return
+    if (locallySignedOutRef.current) {
+      locallySignedOutRef.current = false
+      return
+    }
+    resetLocalData()
+    onSignedOut?.()
+    setBarMessage('已在其他标签页退出登录')
+  }, [user, checked, resetLocalData, onSignedOut])
+
   async function logout() {
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      // 需求 42：登出补齐 CSRF 双提交头（后端已要求，缺头会 403）
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { ...csrfHeaders() },
+      })
       if (!response.ok) {
         setBarMessage('退出失败，请重试')
         return
@@ -144,17 +193,33 @@ export default function AccountPanel({
       setBarMessage('网络错误，请重试')
       return
     }
+    locallySignedOutRef.current = true
+    broadcastSessionChanged()
     setUser(null)
     resetLocalData()
+    // 审计 #328：运行域状态在 App（useResearchStream / topic / 三个 sessionStorage 键），
+    // 必须在**登出成功之后**由 App 统一清空，否则换账号会看到上一账号的报告与在途帧。
+    onSignedOut?.()
   }
 
   // 验收点③ 切片 S7：法律文本域已抽到 `features/account/LegalModal.tsx`。
   // 三个挂载点（落地页 / 登录门 / 账号条）仍保持互斥，理由见该文件顶部的拆分纪律。
   const legalDoc = useLegalDoc()
 
+  // 审计 #336：注销账号的密码确认弹窗状态。
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
   async function deleteAccount() {
-    const password = window.prompt('注销将删除账号与会话、并尽力清理知识库向量（历史任务匿名保留）。请输入密码确认：')
-    if (!password) return
+    setDeleteError('')
+    setDeleteOpen(true)
+  }
+
+  // 审计 #336：注销密码改走统一确认弹窗（原 `window.prompt` 明文输入）。
+  async function confirmDeleteAccount(password: string) {
+    setDeleteBusy(true)
+    setDeleteError('')
     try {
       const response = await fetch('/api/auth/account', {
         method: 'DELETE',
@@ -162,15 +227,21 @@ export default function AccountPanel({
         body: JSON.stringify({ password }),
       })
       if (!response.ok) {
-        setBarMessage(await readErrorMessage(response))
+        setDeleteError(await readErrorMessage(response))
         return
       }
       const body = (await response.json()) as { rag_cleanup: string }
+      locallySignedOutRef.current = true
+      broadcastSessionChanged()
+      setDeleteOpen(false)
       setUser(null)
       resetLocalData()
+      onSignedOut?.()
       setAuthNotice(`账号已注销（知识库清理：${body.rag_cleanup}）`)
     } catch {
-      setBarMessage('网络错误，请重试')
+      setDeleteError('网络错误，请重试')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -509,9 +580,30 @@ export default function AccountPanel({
 
       <ChunkPreviewModal preview={preview} />
 
+      {deleteOpen && (
+        <PasswordConfirmModal
+          title="注销账号"
+          description="注销将删除账号与会话，并尽力清理知识库向量（历史任务匿名保留）。请输入密码确认。"
+          confirmLabel="注销账号"
+          busy={deleteBusy}
+          error={deleteError}
+          onConfirm={(password) => void confirmDeleteAccount(password)}
+          onClose={() => {
+            if (!deleteBusy) setDeleteOpen(false)
+          }}
+        />
+      )}
+
       {securityOpen && user && (
         <SecurityPanel passkeyEnabled={passkeyEnabled}
-                       onSignedOut={() => { setUser(null); resetLocalData(); setAuthNotice('当前设备已退出登录') }} />
+                       onSignedOut={() => {
+                         locallySignedOutRef.current = true
+                         broadcastSessionChanged()
+                         setUser(null)
+                         resetLocalData()
+                         onSignedOut?.()
+                         setAuthNotice('当前设备已退出登录')
+                       }} />
       )}
 
       {legalModal}
