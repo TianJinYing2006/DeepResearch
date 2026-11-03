@@ -5,9 +5,7 @@
 -- - 一 run 一条活跃链接（创建时撤销旧的，兄弟互斥；「重新生成」= 撤销 + 新 token）；
 -- - expires_at NULL = 永不过期（显式选择；管理面标注 permanent）；
 -- - 撤销/过期不删行（审计与盘点需要；purge 保留 30 天后再清）；
--- - run 删除级联失效（ON DELETE CASCADE）；账号注销由 `store.request_account_deletion`
---   在**同一事务**内显式撤销 `created_by` 的全部活跃链接（`created_by` 无 FK、不随删用户
---   级联；#320 落实，此前仅是注释里的承诺）。
+-- - run 删除级联失效（ON DELETE CASCADE）；账号注销由 deletion 流程显式撤销 created_by 活跃链接。
 -- 约定：只前向、幂等可重跑（IF NOT EXISTS）；文件内不写 BEGIN/COMMIT（执行器 --single-transaction）。
 
 CREATE TABLE IF NOT EXISTS report_shares (

@@ -29,14 +29,14 @@
 | 测试代码 | 20,758 行 | `tests/**/*.py`，同上 | 同上 | 2026-10-26 |
 | 前端源码 | 8,429 行 | `web/frontend/src/**/*.{ts,tsx}`，同上 | 同上 | 2026-10-26 |
 | E2E 代码 | 1,898 行 | `web/frontend/e2e/**/*.ts`，同上 | 同上 | 2026-10-26 |
-| 测试文件 | 155 个 | `tests/*.py` | 目录计数 | 2026-11-03 |
+| 测试文件 | 156 个 | `tests/*.py` | 目录计数 | 2026-11-03 |
 
 ## 3. 测试与 CI
 
 | 指标 | 当前值 | 口径 / 定义 | 采集命令或来源 | 日期 |
 | --- | --- | --- | --- | --- |
-| pytest 收集/执行 | **1475** 项 | 全量 `tests/`；`pytest --collect-only -q`（收集统计） | `pytest tests/ --collect-only -q` | 2026-11-03 |
-| 零依赖 lane（本机） | **1475 收集 / 1387 通过 / 84 跳过 / 5 失败** | 2026-11-03 本机复验（临时目录可写）；5 个失败 = `.deps` 与 lock 漂移导致的 OTel 用例，**以 CI 三版本矩阵为准** | `py -3.13 -m pytest tests/ -q` | 2026-11-03 |
+| pytest 收集/执行 | **1477** 项 | 全量 `tests/`；`pytest --collect-only -q`（收集统计） | `pytest tests/ --collect-only -q` | 2026-11-03 |
+| 零依赖 lane（本机） | **1477 收集 / 1392 通过 / 81 跳过 / 5 失败** | 2026-11-03 本机复验（临时目录可写）；5 个失败 = `.deps` 与 lock 漂移导致的 OTel 用例，**以 CI 三版本矩阵为准** | `py -3.13 -m pytest tests/ -q` | 2026-11-03 |
 | 跳过项性质 | 真实 PG/Redis 集成用例 | 由 CI `infra` job 通过 `DR_TEST_DATABASE_URL` / `DR_TEST_REDIS_URL` 强制执行 | `tests/conftest.py` | 2026-10-26 |
 | CI job 数 | 4 个定义 / **6 项检查** | lint-and-test（3.11/3.12/3.13 矩阵）+ infra + frontend + e2e | `.github/workflows/ci.yml` | 2026-10-26 |
 | CI 守卫 | 6 个 | 评测产物白名单 / 前端边界 / 公开仓 IP / 文档漂移 / Tailwind token / UI 反模式 | `tools/check_*.py` | 2026-10-27 |
@@ -100,6 +100,7 @@
 
 | 日期 | 变更 | 说明 |
 | --- | --- | --- |
+| 2026-11-03 | #378 已应用迁移不可变守卫 + staging 部署事故修复 | 修复合并态真实事故：整改批次曾修改已应用迁移 `0021_report_shares.sql` 注释，导致 staging 部署在迁移步骤 fail-closed（#370 的 sha256 校验）；处置 = 恢复该文件原内容（与线上记录重新一致）+ 新增 `migrations/APPLIED_SHA256.txt` 与 `tests/test_migrations_immutable.py`（PR CI 强制）；pytest 收集 1475→**1477**、测试文件 155→**156**；README 同步 |
 | 2026-11-03 | 2026-11 审计整改批次收口（需求 42 / #344） | 31 个 PR（#345–#375）合并态预演通过：pytest 收集 1351→**1475**、测试文件 149→**155**、E2E 88/20→**89/21**、前端单测 53/6→**67/11**、迁移 27+23→**31+31**、需求文档 42→**45 篇**；本机零依赖 lane 恢复可复验（1387 passed / 84 skipped / 5 个 `.deps` 漂移 OTel 失败，以 CI 为准）；README 同步；32 个 PR 已全部 squash 合入 dev（2026-11-03） |
 | 2026-10-31 | #310 quick 档与重试 | quick 档模型 qwen-turbo→**qwen-flash**（`PROFILE_VERSION` v1→v2）；新增 `tests/test_llm_retry.py`（6 例，有界重试）；pytest 收集 1345→**1351**、测试文件 148→**149**；前端单测不变（53/6）；README 同步 |
 | 2026-10-31 | #308 归因与进度修复回填 | 新增 `tests/test_exception_attribution.py`（llm 归因 + 非工具层契约 + error 规格 + 图异常落点）与 `lib/progress.test.ts`（失败/取消/超时终局）；pytest 收集 1332→**1345**、测试文件 147→**148**、前端单测 47/5→**53/6**；README 同步 |

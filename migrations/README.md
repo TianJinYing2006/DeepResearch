@@ -12,8 +12,16 @@
 1. 命名 `NNNN_slug.sql`（如 `0001_runs_and_events.sql`），四位递增、字典序执行；
 2. **只前向**：不写回滚脚本；出错用新迁移修正（与「产物冻结/历史不回填」的项目纪律一致）；
 3. 每个文件由执行器包在单事务里，**文件内不要写 `BEGIN` / `COMMIT`**；
-4. 已应用版本记录在 `schema_migrations(version, applied_at)`；
-5. 迁移必须能在空库上一次跑通，也必须能对已有库重复执行时全部 `skip`。
+4. 已应用版本记录在 `schema_migrations(version, applied_at, sha256)`；执行器每次部署会校验
+   已应用文件的 sha256，不一致即**中止部署**（fail-closed，旧版本继续在线）；
+5. 迁移必须能在空库上一次跑通，也必须能对已有库重复执行时全部 `skip`；
+6. **已应用迁移文件不得修改**（哪怕只改注释）：线上 `migrate.sh` 会 hash 校验失败并中止部署，
+   而「全新库」的 CI `infra` job 测不出这类问题。新增迁移时同步登记 `migrations/APPLIED_SHA256.txt`，
+   `tests/test_migrations_immutable.py` 会在 PR CI 强制校验（审计 #378 的部署事故事后防线）。
+
+> 2026-11-03 事故记录（#378）：整改批次曾修改已应用的 `0021_report_shares.sql` 注释，导致
+> staging 部署在迁移步骤 fail-closed（「已应用迁移文件内容与记录不一致」）。处置 = 恢复该文件
+> 原内容（sha256 与线上记录重新一致）+ 新增本清单与守卫测试；schema 变更一律走新迁移。
 
 ## 执行
 
